@@ -1,0 +1,288 @@
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import Home from "./pages/Home";
+import Login from "./pages/Login";
+import Signup from "./pages/Signup";
+import CompleteProfile from "./pages/CompleteProfile";
+import VerifyEmail from "./pages/VerifyEmail";
+import RestaurantFoods from "./pages/RestaurantFoods";
+import ManagerDashboard from "./pages/manager/Dashboard";
+import AddAdmin from "./pages/manager/restaurants/AddAdmin";
+import AdminManagement from "./pages/manager/restaurants/AdminManagement";
+import RestaurantManagement from "./pages/manager/restaurants/RestaurantManagement";
+import PendingRestaurants from "./pages/manager/restaurants/PendingRestaurants";
+import AddDriver from "./pages/manager/drivers/AddDriver";
+import DriverManagement from "./pages/manager/drivers/DriverManagement";
+import DriverVerification from "./pages/manager/drivers/DriverVerification";
+import AdminDashboard from "./pages/admin/AdminDashboard";
+import AdminProfile from "./pages/admin/AdminProfile";
+import RestaurantDetail from "./pages/admin/RestaurantDetail";
+import Products from "./pages/admin/Products";
+import Categories from "./pages/admin/Categories";
+import Orders from "./pages/admin/Orders";
+import Settings from "./pages/admin/Settings";
+import AdminOnboardingStep1 from "./pages/admin/onboarding/Step1";
+import AdminOnboardingStep2 from "./pages/admin/onboarding/Step2";
+import AdminOnboardingStep3 from "./pages/admin/onboarding/Step3";
+import AdminOnboardingStep4 from "./pages/admin/onboarding/Step4";
+import AdminRestaurantPending from "./pages/admin/onboarding/Pending";
+import ProtectedRoute from "./components/ProtectedRoute";
+import AdminDashboardRoute from "./components/AdminDashboardRoute";
+import DriverDashboard from "./pages/driver/Dashboard";
+import DriverProfile from "./pages/driver/Profile";
+import DriverDashboardRoute from "./components/DriverDashboardRoute";
+import OnboardingStep1 from "./pages/driver/OnboardingStep1";
+import OnboardingStep2 from "./pages/driver/OnboardingStep2";
+import OnboardingStep3 from "./pages/driver/OnboardingStep3";
+import OnboardingStep4 from "./pages/driver/OnboardingStep4";
+import OnboardingStep5 from "./pages/driver/OnboardingStep5";
+import DriverPending from "./pages/driver/DriverPending";
+
+function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/signup" element={<Signup />} />
+        <Route path="/auth/complete-profile" element={<CompleteProfile />} />
+        <Route path="/auth/verify-email" element={<VerifyEmail />} />
+        <Route
+          path="/restaurant/:restaurantId/foods"
+          element={<RestaurantFoods />}
+        />
+
+        {/* Manager Routes - Protected */}
+        <Route
+          path="/manager/dashboard"
+          element={
+            <ProtectedRoute allowedRole="manager">
+              <ManagerDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/manager/restaurants/addadmin"
+          element={
+            <ProtectedRoute allowedRole="manager">
+              <AddAdmin />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/manager/restaurants/admins"
+          element={
+            <ProtectedRoute allowedRole="manager">
+              <AdminManagement />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/manager/restaurants/manage"
+          element={
+            <ProtectedRoute allowedRole="manager">
+              <RestaurantManagement />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/manager/restaurants/pending"
+          element={
+            <ProtectedRoute allowedRole="manager">
+              <PendingRestaurants />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/manager/drivers/add"
+          element={
+            <ProtectedRoute allowedRole="manager">
+              <AddDriver />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/manager/drivers/manage"
+          element={
+            <ProtectedRoute allowedRole="manager">
+              <DriverManagement />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/manager/drivers/verify"
+          element={
+            <ProtectedRoute allowedRole="manager">
+              <DriverVerification />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Admin Routes - Protected */}
+        <Route
+          path="/admin/dashboard"
+          element={
+            <AdminDashboardRoute>
+              <AdminDashboard />
+            </AdminDashboardRoute>
+          }
+        />
+        <Route
+          path="/admin/restaurant/onboarding/step-1"
+          element={
+            <ProtectedRoute allowedRole="admin">
+              <AdminOnboardingStep1 />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/restaurant/onboarding/step-2"
+          element={
+            <ProtectedRoute allowedRole="admin">
+              <AdminOnboardingStep2 />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/restaurant/onboarding/step-3"
+          element={
+            <ProtectedRoute allowedRole="admin">
+              <AdminOnboardingStep3 />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/restaurant/onboarding/step-4"
+          element={
+            <ProtectedRoute allowedRole="admin">
+              <AdminOnboardingStep4 />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/restaurant/pending"
+          element={
+            <ProtectedRoute allowedRole="admin">
+              <AdminRestaurantPending />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/profile"
+          element={
+            <ProtectedRoute allowedRole="admin">
+              <AdminProfile />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/restaurant"
+          element={
+            <AdminDashboardRoute>
+              <RestaurantDetail />
+            </AdminDashboardRoute>
+          }
+        />
+        <Route
+          path="/admin/products"
+          element={
+            <AdminDashboardRoute>
+              <Products />
+            </AdminDashboardRoute>
+          }
+        />
+        <Route
+          path="/admin/categories"
+          element={
+            <AdminDashboardRoute>
+              <Categories />
+            </AdminDashboardRoute>
+          }
+        />
+        <Route
+          path="/admin/orders"
+          element={
+            <AdminDashboardRoute>
+              <Orders />
+            </AdminDashboardRoute>
+          }
+        />
+        <Route
+          path="/admin/settings"
+          element={
+            <AdminDashboardRoute>
+              <Settings />
+            </AdminDashboardRoute>
+          }
+        />
+
+        {/* Driver Routes - Protected */}
+        <Route
+          path="/driver/dashboard"
+          element={
+            <DriverDashboardRoute>
+              <DriverDashboard />
+            </DriverDashboardRoute>
+          }
+        />
+        <Route
+          path="/driver/profile"
+          element={
+            <ProtectedRoute allowedRole="driver">
+              <DriverProfile />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/driver/onboarding/step-1"
+          element={
+            <ProtectedRoute allowedRole="driver">
+              <OnboardingStep1 />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/driver/onboarding/step-2"
+          element={
+            <ProtectedRoute allowedRole="driver">
+              <OnboardingStep2 />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/driver/onboarding/step-3"
+          element={
+            <ProtectedRoute allowedRole="driver">
+              <OnboardingStep3 />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/driver/onboarding/step-4"
+          element={
+            <ProtectedRoute allowedRole="driver">
+              <OnboardingStep4 />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/driver/onboarding/step-5"
+          element={
+            <ProtectedRoute allowedRole="driver">
+              <OnboardingStep5 />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/driver/pending"
+          element={
+            <ProtectedRoute allowedRole="driver">
+              <DriverPending />
+            </ProtectedRoute>
+          }
+        />
+      </Routes>
+    </BrowserRouter>
+  );
+}
+
+export default App;
