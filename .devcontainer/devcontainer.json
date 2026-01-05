@@ -1,0 +1,40 @@
+{
+  "name": "NearMe Development",
+  "dockerComposeFile": "../docker-compose.yml",
+  "service": "backend",
+  "workspaceFolder": "/app/backend",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "ms-vscode.vscode-typescript-next",
+        "GitHub.copilot",
+        "ritwickdey.LiveServer",
+        "ms-azuretools.vscode-docker"
+      ],
+      "settings": {
+        "eslint.validate": [
+          "javascript",
+          "javascriptreact"
+        ],
+        "[javascript]": {
+          "editor.defaultFormatter": "dbaeumer.vscode-eslint",
+          "editor.formatOnSave": true
+        }
+      }
+    }
+  },
+  "forwardPorts": [5000, 3000],
+  "portsAttributes": {
+    "5000": {
+      "label": "Backend API",
+      "onAutoForward": "notify"
+    },
+    "3000": {
+      "label": "Frontend",
+      "onAutoForward": "notify"
+    }
+  },
+  "postCreateCommand": "npm install",
+  "remoteUser": "root"
+}
