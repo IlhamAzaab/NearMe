@@ -32,21 +32,31 @@ export async function sendAdminInviteEmail({ to, tempPassword, loginUrl }) {
     <p>Please sign in and change your password immediately.</p>
   `;
 
-  // For development: if SMTP not configured, log credentials to console instead of sending
+  // Always log credentials for developer tracking
+  console.log("\n========== ADMIN INVITE EMAIL ==========");
+  console.log(`To: ${to}`);
+  console.log(`Temp password: "${tempPassword}"`);
+  console.log(`Password length: ${tempPassword.length}`);
+  console.log(`Login URL: ${loginUrl}`);
+  console.log("========================================\n");
+
+  // If SMTP not configured, stop after logging
   if (
     process.env.SMTP_HOST === undefined ||
     process.env.SMTP_HOST === "smtp.example.com"
   ) {
-    console.log("\n========== EMAIL INVITE (DEVELOPMENT MODE) ==========");
-    console.log(`To: ${to}`);
-    console.log(`Subject: ${subject}`);
-    console.log(`\n${text}`);
-    console.log("====================================================\n");
+    console.log("⚠️  SMTP not configured - email not sent (console only)\n");
     return;
   }
 
-  // Production: send actual email
-  await transporter.sendMail({ from, to, subject, text, html });
+  try {
+    await transporter.sendMail({ from, to, subject, text, html });
+    console.log(`✅ Admin invite email sent successfully to ${to}\n`);
+  } catch (error) {
+    console.error(`❌ Failed to send admin invite email to ${to}`);
+    console.error(`   Error: ${error.message}\n`);
+    throw error;
+  }
 }
 
 /**
@@ -121,25 +131,29 @@ export async function sendDriverInviteEmail({ to, tempPassword, loginUrl }) {
     <p>Please sign in and change your password immediately.</p>
   `;
 
-  // For development: if SMTP not configured, log credentials to console instead of sending
+  // Always log credentials for developer tracking
+  console.log("\n========== DRIVER INVITE EMAIL ==========");
+  console.log(`To: ${to}`);
+  console.log(`Temp password: "${tempPassword}"`);
+  console.log(`Password length: ${tempPassword.length}`);
+  console.log(`Login URL: ${loginUrl}`);
+  console.log("========================================\n");
+
+  // If SMTP not configured, stop after logging
   if (
     process.env.SMTP_HOST === undefined ||
     process.env.SMTP_HOST === "smtp.example.com"
   ) {
-    console.log("\n========== DRIVER INVITE (DEVELOPMENT MODE) ==========");
-    console.log(`To: ${to}`);
-    console.log(`Subject: ${subject}`);
-    console.log(`\n${text}`);
-    console.log("====================================================\n");
+    console.log("⚠️  SMTP not configured - email not sent (console only)\n");
     return;
   }
 
   try {
     await transporter.sendMail({ from, to, subject, text, html });
-    console.log(`✅ Driver invite email sent successfully to ${to}`);
+    console.log(`✅ Driver invite email sent successfully to ${to}\n`);
   } catch (error) {
     console.error(`❌ Failed to send driver invite email to ${to}`);
-    console.error("SMTP Error:", error.message);
+    console.error(`   Error: ${error.message}\n`);
     throw error;
   }
 }

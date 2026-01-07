@@ -112,4 +112,45 @@ router.get("/restaurants/:restaurantId/foods", async (req, res) => {
   }
 });
 
+/**
+ * GET /public/restaurants/:restaurantId/foods/:foodId
+ * Get single food details from a specific restaurant
+ */
+router.get("/restaurants/:restaurantId/foods/:foodId", async (req, res) => {
+  try {
+    const { restaurantId, foodId } = req.params;
+
+    // First verify restaurant exists and is active
+    const { data: restaurant, error: restaurantError } = await supabaseAdmin
+      .from("restaurants")
+      .select("id")
+      .eq("id", restaurantId)
+      .eq("restaurant_status", "active")
+      .single();
+
+    if (restaurantError || !restaurant) {
+      return res.status(404).json({ message: "Restaurant not found" });
+    }
+
+    // Get the food from the restaurant
+    const { data: food, error } = await supabaseAdmin
+      .from("foods")
+      .select("*")
+      .eq("id", foodId)
+      .eq("restaurant_id", restaurantId)
+      .eq("is_available", true)
+      .single();
+
+    if (error || !food) {
+      console.error("Fetch food error:", error);
+      return res.status(404).json({ message: "Food not found" });
+    }
+
+    return res.json({ food });
+  } catch (e) {
+    console.error("/public/restaurants/:restaurantId/foods/:foodId error:", e);
+    return res.status(500).json({ message: "Server error", error: e.message });
+  }
+});
+
 export default router;

@@ -1,3 +1,11 @@
+DELETE FROM admins
+WHERE id = 'cb704439-6a21-42c1-94fc-6e1d19000330';
+DELETE FROM users
+WHERE id = 'cb704439-6a21-42c1-94fc-6e1d19000330';
+DELETE FROM auth.users
+WHERE id = 'cb704439-6a21-42c1-94fc-6e1d19000330';
+Latitude: 8.502360, Longitude: 81.180453
+
 create table public.users (
   id uuid not null,
   role text null,

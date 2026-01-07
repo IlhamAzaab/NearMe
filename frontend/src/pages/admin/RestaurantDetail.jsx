@@ -1,5 +1,63 @@
 import React, { useEffect, useState } from "react";
+import {
+  MapContainer,
+  TileLayer,
+  Marker,
+  Popup,
+  useMapEvents,
+  useMap,
+} from "react-leaflet";
+import "leaflet/dist/leaflet.css";
+import L from "leaflet";
 import AdminLayout from "../../components/AdminLayout";
+
+// Component to handle map clicks for location selection
+function LocationMarker({ position, setPosition, isEditing }) {
+  useMapEvents({
+    click(e) {
+      if (isEditing) {
+        setPosition([e.latlng.lat, e.latlng.lng]);
+      }
+    },
+  });
+
+  return position ? (
+    <Marker position={position}>
+      <Popup>
+        <div className="text-center">
+          <p className="font-semibold">Restaurant Location</p>
+          <p className="text-xs text-gray-600">
+            {position[0].toFixed(6)}, {position[1].toFixed(6)}
+          </p>
+        </div>
+      </Popup>
+    </Marker>
+  ) : null;
+}
+
+// Component to recenter map when position changes
+function MapController({ center }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (center) {
+      map.setView(center, 15);
+    }
+  }, [center, map]);
+
+  return null;
+}
+
+// Fix Leaflet default marker icon issue
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl:
+    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png",
+  iconUrl:
+    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
+  shadowUrl:
+    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
+});
 
 export default function RestaurantDetail() {
   const [restaurant, setRestaurant] = useState(null);
@@ -16,7 +74,11 @@ export default function RestaurantDetail() {
     close_time: "",
     logo_url: "",
     cover_image_url: "",
+    latitude: null,
+    longitude: null,
   });
+  const [mapPosition, setMapPosition] = useState(null);
+  const [locating, setLocating] = useState(false);
 
   const token = localStorage.getItem("token");
 
@@ -56,7 +118,16 @@ export default function RestaurantDetail() {
         close_time: data.restaurant.close_time || "",
         logo_url: data.restaurant.logo_url || "",
         cover_image_url: data.restaurant.cover_image_url || "",
+        latitude: data.restaurant.latitude || null,
+        longitude: data.restaurant.longitude || null,
       });
+      // Set map position
+      if (data.restaurant.latitude && data.restaurant.longitude) {
+        setMapPosition([
+          Number(data.restaurant.latitude),
+          Number(data.restaurant.longitude),
+        ]);
+      }
       setLoading(false);
     } catch (err) {
       console.error("Error fetching restaurant:", err);
@@ -236,7 +307,16 @@ export default function RestaurantDetail() {
                     close_time: restaurant.close_time || "",
                     logo_url: restaurant.logo_url || "",
                     cover_image_url: restaurant.cover_image_url || "",
+                    latitude: restaurant.latitude || null,
+                    longitude: restaurant.longitude || null,
                   });
+                  // Reset map position
+                  if (restaurant.latitude && restaurant.longitude) {
+                    setMapPosition([
+                      Number(restaurant.latitude),
+                      Number(restaurant.longitude),
+                    ]);
+                  }
                 }}
                 className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition"
               >
@@ -441,6 +521,132 @@ export default function RestaurantDetail() {
                 />
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Restaurant Location Map */}
+        {restaurant && (
+          <div className="bg-white rounded-lg shadow p-6">
+            <h2 className="text-xl font-semibold text-gray-800 mb-4">
+              Restaurant Location
+              {editing && (
+                <span className="text-sm font-normal text-indigo-600 ml-2">
+                  (Click on map to change location)
+                </span>
+              )}
+            </h2>
+            <div className="mb-3">
+              <p className="text-sm text-gray-600">
+                <span className="font-medium">Address: </span>
+                {formData.address || "N/A"}
+                {formData.city && `, ${formData.city}`}
+              </p>
+              {mapPosition && (
+                <p className="text-xs text-gray-500 mt-1">
+                  Coordinates: {mapPosition[0].toFixed(6)},{" "}
+                  {mapPosition[1].toFixed(6)}
+                </p>
+              )}
+            </div>
+
+            {/* Use My Location Button - Only when editing */}
+            {editing && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (!navigator.geolocation) {
+                    setError("Geolocation is not supported by your browser");
+                    return;
+                  }
+                  setLocating(true);
+                  navigator.geolocation.getCurrentPosition(
+                    (pos) => {
+                      const { latitude, longitude } = pos.coords;
+                      setMapPosition([latitude, longitude]);
+                      setFormData((prev) => ({
+                        ...prev,
+                        latitude: latitude,
+                        longitude: longitude,
+                      }));
+                      setLocating(false);
+                    },
+                    (err) => {
+                      console.error("Geolocation error:", err);
+                      setError(
+                        "Unable to get your location. Please select manually on the map."
+                      );
+                      setLocating(false);
+                    },
+                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+                  );
+                }}
+                disabled={locating}
+                className="mb-3 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition"
+              >
+                {locating
+                  ? "Getting location..."
+                  : "📍 Use My Current Location"}
+              </button>
+            )}
+
+            <div
+              className={`rounded-lg overflow-hidden border ${
+                editing ? "border-indigo-400 border-2" : "border-gray-300"
+              }`}
+            >
+              <MapContainer
+                center={mapPosition || [7.8731, 80.7718]}
+                zoom={15}
+                style={{ height: "350px", width: "100%" }}
+                scrollWheelZoom={editing}
+              >
+                <TileLayer
+                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                />
+                <LocationMarker
+                  position={mapPosition}
+                  setPosition={(pos) => {
+                    setMapPosition(pos);
+                    setFormData((prev) => ({
+                      ...prev,
+                      latitude: pos[0],
+                      longitude: pos[1],
+                    }));
+                  }}
+                  isEditing={editing}
+                />
+                <MapController center={mapPosition} />
+              </MapContainer>
+            </div>
+
+            {/* Coordinate Display */}
+            {mapPosition && (
+              <div className="grid grid-cols-2 gap-4 mt-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">
+                    Latitude
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full border rounded-lg p-2 bg-gray-100 text-sm"
+                    value={mapPosition[0].toFixed(6)}
+                    readOnly
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">
+                    Longitude
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full border rounded-lg p-2 bg-gray-100 text-sm"
+                    value={mapPosition[1].toFixed(6)}
+                    readOnly
+                  />
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

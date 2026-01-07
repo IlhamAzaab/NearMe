@@ -54,7 +54,12 @@ router.post("/add-admin", authenticate, async (req, res) => {
     const loginUrl =
       process.env.MANAGER_LOGIN_URL || "http://localhost:5173/login";
 
-    console.log(`Creating admin for email: ${email}, username: ${username}`);
+    console.log("================ ADMIN CREATION ================");
+    console.log(`Email: ${email}`);
+    console.log(`Username: ${username}`);
+    console.log(`Temp password: ${tempPassword}`);
+    console.log(`Temp password length: ${tempPassword.length}`);
+    console.log("================================================");
 
     // 0) Check for orphaned records and clean them up
     const { data: existingAdmin } = await supabaseAdmin
@@ -149,7 +154,11 @@ router.post("/add-admin", authenticate, async (req, res) => {
 
     // 4) Send email (non-blocking)
     try {
+      console.log(
+        `Sending admin invite → email: ${email}, password: ${tempPassword}`
+      );
       await sendAdminInviteEmail({ to: email, tempPassword, loginUrl });
+      console.log(`Admin invite send complete for ${email}`);
     } catch (e) {
       console.error("Email send error (non-blocking):", e.message);
       // Log but don't fail; admin is already created and can reset password via forgot link
@@ -188,7 +197,12 @@ router.post("/add-driver", authenticate, async (req, res) => {
     const loginUrl =
       process.env.MANAGER_LOGIN_URL || "http://localhost:5173/login";
 
-    console.log(`Creating driver for email: ${email}, username: ${username}`);
+    console.log("================ DRIVER CREATION ================");
+    console.log(`Email: ${email}`);
+    console.log(`Username: ${username}`);
+    console.log(`Temp password: ${tempPassword}`);
+    console.log(`Temp password length: ${tempPassword.length}`);
+    console.log("================================================");
 
     // Clean up orphaned driver records
     const { data: existingDriver } = await supabaseAdmin
@@ -280,7 +294,11 @@ router.post("/add-driver", authenticate, async (req, res) => {
 
     // Send invite email
     try {
+      console.log(
+        `Sending driver invite → email: ${email}, password: ${tempPassword}`
+      );
       await sendDriverInviteEmail({ to: email, tempPassword, loginUrl });
+      console.log(`Driver invite send complete for ${email}`);
     } catch (e) {
       console.error("Driver email send error (non-blocking):", e.message);
     }

@@ -5,6 +5,9 @@ import Signup from "./pages/Signup";
 import CompleteProfile from "./pages/CompleteProfile";
 import VerifyEmail from "./pages/VerifyEmail";
 import RestaurantFoods from "./pages/RestaurantFoods";
+import FoodDetail from "./pages/FoodDetail";
+import Cart from "./pages/Cart";
+import Checkout from "./pages/Checkout";
 import ManagerDashboard from "./pages/manager/Dashboard";
 import AddAdmin from "./pages/manager/restaurants/AddAdmin";
 import AdminManagement from "./pages/manager/restaurants/AdminManagement";
@@ -41,14 +44,55 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Home />} />
+        <Route
+          path="/"
+          element={
+            <ProtectedRoute allowedRole="customer">
+              <Home />
+            </ProtectedRoute>
+          }
+        />
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
-        <Route path="/auth/complete-profile" element={<CompleteProfile />} />
+
         <Route path="/auth/verify-email" element={<VerifyEmail />} />
         <Route
           path="/restaurant/:restaurantId/foods"
-          element={<RestaurantFoods />}
+          element={
+            <ProtectedRoute allowedRole="customer">
+              <RestaurantFoods />
+            </ProtectedRoute>
+          }
+        />
+        <Route path="/auth/complete-profile" element={<CompleteProfile />} />
+        {/* Food Detail Route - Customer Only */}
+        <Route
+          path="/restaurant/:restaurantId/food/:foodId"
+          element={
+            <ProtectedRoute allowedRole="customer">
+              <FoodDetail />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Cart Route - Customer Only */}
+        <Route
+          path="/cart"
+          element={
+            <ProtectedRoute allowedRole="customer" requireAuth={true}>
+              <Cart />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Checkout Route - Customer Only */}
+        <Route
+          path="/checkout"
+          element={
+            <ProtectedRoute allowedRole="customer" requireAuth={true}>
+              <Checkout />
+            </ProtectedRoute>
+          }
         />
 
         {/* Manager Routes - Protected */}
@@ -116,7 +160,6 @@ function App() {
             </ProtectedRoute>
           }
         />
-
         {/* Admin Routes - Protected */}
         <Route
           path="/admin/dashboard"
@@ -214,7 +257,6 @@ function App() {
             </AdminDashboardRoute>
           }
         />
-
         {/* Driver Routes - Protected */}
         <Route
           path="/driver/dashboard"

@@ -1,6 +1,50 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import SiteHeader from "../components/SiteHeader";
+import {
+  MapContainer,
+  TileLayer,
+  Marker,
+  useMapEvents,
+  useMap,
+} from "react-leaflet";
+import "leaflet/dist/leaflet.css";
+import L from "leaflet";
+
+// Fix Leaflet default marker icon issue
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl:
+    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png",
+  iconUrl:
+    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
+  shadowUrl:
+    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
+});
+
+// Component to handle map clicks
+function LocationMarker({ position, setPosition }) {
+  useMapEvents({
+    click(e) {
+      setPosition([e.latlng.lat, e.latlng.lng]);
+    },
+  });
+
+  return position === null ? null : <Marker position={position}></Marker>;
+}
+
+// Component to handle map centering
+function MapController({ center }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (center) {
+      map.setView(center, 15);
+    }
+  }, [center, map]);
+
+  return null;
+}
 
 export default function CompleteProfile() {
   const navigate = useNavigate();
@@ -14,14 +58,21 @@ export default function CompleteProfile() {
     address: "",
     city: "",
   });
+  const [position, setPosition] = useState(null); // [lat, lng]
+  const [mapCenter, setMapCenter] = useState([7.8731, 80.7718]); // For centering map
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [phoneError, setPhoneError] = useState("");
   const [usernameError, setUsernameError] = useState("");
+  const [locating, setLocating] = useState(false);
 
   useEffect(() => {
     if (!userId) {
       navigate("/login");
+    }
+    // Set default position (Sri Lanka center)
+    if (!position) {
+      setPosition([7.8731, 80.7718]); // Sri Lanka center
     }
   }, [userId, navigate]);
 
@@ -39,6 +90,35 @@ export default function CompleteProfile() {
     // Sri Lankan phone number validation (10 digits starting with 0)
     const phoneRegex = /^0\d{9}$/;
     return phoneRegex.test(phone);
+  };
+
+  const handleUseMyLocation = () => {
+    if (!navigator.geolocation) {
+      setError("Geolocation is not supported by your browser");
+      return;
+    }
+
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords;
+        setPosition([latitude, longitude]);
+        setMapCenter([latitude, longitude]); // This will trigger MapController to center the map
+        setLocating(false);
+      },
+      (err) => {
+        console.error("Geolocation error:", err);
+        setError(
+          "Unable to get your location. Please select manually on the map."
+        );
+        setLocating(false);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0,
+      }
+    );
   };
 
   const checkPhoneAvailability = async (phone) => {
@@ -91,6 +171,13 @@ export default function CompleteProfile() {
       return;
     }
 
+    // Check if position is set
+    if (!position) {
+      setError("Please select your location on the map");
+      setLoading(false);
+      return;
+    }
+
     // Get email from Supabase user
     try {
       // We need to get the email from the userId
@@ -119,6 +206,8 @@ export default function CompleteProfile() {
             nic_number: formData.nic_number || null,
             address: formData.address || null,
             city: formData.city || null,
+            latitude: position[0].toString(),
+            longitude: position[1].toString(),
           }),
         }
       );
@@ -286,6 +375,75 @@ export default function CompleteProfile() {
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:border-transparent"
                   placeholder="123 Main Street, Apartment 4B"
                 />
+              </div>
+
+              {/* Map for Location Selection */}
+              <div className="md:col-span-2 space-y-3">
+                <label className="block text-sm font-medium text-gray-700">
+                  Delivery Location <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <MapContainer
+                    center={position || [7.8731, 80.7718]}
+                    zoom={13}
+                    style={{
+                      height: "400px",
+                      width: "100%",
+                      borderRadius: "8px",
+                    }}
+                  >
+                    <TileLayer
+                      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                    />
+                    <LocationMarker
+                      position={position}
+                      setPosition={setPosition}
+                    />
+                    <MapController center={mapCenter} />
+                  </MapContainer>
+                </div>
+
+                {position && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Latitude
+                      </label>
+                      <input
+                        type="text"
+                        className="w-full border rounded-lg p-2 bg-gray-100 text-sm"
+                        value={position[0].toFixed(6)}
+                        readOnly
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Longitude
+                      </label>
+                      <input
+                        type="text"
+                        className="w-full border rounded-lg p-2 bg-gray-100 text-sm"
+                        value={position[1].toFixed(6)}
+                        readOnly
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleUseMyLocation}
+                  disabled={locating}
+                  className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+                >
+                  {locating
+                    ? "Getting location..."
+                    : "📍 Use My Current Location"}
+                </button>
+                <p className="text-xs text-gray-500">
+                  Click on the map to pin location or use your current location
+                </p>
               </div>
 
               {/* Info Box */}

@@ -2,6 +2,11 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 
+// Load .env file only if NODE_ENV is not production and .env exists
+if (process.env.NODE_ENV !== "production") {
+  dotenv.config({ path: "../.env" });
+}
+
 // Import routes
 import authRoutes from "./routes/auth.js";
 import managerRoutes from "./routes/manager.js";
@@ -10,8 +15,7 @@ import driverRoutes from "./routes/driver.js";
 import onboardingRoutes from "./routes/onboarding.js";
 import restaurantOnboardingRoutes from "./routes/restaurantOnboarding.js";
 import publicRoutes from "./routes/public.js";
-
-dotenv.config();
+import cartRoutes from "./routes/cart.js";
 
 const app = express();
 
@@ -33,6 +37,7 @@ app.use("/driver", driverRoutes);
 app.use("/onboarding", onboardingRoutes);
 app.use("/restaurant-onboarding", restaurantOnboardingRoutes);
 app.use("/public", publicRoutes);
+app.use("/cart", cartRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

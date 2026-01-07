@@ -19,6 +19,10 @@ const RestaurantFoods = () => {
   const [foodsError, setFoodsError] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
 
+  // Cart state
+  const [addingToCart, setAddingToCart] = useState(null); // stores food id of item being added
+  const [cartMessage, setCartMessage] = useState(null);
+
   useEffect(() => {
     const token = localStorage.getItem("token");
     const storedRole = localStorage.getItem("role");
@@ -122,6 +126,100 @@ const RestaurantFoods = () => {
       .join(", ");
   };
 
+  // Handle Add to Cart button click - QUICK ADD (no modal)
+  const quickAddToCart = async (food) => {
+    if (!isLoggedIn) {
+      alert("Please login to add items to cart");
+      navigate("/login");
+      return;
+    }
+
+    if (role !== "customer") {
+      alert("Only customers can add items to cart");
+      return;
+    }
+
+    try {
+      setAddingToCart(food.id);
+
+      const token = localStorage.getItem("token");
+      const response = await fetch("http://localhost:5000/cart/add", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          restaurant_id: restaurantId,
+          food_id: food.id,
+          size: "regular", // Default size
+          quantity: 1, // Default quantity
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Failed to add to cart");
+      }
+
+      setCartMessage({ type: "success", text: "Item added to cart!" });
+
+      // Clear message after 3 seconds
+      setTimeout(() => setCartMessage(null), 3000);
+    } catch (error) {
+      console.error("Add to cart error:", error);
+      setCartMessage({ type: "error", text: error.message });
+    } finally {
+      setAddingToCart(null);
+    }
+  };
+
+  const buyNow = async (food) => {
+    if (!isLoggedIn) {
+      alert("Please login to continue");
+      navigate("/login");
+      return;
+    }
+
+    if (role !== "customer") {
+      alert("Only customers can place orders");
+      return;
+    }
+
+    try {
+      setAddingToCart(food.id);
+
+      const token = localStorage.getItem("token");
+      const response = await fetch("http://localhost:5000/cart/add", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          restaurant_id: restaurantId,
+          food_id: food.id,
+          size: "regular",
+          quantity: 1,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Failed to add to cart");
+      }
+
+      navigate("/cart");
+    } catch (error) {
+      console.error("Buy now error:", error);
+      setCartMessage({ type: "error", text: error.message });
+    } finally {
+      setAddingToCart(null);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -132,6 +230,21 @@ const RestaurantFoods = () => {
         userEmail={userEmail}
         onLogout={handleLogout}
       />
+
+      {/* Success/Error Message */}
+      {cartMessage && (
+        <div className="fixed top-20 right-4 z-50 animate-fade-in">
+          <div
+            className={`px-6 py-3 rounded-lg shadow-lg ${
+              cartMessage.type === "success"
+                ? "bg-green-500 text-white"
+                : "bg-red-500 text-white"
+            }`}
+          >
+            {cartMessage.text}
+          </div>
+        </div>
+      )}
 
       {restaurantLoading ? (
         <div className="flex justify-center items-center py-20">
@@ -471,23 +584,90 @@ const RestaurantFoods = () => {
                           )}
                         </div>
 
-                        {/* Add to Cart Button */}
-                        <button className="w-full mt-4 py-2 px-4 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2">
-                          <svg
-                            className="w-5 h-5"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
+                        {/* Buttons */}
+                        <div className="flex flex-col gap-2 mt-4">
+                          {/* View Details Button */}
+                          <button
+                            onClick={() =>
+                              navigate(
+                                `/restaurant/${restaurantId}/food/${food.id}`
+                              )
+                            }
+                            disabled={!food.is_available}
+                            className={`w-full py-2 px-4 font-semibold rounded-lg transition-colors border-2 ${
+                              food.is_available
+                                ? "border-indigo-600 text-indigo-600 hover:bg-indigo-50"
+                                : "border-gray-300 text-gray-500 cursor-not-allowed"
+                            }`}
                           >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"
-                            />
-                          </svg>
-                          Add to Cart
-                        </button>
+                            Details
+                          </button>
+
+                          {/* Quick Add to Cart Button */}
+                          <button
+                            onClick={() => quickAddToCart(food)}
+                            disabled={
+                              !food.is_available || addingToCart === food.id
+                            }
+                            className={`w-full py-2 px-4 font-semibold rounded-lg transition-colors flex items-center justify-center gap-1 ${
+                              food.is_available
+                                ? "bg-indigo-600 text-white hover:bg-indigo-700"
+                                : "bg-gray-300 text-gray-500 cursor-not-allowed"
+                            } ${addingToCart === food.id ? "opacity-75" : ""}`}
+                          >
+                            {addingToCart === food.id ? (
+                              <>
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                <span className="text-sm">Adding...</span>
+                              </>
+                            ) : (
+                              <>
+                                <svg
+                                  className="w-4 h-4"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  viewBox="0 0 24 24"
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"
+                                  />
+                                </svg>
+                                Add to Cart
+                              </>
+                            )}
+                          </button>
+
+                          {/* Buy Now Button */}
+                          <button
+                            onClick={() => buyNow(food)}
+                            disabled={
+                              !food.is_available || addingToCart === food.id
+                            }
+                            className={`w-full py-2 px-4 font-semibold rounded-lg transition-colors flex items-center justify-center gap-2 ${
+                              food.is_available
+                                ? "bg-amber-500 text-white hover:bg-amber-600"
+                                : "bg-gray-300 text-gray-500 cursor-not-allowed"
+                            } ${addingToCart === food.id ? "opacity-75" : ""}`}
+                          >
+                            <svg
+                              className="w-4 h-4"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M13 7H7m0 0V1m0 6l5.5-5.5M11 17h6m0 0v6m0-6l-5.5 5.5"
+                              />
+                            </svg>
+                            Buy Now
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}

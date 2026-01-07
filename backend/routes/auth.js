@@ -470,13 +470,29 @@ router.get("/user-email", async (req, res) => {
  */
 router.post("/complete-profile", async (req, res) => {
   try {
-    const { userId, username, email, phone, nic_number, address, city } =
-      req.body;
+    const {
+      userId,
+      username,
+      email,
+      phone,
+      nic_number,
+      address,
+      city,
+      latitude,
+      longitude,
+    } = req.body;
 
     // Validate required fields
     if (!userId || !username || !email || !phone) {
       return res.status(400).json({
         message: "Username, email, and phone are required",
+      });
+    }
+
+    // Validate location
+    if (!latitude || !longitude) {
+      return res.status(400).json({
+        message: "Location is required",
       });
     }
 
@@ -549,6 +565,8 @@ router.post("/complete-profile", async (req, res) => {
         nic_number,
         address,
         city,
+        latitude: parseFloat(latitude),
+        longitude: parseFloat(longitude),
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       });
@@ -570,6 +588,8 @@ router.post("/complete-profile", async (req, res) => {
         username,
         email,
         phone,
+        latitude: parseFloat(latitude),
+        longitude: parseFloat(longitude),
       },
     });
   } catch (error) {

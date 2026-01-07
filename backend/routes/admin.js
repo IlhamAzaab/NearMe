@@ -124,6 +124,10 @@ router.patch("/restaurant", authenticate, async (req, res) => {
       cleanData.logo_url = updateData.logo_url;
     if (updateData.cover_image_url !== undefined)
       cleanData.cover_image_url = updateData.cover_image_url;
+    if (updateData.latitude !== undefined)
+      cleanData.latitude = updateData.latitude;
+    if (updateData.longitude !== undefined)
+      cleanData.longitude = updateData.longitude;
 
     cleanData.updated_at = new Date().toISOString();
 

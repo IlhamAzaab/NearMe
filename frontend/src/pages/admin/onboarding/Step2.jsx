@@ -1,20 +1,65 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import {
+  MapContainer,
+  TileLayer,
+  Marker,
+  useMapEvents,
+  useMap,
+} from "react-leaflet";
+import "leaflet/dist/leaflet.css";
+import L from "leaflet";
+
+// Fix Leaflet default marker icon issue
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl:
+    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png",
+  iconUrl:
+    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
+  shadowUrl:
+    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
+});
+
+// Component to handle map clicks
+function LocationMarker({ position, setPosition }) {
+  useMapEvents({
+    click(e) {
+      setPosition([e.latlng.lat, e.latlng.lng]);
+    },
+  });
+
+  return position === null ? null : <Marker position={position}></Marker>;
+}
+
+// Component to handle map centering
+function MapController({ center }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (center) {
+      map.setView(center, 15);
+    }
+  }, [center, map]);
+
+  return null;
+}
 
 export default function AdminOnboardingStep2() {
   const navigate = useNavigate();
   const token = localStorage.getItem("token");
+
   const [form, setForm] = useState({
     restaurantName: "",
     registrationNumber: "",
     address: "",
     city: "",
     postalCode: "",
-    latitude: "",
-    longitude: "",
     openingTime: "",
     closeTime: "",
   });
+  const [position, setPosition] = useState(null); // [lat, lng]
+  const [mapCenter, setMapCenter] = useState([8.8731, 81.7718]); // For centering map
   const [files, setFiles] = useState({
     logo: null,
     coverImage: null,
@@ -22,9 +67,46 @@ export default function AdminOnboardingStep2() {
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState({});
   const [error, setError] = useState(null);
+  const [locating, setLocating] = useState(false);
+
+  // Set default position (Sri Lanka center)
+  useEffect(() => {
+    if (!position) {
+      setPosition([7.8731, 80.7718]); // Sri Lanka center
+    }
+  }, []);
 
   const updateField = (key, value) =>
     setForm((prev) => ({ ...prev, [key]: value }));
+
+  const handleUseMyLocation = () => {
+    if (!navigator.geolocation) {
+      setError("Geolocation is not supported by your browser");
+      return;
+    }
+
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords;
+        setPosition([latitude, longitude]);
+        setMapCenter([latitude, longitude]); // This will trigger MapController to center the map
+        setLocating(false);
+      },
+      (err) => {
+        console.error("Geolocation error:", err);
+        setError(
+          "Unable to get your location. Please select manually on the map."
+        );
+        setLocating(false);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0,
+      }
+    );
+  };
 
   const handleFileChange = (fieldKey, e) => {
     const file = e.target.files[0];
@@ -90,6 +172,12 @@ export default function AdminOnboardingStep2() {
       return;
     }
 
+    // Check if position is set
+    if (!position) {
+      setError("Please select restaurant location on the map");
+      return;
+    }
+
     // Check if cover image is selected
     if (!files.coverImage) {
       setError("Cover image is required");
@@ -130,7 +218,7 @@ export default function AdminOnboardingStep2() {
       );
       logoUrl = uploadedLogoUrl;
 
-      // Submit to backend with URLs
+      // Submit to backend with URLs and position coordinates
       const res = await fetch(
         "http://localhost:5000/restaurant-onboarding/step-2",
         {
@@ -141,6 +229,8 @@ export default function AdminOnboardingStep2() {
           },
           body: JSON.stringify({
             ...form,
+            latitude: position[0].toString(),
+            longitude: position[1].toString(),
             logoUrl,
             coverImageUrl,
           }),
@@ -204,18 +294,67 @@ export default function AdminOnboardingStep2() {
             value={form.postalCode}
             onChange={(e) => updateField("postalCode", e.target.value)}
           />
-          <input
-            className="border rounded-lg p-3"
-            placeholder="Latitude (optional)"
-            value={form.latitude}
-            onChange={(e) => updateField("latitude", e.target.value)}
-          />
-          <input
-            className="border rounded-lg p-3"
-            placeholder="Longitude (optional)"
-            value={form.longitude}
-            onChange={(e) => updateField("longitude", e.target.value)}
-          />
+
+          {/* Map for Location Selection */}
+          <div className="md:col-span-2 space-y-3">
+            <label className="block text-sm font-medium text-gray-700">
+              Restaurant Location
+            </label>
+            <div className="relative">
+              <MapContainer
+                center={position || [7.8731, 80.7718]}
+                zoom={13}
+                style={{ height: "400px", width: "100%", borderRadius: "8px" }}
+              >
+                <TileLayer
+                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                />
+                <LocationMarker position={position} setPosition={setPosition} />
+                <MapController center={mapCenter} />
+              </MapContainer>
+            </div>
+
+            {position && (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Latitude
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full border rounded-lg p-2 bg-gray-100 text-sm"
+                    value={position[0].toFixed(6)}
+                    readOnly
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Longitude
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full border rounded-lg p-2 bg-gray-100 text-sm"
+                    value={position[1].toFixed(6)}
+                    readOnly
+                  />
+                </div>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={handleUseMyLocation}
+              disabled={locating}
+              className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+            >
+              {locating ? "Getting location..." : "📍 Use My Current Location"}
+            </button>
+            <p className="text-xs text-gray-500">
+              Click on the map to pin location or use your current location
+            </p>
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Opening Time
