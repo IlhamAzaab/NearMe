@@ -12,10 +12,12 @@ import authRoutes from "./routes/auth.js";
 import managerRoutes from "./routes/manager.js";
 import adminRoutes from "./routes/admin.js";
 import driverRoutes from "./routes/driver.js";
+import driverDeliveryRoutes from "./routes/driverDelivery.js";
 import onboardingRoutes from "./routes/onboarding.js";
 import restaurantOnboardingRoutes from "./routes/restaurantOnboarding.js";
 import publicRoutes from "./routes/public.js";
 import cartRoutes from "./routes/cart.js";
+import ordersRoutes from "./routes/orders.js";
 
 const app = express();
 
@@ -34,10 +36,12 @@ app.use("/auth", authRoutes);
 app.use("/manager", managerRoutes);
 app.use("/admin", adminRoutes);
 app.use("/driver", driverRoutes);
+app.use("/driver", driverDeliveryRoutes); // Delivery-specific driver routes
 app.use("/onboarding", onboardingRoutes);
 app.use("/restaurant-onboarding", restaurantOnboardingRoutes);
 app.use("/public", publicRoutes);
 app.use("/cart", cartRoutes);
+app.use("/orders", ordersRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

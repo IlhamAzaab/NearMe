@@ -16,16 +16,16 @@ export default function AdminLayout({ children }) {
   }, []);
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gradient-to-br from-green-50 via-green-50 to-green-100">
       {/* Header for mobile */}
-      <header className="lg:hidden fixed top-0 left-0 right-0 bg-white border-b z-30 px-4 py-3 flex items-center justify-between">
+      <header className="lg:hidden fixed top-0 left-0 right-0 bg-white/95 backdrop-blur-sm border-b border-green-100 shadow-sm z-30 px-4 py-3 flex items-center justify-between">
         <button
           onClick={() => setMobileOpen(true)}
-          className="p-2 rounded-lg hover:bg-gray-100"
+          className="p-2 rounded-lg hover:bg-green-50 transition-colors"
           aria-label="Open menu"
         >
           <svg
-            className="w-6 h-6"
+            className="w-6 h-6 text-green-600"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -39,7 +39,7 @@ export default function AdminLayout({ children }) {
           </svg>
         </button>
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-gray-700">{userName}</span>
+          <span className="text-sm font-semibold text-gray-700">{userName}</span>
         </div>
       </header>
 

@@ -8,6 +8,8 @@ import RestaurantFoods from "./pages/RestaurantFoods";
 import FoodDetail from "./pages/FoodDetail";
 import Cart from "./pages/Cart";
 import Checkout from "./pages/Checkout";
+import CustomerOrders from "./pages/Orders";
+import TrackOrder from "./pages/TrackOrder";
 import ManagerDashboard from "./pages/manager/Dashboard";
 import AddAdmin from "./pages/manager/restaurants/AddAdmin";
 import AdminManagement from "./pages/manager/restaurants/AdminManagement";
@@ -39,6 +41,10 @@ import OnboardingStep3 from "./pages/driver/OnboardingStep3";
 import OnboardingStep4 from "./pages/driver/OnboardingStep4";
 import OnboardingStep5 from "./pages/driver/OnboardingStep5";
 import DriverPending from "./pages/driver/DriverPending";
+import AvailableDeliveries from "./pages/driver/AvailableDeliveries";
+import ActiveDelivery from "./pages/driver/ActiveDelivery";
+import DriverNotifications from "./pages/driver/Notifications";
+import DeliveryHistory from "./pages/driver/DeliveryHistory";
 
 function App() {
   return (
@@ -94,6 +100,23 @@ function App() {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/orders"
+          element={
+            <ProtectedRoute allowedRole="customer" requireAuth={true}>
+              <CustomerOrders />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/orders/:orderId"
+          element={
+            <ProtectedRoute allowedRole="customer" requireAuth={true}>
+              <TrackOrder />
+            </ProtectedRoute>
+          }
+        />
+        
 
         {/* Manager Routes - Protected */}
         <Route
@@ -319,6 +342,38 @@ function App() {
           element={
             <ProtectedRoute allowedRole="driver">
               <DriverPending />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/driver/deliveries"
+          element={
+            <ProtectedRoute allowedRole="driver">
+              <AvailableDeliveries />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/driver/delivery/active"
+          element={
+            <ProtectedRoute allowedRole="driver">
+              <ActiveDelivery />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/driver/notifications"
+          element={
+            <ProtectedRoute allowedRole="driver">
+              <DriverNotifications />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/driver/history"
+          element={
+            <ProtectedRoute allowedRole="driver">
+              <DeliveryHistory />
             </ProtectedRoute>
           }
         />

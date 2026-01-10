@@ -96,11 +96,11 @@ export default function Products() {
 
   return (
     <AdminLayout>
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
+      <div className="space-y-6 animate-fadeIn">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-gray-800">Products</h1>
-            <p className="text-gray-600 mt-1">
+            <h1 className="text-3xl sm:text-4xl font-bold bg-gradient-to-r from-green-600 via-green-500 to-green-600 bg-clip-text text-transparent">Products</h1>
+            <p className="text-gray-700 mt-2 font-medium">
               Manage your restaurant menu items and products.
             </p>
           </div>
@@ -109,7 +109,7 @@ export default function Products() {
               setEditingFood(null);
               setShowAddModal(true);
             }}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2 transition"
+            className="px-4 sm:px-5 py-2.5 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-xl hover:from-green-600 hover:to-green-700 flex items-center gap-2 transition-all duration-300 hover:scale-105 shadow-md hover:shadow-lg font-semibold whitespace-nowrap"
           >
             <svg
               className="w-5 h-5"
@@ -129,46 +129,48 @@ export default function Products() {
         </div>
 
         {/* Search */}
-        <div className="bg-white rounded-xl shadow p-4">
+        <div className="bg-white rounded-xl shadow-md border border-green-100 p-4 sm:p-5 hover:shadow-lg transition-shadow duration-300">
           <input
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search products by name..."
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
+            className="w-full px-4 py-2.5 border-2 border-green-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
           />
         </div>
 
         {error && (
-          <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg">
+          <div className="p-4 bg-red-50 border-2 border-red-200 text-red-700 rounded-xl font-medium shadow-sm">
             {error}
           </div>
         )}
 
         {/* Products List */}
-        <div className="bg-white rounded-xl shadow">
+        <div className="bg-white rounded-xl shadow-md border border-green-100 hover:shadow-xl transition-shadow duration-300">
           {loading ? (
-            <div className="text-center py-12">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-indigo-600 mx-auto"></div>
-              <p className="text-gray-600 mt-4">Loading products...</p>
+            <div className="text-center py-12 sm:py-16">
+              <div className="animate-spin rounded-full h-12 sm:h-14 w-12 sm:w-14 border-b-4 border-green-500 mx-auto"></div>
+              <p className="text-gray-700 mt-4 font-medium">Loading products...</p>
             </div>
           ) : filteredFoods.length === 0 ? (
-            <div className="text-center py-12 text-gray-500">
-              <svg
-                className="w-16 h-16 mx-auto text-gray-400 mb-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
-                />
-              </svg>
-              <p className="text-lg font-medium">No products found</p>
-              <p className="text-sm mt-1">
+            <div className="text-center py-12 sm:py-16 text-gray-500">
+              <div className="w-16 sm:w-20 h-16 sm:h-20 mx-auto mb-4 bg-gradient-to-br from-green-100 to-green-200 rounded-2xl flex items-center justify-center">
+                <svg
+                  className="w-8 sm:w-10 h-8 sm:h-10 text-green-500"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
+                  />
+                </svg>
+              </div>
+              <p className="text-lg font-semibold text-gray-700">No products found</p>
+              <p className="text-sm mt-2 text-gray-500">
                 {foods.length === 0
                   ? 'Click "Add Product" to create your first menu item.'
                   : "No products match your search."}
@@ -177,12 +179,12 @@ export default function Products() {
           ) : (
             <div>
               {/* Mobile cards */}
-              <div className="space-y-3 md:hidden p-4">
+              <div className="space-y-4 md:hidden p-4 sm:p-5">
                 {filteredFoods.map((food) => (
                   <div
                     key={food.id}
                     onClick={() => openEdit(food)}
-                    className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm cursor-pointer"
+                    className="rounded-xl border-2 border-green-100 bg-white p-4 sm:p-5 shadow-sm cursor-pointer hover:shadow-lg hover:border-green-200 transition-all duration-300 hover:scale-[1.02]"
                     role="button"
                     tabIndex={0}
                     onKeyDown={(e) => {

@@ -129,9 +129,9 @@ export default function AdminProfile() {
         onLogout={handleLogout}
       />
 
-      <main className="max-w-2xl mx-auto px-4 sm:px-6 py-8">
-        <div className="bg-white rounded-xl shadow p-6">
-          <h1 className="text-2xl font-bold text-gray-800 mb-2">
+      <main className="max-w-2xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+        <div className="bg-white rounded-xl shadow border border-green-100 p-4 sm:p-6">
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-800 mb-2">
             {forcePasswordChange ? "Change Your Password" : "Admin Profile"}
           </h1>
 
@@ -158,7 +158,7 @@ export default function AdminProfile() {
               <input
                 type="text"
                 name="username"
-                className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-600 text-sm sm:text-base"
                 placeholder="Choose a username"
                 value={formData.username}
                 onChange={handleChange}
@@ -173,7 +173,7 @@ export default function AdminProfile() {
               <input
                 type="password"
                 name="newPassword"
-                className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-600 text-sm sm:text-base"
                 placeholder="Enter new password (min 6 characters)"
                 value={formData.newPassword}
                 onChange={handleChange}
@@ -189,7 +189,7 @@ export default function AdminProfile() {
               <input
                 type="password"
                 name="confirmPassword"
-                className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-600 text-sm sm:text-base"
                 placeholder="Re-enter new password"
                 value={formData.confirmPassword}
                 onChange={handleChange}
@@ -225,7 +225,7 @@ export default function AdminProfile() {
             <button
               type="submit"
               disabled={loading || success}
-              className="w-full px-4 py-3 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-60 transition"
+              className="w-full px-4 py-3 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 disabled:opacity-60 transition text-sm sm:text-base"
             >
               {loading ? "Changing Password..." : "Change Password & Continue"}
             </button>

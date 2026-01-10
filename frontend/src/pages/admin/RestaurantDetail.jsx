@@ -254,8 +254,8 @@ export default function RestaurantDetail() {
       <AdminLayout>
         <div className="flex items-center justify-center h-64">
           <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-indigo-600 mx-auto"></div>
-            <p className="text-gray-600 mt-4">Loading restaurant details...</p>
+            <div className="animate-spin rounded-full h-10 sm:h-12 w-10 sm:w-12 border-b-4 border-green-600 mx-auto"></div>
+            <p className="text-gray-600 mt-4 text-sm sm:text-base">Loading restaurant details...</p>
           </div>
         </div>
       </AdminLayout>
@@ -276,20 +276,20 @@ export default function RestaurantDetail() {
 
   return (
     <AdminLayout>
-      <div className="max-w-4xl mx-auto space-y-6">
-        <div className="flex items-center justify-between">
+      <div className="max-w-4xl mx-auto space-y-4 sm:space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-gray-800">
+            <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-green-600 via-green-500 to-green-600 bg-clip-text text-transparent">
               Restaurant Details
             </h1>
-            <p className="text-gray-600 mt-1">
+            <p className="text-gray-600 mt-1 text-sm sm:text-base">
               Manage your restaurant information and settings.
             </p>
           </div>
           {!editing ? (
             <button
               onClick={() => setEditing(true)}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition"
+              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition whitespace-nowrap text-sm sm:text-base"
             >
               Edit Details
             </button>
@@ -344,7 +344,7 @@ export default function RestaurantDetail() {
         )}
 
         {restaurant && (
-          <div className="bg-white rounded-lg shadow p-6 space-y-6">
+          <div className="bg-white rounded-lg shadow border border-green-100 p-4 sm:p-6 space-y-4 sm:space-y-6">
             {/* Logo Section */}
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-2">
@@ -591,7 +591,7 @@ export default function RestaurantDetail() {
 
             <div
               className={`rounded-lg overflow-hidden border ${
-                editing ? "border-indigo-400 border-2" : "border-gray-300"
+                editing ? "border-green-400 border-2" : "border-gray-300"
               }`}
             >
               <MapContainer
