@@ -30,6 +30,12 @@ export default function DriverDashboard() {
   const fetchDashboard = useCallback(async () => {
     try {
       const token = localStorage.getItem("token");
+      if (!token) {
+        console.error("No token found");
+        setLoading(false);
+        navigate("/login");
+        return;
+      }
 
       // Fetch active delivery
       const activeRes = await fetch(
@@ -38,6 +44,14 @@ export default function DriverDashboard() {
           headers: { Authorization: `Bearer ${token}` },
         }
       );
+
+      if (activeRes.status === 401 || activeRes.status === 403) {
+        console.error("Authentication failed");
+        localStorage.clear();
+        navigate("/login");
+        return;
+      }
+
       const activeData = await activeRes.json();
 
       // Fetch available deliveries count
@@ -49,38 +63,20 @@ export default function DriverDashboard() {
       );
       const availableData = await availableRes.json();
 
-      // Fetch history for today's stats
-      const historyRes = await fetch(
-        "http://localhost:5000/driver/deliveries/history",
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
-      const historyData = await historyRes.json();
-
       // Calculate today's completed deliveries
-      const today = new Date().toDateString();
-      const todayDeliveries = (historyData.deliveries || []).filter(
-        (d) => new Date(d.delivered_at).toDateString() === today
-      );
-
-      const totalEarnings = todayDeliveries.reduce(
-        (sum, d) => sum + (parseFloat(d.total_amount) || 0),
-        0
-      );
-
-      setStats({
-        activeDelivery: activeData.delivery || null,
-        availableCount: (availableData.deliveries || []).length,
-        completedToday: todayDeliveries.length,
-        totalEarnings: totalEarnings,
-      });
     } catch (error) {
       console.error("Dashboard fetch error:", error);
+      // Set empty stats on error so UI still renders
+      setStats({
+        activeDelivery: null,
+        availableCount: 0,
+        completedToday: 0,
+        totalEarnings: 0,
+      });
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [navigate]);
 
   useEffect(() => {
     fetchDashboard();
@@ -105,12 +101,7 @@ export default function DriverDashboard() {
 
         {/* Content */}
         <div className="max-w-4xl mx-auto px-4 lg:px-8 py-6">
-          {loading ? (
-            <div className="text-center py-12">
-              <div className="animate-spin rounded-full h-10 w-10 border-b-4 border-blue-600 mx-auto"></div>
-              <p className="text-gray-600 mt-4">Loading...</p>
-            </div>
-          ) : (
+          {
             <>
               {/* Stats Grid */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
@@ -236,7 +227,7 @@ export default function DriverDashboard() {
                 </ul>
               </div>
             </>
-          )}
+          }
         </div>
       </div>
     </DriverLayout>

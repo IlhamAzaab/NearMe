@@ -98,7 +98,7 @@ export default function DriverSidebar({ mobileOpen, setMobileOpen }) {
         </NavLink>
 
         <NavLink
-          to="/driver/delivery/active"
+          to="/driver/deliveries/active"
           className={({ isActive }) =>
             `${baseItem} ${
               isActive

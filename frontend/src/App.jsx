@@ -42,9 +42,13 @@ import OnboardingStep4 from "./pages/driver/OnboardingStep4";
 import OnboardingStep5 from "./pages/driver/OnboardingStep5";
 import DriverPending from "./pages/driver/DriverPending";
 import AvailableDeliveries from "./pages/driver/AvailableDeliveries";
-import ActiveDelivery from "./pages/driver/ActiveDelivery";
+import ActiveDeliveries from "./pages/driver/ActiveDeliveries";
+import DriverMapPage from "./pages/driver/DriverMapPage";
+import DeliveryTracking from "./pages/DeliveryTracking";
 import DriverNotifications from "./pages/driver/Notifications";
 import DeliveryHistory from "./pages/driver/DeliveryHistory";
+import CustomerNotifications from "./pages/CustomerNotifications";
+import AdminNotifications from "./pages/admin/AdminNotifications";
 
 function App() {
   return (
@@ -90,6 +94,14 @@ function App() {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/customer/notifications"
+          element={
+            <ProtectedRoute allowedRole="customer" requireAuth={true}>
+              <CustomerNotifications />
+            </ProtectedRoute>
+          }
+        />
 
         {/* Checkout Route - Customer Only */}
         <Route
@@ -116,7 +128,6 @@ function App() {
             </ProtectedRoute>
           }
         />
-        
 
         {/* Manager Routes - Protected */}
         <Route
@@ -232,14 +243,7 @@ function App() {
             </ProtectedRoute>
           }
         />
-        <Route
-          path="/admin/profile"
-          element={
-            <ProtectedRoute allowedRole="admin">
-              <AdminProfile />
-            </ProtectedRoute>
-          }
-        />
+        <Route path="/admin/profile" element={<AdminProfile />} />
         <Route
           path="/admin/restaurant"
           element={
@@ -269,6 +273,14 @@ function App() {
           element={
             <AdminDashboardRoute>
               <Orders />
+            </AdminDashboardRoute>
+          }
+        />
+        <Route
+          path="/admin/notifications"
+          element={
+            <AdminDashboardRoute>
+              <AdminNotifications />
             </AdminDashboardRoute>
           }
         />
@@ -354,10 +366,27 @@ function App() {
           }
         />
         <Route
-          path="/driver/delivery/active"
+          path="/driver/deliveries/active"
           element={
             <ProtectedRoute allowedRole="driver">
-              <ActiveDelivery />
+              <ActiveDeliveries />
+            </ProtectedRoute>
+          }
+        />
+        
+        <Route
+          path="/driver/delivery/active/:deliveryId/map"
+          element={
+            <ProtectedRoute allowedRole="driver">
+              <DriverMapPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/driver/delivery/active/map"
+          element={
+            <ProtectedRoute allowedRole="driver">
+              <DeliveryTracking />
             </ProtectedRoute>
           }
         />

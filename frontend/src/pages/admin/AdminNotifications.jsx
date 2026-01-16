@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { createClient } from "@supabase/supabase-js";
-import DriverLayout from "../../components/DriverLayout";
+import AdminSidebar from "../../components/AdminSidebar";
 
 // Initialize Supabase
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -10,18 +10,15 @@ const supabase =
     ? createClient(supabaseUrl, supabaseAnonKey)
     : null;
 
-export default function DriverNotifications() {
+export default function AdminNotifications() {
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [driverId, setDriverId] = useState(null);
+  const [adminId, setAdminId] = useState(null);
 
-  // =============================================
-  // MARK ALL AS READ
-  // =============================================
   const markAllAsRead = useCallback(async () => {
     try {
       const token = localStorage.getItem("token");
-      await fetch("http://localhost:5000/driver/notifications/mark-all-read", {
+      await fetch("http://localhost:5000/admin/notifications/mark-all-read", {
         method: "PATCH",
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -30,14 +27,11 @@ export default function DriverNotifications() {
     }
   }, []);
 
-  // =============================================
-  // FETCH NOTIFICATIONS
-  // =============================================
   const fetchNotifications = useCallback(async () => {
     try {
       const token = localStorage.getItem("token");
       const res = await fetch(
-        "http://localhost:5000/driver/notifications?limit=50",
+        "http://localhost:5000/admin/notifications?limit=100",
         {
           headers: { Authorization: `Bearer ${token}` },
         }
@@ -57,47 +51,42 @@ export default function DriverNotifications() {
         }))
       );
     } catch (e) {
-      console.error("Fetch notifications error:", e);
+      console.error("Fetch error:", e);
       setNotifications([]);
     } finally {
       setLoading(false);
     }
   }, [markAllAsRead]);
 
-  // =============================================
-  // AUTH CHECK
-  // =============================================
   useEffect(() => {
     const role = localStorage.getItem("role");
     const userId = localStorage.getItem("userId");
 
-    if (role !== "driver") {
+    if (role !== "admin") {
       window.location.href = "/login";
       return;
     }
 
-    setDriverId(userId);
+    setAdminId(userId);
     fetchNotifications();
   }, [fetchNotifications]);
 
-  // =============================================
-  // REAL-TIME SUBSCRIPTION
-  // =============================================
+  // Real-time subscription for new notifications
   useEffect(() => {
-    if (!supabase || !driverId) return;
+    if (!supabase || !adminId) return;
 
     const channel = supabase
-      .channel("driver-notifications")
+      .channel("admin-notifications")
       .on(
         "postgres_changes",
         {
           event: "INSERT",
           schema: "public",
           table: "notifications",
-          filter: `recipient_id=eq.${driverId}`,
+          filter: `recipient_id=eq.${adminId}`,
         },
         (payload) => {
-          console.log("New driver notification:", payload);
+          console.log("New notification:", payload);
           setNotifications((prev) => [payload.new, ...prev]);
         }
       )
@@ -106,21 +95,20 @@ export default function DriverNotifications() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [driverId]);
+  }, [adminId]);
 
-  // =============================================
-  // HELPERS
-  // =============================================
   const getNotificationIcon = (type) => {
     switch (type) {
-      case "new_order":
-        return "🛵";
-      case "order_picked_up":
+      case "new_delivery":
         return "📦";
-      case "order_on_the_way":
-        return "🚗";
-      case "order_delivered":
-        return "🎉";
+      case "driver_assigned":
+        return "🛵";
+      case "delivery_status_update":
+        return "📍";
+      case "order_accepted":
+        return "✅";
+      case "order_rejected":
+        return "❌";
       default:
         return "📢";
     }
@@ -130,7 +118,8 @@ export default function DriverNotifications() {
     if (!timestamp) return "";
     const now = new Date();
     const then = new Date(timestamp);
-    const diffMins = Math.floor((now - then) / 60000);
+    const diffMs = now - then;
+    const diffMins = Math.floor(diffMs / 60000);
 
     if (diffMins < 1) return "Just now";
     if (diffMins < 60) return `${diffMins}m ago`;
@@ -141,7 +130,8 @@ export default function DriverNotifications() {
   };
 
   return (
-    <DriverLayout>
+    <div className="flex min-h-screen bg-gray-50">
+      <AdminSidebar />
       <div className="flex-1 p-4 lg:p-8">
         <div className="max-w-4xl mx-auto">
           <div className="mb-8">
@@ -153,7 +143,7 @@ export default function DriverNotifications() {
                 ? `You have ${notifications.length} notification${
                     notifications.length > 1 ? "s" : ""
                   }`
-                : "Stay updated on all deliveries"}
+                : "Stay updated on all activities"}
             </p>
           </div>
 
@@ -182,9 +172,12 @@ export default function DriverNotifications() {
                   metadata = {};
                 }
 
+                // Determine styling based on read status
                 const isUnread = !n.is_read;
                 const bgColor = isUnread ? "bg-blue-50" : "bg-white";
-                const borderColor = isUnread ? "border-blue-600" : "border-gray-300";
+                const borderColor = isUnread
+                  ? "border-blue-600"
+                  : "border-gray-300";
                 const iconBg = isUnread ? "bg-blue-200" : "bg-gray-100";
                 const shadowClass = isUnread ? "shadow-md" : "shadow";
 
@@ -198,7 +191,9 @@ export default function DriverNotifications() {
                       <div
                         className={`w-12 h-12 ${iconBg} rounded-full flex items-center justify-center flex-shrink-0`}
                       >
-                        <span className="text-xl">{getNotificationIcon(n.type)}</span>
+                        <span className="text-xl">
+                          {getNotificationIcon(n.type)}
+                        </span>
                       </div>
 
                       {/* Content */}
@@ -207,7 +202,9 @@ export default function DriverNotifications() {
                           <div>
                             <div className="flex items-center gap-2">
                               <p
-                                className={`font-bold ${isUnread ? "text-gray-900" : "text-gray-700"}`}
+                                className={`font-bold ${
+                                  isUnread ? "text-gray-900" : "text-gray-700"
+                                }`}
                               >
                                 {n.title}
                               </p>
@@ -215,7 +212,11 @@ export default function DriverNotifications() {
                                 <span className="w-2 h-2 bg-blue-600 rounded-full animate-pulse"></span>
                               )}
                             </div>
-                            <p className={`mt-1 ${isUnread ? "text-gray-800" : "text-gray-600"}`}>
+                            <p
+                              className={`mt-1 ${
+                                isUnread ? "text-gray-800" : "text-gray-600"
+                              }`}
+                            >
                               {n.message}
                             </p>
                           </div>
@@ -236,7 +237,9 @@ export default function DriverNotifications() {
                         )}
 
                         {/* Time */}
-                        <p className="text-xs text-gray-400 mt-2">{getTimeAgo(n.created_at)}</p>
+                        <p className="text-xs text-gray-400 mt-2">
+                          {getTimeAgo(n.created_at)}
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -246,6 +249,6 @@ export default function DriverNotifications() {
           )}
         </div>
       </div>
-    </DriverLayout>
+    </div>
   );
 }

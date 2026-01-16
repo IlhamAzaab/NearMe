@@ -16,11 +16,15 @@ export default function AdminDashboard() {
   const [recentOrders, setRecentOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [greeting, setGreeting] = useState("");
+  const [slideIn, setSlideIn] = useState(false);
   const navigate = useNavigate();
 
   const token = localStorage.getItem("token");
 
   useEffect(() => {
+    // Trigger slide-in animation
+    setTimeout(() => setSlideIn(true), 50);
+
     // Set greeting based on time
     const hour = new Date().getHours();
     if (hour < 12) setGreeting("Good Morning ☀️");
@@ -130,7 +134,7 @@ export default function AdminDashboard() {
 
   return (
     <AdminLayout>
-      <div className="min-h-screen bg-gradient-to-br from-green-50 via-green-50 to-green-100 animate-fadeIn">
+      <div className={`min-h-screen bg-gradient-to-br from-green-50 via-green-50 to-green-100 transition-all duration-500 ease-in-out ${slideIn ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0'}`}>
         <div className="space-y-6 sm:space-y-8 p-4 sm:p-6 md:p-8">
           {/* Header with greeting */}
           <div className="flex flex-col gap-4 sm:gap-4 animate-slideDown">

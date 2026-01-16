@@ -147,239 +147,83 @@ const driverOnly = (req, res, next) => {
 };
 
 // ============================================================================
-// GET /driver/deliveries/pending - Get all pending deliveries
-// Shows deliveries with delivery_status = 'pending'
+// GET /driver/deliveries/available - Get available deliveries for drivers
 // ============================================================================
 router.get(
-  "/deliveries/pending",
+  "/deliveries/available",
   authenticate,
   driverOnly,
   async (req, res) => {
     try {
-      // Check Supabase connection first
-      if (!process.env.SUPABASE_URL) {
-        console.error("❌ SUPABASE_URL not configured");
-        return res.status(500).json({
-          message: "Database configuration error",
-          error: "SUPABASE_URL not set",
-        });
-      }
-
-      const { data: deliveries, error } = await supabaseAdmin
+      const { data, error } = await supabaseAdmin
         .from("deliveries")
         .select(
           `
           id,
           order_id,
-          status,
           created_at,
+          driver_id,
           orders!inner (
-            id,
             order_number,
             status,
-            restaurant_id,
             restaurant_name,
             restaurant_address,
-            restaurant_phone,
-            restaurant_latitude,
-            restaurant_longitude,
             delivery_address,
             delivery_city,
-            delivery_latitude,
-            delivery_longitude,
-            delivery_fee,
-            service_fee,
-            subtotal,
             total_amount,
-            customer_id,
-            customer_name,
-            customer_phone,
-            payment_method,
             placed_at,
-            order_items (
-              id,
-              food_id,
-              food_name,
-              quantity,
-              size
-            )
+            distance_km,
+            estimated_duration_min,
+            restaurant_latitude,
+            restaurant_longitude,
+            delivery_latitude,
+            delivery_longitude
           )
         `
         )
-        .eq("status", "pending")
         .is("driver_id", null)
+        .in("orders.status", ["accepted", "preparing", "ready"])
         .order("created_at", { ascending: true });
 
       if (error) {
-        console.error("Fetch pending deliveries error:", {
-          message: error.message,
-          details: error.details || error.toString(),
-          hint: error.hint || "",
-          code: error.code || "",
-        });
-
-        // Check if it's a network error
-        if (
-          error.message?.includes("fetch failed") ||
-          error.message?.includes("ENOTFOUND")
-        ) {
-          return res.status(503).json({
-            message:
-              "Database connection error. Please check your internet connection.",
-            error: "Network connectivity issue with database",
-            retry: true,
-          });
-        }
-
-        return res.status(500).json({
-          message: "Failed to fetch deliveries",
-          error: error.message,
-        });
+        console.error("Fetch available deliveries error:", error);
+        return res.status(500).json({ message: "Failed to fetch deliveries" });
       }
 
-      // Get driver location from query params or from database
-      const { driver_latitude, driver_longitude } = req.query;
+      // Transform for frontend
+      const deliveries = (data || []).map((d) => ({
+        delivery_id: d.id,
+        order_id: d.order_id,
+        order_number: d.orders.order_number,
+        restaurant: {
+          name: d.orders.restaurant_name,
+          address: d.orders.restaurant_address,
+          latitude: d.orders.restaurant_latitude,
+          longitude: d.orders.restaurant_longitude,
+        },
+        delivery: {
+          address: d.orders.delivery_address,
+          city: d.orders.delivery_city,
+          latitude: d.orders.delivery_latitude,
+          longitude: d.orders.delivery_longitude,
+        },
+        total_amount: Number(d.orders.total_amount),
+        placed_at: d.orders.placed_at,
+        order_status: d.orders.status,
+        distance_km: d.orders.distance_km,
+        estimated_duration_min: d.orders.estimated_duration_min,
+      }));
 
-      let driverLat = driver_latitude ? parseFloat(driver_latitude) : null;
-      let driverLng = driver_longitude ? parseFloat(driver_longitude) : null;
-
-      // If not in query params, get from most recent active delivery
-      if (!driverLat || !driverLng) {
-        const { data: driverLocation } = await supabaseAdmin
-          .from("deliveries")
-          .select("current_latitude, current_longitude")
-          .eq("driver_id", req.user.id)
-          .not("status", "in", "(delivered,cancelled)")
-          .order("last_location_update", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        driverLat = driverLocation?.current_latitude || 8.5017; // Default to Kinniya
-        driverLng = driverLocation?.current_longitude || 81.186;
-      }
-
-      // Calculate distances and earnings for each delivery
-      const deliveriesWithDetails = await Promise.all(
-        (deliveries || []).map(async (d) => {
-          const restaurantLat = parseFloat(d.orders.restaurant_latitude);
-          const restaurantLng = parseFloat(d.orders.restaurant_longitude);
-          const customerLat = parseFloat(d.orders.delivery_latitude);
-          const customerLng = parseFloat(d.orders.delivery_longitude);
-
-          // Calculate driver to restaurant route (OSRM only)
-          const driverToRestaurantRoute = await getRouteDistance(
-            driverLng,
-            driverLat,
-            restaurantLng,
-            restaurantLat,
-            "full"
-          );
-
-          // Calculate restaurant to customer route (OSRM only)
-          const restaurantToCustomerRoute = await getRouteDistance(
-            restaurantLng,
-            restaurantLat,
-            customerLng,
-            customerLat,
-            "full"
-          );
-
-          const totalDistance =
-            (driverToRestaurantRoute.distance || 0) +
-            (restaurantToCustomerRoute.distance || 0);
-          const totalDuration =
-            (driverToRestaurantRoute.duration || 0) +
-            (restaurantToCustomerRoute.duration || 0);
-
-          // Calculate driver earnings (delivery fee + service fee)
-          const earnings =
-            parseFloat(d.orders.delivery_fee || 0) +
-            parseFloat(d.orders.service_fee || 0);
-
-          return {
-            delivery_id: d.id,
-            order_id: d.order_id,
-            order_number: d.orders.order_number,
-            order_status: d.orders.status,
-            delivery_status: d.status,
-            restaurant: {
-              id: d.orders.restaurant_id,
-              name: d.orders.restaurant_name,
-              address: d.orders.restaurant_address,
-              phone: d.orders.restaurant_phone,
-              latitude: restaurantLat,
-              longitude: restaurantLng,
-            },
-            delivery: {
-              address: d.orders.delivery_address,
-              city: d.orders.delivery_city,
-              latitude: customerLat,
-              longitude: customerLng,
-            },
-            customer: {
-              id: d.orders.customer_id,
-              name: d.orders.customer_name,
-              phone: d.orders.customer_phone,
-            },
-            order_items: d.orders.order_items || [],
-            pricing: {
-              subtotal: parseFloat(d.orders.subtotal || 0),
-              delivery_fee: parseFloat(d.orders.delivery_fee || 0),
-              service_fee: parseFloat(d.orders.service_fee || 0),
-              total: parseFloat(d.orders.total_amount || 0),
-              driver_earnings: earnings,
-            },
-            distance_km: (totalDistance / 1000).toFixed(2),
-            distance_meters: totalDistance,
-            estimated_time_minutes: Math.ceil(totalDuration / 60),
-            estimated_time_seconds: totalDuration,
-            driver_to_restaurant_route: driverToRestaurantRoute.geometry,
-            restaurant_to_customer_route: restaurantToCustomerRoute.geometry,
-            placed_at: d.orders.placed_at,
-            created_at: d.created_at,
-          };
-        })
-      );
-
-      return res.json({
-        deliveries: deliveriesWithDetails,
-        driver_location:
-          driverLat && driverLng
-            ? {
-                latitude: driverLat,
-                longitude: driverLng,
-              }
-            : null,
-      });
-    } catch (error) {
-      console.error("Get pending deliveries error:", error);
-
-      // Check if it's a network/connection error
-      if (
-        error.code === "ENOTFOUND" ||
-        error.code === "ETIMEDOUT" ||
-        error.message?.includes("fetch failed") ||
-        error.message?.includes("network")
-      ) {
-        return res.status(503).json({
-          message:
-            "Database connection failed. Please check your internet connection and try again.",
-          error: "Network connectivity issue",
-          retry: true,
-        });
-      }
-
-      return res.status(500).json({
-        message: "Server error",
-        error: error.message,
-      });
+      return res.json({ deliveries });
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ message: "Server error" });
     }
   }
 );
 
 // ============================================================================
 // POST /driver/deliveries/:id/accept - Accept a delivery (ATOMIC)
-// Changes delivery_status from 'pending' to 'accepted'
 // ============================================================================
 
 router.post(
@@ -388,7 +232,6 @@ router.post(
   driverOnly,
   async (req, res) => {
     const deliveryId = req.params.id;
-    const { driver_latitude, driver_longitude } = req.body;
 
     try {
       // Atomically assign the delivery to this driver if unassigned and still pending
@@ -399,9 +242,6 @@ router.post(
           status: "accepted",
           assigned_at: new Date().toISOString(),
           accepted_at: new Date().toISOString(),
-          current_latitude: driver_latitude || null,
-          current_longitude: driver_longitude || null,
-          last_location_update: new Date().toISOString(),
         })
         .eq("id", deliveryId)
         .is("driver_id", null)
@@ -489,303 +329,6 @@ router.post(
       });
     } catch (error) {
       console.error("Accept delivery error:", error);
-      return res.status(500).json({ message: "Server error" });
-    }
-  }
-);
-
-// ============================================================================
-// GET /driver/deliveries/pickups - Get optimized pickup list
-// For drivers who have accepted multiple orders
-// Returns restaurants sorted by shortest distance using OSRM
-// ============================================================================
-router.get(
-  "/deliveries/pickups",
-  authenticate,
-  driverOnly,
-  async (req, res) => {
-    try {
-      const { driver_latitude, driver_longitude } = req.query;
-
-      if (!driver_latitude || !driver_longitude) {
-        return res.status(400).json({
-          message: "Driver location (latitude and longitude) required",
-        });
-      }
-
-      const driverLat = parseFloat(driver_latitude);
-      const driverLng = parseFloat(driver_longitude);
-
-      // Fetch all accepted deliveries (not yet picked up)
-      const { data: deliveries, error } = await supabaseAdmin
-        .from("deliveries")
-        .select(
-          `
-          id,
-          order_id,
-          status,
-          accepted_at,
-          orders (
-            id,
-            order_number,
-            status,
-            restaurant_id,
-            restaurant_name,
-            restaurant_address,
-            restaurant_phone,
-            restaurant_latitude,
-            restaurant_longitude,
-            delivery_address,
-            delivery_city,
-            delivery_latitude,
-            delivery_longitude,
-            delivery_fee,
-            service_fee,
-            subtotal,
-            total_amount,
-            customer_id,
-            customer_name,
-            customer_phone,
-            order_items (
-              id,
-              food_id,
-              food_name,
-              quantity,
-              size
-            )
-          )
-        `
-        )
-        .eq("driver_id", req.user.id)
-        .eq("status", "accepted")
-        .order("accepted_at", { ascending: true });
-
-      if (error) {
-        console.error("Fetch pickups error:", error);
-        return res.status(500).json({ message: "Failed to fetch pickups" });
-      }
-
-      if (!deliveries || deliveries.length === 0) {
-        return res.json({ pickups: [], total_deliveries: 0 });
-      }
-
-      // Calculate distances from driver to each restaurant
-      const pickupsWithDistances = await Promise.all(
-        deliveries.map(async (d) => {
-          const restaurantLat = parseFloat(d.orders.restaurant_latitude);
-          const restaurantLng = parseFloat(d.orders.restaurant_longitude);
-          const customerLat = parseFloat(d.orders.delivery_latitude);
-          const customerLng = parseFloat(d.orders.delivery_longitude);
-
-          // Route from driver to restaurant
-          const route = await getRouteDistance(
-            driverLng,
-            driverLat,
-            restaurantLng,
-            restaurantLat,
-            "full"
-          );
-
-          // Route from restaurant to customer
-          let customerRoute = null;
-          if (customerLat && customerLng) {
-            customerRoute = await getRouteDistance(
-              restaurantLng,
-              restaurantLat,
-              customerLng,
-              customerLat,
-              "full"
-            );
-          }
-
-          return {
-            delivery_id: d.id,
-            order_id: d.order_id,
-            order_number: d.orders.order_number,
-            restaurant: {
-              id: d.orders.restaurant_id,
-              name: d.orders.restaurant_name,
-              address: d.orders.restaurant_address,
-              phone: d.orders.restaurant_phone,
-              latitude: restaurantLat,
-              longitude: restaurantLng,
-            },
-            customer: {
-              id: d.orders.customer_id,
-              name: d.orders.customer_name,
-              phone: d.orders.customer_phone,
-              address: d.orders.delivery_address,
-              city: d.orders.delivery_city,
-              latitude: customerLat,
-              longitude: customerLng,
-            },
-            order_items: d.orders.order_items || [],
-            distance_meters: route.distance || 0,
-            distance_km: ((route.distance || 0) / 1000).toFixed(2),
-            estimated_time_minutes: Math.ceil((route.duration || 0) / 60),
-            estimated_time_seconds: route.duration || 0,
-            route_geometry: route.geometry,
-            customer_route_geometry: customerRoute?.geometry,
-            accepted_at: d.accepted_at,
-          };
-        })
-      );
-
-      // Sort by shortest distance (1st pickup = minimum distance)
-      pickupsWithDistances.sort(
-        (a, b) => a.distance_meters - b.distance_meters
-      );
-
-      return res.json({
-        pickups: pickupsWithDistances,
-        total_deliveries: pickupsWithDistances.length,
-        driver_location: {
-          latitude: driverLat,
-          longitude: driverLng,
-        },
-      });
-    } catch (error) {
-      console.error("Get pickups error:", error);
-      return res.status(500).json({ message: "Server error" });
-    }
-  }
-);
-
-// ============================================================================
-// GET /driver/deliveries/deliveries-route - Get optimized delivery route
-// For deliveries that have been picked up
-// Returns customers sorted by shortest distance
-// ============================================================================
-router.get(
-  "/deliveries/deliveries-route",
-  authenticate,
-  driverOnly,
-  async (req, res) => {
-    try {
-      const { driver_latitude, driver_longitude } = req.query;
-
-      if (!driver_latitude || !driver_longitude) {
-        return res.status(400).json({
-          message: "Driver location (latitude and longitude) required",
-        });
-      }
-
-      const driverLat = parseFloat(driver_latitude);
-      const driverLng = parseFloat(driver_longitude);
-
-      // Fetch all picked up deliveries (ready for customer delivery)
-      const { data: deliveries, error } = await supabaseAdmin
-        .from("deliveries")
-        .select(
-          `
-          id,
-          order_id,
-          status,
-          picked_up_at,
-          orders (
-            id,
-            order_number,
-            status,
-            restaurant_name,
-            delivery_address,
-            delivery_city,
-            delivery_latitude,
-            delivery_longitude,
-            delivery_fee,
-            service_fee,
-            subtotal,
-            total_amount,
-            customer_id,
-            customer_name,
-            customer_phone,
-            payment_method,
-            order_items (
-              id,
-              food_id,
-              food_name,
-              quantity,
-              size
-            )
-          )
-        `
-        )
-        .eq("driver_id", req.user.id)
-        .in("status", ["picked_up", "heading_to_customer", "at_customer"])
-        .order("picked_up_at", { ascending: true });
-
-      if (error) {
-        console.error("Fetch delivery route error:", error);
-        return res
-          .status(500)
-          .json({ message: "Failed to fetch delivery route" });
-      }
-
-      if (!deliveries || deliveries.length === 0) {
-        return res.json({ deliveries: [], total_deliveries: 0 });
-      }
-
-      // Calculate distances from driver to each customer
-      const deliveriesWithDistances = await Promise.all(
-        deliveries.map(async (d) => {
-          const customerLat = parseFloat(d.orders.delivery_latitude);
-          const customerLng = parseFloat(d.orders.delivery_longitude);
-
-          const route = await getRouteDistance(
-            driverLng,
-            driverLat,
-            customerLng,
-            customerLat,
-            "full"
-          );
-
-          return {
-            delivery_id: d.id,
-            order_id: d.order_id,
-            order_number: d.orders.order_number,
-            status: d.status,
-            customer: {
-              id: d.orders.customer_id,
-              name: d.orders.customer_name,
-              phone: d.orders.customer_phone,
-              address: d.orders.delivery_address,
-              city: d.orders.delivery_city,
-              latitude: customerLat,
-              longitude: customerLng,
-            },
-            pricing: {
-              subtotal: parseFloat(d.orders.subtotal || 0),
-              delivery_fee: parseFloat(d.orders.delivery_fee || 0),
-              service_fee: parseFloat(d.orders.service_fee || 0),
-              total: parseFloat(d.orders.total_amount || 0),
-            },
-            payment_method: d.orders.payment_method,
-            restaurant_name: d.orders.restaurant_name,
-            items: d.orders.order_items || [],
-            distance_meters: route.distance || 0,
-            distance_km: ((route.distance || 0) / 1000).toFixed(2),
-            estimated_time_minutes: Math.ceil((route.duration || 0) / 60),
-            estimated_time_seconds: route.duration || 0,
-            route_geometry: route.geometry,
-            picked_up_at: d.picked_up_at,
-          };
-        })
-      );
-
-      // Sort by shortest distance (1st delivery = minimum distance)
-      deliveriesWithDistances.sort(
-        (a, b) => a.distance_meters - b.distance_meters
-      );
-
-      return res.json({
-        deliveries: deliveriesWithDistances,
-        total_deliveries: deliveriesWithDistances.length,
-        driver_location: {
-          latitude: driverLat,
-          longitude: driverLng,
-        },
-      });
-    } catch (error) {
-      console.error("Get delivery route error:", error);
       return res.status(500).json({ message: "Server error" });
     }
   }
@@ -1057,7 +600,7 @@ router.patch(
 
     const validStatuses = [
       "picked_up",
-      "heading_to_customer",
+      "on_the_way",
       "at_customer",
       "delivered",
     ];
@@ -1086,8 +629,8 @@ router.patch(
       // Validate state transitions
       const validTransitions = {
         accepted: ["picked_up"],
-        picked_up: ["heading_to_customer"],
-        heading_to_customer: ["at_customer"],
+        picked_up: ["on_the_way"],
+        on_the_way: ["at_customer"],
         at_customer: ["delivered"],
       };
 
@@ -1104,7 +647,7 @@ router.patch(
       const timestamp = new Date().toISOString();
       if (status === "picked_up") {
         updateData.picked_up_at = timestamp;
-      } else if (status === "heading_to_customer") {
+      } else if (status === "on_the_way") {
         updateData.on_the_way_at = timestamp;
       } else if (status === "at_customer") {
         updateData.arrived_customer_at = timestamp;
@@ -1145,7 +688,7 @@ router.patch(
           customer: "Your order has been picked up from the restaurant",
           restaurant: "Order has been picked up by driver",
         },
-        heading_to_customer: {
+        on_the_way: {
           customer: "Driver is on the way to your location",
           restaurant: "Driver is delivering the order to customer",
         },

@@ -1,4 +1,4 @@
-frontend/src/pages/driver/Notifications.jsx/**
+/**
  * Driver Delivery Tracking Page
  *
  * Features:

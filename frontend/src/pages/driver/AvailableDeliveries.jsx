@@ -1,243 +1,478 @@
-/**
- * Driver Available Deliveries Page
- *
- * Features:
- * - List of available deliveries waiting for driver
- * - Real-time notifications for new orders
- * - Atomic order acceptance (prevents race conditions)
- * - Shows pickup location, delivery distance, payment
- */
-
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { createClient } from "@supabase/supabase-js";
 import DriverLayout from "../../components/DriverLayout";
+import {
+  MapContainer,
+  TileLayer,
+  Marker,
+  Polyline,
+  Popup,
+} from "react-leaflet";
+import "leaflet/dist/leaflet.css";
+import L from "leaflet";
 
-// Initialize Supabase client
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase =
-  supabaseUrl && supabaseAnonKey
-    ? createClient(supabaseUrl, supabaseAnonKey)
-    : null;
+// Fix for default markers
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl:
+    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png",
+  iconUrl:
+    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
+  shadowUrl:
+    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
+});
+
+// Custom emoji icons
+const createEmojiIcon = (emoji, bgColor) =>
+  L.divIcon({
+    html: `<div style="background-color: ${bgColor}; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; border: 3px solid white; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">${emoji}</div>`,
+    className: "",
+    iconSize: [40, 40],
+    iconAnchor: [20, 20],
+    popupAnchor: [0, -20],
+  });
+
+const driverIcon = createEmojiIcon("📍", "#10b981"); // Green location pin
+const restaurantIcon = createEmojiIcon("🍽️", "#ef4444"); // Red restaurant
+const customerIcon = createEmojiIcon("👤", "#3b82f6"); // Blue person
+
+// Default driver location (Kinniya, Sri Lanka)
+const DEFAULT_DRIVER_LOCATION = {
+  latitude: 8.5017,
+  longitude: 81.186,
+};
 
 export default function AvailableDeliveries() {
   const navigate = useNavigate();
   const [deliveries, setDeliveries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [accepting, setAccepting] = useState(null);
-  const [driverId, setDriverId] = useState(null);
-  const [notifications, setNotifications] = useState([]);
-
-  // ============================================================================
-  // AUTH CHECK
-  // ============================================================================
+  const [driverLocation, setDriverLocation] = useState(DEFAULT_DRIVER_LOCATION);
 
   useEffect(() => {
     const role = localStorage.getItem("role");
-    const userId = localStorage.getItem("userId");
-
     if (role !== "driver") {
       navigate("/login");
       return;
     }
 
-    setDriverId(userId);
-  }, [navigate]);
-
-  // ============================================================================
-  // FETCH AVAILABLE DELIVERIES
-  // ============================================================================
-
-  const fetchDeliveries = useCallback(async () => {
-    try {
-      const token = localStorage.getItem("token");
-      const response = await fetch(
-        "http://localhost:5000/driver/deliveries/available",
-        {
-          headers: { Authorization: `Bearer ${token}` },
+    // Get driver's current location, fallback to default
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setDriverLocation({
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+          });
+        },
+        (error) => {
+          console.error(
+            "Error getting location, using default Kinniya location:",
+            error
+          );
+          setDriverLocation(DEFAULT_DRIVER_LOCATION);
         }
       );
-
-      const data = await response.json();
-      if (response.ok) {
-        setDeliveries(data.deliveries || []);
-      } else {
-        console.error("Failed to fetch deliveries:", data.message);
-      }
-    } catch (error) {
-      console.error("Fetch deliveries error:", error);
-    } finally {
-      setLoading(false);
+    } else {
+      setDriverLocation(DEFAULT_DRIVER_LOCATION);
     }
-  }, []);
 
-  useEffect(() => {
-    if (driverId) {
-      fetchDeliveries();
-      // Refresh every 30 seconds
-      const interval = setInterval(fetchDeliveries, 30000);
-      return () => clearInterval(interval);
-    }
-  }, [driverId, fetchDeliveries]);
+    fetchPendingDeliveries();
+  }, [navigate]);
 
-  // ============================================================================
-  // REAL-TIME NOTIFICATIONS FOR NEW ORDERS
-  // ============================================================================
-
-  useEffect(() => {
-    if (!supabase || !driverId) return;
-
-    const channel = supabase
-      .channel("driver-notifications")
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "notifications",
-          filter: `recipient_id=eq.${driverId}`,
-        },
-        (payload) => {
-          console.log("New notification:", payload);
-          if (payload.new.type === "new_order") {
-            // Show notification toast
-            showNotification(payload.new);
-            // Play sound
-            playNotificationSound();
-            // Refresh deliveries list
-            fetchDeliveries();
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [driverId, fetchDeliveries]);
-
-  const showNotification = (notification) => {
-    const toast = {
-      id: Date.now(),
-      title: notification.title,
-      message: notification.message,
-      metadata: notification.metadata,
-    };
-
-    setNotifications((prev) => [toast, ...prev]);
-
-    // Auto-remove after 10 seconds
-    setTimeout(() => {
-      setNotifications((prev) => prev.filter((n) => n.id !== toast.id));
-    }, 10000);
-  };
-
-  const playNotificationSound = () => {
+  const fetchPendingDeliveries = async () => {
     try {
-      const audioContext = new (window.AudioContext ||
-        window.webkitAudioContext)();
-      const oscillator = audioContext.createOscillator();
-      const gainNode = audioContext.createGain();
+      const token = localStorage.getItem("token");
 
-      oscillator.connect(gainNode);
-      gainNode.connect(audioContext.destination);
+      // Send driver location with request
+      const currentLoc = driverLocation || DEFAULT_DRIVER_LOCATION;
+      const url = `http://localhost:5000/driver/deliveries/pending?driver_latitude=${currentLoc.latitude}&driver_longitude=${currentLoc.longitude}`;
 
-      oscillator.frequency.value = 880;
-      oscillator.type = "sine";
-      gainNode.gain.value = 0.3;
-
-      oscillator.start();
-      oscillator.stop(audioContext.currentTime + 0.15);
-
-      setTimeout(() => {
-        const osc2 = audioContext.createOscillator();
-        const gain2 = audioContext.createGain();
-        osc2.connect(gain2);
-        gain2.connect(audioContext.destination);
-        osc2.frequency.value = 1100;
-        osc2.type = "sine";
-        gain2.gain.value = 0.3;
-        osc2.start();
-        osc2.stop(audioContext.currentTime + 0.15);
-      }, 200);
-    } catch (error) {
-      console.log("Sound error:", error);
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        
+        // If it's a network error that can be retried
+        if (res.status === 503 && errorData.retry) {
+          console.error("Database connection issue, will retry...");
+          // Could add retry logic here
+        }
+        
+        throw new Error(errorData.message || `HTTP ${res.status}`);
+      }
+      
+      const data = await res.json();
+      setDeliveries(data.deliveries || []);
+      
+      // If driver location from backend is available, use it
+      if (data.driver_location) {
+        setDriverLocation(data.driver_location);
+      }
+    } catch (e) {
+      console.error("Failed to fetch deliveries:", e);
+      setDeliveries([]);
+      
+      // Show user-friendly error message
+      if (e.message.includes("Failed to fetch") || e.message.includes("NetworkError")) {
+        alert("Cannot connect to server. Please check your internet connection and try again.");
+      }
     }
   };
 
-  // ============================================================================
-  // ACCEPT DELIVERY
-  // ============================================================================
-
-  const acceptDelivery = async (deliveryId) => {
+  const handleAccept = async (deliveryId) => {
     setAccepting(deliveryId);
     try {
       const token = localStorage.getItem("token");
-      const response = await fetch(
+      const body = {};
+      
+      // Send driver location if available
+      if (driverLocation) {
+        body.driver_latitude = driverLocation.latitude;
+        body.driver_longitude = driverLocation.longitude;
+      }
+
+      const res = await fetch(
         `http://localhost:5000/driver/deliveries/${deliveryId}/accept`,
         {
           method: "POST",
-          headers: { Authorization: `Bearer ${token}` },
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
         }
       );
 
-      const data = await response.json();
-      if (response.ok) {
-        // Navigate to tracking page
-        navigate("/driver/delivery/active");
+      const data = await res.json();
+
+      if (res.ok) {
+        // Remove from list and show success message
+        setDeliveries((prev) =>
+          prev.filter((d) => d.delivery_id !== deliveryId)
+        );
+        alert("Delivery accepted! Check Active Deliveries.");
       } else {
-        // Show error (likely "already taken")
         alert(data.message || "Failed to accept delivery");
-        // Refresh list
-        fetchDeliveries();
       }
-    } catch (error) {
-      console.error("Accept delivery error:", error);
+    } catch (e) {
+      console.error("Accept error:", e);
       alert("Failed to accept delivery");
     } finally {
       setAccepting(null);
     }
   };
 
-  // ============================================================================
-  // HELPERS
-  // ============================================================================
-
-  const getTimeAgo = (timestamp) => {
-    if (!timestamp) return "";
-    const now = new Date();
-    const then = new Date(timestamp);
-    const diffMs = now - then;
-    const diffMins = Math.floor(diffMs / 60000);
-
-    if (diffMins < 1) return "Just now";
-    if (diffMins < 60) return `${diffMins} min ago`;
-    const diffHours = Math.floor(diffMins / 60);
-    if (diffHours < 24) return `${diffHours}h ago`;
-    return then.toLocaleDateString();
-  };
-
-  // ============================================================================
-  // RENDER
-  // ============================================================================
-
   return (
     <DriverLayout>
-      <div className="min-h-screen bg-gray-100">
-        {/* Header */}
-        <header className="bg-blue-600 text-white p-4 sticky top-0 z-40">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-xl font-bold">Available Deliveries</h1>
-              <p className="text-blue-100 text-sm">
-                {deliveries.length} orders waiting
+      <div className="min-h-screen bg-gray-50 py-6 px-4">
+        <div className="max-w-6xl mx-auto">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-2xl font-bold text-gray-800">
+              Available Deliveries
+            </h2>
+            <button
+              onClick={() => navigate("/driver/deliveries/active")}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+            >
+              Active Deliveries
+            </button>
+          </div>
+
+          {loading ? (
+            <div className="text-center py-12">
+              <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
+              <p className="mt-4 text-gray-600">Loading deliveries...</p>
+            </div>
+          ) : deliveries.length === 0 ? (
+            <div className="text-center py-12">
+              <svg
+                className="mx-auto h-24 w-24 text-gray-400"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"
+                />
+              </svg>
+              <h3 className="mt-4 text-xl font-semibold text-gray-700">
+                No Pending Deliveries
+              </h3>
+              <p className="mt-2 text-gray-500">
+                Check back later for new delivery requests
               </p>
             </div>
-            <button
-              onClick={fetchDeliveries}
-              className="p-2 bg-blue-500 rounded-lg hover:bg-blue-400"
+          ) : (
+            <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-2">
+              {deliveries.map((delivery) => (
+                <DeliveryCard
+                  key={delivery.delivery_id}
+                  delivery={delivery}
+                  driverLocation={driverLocation}
+                  accepting={accepting === delivery.delivery_id}
+                  onAccept={handleAcceptDelivery}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </DriverLayout>
+  );
+}
+
+function DeliveryCard({ delivery, driverLocation, accepting, onAccept }) {
+  const {
+    delivery_id,
+    order_number,
+    restaurant,
+    delivery: deliveryAddress,
+    customer,
+    pricing,
+    distance_km,
+    estimated_time_minutes,
+    driver_to_restaurant_route,
+    restaurant_to_customer_route,
+    order_items = [],
+  } = delivery;
+
+  // Calculate total items
+  const totalItems = order_items.reduce(
+    (sum, item) => sum + (item.quantity || 0),
+    0
+  );
+
+  // Calculate map center and bounds
+  const mapCenter = restaurant
+    ? [restaurant.latitude, restaurant.longitude]
+    : [0, 0];
+
+  return (
+    <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+      {/* Interactive Map */}
+      <div className="h-64 relative">
+        {restaurant && deliveryAddress && (
+          <MapContainer
+            center={mapCenter}
+            zoom={13}
+            scrollWheelZoom={true}
+            className="h-full w-full"
+            zoomControl={true}
+            dragging={true}
+            doubleClickZoom={true}
+            touchZoom={true}
+          >
+            <TileLayer
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            />
+
+            {/* Driver Marker */}
+            {driverLocation && (
+              <Marker
+                position={[driverLocation.latitude, driverLocation.longitude]}
+                icon={driverIcon}
+              >
+                <Popup>
+                  <div className="text-center">
+                    <p className="font-bold text-green-600">Your Location</p>
+                    <p className="text-xs text-gray-600">Driver Position</p>
+                  </div>
+                </Popup>
+              </Marker>
+            )}
+
+            {/* Restaurant Marker */}
+            <Marker
+              position={[restaurant.latitude, restaurant.longitude]}
+              icon={restaurantIcon}
             >
+              <Popup>
+                <div className="min-w-[200px]">
+                  <p className="font-bold text-red-600">🍽️ Restaurant</p>
+                  <p className="font-semibold mt-1">{restaurant.name}</p>
+                  <p className="text-xs text-gray-600 mt-1">
+                    {restaurant.address}
+                  </p>
+                </div>
+              </Popup>
+            </Marker>
+
+            {/* Customer Marker */}
+            <Marker
+              position={[deliveryAddress.latitude, deliveryAddress.longitude]}
+              icon={customerIcon}
+            >
+              <Popup>
+                <div className="min-w-[200px]">
+                  <p className="font-bold text-blue-600">👤 Customer</p>
+                  <p className="font-semibold mt-1">
+                    {customer?.name || "Customer"}
+                  </p>
+                  <p className="text-xs text-gray-600 mt-1">
+                    {deliveryAddress.address}
+                  </p>
+                </div>
+              </Popup>
+            </Marker>
+
+            {/* Route from Driver to Restaurant - Light Green */}
+            {driver_to_restaurant_route &&
+              driver_to_restaurant_route.coordinates && (
+                <Polyline
+                  positions={driver_to_restaurant_route.coordinates.map(
+                    (coord) => [coord[1], coord[0]]
+                  )}
+                  color="#86efac"
+                  weight={5}
+                  opacity={0.9}
+                />
+              )}
+
+            {/* Route from Restaurant to Customer - Grey */}
+            {restaurant_to_customer_route &&
+              restaurant_to_customer_route.coordinates && (
+                <Polyline
+                  positions={restaurant_to_customer_route.coordinates.map(
+                    (coord) => [coord[1], coord[0]]
+                  )}
+                  color="#9ca3af"
+                  weight={5}
+                  opacity={0.9}
+                />
+              )}
+          </MapContainer>
+        )}
+
+        {/* Order Number Badge */}
+        <div className="absolute top-4 right-4 bg-white px-3 py-2 rounded-full shadow-md">
+          <p className="text-xs font-semibold text-gray-600">Order</p>
+          <p className="text-sm font-bold text-gray-800">#{order_number}</p>
+        </div>
+
+        {/* Items Count Badge */}
+        <div className="absolute top-4 left-4 bg-blue-600 px-3 py-2 rounded-full shadow-md">
+          <p className="text-xs font-bold text-white">
+            {totalItems} item{totalItems !== 1 ? "s" : ""}
+          </p>
+        </div>
+      </div>
+
+      {/* Delivery Details */}
+      <div className="p-6">
+        {/* Earnings and Info */}
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <p className="text-xs text-gray-500 mb-1">Order #{order_number}</p>
+            <p className="text-sm text-gray-500">Driver Earnings</p>
+            <p className="text-2xl font-bold text-green-600">
+              ${pricing.driver_earnings.toFixed(2)}
+            </p>
+            <p className="text-xs text-blue-600 font-semibold mt-1">
+              {totalItems} food item{totalItems !== 1 ? "s" : ""}
+            </p>
+          </div>
+          <div className="text-right">
+            <div className="flex items-center gap-3 text-sm text-gray-600">
+              <div className="flex items-center gap-1">
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"
+                  />
+                </svg>
+                <span className="font-medium">{distance_km} km</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
+                <span className="font-medium">
+                  {estimated_time_minutes} min
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Pick-up Location */}
+        <div className="mb-4">
+          <div className="flex items-start gap-3">
+            <div className="flex-shrink-0 w-10 h-10 bg-red-100 rounded-full flex items-center justify-center text-xl">
+              🍽️
+            </div>
+            <div className="flex-1">
+              <p className="text-xs text-gray-500 uppercase font-semibold mb-1">
+                Pick-up Location
+              </p>
+              <p className="font-bold text-gray-800">{restaurant.name}</p>
+              <p className="text-sm text-gray-600">{restaurant.address}</p>
+              {restaurant.phone && (
+                <p className="text-sm text-gray-500 mt-1">
+                  📞 {restaurant.phone}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Delivery Address */}
+        <div className="mb-4">
+          <div className="flex items-start gap-3">
+            <div className="flex-shrink-0 w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center text-xl">
+              👤
+            </div>
+            <div className="flex-1">
+              <p className="text-xs text-gray-500 uppercase font-semibold mb-1">
+                Delivery Address
+              </p>
+              <p className="font-bold text-gray-800">{customer.name}</p>
+              <p className="text-sm text-gray-600">{deliveryAddress.address}</p>
+              {customer.phone && (
+                <p className="text-sm text-gray-500 mt-1">
+                  📞 {customer.phone}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Accept Button */}
+        <button
+          onClick={() => onAccept(delivery_id)}
+          disabled={accepting}
+          className="w-full py-3 bg-green-600 text-white rounded-xl font-bold text-lg hover:bg-green-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+        >
+          {accepting ? (
+            <>
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+              <span>Accepting...</span>
+            </>
+          ) : (
+            <>
               <svg
                 className="w-6 h-6"
                 fill="none"
@@ -248,186 +483,14 @@ export default function AvailableDeliveries() {
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   strokeWidth={2}
-                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                  d="M5 13l4 4L19 7"
                 />
               </svg>
-            </button>
-          </div>
-        </header>
-
-        {/* Notification Toasts */}
-        {notifications.length > 0 && (
-          <div className="fixed top-20 right-4 z-50 space-y-2">
-            {notifications.map((n) => (
-              <div
-                key={n.id}
-                className="bg-white rounded-xl shadow-2xl border-l-4 border-green-500 p-4 max-w-sm animate-slide-in"
-              >
-                <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
-                    <span className="text-xl">🛵</span>
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-bold text-gray-900">{n.title}</p>
-                    <p className="text-sm text-gray-600">{n.message}</p>
-                  </div>
-                  <button
-                    onClick={() =>
-                      setNotifications((prev) =>
-                        prev.filter((x) => x.id !== n.id)
-                      )
-                    }
-                    className="text-gray-400 hover:text-gray-600"
-                  >
-                    ✕
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Content */}
-        <div className="p-4 space-y-4">
-          {loading ? (
-            <div className="text-center py-12">
-              <div className="animate-spin rounded-full h-10 w-10 border-b-4 border-blue-600 mx-auto"></div>
-              <p className="text-gray-600 mt-4">Loading deliveries...</p>
-            </div>
-          ) : deliveries.length === 0 ? (
-            <div className="text-center py-12">
-              <div className="w-20 h-20 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-4">
-                <span className="text-4xl">📦</span>
-              </div>
-              <p className="text-xl font-medium text-gray-800">
-                No deliveries available
-              </p>
-              <p className="text-gray-500 mt-1">
-                New orders will appear here automatically
-              </p>
-            </div>
-          ) : (
-            deliveries.map((delivery) => (
-              <div
-                key={delivery.delivery_id}
-                className="bg-white rounded-xl shadow-lg overflow-hidden"
-              >
-                {/* Restaurant Info */}
-                <div className="p-4 bg-gradient-to-r from-orange-500 to-red-500 text-white">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 bg-white/20 rounded-lg flex items-center justify-center">
-                      <span className="text-2xl">🍽️</span>
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="font-bold text-lg">
-                        {delivery.restaurant.name}
-                      </h3>
-                      <p className="text-white/80 text-sm truncate">
-                        {delivery.restaurant.address}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-bold text-lg">
-                        Rs. {delivery.total_amount.toFixed(0)}
-                      </p>
-                      <p className="text-white/80 text-xs">
-                        {getTimeAgo(delivery.placed_at)}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Delivery Info */}
-                <div className="p-4 space-y-3">
-                  {/* Pickup → Delivery Route */}
-                  <div className="flex items-start gap-3">
-                    <div className="flex flex-col items-center">
-                      <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-                      <div className="w-0.5 h-8 bg-gray-300"></div>
-                      <div className="w-3 h-3 bg-red-500 rounded-full"></div>
-                    </div>
-                    <div className="flex-1 space-y-3">
-                      <div>
-                        <p className="text-xs text-gray-500 uppercase">
-                          Pickup
-                        </p>
-                        <p className="text-sm font-medium text-gray-800 truncate">
-                          {delivery.restaurant.address}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-500 uppercase">
-                          Drop-off
-                        </p>
-                        <p className="text-sm font-medium text-gray-800 truncate">
-                          {delivery.delivery.address}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Stats */}
-                  <div className="flex items-center justify-between py-3 border-t border-gray-100">
-                    <div className="text-center">
-                      <p className="text-lg font-bold text-blue-600">
-                        {delivery.distance_km.toFixed(1)} km
-                      </p>
-                      <p className="text-xs text-gray-500">Distance</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-lg font-bold text-purple-600">
-                        ~{delivery.estimated_duration_min} min
-                      </p>
-                      <p className="text-xs text-gray-500">Est. Time</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-lg font-bold text-green-600">
-                        {delivery.order_status.toUpperCase()}
-                      </p>
-                      <p className="text-xs text-gray-500">Status</p>
-                    </div>
-                  </div>
-
-                  {/* Accept Button */}
-                  <button
-                    onClick={() => acceptDelivery(delivery.delivery_id)}
-                    disabled={accepting === delivery.delivery_id}
-                    className="w-full py-4 bg-blue-600 text-white rounded-xl font-bold text-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  >
-                    {accepting === delivery.delivery_id ? (
-                      <>
-                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                        Accepting...
-                      </>
-                    ) : (
-                      <>
-                        <span>🚀</span>
-                        Accept Delivery
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-            ))
+              <span>ACCEPT DELIVERY</span>
+            </>
           )}
-        </div>
-
-        <style>{`
-        @keyframes slide-in {
-          from {
-            transform: translateX(100%);
-            opacity: 0;
-          }
-          to {
-            transform: translateX(0);
-            opacity: 1;
-          }
-        }
-        .animate-slide-in {
-          animation: slide-in 0.3s ease-out;
-        }
-      `}</style>
+        </button>
       </div>
-    </DriverLayout>
+    </div>
   );
 }

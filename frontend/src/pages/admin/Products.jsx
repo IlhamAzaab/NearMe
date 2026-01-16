@@ -887,3 +887,4 @@ function AddProductModal({ food, onClose, onSave }) {
     </div>
   );
 }
+

@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import SiteHeader from "../../components/SiteHeader";
 
 export default function AdminProfile() {
   const navigate = useNavigate();
@@ -14,7 +13,18 @@ export default function AdminProfile() {
     confirmPassword: "",
   });
 
-  const userEmail = localStorage.getItem("userEmail");
+  // Animation for floating elements
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const elements = document.querySelectorAll('.floating');
+      elements.forEach(el => {
+        const time = Date.now() / 300;
+        const offset = Array.from(elements).indexOf(el);
+        el.style.transform = `translateY(${Math.sin(time + offset) * 15}px) scale(${1 + Math.sin(time + offset) * 0.05})`;
+      });
+    }, 30);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     // Check if password change is required
@@ -114,29 +124,55 @@ export default function AdminProfile() {
     }
   };
 
-  const handleLogout = () => {
-    localStorage.clear();
-    navigate("/login");
-  };
-
   return (
-    <div className="min-h-screen bg-gray-50">
-      <SiteHeader
-        isLoggedIn={true}
-        role="admin"
-        userName={userEmail?.split("@")[0]}
-        userEmail={userEmail}
-        onLogout={handleLogout}
-      />
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-500 via-green-600 to-green-700 p-4 overflow-hidden relative">
+      {/* Animated background elements */}
+      <div className="absolute inset-0 overflow-hidden">
+        {/* Floating circles */}
+        <div className="absolute top-1/4 left-1/4 w-96 h-96 rounded-full bg-gradient-to-r from-green-400/30 to-green-500/30 floating animate-pulse-slow"></div>
+        <div className="absolute bottom-1/4 right-1/4 w-72 h-72 rounded-full bg-gradient-to-r from-green-300/25 to-green-400/25 floating animate-pulse-slower"></div>
+        <div className="absolute top-1/3 right-1/3 w-48 h-48 rounded-full bg-gradient-to-r from-green-200/20 to-green-300/20 floating animate-pulse-slow"></div>
+        <div className="absolute top-1/2 left-1/2 w-40 h-40 rounded-full bg-gradient-to-r from-lime-300/25 to-green-300/25 animate-ping-slow"></div>
+        
+        {/* Vertical animated bars */}
+        <div className="absolute inset-0">
+          {[...Array(8)].map((_, i) => (
+            <div
+              key={i}
+              className="absolute w-1 bg-gradient-to-b from-transparent via-white/20 to-transparent animate-slide-down"
+              style={{
+                left: `${i * 12.5}%`,
+                height: '100%',
+                animationDelay: `${i * 0.3}s`,
+                animationDuration: `${3 + i * 0.2}s`,
+              }}
+            ></div>
+          ))}
+        </div>
+      </div>
 
-      <main className="max-w-2xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
-        <div className="bg-white rounded-xl shadow border border-green-100 p-4 sm:p-6">
-          <h1 className="text-xl sm:text-2xl font-bold text-gray-800 mb-2">
-            {forcePasswordChange ? "Change Your Password" : "Admin Profile"}
+      <div className="w-full max-w-md bg-white/95 backdrop-blur-sm rounded-2xl shadow-2xl p-8 transform transition-all duration-300 z-10 hover:scale-[1.01]">
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-green-500 to-green-600 rounded-full mb-4 shadow-lg">
+            <svg
+              className="w-8 h-8 text-white"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+              />
+            </svg>
+          </div>
+          <h1 className="text-3xl font-bold text-gray-800 mb-2">
+            Change Your Password
           </h1>
-
           {forcePasswordChange && (
-            <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+            <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
               <p className="text-sm text-yellow-800">
                 <strong>⚠️ Password Change Required</strong>
                 <br />
@@ -145,51 +181,65 @@ export default function AdminProfile() {
               </p>
             </div>
           )}
-
-          <p className="text-gray-600 mb-6">
+          <p className="text-gray-600">
             Please set a new secure password for your account.
           </p>
+        </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Username *
-              </label>
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Username
+            </label>
+            <div className="relative">
+              <div className="absolute inset-0 rounded-lg bg-gradient-to-r from-green-800 via-green-400 to-green-800 animate-border-rotation p-[3px]">
+                <div className="h-full w-full bg-white rounded-lg"></div>
+              </div>
               <input
                 type="text"
                 name="username"
-                className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-600 text-sm sm:text-base"
+                className="relative w-full px-4 py-3 bg-transparent rounded-lg focus:outline-none z-10"
                 placeholder="Choose a username"
                 value={formData.username}
                 onChange={handleChange}
                 required
               />
             </div>
+          </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                New Password *
-              </label>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              New Password
+            </label>
+            <div className="relative">
+              <div className="absolute inset-0 rounded-lg bg-gradient-to-r from-green-800 via-green-400 to-green-800 animate-border-rotation p-[3px]">
+                <div className="h-full w-full bg-white rounded-lg"></div>
+              </div>
               <input
                 type="password"
                 name="newPassword"
-                className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-600 text-sm sm:text-base"
-                placeholder="Enter new password (min 6 characters)"
+                className="relative w-full px-4 py-3 bg-transparent rounded-lg focus:outline-none z-10"
+                placeholder="Enter new password"
                 value={formData.newPassword}
                 onChange={handleChange}
                 required
                 minLength={6}
               />
             </div>
+          </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Confirm Password *
-              </label>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Confirm Password
+            </label>
+            <div className="relative">
+              <div className="absolute inset-0 rounded-lg bg-gradient-to-r from-green-800 via-green-400 to-green-800 animate-border-rotation p-[3px]">
+                <div className="h-full w-full bg-white rounded-lg"></div>
+              </div>
               <input
                 type="password"
                 name="confirmPassword"
-                className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-600 text-sm sm:text-base"
+                className="relative w-full px-4 py-3 bg-transparent rounded-lg focus:outline-none z-10"
                 placeholder="Re-enter new password"
                 value={formData.confirmPassword}
                 onChange={handleChange}
@@ -197,41 +247,144 @@ export default function AdminProfile() {
                 minLength={6}
               />
             </div>
+          </div>
 
-            {error && (
-              <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
-                {error}
+          {error && (
+            <div className="p-4 bg-red-50 border-l-4 border-red-500 text-red-700 rounded-lg">
+              <div className="flex items-center gap-2">
+                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                  <path
+                    fillRule="evenodd"
+                    d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+                <span className="font-medium">{error}</span>
               </div>
-            )}
-
-            {success && (
-              <div className="p-3 bg-green-50 border border-green-200 text-green-700 rounded-lg text-sm">
-                ✓ Password changed successfully! Redirecting to restaurant
-                onboarding...
-              </div>
-            )}
-
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-              <p className="text-sm text-blue-800">
-                <strong>Password Requirements:</strong>
-                <ul className="list-disc list-inside mt-1">
-                  <li>Minimum 6 characters</li>
-                  <li>Use a mix of letters, numbers, and symbols</li>
-                  <li>Avoid common words or patterns</li>
-                </ul>
-              </p>
             </div>
+          )}
 
-            <button
-              type="submit"
-              disabled={loading || success}
-              className="w-full px-4 py-3 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 disabled:opacity-60 transition text-sm sm:text-base"
-            >
-              {loading ? "Changing Password..." : "Change Password & Continue"}
-            </button>
-          </form>
-        </div>
-      </main>
+          {success && (
+            <div className="p-4 bg-green-50 border-l-4 border-green-500 text-green-700 rounded-lg">
+              <div className="flex items-center gap-2">
+                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                  <path
+                    fillRule="evenodd"
+                    d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+                <span className="font-medium">
+                  ✓ Password changed successfully! Redirecting to restaurant
+                  onboarding...
+                </span>
+              </div>
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading || success}
+            className={`w-full px-6 py-3 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg font-semibold shadow-lg hover:shadow-xl transition-all duration-200 flex items-center justify-center gap-2 ${
+              loading || success
+                ? "opacity-70 cursor-not-allowed"
+                : "hover:from-green-600 hover:to-green-700 active:scale-95"
+            }`}
+          >
+            {loading ? (
+              <>
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                Changing Password...
+              </>
+            ) : (
+              "Change Password & Continue"
+            )}
+          </button>
+        </form>
+      </div>
+
+      <style jsx>{`
+        @keyframes pulse-slow {
+          0%, 100% {
+            opacity: 0.3;
+          }
+          50% {
+            opacity: 0.5;
+          }
+        }
+        
+        @keyframes pulse-slower {
+          0%, 100% {
+            opacity: 0.2;
+          }
+          50% {
+            opacity: 0.4;
+          }
+        }
+        
+        @keyframes border-rotation {
+          0% {
+            background-position: 0% 50%;
+          }
+          50% {
+            background-position: 100% 50%;
+          }
+          100% {
+            background-position: 0% 50%;
+          }
+        }
+        
+        @keyframes slide-down {
+          0% {
+            transform: translateY(-100%);
+            opacity: 0;
+          }
+          50% {
+            opacity: 0.3;
+          }
+          100% {
+            transform: translateY(100%);
+            opacity: 0;
+          }
+        }
+        
+        @keyframes ping-slow {
+          0% {
+            transform: scale(1);
+            opacity: 0.3;
+          }
+          50% {
+            transform: scale(1.1);
+            opacity: 0.2;
+          }
+          100% {
+            transform: scale(1);
+            opacity: 0.3;
+          }
+        }
+        
+        .animate-pulse-slow {
+          animation: pulse-slow 4s ease-in-out infinite;
+        }
+        
+        .animate-pulse-slower {
+          animation: pulse-slower 6s ease-in-out infinite;
+        }
+        
+        .animate-ping-slow {
+          animation: ping-slow 3s ease-in-out infinite;
+        }
+        
+        .animate-border-rotation {
+          background-size: 200% 200%;
+          animation: border-rotation 3s linear infinite;
+        }
+        
+        .animate-slide-down {
+          animation: slide-down linear infinite;
+        }
+      `}</style>
     </div>
   );
 }
+

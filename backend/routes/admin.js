@@ -606,4 +606,99 @@ router.post("/upload-image", authenticate, async (req, res) => {
   }
 });
 
+/**
+ * GET /admin/notifications
+ * Get notifications for admin
+ */
+router.get("/notifications", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const adminId = req.user.id;
+    const limit = parseInt(req.query.limit) || 50;
+
+    const { data, error } = await supabaseAdmin
+      .from("notifications")
+      .select("*")
+      .eq("recipient_id", adminId)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      console.error("Notifications fetch error:", error);
+      return res.status(500).json({ message: "Failed to fetch notifications" });
+    }
+
+    return res.json({ notifications: data || [] });
+  } catch (e) {
+    console.error("/admin/notifications error:", e);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
+/**
+ * PATCH /admin/notifications/mark-all-read
+ * Mark all unread notifications as read
+ * IMPORTANT: This must come BEFORE /:id/read route
+ */
+router.patch("/notifications/mark-all-read", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const adminId = req.user.id;
+
+    const { data, error } = await supabaseAdmin
+      .from("notifications")
+      .update({ is_read: true, read_at: new Date().toISOString() })
+      .eq("recipient_id", adminId)
+      .eq("is_read", false)
+      .select();
+
+    if (error) {
+      console.error("Mark all read error:", error);
+      return res.status(500).json({ message: "Failed to mark all as read" });
+    }
+
+    return res.json({ success: true, updated: data?.length || 0 });
+  } catch (e) {
+    console.error("/admin/notifications/mark-all-read error:", e);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
+/**
+ * PATCH /admin/notifications/:id/read
+ * Mark notification as read
+ */
+router.patch("/notifications/:id/read", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const adminId = req.user.id;
+    const notificationId = req.params.id;
+
+    const { error } = await supabaseAdmin
+      .from("notifications")
+      .update({ is_read: true, read_at: new Date().toISOString() })
+      .eq("id", notificationId)
+      .eq("recipient_id", adminId);
+
+    if (error) {
+      console.error("Mark read error:", error);
+      return res.status(500).json({ message: "Failed to mark as read" });
+    }
+
+    return res.json({ success: true });
+  } catch (e) {
+    console.error("/admin/notifications/:id/read error:", e);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
 export default router;

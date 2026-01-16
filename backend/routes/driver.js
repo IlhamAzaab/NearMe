@@ -113,3 +113,34 @@ router.put("/update-profile", authenticate, async (req, res) => {
 });
 
 export default router;
+/**
+ * GET /driver/notifications
+ * Fetch driver notifications
+ */
+router.get("/notifications", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "driver") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const driverId = req.user.id;
+    const limit = parseInt(req.query.limit || "50", 10);
+
+    const { data, error } = await supabaseAdmin
+      .from("notifications")
+      .select("*")
+      .eq("recipient_id", driverId)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      console.error("Fetch driver notifications error:", error);
+      return res.status(500).json({ message: "Failed to fetch notifications" });
+    }
+
+    return res.json({ notifications: data || [] });
+  } catch (e) {
+    console.error("/driver/notifications error:", e);
+    return res.status(500).json({ message: "Server error" });
+  }
+});

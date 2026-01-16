@@ -364,8 +364,8 @@ router.post("/place", authenticate, async (req, res) => {
       .from("order_status_history")
       .insert({
         order_id: order.id,
-        from_status: null,
-        to_status: "placed",
+        previous_status: null,
+        new_status: "placed",
         changed_by: customerId,
         changed_by_role: "customer",
       });
@@ -380,10 +380,16 @@ router.post("/place", authenticate, async (req, res) => {
     // ========================================================================
 
     // Get restaurant admin IDs
-    const { data: admins } = await supabaseAdmin
+    const { data: admins, error: adminsError } = await supabaseAdmin
       .from("admins")
       .select("id")
       .eq("restaurant_id", restaurant.id);
+
+    console.log("🔍 Found admins for restaurant:", {
+      restaurant_id: restaurant.id,
+      admins,
+      error: adminsError,
+    });
 
     if (admins && admins.length > 0) {
       const notifications = admins.map((admin) => ({
@@ -405,14 +411,21 @@ router.post("/place", authenticate, async (req, res) => {
         },
       }));
 
-      const { error: notifError } = await supabaseAdmin
+      console.log("📤 Creating notifications:", notifications);
+
+      const { data: insertedNotifs, error: notifError } = await supabaseAdmin
         .from("notifications")
-        .insert(notifications);
+        .insert(notifications)
+        .select();
 
       if (notifError) {
-        console.error("Notification insert error:", notifError);
+        console.error("❌ Notification insert error:", notifError);
         // Continue anyway
+      } else {
+        console.log("✅ Notifications created successfully:", insertedNotifs);
       }
+    } else {
+      console.log("⚠️ No admins found for restaurant");
     }
 
     // ========================================================================
@@ -792,14 +805,14 @@ router.patch(
       // Log status change
       await supabaseAdmin.from("order_status_history").insert({
         order_id: orderId,
-        from_status: order.status,
-        to_status: status,
+        old_status: order.status,
+        new_status: status,
         changed_by: adminId,
         changed_by_role: "admin",
         reason: reason || null,
       });
 
-      // Create notification for customer
+      // Create notification for customer using RPC (SECURITY DEFINER)
       const notificationTypes = {
         accepted: "order_accepted",
         rejected: "order_rejected",
@@ -808,8 +821,16 @@ router.patch(
         cancelled: "order_cancelled",
       };
 
+      const notificationTitles = {
+        accepted: "Order Accepted",
+        rejected: "Order Update",
+        preparing: "Order Being Prepared",
+        ready: "Order Ready",
+        cancelled: "Order Update",
+      };
+
       const notificationMessages = {
-        accepted: `Your order ${order.order_number} has been accepted!`,
+        accepted: `Your order has been accepted by the restaurant and is being prepared.`,
         rejected: `Your order ${order.order_number} was rejected. ${
           reason || ""
         }`,
@@ -819,35 +840,118 @@ router.patch(
       };
 
       if (notificationTypes[status]) {
-        await supabaseAdmin.from("notifications").insert({
-          recipient_id: order.customer_id,
-          recipient_role: "customer",
-          type: notificationTypes[status],
-          title:
-            status === "rejected" || status === "cancelled"
-              ? "Order Update"
-              : "Good News!",
-          message: notificationMessages[status],
-          order_id: orderId,
-          is_read: false,
-        });
+        const { error: notifError } = await supabaseAdmin
+          .from("notifications")
+          .insert({
+            recipient_id: order.customer_id,
+            recipient_role: "customer",
+            order_id: orderId,
+            restaurant_id: admin.restaurant_id,
+            type: notificationTypes[status],
+            title: notificationTitles[status],
+            message: notificationMessages[status],
+            metadata: {
+              order_number: order.order_number,
+              status: status,
+            },
+          });
+
+        if (notifError) {
+          console.error("❌ Customer notification error:", notifError);
+        } else {
+          console.log("✅ Customer notified successfully");
+        }
       }
 
       // ====================================================================
-      // NOTIFY ALL DRIVERS when order is accepted
+      // NOTIFY ALL ACTIVE DRIVERS when order is accepted
       // ====================================================================
       if (status === "accepted") {
-        // Call the database function to notify all active drivers
-        const { data: notifyResult, error: notifyError } =
-          await supabaseAdmin.rpc("notify_drivers_new_order", {
-            p_order_id: orderId,
-          });
+        try {
+          // Check if delivery already exists
+          const { data: existingDelivery } = await supabaseAdmin
+            .from("deliveries")
+            .select("id")
+            .eq("order_id", orderId)
+            .maybeSingle();
 
-        if (notifyError) {
-          console.error("Failed to notify drivers:", notifyError);
+          let delivery = existingDelivery;
+
+          // Create delivery record only if it doesn't exist
+          if (!existingDelivery) {
+            const { data: newDelivery, error: deliveryError } =
+              await supabaseAdmin
+                .from("deliveries")
+                .insert({
+                  order_id: orderId,
+                  status: "pending",
+                })
+                .select("id")
+                .single();
+
+            if (deliveryError) {
+              console.error("❌ Delivery creation error:", deliveryError);
+              return res.json({
+                message: "Order status updated but delivery creation failed",
+                order: { id: orderId, status: status },
+              });
+            }
+            delivery = newDelivery;
+            console.log("✅ Delivery record created:", delivery.id);
+          } else {
+            console.log("ℹ️ Delivery already exists:", delivery.id);
+          }
+
+          // Get all active drivers
+          const { data: activeDrivers, error: driversError } =
+            await supabaseAdmin
+              .from("drivers")
+              .select("id")
+              .eq("driver_status", "active");
+
+          if (!driversError && activeDrivers && activeDrivers.length > 0) {
+            console.log(
+              `📤 Notifying ${activeDrivers.length} active drivers...`
+            );
+
+            // Notify each driver (direct insert with service_role)
+            const notificationPromises = activeDrivers.map((driver) =>
+              supabaseAdmin.from("notifications").insert({
+                recipient_id: driver.id,
+                recipient_role: "driver",
+                order_id: orderId,
+                restaurant_id: admin.restaurant_id,
+                type: "new_delivery",
+                title: "New Delivery Available",
+                message:
+                  "A new delivery is available. Check available deliveries.",
+                metadata: {
+                  order_id: orderId,
+                  delivery_id: delivery.id,
+                  order_number: order.order_number,
+                },
+              })
+            );
+
+            const results = await Promise.allSettled(notificationPromises);
+            const successCount = results.filter(
+              (r) => r.status === "fulfilled"
+            ).length;
+            const failCount = results.filter(
+              (r) => r.status === "rejected"
+            ).length;
+
+            console.log(
+              `✅ Notified ${successCount} drivers successfully${
+                failCount > 0 ? `, ${failCount} failed` : ""
+              }`
+            );
+          } else {
+            console.log("⚠️ No active drivers found");
+          }
+        } catch (err) {
+          console.error("❌ Error in driver notification flow:", err);
           // Don't fail the request, just log the error
-        } else {
-          console.log("Drivers notified:", notifyResult);
         }
       }
 
