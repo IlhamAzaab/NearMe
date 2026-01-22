@@ -48,14 +48,19 @@ import DeliveryTracking from "./pages/DeliveryTracking";
 import DriverNotifications from "./pages/driver/Notifications";
 import DeliveryHistory from "./pages/driver/DeliveryHistory";
 import CustomerNotifications from "./pages/CustomerNotifications";
+import CustomerProfile from "./pages/CustomerProfile";
 import AdminNotifications from "./pages/admin/AdminNotifications";
+import Splash from "./pages/Splash";
+import Welcome from "./pages/Welcome";
 
 function App() {
   return (
     <BrowserRouter>
       <Routes>
+        <Route path="/" element={<Splash />} />
+        <Route path="/welcome" element={<Welcome />} />
         <Route
-          path="/"
+          path="/home"
           element={
             <ProtectedRoute allowedRole="customer">
               <Home />
@@ -89,15 +94,23 @@ function App() {
         <Route
           path="/cart"
           element={
-            <ProtectedRoute allowedRole="customer" requireAuth={true}>
+            <ProtectedRoute allowedRole="customer">
               <Cart />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/notifications"
+          element={
+            <ProtectedRoute allowedRole="customer">
+              <CustomerNotifications />
             </ProtectedRoute>
           }
         />
         <Route
           path="/customer/notifications"
           element={
-            <ProtectedRoute allowedRole="customer" requireAuth={true}>
+            <ProtectedRoute allowedRole="customer">
               <CustomerNotifications />
             </ProtectedRoute>
           }
@@ -113,9 +126,17 @@ function App() {
           }
         />
         <Route
+          path="/profile"
+          element={
+            <ProtectedRoute allowedRole="customer">
+              <CustomerProfile />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/orders"
           element={
-            <ProtectedRoute allowedRole="customer" requireAuth={true}>
+            <ProtectedRoute allowedRole="customer">
               <CustomerOrders />
             </ProtectedRoute>
           }

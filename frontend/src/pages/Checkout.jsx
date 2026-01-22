@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import SiteHeader from "../components/SiteHeader";
 import {
   MapContainer,
   TileLayer,
@@ -260,7 +259,7 @@ const Checkout = () => {
     localStorage.removeItem("token");
     localStorage.removeItem("role");
     localStorage.removeItem("userEmail");
-    navigate("/");
+    navigate("/home");
   };
 
   const handleUseMyLocation = () => {
@@ -371,16 +370,35 @@ const Checkout = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50">
-        <SiteHeader
-          isLoggedIn={isLoggedIn}
-          role={role}
-          userName={userName}
-          userEmail={userEmail}
-          onLogout={handleLogout}
-        />
-        <div className="flex justify-center items-center py-20">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+      <div className="min-h-screen bg-gray-50 font-poppins">
+        {/* Header */}
+        <header className="sticky top-0 z-50 bg-white px-4 py-3 shadow-sm">
+          <div className="max-w-6xl mx-auto flex items-center gap-3">
+            <button
+              onClick={() => navigate("/cart")}
+              className="p-2 -ml-2 hover:bg-gray-100 rounded-full transition-colors"
+            >
+              <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-[#FF7A00] rounded-xl flex items-center justify-center shadow-lg shadow-orange-200">
+                <span className="text-white text-lg font-bold">N</span>
+              </div>
+              <div>
+                <h1 className="text-xl font-bold text-gray-900">Checkout</h1>
+                <p className="text-xs text-gray-500">Complete your order</p>
+              </div>
+            </div>
+          </div>
+        </header>
+        <div className="flex flex-col items-center justify-center py-20">
+          <div className="relative">
+            <div className="w-16 h-16 border-4 border-orange-100 rounded-full"></div>
+            <div className="absolute top-0 left-0 w-16 h-16 border-4 border-[#FF7A00] border-t-transparent rounded-full animate-spin"></div>
+          </div>
+          <p className="mt-4 text-gray-500 text-sm font-medium">Loading checkout...</p>
         </div>
       </div>
     );
@@ -389,16 +407,22 @@ const Checkout = () => {
   // Order Success Screen
   if (orderSuccess) {
     return (
-      <div className="min-h-screen bg-gray-50">
-        <SiteHeader
-          isLoggedIn={isLoggedIn}
-          role={role}
-          userName={userName}
-          userEmail={userEmail}
-          onLogout={handleLogout}
-        />
-        <div className="container mx-auto px-4 py-12">
-          <div className="max-w-md mx-auto bg-white rounded-2xl shadow-lg p-8 text-center">
+      <div className="min-h-screen bg-gray-50 font-poppins">
+        {/* Header */}
+        <header className="sticky top-0 z-50 bg-white px-4 py-3 shadow-sm">
+          <div className="max-w-6xl mx-auto flex items-center gap-3">
+            <div className="w-10 h-10 bg-[#FF7A00] rounded-xl flex items-center justify-center shadow-lg shadow-orange-200">
+              <span className="text-white text-lg font-bold">N</span>
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-gray-900">Order Placed</h1>
+              <p className="text-xs text-gray-500">Thank you for your order!</p>
+            </div>
+          </div>
+        </header>
+
+        <div className="px-4 py-8 max-w-md mx-auto">
+          <div className="bg-white rounded-2xl shadow-sm p-6 text-center">
             {/* Success Icon */}
             <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
               <svg
@@ -416,58 +440,60 @@ const Checkout = () => {
               </svg>
             </div>
 
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">
               Order Placed Successfully!
-            </h1>
-            <p className="text-gray-600 mb-6">
+            </h2>
+            <p className="text-gray-500 text-sm mb-6">
               Your order has been sent to the restaurant
             </p>
 
             {/* Order Details */}
-            <div className="bg-gray-50 rounded-xl p-4 mb-6 text-left">
-              <div className="flex justify-between items-center mb-3">
+            <div className="bg-gray-50 rounded-2xl p-4 mb-6 text-left space-y-3">
+              <div className="flex justify-between items-center">
                 <span className="text-sm text-gray-500">Order Number</span>
-                <span className="font-bold text-indigo-600">
+                <span className="font-bold text-[#FF7A00]">
                   {orderSuccess.order_number}
                 </span>
               </div>
-              <div className="flex justify-between items-center mb-3">
+              <div className="flex justify-between items-center">
                 <span className="text-sm text-gray-500">Restaurant</span>
                 <span className="font-medium text-gray-900">
                   {orderSuccess.restaurant_name}
                 </span>
               </div>
-              <div className="flex justify-between items-center mb-3">
+              <div className="flex justify-between items-center">
                 <span className="text-sm text-gray-500">Items</span>
                 <span className="font-medium text-gray-900">
                   {orderSuccess.items_count} item(s)
                 </span>
               </div>
-              <div className="flex justify-between items-center mb-3">
+              <div className="flex justify-between items-center">
                 <span className="text-sm text-gray-500">Est. Delivery</span>
                 <span className="font-medium text-gray-900">
                   ~{orderSuccess.estimated_duration_min} mins
                 </span>
               </div>
-              <div className="flex justify-between items-center mb-3">
+              <div className="flex justify-between items-center">
                 <span className="text-sm text-gray-500">Payment</span>
                 <span className="font-medium text-gray-900 capitalize">
                   {orderSuccess.payment_method === "cash"
                     ? "Cash on Delivery"
-                    : "Card Payment"}
+                    : orderSuccess.payment_method === "card"
+                    ? "Card Payment"
+                    : "UPI / Wallet"}
                 </span>
               </div>
-              <div className="border-t pt-3 flex justify-between items-center">
+              <div className="border-t border-gray-200 pt-3 flex justify-between items-center">
                 <span className="font-semibold text-gray-900">Total</span>
-                <span className="text-xl font-bold text-indigo-600">
+                <span className="text-xl font-bold text-[#FF7A00]">
                   {formatPrice(orderSuccess.total_amount)}
                 </span>
               </div>
             </div>
 
             {/* Status Badge */}
-            <div className="inline-flex items-center gap-2 bg-yellow-100 text-yellow-800 px-4 py-2 rounded-full text-sm font-medium mb-6">
-              <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></div>
+            <div className="inline-flex items-center gap-2 bg-orange-100 text-[#FF7A00] px-4 py-2 rounded-full text-sm font-medium mb-6">
+              <div className="w-2 h-2 bg-[#FF7A00] rounded-full animate-pulse"></div>
               Waiting for restaurant to accept
             </div>
 
@@ -475,13 +501,13 @@ const Checkout = () => {
             <div className="space-y-3">
               <button
                 onClick={() => navigate("/orders/" + orderSuccess.id)}
-                className="w-full px-6 py-3 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 transition"
+                className="w-full px-6 py-3.5 bg-[#FF7A00] text-white font-semibold rounded-full hover:bg-orange-600 transition shadow-lg shadow-orange-200"
               >
                 Track Order
               </button>
               <button
-                onClick={() => navigate("/")}
-                className="w-full px-6 py-3 bg-gray-100 text-gray-700 font-semibold rounded-lg hover:bg-gray-200 transition"
+                onClick={() => navigate("/home")}
+                className="w-full px-6 py-3.5 bg-gray-100 text-gray-700 font-semibold rounded-full hover:bg-gray-200 transition"
               >
                 Back to Home
               </button>
@@ -494,21 +520,37 @@ const Checkout = () => {
 
   if (error && !cart) {
     return (
-      <div className="min-h-screen bg-gray-50">
-        <SiteHeader
-          isLoggedIn={isLoggedIn}
-          role={role}
-          userName={userName}
-          userEmail={userEmail}
-          onLogout={handleLogout}
-        />
-        <div className="container mx-auto px-4 py-8">
-          <div className="bg-red-50 border border-red-200 text-red-700 px-6 py-4 rounded-lg max-w-2xl">
-            <p className="font-semibold">Error</p>
-            <p>{error}</p>
+      <div className="min-h-screen bg-gray-50 font-poppins">
+        {/* Header */}
+        <header className="sticky top-0 z-50 bg-white px-4 py-3 shadow-sm">
+          <div className="max-w-6xl mx-auto flex items-center gap-3">
             <button
               onClick={() => navigate("/cart")}
-              className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+              className="p-2 -ml-2 hover:bg-gray-100 rounded-full transition-colors"
+            >
+              <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-[#FF7A00] rounded-xl flex items-center justify-center shadow-lg shadow-orange-200">
+                <span className="text-white text-lg font-bold">N</span>
+              </div>
+              <div>
+                <h1 className="text-xl font-bold text-gray-900">Checkout</h1>
+                <p className="text-xs text-gray-500">Complete your order</p>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <div className="px-4 py-8 max-w-2xl mx-auto">
+          <div className="bg-red-50 border border-red-100 text-red-600 px-5 py-4 rounded-2xl">
+            <p className="font-semibold">Error</p>
+            <p className="text-sm">{error}</p>
+            <button
+              onClick={() => navigate("/cart")}
+              className="mt-4 px-6 py-2.5 bg-[#FF7A00] text-white font-semibold rounded-full hover:bg-orange-600 transition"
             >
               Back to Cart
             </button>
@@ -519,255 +561,150 @@ const Checkout = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <SiteHeader
-        isLoggedIn={isLoggedIn}
-        role={role}
-        userName={userName}
-        userEmail={userEmail}
-        onLogout={handleLogout}
-      />
-
-      <div className="container mx-auto px-4 py-8">
-        {/* Header */}
-        <div className="mb-8">
+    <div className="min-h-screen bg-gray-50 font-poppins pb-28">
+      {/* Top Header */}
+      <header className="sticky top-0 z-50 bg-white px-4 py-3 shadow-sm">
+        <div className="max-w-6xl mx-auto flex items-center gap-3">
           <button
             onClick={() => navigate("/cart")}
-            className="inline-flex items-center gap-2 text-indigo-600 hover:text-indigo-800 font-semibold mb-4"
+            className="p-2 -ml-2 hover:bg-gray-100 rounded-full transition-colors"
           >
-            <svg
-              className="w-4 h-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M15 19l-7-7 7-7"
-              />
+            <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
-            Back to Cart
           </button>
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Checkout</h1>
-          <p className="text-gray-600">Complete your order details</p>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-[#FF7A00] rounded-xl flex items-center justify-center shadow-lg shadow-orange-200">
+              <span className="text-white text-lg font-bold">N</span>
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-gray-900">Checkout</h1>
+              <p className="text-xs text-gray-500">Complete your order details</p>
+            </div>
+          </div>
         </div>
+      </header>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Left Column - Delivery Details */}
-          <div className="space-y-6">
-            {/* Delivery Information */}
-            <div className="bg-white rounded-xl shadow-md p-6">
-              <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
-                <svg
-                  className="w-6 h-6 text-indigo-600"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
-                  />
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
-                  />
-                </svg>
-                Delivery Information
-              </h2>
-
-              <div className="space-y-4">
-                {/* Phone - Read Only */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Phone Number
-                  </label>
-                  <input
-                    type="tel"
-                    value={phone}
-                    readOnly
-                    className="w-full px-4 py-3 border border-gray-200 rounded-lg bg-gray-50 text-gray-700 cursor-not-allowed"
-                  />
+      {/* Main Content */}
+      <main className="px-4 py-5 max-w-lg mx-auto">
+        <div className="space-y-5">
+          {/* Delivery Address Card */}
+          <div 
+            className="bg-white rounded-[20px] shadow-[0_4px_20px_rgba(0,0,0,0.06)] p-5 cursor-pointer hover:shadow-[0_6px_24px_rgba(0,0,0,0.08)] transition-shadow duration-300"
+            onClick={() => navigate("/profile")}
+          >
+            {/* Header Row */}
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-gradient-to-br from-orange-50 to-orange-100 rounded-full flex items-center justify-center">
+                  <svg className="w-5 h-5 text-[#FF7A00]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
                 </div>
+                <h2 className="text-lg font-bold text-gray-900">Delivery Address</h2>
+              </div>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigate("/profile");
+                }}
+                className="text-[#FF7A00] text-sm font-semibold hover:text-orange-600 transition-colors"
+              >
+                Change
+              </button>
+            </div>
 
-                {/* Address - Read Only */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Delivery Address
-                  </label>
-                  <textarea
-                    value={address || "Not provided"}
-                    readOnly
-                    rows="2"
-                    className="w-full px-4 py-3 border border-gray-200 rounded-lg bg-gray-50 text-gray-700 cursor-not-allowed resize-none"
-                  />
+            {/* Content Rows */}
+            <div className="space-y-4">
+              {/* Row 1 - Phone */}
+              <div className="flex items-center gap-4">
+                <div className="w-11 h-11 bg-orange-50 rounded-2xl flex items-center justify-center flex-shrink-0">
+                  <svg className="w-5 h-5 text-[#FF7A00]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                  </svg>
                 </div>
-
-                {/* City - Read Only */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    City
-                  </label>
-                  <input
-                    type="text"
-                    value={city || "Not provided"}
-                    readOnly
-                    className="w-full px-4 py-3 border border-gray-200 rounded-lg bg-gray-50 text-gray-700 cursor-not-allowed"
-                  />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5">Phone</p>
+                  <p className="text-[15px] font-semibold text-gray-900 truncate">{phone || "Not provided"}</p>
                 </div>
+              </div>
 
-                {/* Map - Editable */}
-                <div className="space-y-3">
-                  <label className="block text-sm font-medium text-gray-700">
-                    Delivery Location <span className="text-red-500">*</span>
-                    <span className="text-xs text-gray-500 ml-2">
-                      (Click map to change)
-                    </span>
-                  </label>
-                  <div className="relative">
-                    <MapContainer
-                      center={position || [7.8731, 80.7718]}
-                      zoom={15}
-                      style={{
-                        height: "300px",
-                        width: "100%",
-                        borderRadius: "8px",
-                      }}
-                    >
-                      <TileLayer
-                        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                      />
-                      <LocationMarker
-                        position={position}
-                        setPosition={setPosition}
-                      />
-                      <MapController center={mapCenter} />
-                    </MapContainer>
-                  </div>
+              {/* Divider */}
+              <div className="h-px bg-gray-100 mx-2"></div>
 
-                  {position && (
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs font-medium text-gray-500 mb-1">
-                          Latitude
-                        </label>
-                        <input
-                          type="text"
-                          className="w-full border rounded-lg p-2 bg-gray-100 text-sm"
-                          value={position[0].toFixed(6)}
-                          readOnly
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-500 mb-1">
-                          Longitude
-                        </label>
-                        <input
-                          type="text"
-                          className="w-full border rounded-lg p-2 bg-gray-100 text-sm"
-                          value={position[1].toFixed(6)}
-                          readOnly
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={handleUseMyLocation}
-                    disabled={locating}
-                    className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
-                  >
-                    {locating
-                      ? "Getting location..."
-                      : "📍 Use My Current Location"}
-                  </button>
+              {/* Row 2 - Address */}
+              <div className="flex items-start gap-4">
+                <div className="w-11 h-11 bg-orange-50 rounded-2xl flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <svg className="w-5 h-5 text-[#FF7A00]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                  </svg>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5">Address</p>
+                  <p className="text-[15px] font-bold text-gray-900 leading-snug">{address || "Not provided"}</p>
+                  {city && <p className="text-sm text-gray-500 mt-1">{city}</p>}
                 </div>
               </div>
             </div>
+          </div>
 
-            {/* Payment Method */}
-            <div className="bg-white rounded-xl shadow-md p-6">
-              <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
-                <svg
-                  className="w-6 h-6 text-indigo-600"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"
-                  />
-                </svg>
-                Payment Method
-              </h2>
+          {/* Delivery Location Hint */}
+          <div className="flex items-center gap-2 px-1">
+            <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            <p className="text-xs text-gray-400">Delivery Location <span className="text-gray-500">(Tap map to adjust)</span></p>
+          </div>
 
-              <div
-                onClick={() => setShowPaymentOptions(!showPaymentOptions)}
-                className="border border-gray-300 rounded-lg p-4 cursor-pointer hover:border-indigo-500 transition"
+          {/* Map Card */}
+          <div className="bg-white rounded-[20px] shadow-[0_4px_20px_rgba(0,0,0,0.06)] overflow-hidden">
+            <div className="relative">
+              <MapContainer
+                center={position || [7.8731, 80.7718]}
+                zoom={15}
+                style={{ height: "180px", width: "100%" }}
               >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    {paymentMethod === "cash" ? (
-                      <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
-                        <svg
-                          className="w-6 h-6 text-green-600"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"
-                          />
-                        </svg>
-                      </div>
-                    ) : (
-                      <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                        <svg
-                          className="w-6 h-6 text-blue-600"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"
-                          />
-                        </svg>
-                      </div>
-                    )}
-                    <div>
-                      <p className="font-semibold text-gray-900">
-                        {paymentMethod === "cash"
-                          ? "Cash on Delivery"
-                          : "Card Payment"}
-                      </p>
-                      <p className="text-sm text-gray-500">
-                        {paymentMethod === "cash"
-                          ? "Pay when you receive your order"
-                          : "Pay now with credit/debit card"}
-                      </p>
-                    </div>
-                  </div>
+                <TileLayer
+                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                />
+                <LocationMarker position={position} setPosition={setPosition} />
+                <MapController center={mapCenter} />
+              </MapContainer>
+            </div>
+            <div className="p-4">
+              <button
+                type="button"
+                onClick={handleUseMyLocation}
+                disabled={locating}
+                className="w-full py-3.5 bg-gradient-to-r from-orange-50 to-orange-100 text-[#FF7A00] font-semibold rounded-2xl hover:from-orange-100 hover:to-orange-150 disabled:from-gray-100 disabled:to-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center gap-2.5"
+              >
+                {locating ? (
+                  <>
+                    <div className="w-5 h-5 border-2 border-[#FF7A00] border-t-transparent rounded-full animate-spin"></div>
+                    <span>Getting location...</span>
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                    <span>Use My Current Location</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+            {/* Payment Method Card */}
+            <div className="bg-white rounded-2xl shadow-sm p-5">
+              <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                <div className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center">
                   <svg
-                    className={`w-5 h-5 text-gray-400 transition-transform ${
-                      showPaymentOptions ? "rotate-180" : ""
-                    }`}
+                    className="w-4 h-4 text-[#FF7A00]"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -776,430 +713,315 @@ const Checkout = () => {
                       strokeLinecap="round"
                       strokeLinejoin="round"
                       strokeWidth={2}
-                      d="M19 9l-7 7-7-7"
+                      d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"
                     />
                   </svg>
                 </div>
-              </div>
-
-              {/* Payment Options Dropdown */}
-              {showPaymentOptions && (
-                <div className="mt-3 space-y-2">
-                  <button
-                    onClick={() => {
-                      setPaymentMethod("cash");
-                      setShowPaymentOptions(false);
-                    }}
-                    className={`w-full border rounded-lg p-4 text-left transition ${
-                      paymentMethod === "cash"
-                        ? "border-indigo-500 bg-indigo-50"
-                        : "border-gray-300 hover:border-gray-400"
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
-                        <svg
-                          className="w-6 h-6 text-green-600"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"
-                          />
-                        </svg>
-                      </div>
-                      <div>
-                        <p className="font-semibold text-gray-900">
-                          Cash on Delivery
-                        </p>
-                        <p className="text-sm text-gray-500">
-                          Pay when you receive your order
-                        </p>
-                      </div>
-                      {paymentMethod === "cash" && (
-                        <svg
-                          className="w-5 h-5 text-indigo-600 ml-auto"
-                          fill="currentColor"
-                          viewBox="0 0 20 20"
-                        >
-                          <path
-                            fillRule="evenodd"
-                            d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                            clipRule="evenodd"
-                          />
-                        </svg>
-                      )}
-                    </div>
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setPaymentMethod("card");
-                      setShowPaymentOptions(false);
-                    }}
-                    className={`w-full border rounded-lg p-4 text-left transition ${
-                      paymentMethod === "card"
-                        ? "border-indigo-500 bg-indigo-50"
-                        : "border-gray-300 hover:border-gray-400"
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                        <svg
-                          className="w-6 h-6 text-blue-600"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"
-                          />
-                        </svg>
-                      </div>
-                      <div>
-                        <p className="font-semibold text-gray-900">
-                          Card Payment
-                        </p>
-                        <p className="text-sm text-gray-500">
-                          Pay now with credit/debit card
-                        </p>
-                      </div>
-                      {paymentMethod === "card" && (
-                        <svg
-                          className="w-5 h-5 text-indigo-600 ml-auto"
-                          fill="currentColor"
-                          viewBox="0 0 20 20"
-                        >
-                          <path
-                            fillRule="evenodd"
-                            d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                            clipRule="evenodd"
-                          />
-                        </svg>
-                      )}
-                    </div>
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Right Column - Order Summary */}
-          <div className="space-y-6">
-            <div className="bg-white rounded-xl shadow-md p-6 sticky top-24">
-              <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
-                <svg
-                  className="w-6 h-6 text-indigo-600"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
-                  />
-                </svg>
-                Order Summary
+                Payment Method
               </h2>
 
-              {/* Restaurant Info - Clickable Dropdown */}
-              {cart && (
-                <>
-                  <div
-                    onClick={() => setShowOrderItems(!showOrderItems)}
-                    className="flex items-center gap-3 pb-4 border-b border-gray-200 cursor-pointer hover:bg-gray-50 rounded-lg p-2 -mx-2 transition"
-                  >
-                    {cart.restaurant.logo_url ? (
-                      <img
-                        src={cart.restaurant.logo_url}
-                        alt={cart.restaurant.restaurant_name}
-                        className="w-14 h-14 rounded-lg object-cover"
-                      />
-                    ) : (
-                      <div className="w-14 h-14 rounded-lg bg-indigo-100 flex items-center justify-center">
-                        <span className="text-xl font-bold text-indigo-600">
-                          {cart.restaurant.restaurant_name.charAt(0)}
-                        </span>
-                      </div>
+              <div className="space-y-3">
+                {/* Cash on Delivery */}
+                <button
+                  onClick={() => setPaymentMethod("cash")}
+                  className={`w-full p-4 rounded-2xl border-2 transition-all flex items-center gap-3 ${
+                    paymentMethod === "cash"
+                      ? "border-[#FF7A00] bg-orange-50"
+                      : "border-gray-200 hover:border-gray-300"
+                  }`}
+                >
+                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                    paymentMethod === "cash" ? "border-[#FF7A00]" : "border-gray-300"
+                  }`}>
+                    {paymentMethod === "cash" && (
+                      <div className="w-3 h-3 bg-[#FF7A00] rounded-full"></div>
                     )}
-                    <div className="flex-1">
-                      <h3 className="font-bold text-gray-900">
-                        {cart.restaurant.restaurant_name}
-                      </h3>
-                      <p className="text-sm text-gray-500">
-                        {cart.total_items} item
-                        {cart.total_items !== 1 ? "s" : ""}
-                      </p>
-                      {/* Distance and Duration Display */}
-                      {routeLoading ? (
-                        <div className="flex items-center gap-1 mt-1">
-                          <div className="w-3 h-3 border-2 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
-                          <span className="text-sm text-gray-500">
-                            Calculating route...
-                          </span>
-                        </div>
-                      ) : routeInfo ? (
-                        <div className="flex items-center gap-3 mt-1">
-                          <div className="flex items-center gap-1">
-                            <svg
-                              className="w-4 h-4 text-orange-500"
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
-                              />
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
-                              />
-                            </svg>
-                            <span className="text-sm font-medium text-orange-600">
-                              {routeInfo.distance.toFixed(1)} km
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <svg
-                              className="w-4 h-4 text-blue-500"
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                              />
-                            </svg>
-                            <span className="text-sm font-medium text-blue-600">
-                              ~{Math.ceil(routeInfo.duration)} min
-                            </span>
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
-                    <svg
-                      className={`w-5 h-5 text-gray-400 transition-transform ${
-                        showOrderItems ? "rotate-180" : ""
-                      }`}
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M19 9l-7 7-7-7"
-                      />
+                  </div>
+                  <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
+                    <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
                     </svg>
                   </div>
-
-                  {/* Order Items - Collapsible */}
-                  {showOrderItems && (
-                    <div className="py-4 border-b border-gray-200 max-h-64 overflow-y-auto">
-                      <div className="space-y-3">
-                        {cart.items.map((item) => (
-                          <div
-                            key={item.id}
-                            className="flex items-start justify-between gap-3 p-2 bg-gray-50 rounded-lg"
-                          >
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2">
-                                <span className="bg-indigo-100 text-indigo-700 text-xs font-bold px-2 py-1 rounded">
-                                  {item.quantity}x
-                                </span>
-                                <span className="font-medium text-gray-900 text-sm">
-                                  {item.food_name}
-                                </span>
-                              </div>
-                              <div className="mt-1 flex items-center gap-2">
-                                <span className="text-xs text-gray-500 bg-white border px-2 py-0.5 rounded">
-                                  {item.size.charAt(0).toUpperCase() +
-                                    item.size.slice(1)}
-                                </span>
-                                <span className="text-xs text-gray-400">
-                                  @ {formatPrice(item.unit_price)} each
-                                </span>
-                              </div>
-                            </div>
-                            <span className="font-semibold text-gray-900 text-sm">
-                              {formatPrice(item.total_price)}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Pricing Breakdown */}
-                  <div className="py-4 space-y-2">
-                    {/* Minimum Order Warning */}
-                    {!isSubtotalValid && (
-                      <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-3 py-2 rounded-lg text-sm mb-3">
-                        <span className="font-medium">⚠️ Minimum order:</span>{" "}
-                        Rs. {MINIMUM_SUBTOTAL}. Add Rs.{" "}
-                        {(MINIMUM_SUBTOTAL - subtotal).toFixed(2)} more.
-                      </div>
-                    )}
-
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-600">Subtotal</span>
-                      <span
-                        className={`font-medium ${
-                          isSubtotalValid ? "text-gray-900" : "text-red-600"
-                        }`}
-                      >
-                        {formatPrice(subtotal)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-600">
-                        Delivery Fee
-                        {routeInfo && (
-                          <span className="text-xs text-gray-400 ml-1">
-                            ({routeInfo.distance.toFixed(1)} km)
-                          </span>
-                        )}
-                      </span>
-                      <span className="font-medium text-gray-900">
-                        {routeLoading ? (
-                          <span className="text-gray-400">Calculating...</span>
-                        ) : deliveryFee !== null ? (
-                          formatPrice(deliveryFee)
-                        ) : (
-                          <span className="text-gray-400">--</span>
-                        )}
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-600">Service Fee</span>
-                      <span className="font-medium text-gray-900">
-                        {isSubtotalValid ? (
-                          formatPrice(serviceFee)
-                        ) : (
-                          <span className="text-gray-400">--</span>
-                        )}
-                      </span>
-                    </div>
+                  <div className="flex-1 text-left">
+                    <p className="font-semibold text-gray-900">Cash on Delivery</p>
+                    <p className="text-xs text-gray-500">Pay when you receive</p>
                   </div>
+                </button>
 
-                  {/* Total */}
-                  <div className="pt-4 border-t border-gray-200">
-                    <div className="flex justify-between items-center">
-                      <span className="text-lg font-bold text-gray-900">
-                        Total
-                      </span>
-                      <span className="text-2xl font-bold text-indigo-600">
-                        {totalAmount !== null ? (
-                          formatPrice(totalAmount)
-                        ) : (
-                          <span className="text-gray-400">--</span>
-                        )}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Place Order Button */}
-                  <button
-                    onClick={handlePlaceOrder}
-                    disabled={
-                      !isSubtotalValid ||
-                      deliveryFee === null ||
-                      routeLoading ||
-                      placing
-                    }
-                    className={`w-full mt-6 px-6 py-4 font-bold rounded-lg transition flex items-center justify-center gap-2 ${
-                      !isSubtotalValid ||
-                      deliveryFee === null ||
-                      routeLoading ||
-                      placing
-                        ? "bg-gray-400 text-gray-200 cursor-not-allowed"
-                        : "bg-indigo-600 text-white hover:bg-indigo-700"
-                    }`}
-                  >
-                    {placing ? (
-                      <>
-                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                        Placing Order...
-                      </>
-                    ) : routeLoading ? (
-                      <>
-                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                        Calculating...
-                      </>
-                    ) : !isSubtotalValid ? (
-                      <>
-                        <svg
-                          className="w-5 h-5"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                          />
-                        </svg>
-                        Minimum Rs. {MINIMUM_SUBTOTAL} required
-                      </>
-                    ) : totalAmount !== null ? (
-                      <>
-                        <svg
-                          className="w-5 h-5"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M5 13l4 4L19 7"
-                          />
-                        </svg>
-                        Place Order • {formatPrice(totalAmount)}
-                      </>
-                    ) : (
-                      "Place Order"
+                {/* Card Payment */}
+                <button
+                  onClick={() => setPaymentMethod("card")}
+                  className={`w-full p-4 rounded-2xl border-2 transition-all flex items-center gap-3 ${
+                    paymentMethod === "card"
+                      ? "border-[#FF7A00] bg-orange-50"
+                      : "border-gray-200 hover:border-gray-300"
+                  }`}
+                >
+                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                    paymentMethod === "card" ? "border-[#FF7A00]" : "border-gray-300"
+                  }`}>
+                    {paymentMethod === "card" && (
+                      <div className="w-3 h-3 bg-[#FF7A00] rounded-full"></div>
                     )}
-                  </button>
+                  </div>
+                  <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                    <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                    </svg>
+                  </div>
+                  <div className="flex-1 text-left">
+                    <p className="font-semibold text-gray-900">Card Payment</p>
+                    <p className="text-xs text-gray-500">Credit/Debit card</p>
+                  </div>
+                </button>
 
-                  {/* Error message */}
-                  {error && (
-                    <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-                      {error}
-                    </div>
-                  )}
-
-                  <p className="text-xs text-gray-500 text-center mt-3">
-                    By placing this order, you agree to our terms of service
-                  </p>
-                </>
-              )}
+                {/* UPI/Wallet */}
+                
+                 
+              </div>
             </div>
+
+            {/* Promo Code Card */}
+            <div className="bg-white rounded-2xl shadow-sm p-5">
+              <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                <div className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center">
+                  <svg className="w-4 h-4 text-[#FF7A00]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                  </svg>
+                </div>
+                Promo Code
+              </h2>
+              <div className="flex gap-3">
+                <input
+                  type="text"
+                  placeholder="Enter promo code"
+                  className="flex-1 px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#FF7A00]/40 focus:border-[#FF7A00] transition-all text-sm"
+                />
+                <button className="px-6 py-3 bg-[#FF7A00] text-white font-semibold rounded-xl hover:bg-orange-600 transition">
+                  Apply
+                </button>
+              </div>
+            </div>
+
+            {/* Order Summary Card */}
+          <div className="bg-white rounded-2xl shadow-sm p-5">
+            <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+              <div className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center">
+                <svg className="w-4 h-4 text-[#FF7A00]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                </svg>
+              </div>
+              Order Summary
+            </h2>
+
+            {/* Restaurant Info - Clickable Dropdown */}
+            {cart && (
+              <>
+                <div
+                  onClick={() => setShowOrderItems(!showOrderItems)}
+                  className="flex items-center gap-3 pb-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 rounded-xl p-3 -mx-1 transition"
+                >
+                  {cart.restaurant.logo_url ? (
+                    <img
+                      src={cart.restaurant.logo_url}
+                      alt={cart.restaurant.restaurant_name}
+                      className="w-14 h-14 rounded-xl object-cover"
+                    />
+                  ) : (
+                    <div className="w-14 h-14 rounded-xl bg-orange-100 flex items-center justify-center">
+                      <span className="text-xl font-bold text-[#FF7A00]">
+                        {cart.restaurant.restaurant_name.charAt(0)}
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex-1">
+                    <h3 className="font-bold text-gray-900">
+                      {cart.restaurant.restaurant_name}
+                    </h3>
+                    <p className="text-sm text-gray-500">
+                      {cart.total_items} item{cart.total_items !== 1 ? "s" : ""}
+                    </p>
+                    {/* Distance and Duration Display */}
+                    {routeLoading ? (
+                      <div className="flex items-center gap-1 mt-1">
+                        <div className="w-3 h-3 border-2 border-[#FF7A00] border-t-transparent rounded-full animate-spin"></div>
+                        <span className="text-sm text-gray-500">Calculating route...</span>
+                      </div>
+                    ) : routeInfo ? (
+                      <div className="flex items-center gap-3 mt-1">
+                        <div className="flex items-center gap-1">
+                          <svg className="w-4 h-4 text-[#FF7A00]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                          </svg>
+                          <span className="text-sm font-medium text-[#FF7A00]">{routeInfo.distance.toFixed(1)} km</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          <span className="text-sm font-medium text-gray-600">~{Math.ceil(routeInfo.duration)} min</span>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                  <svg
+                    className={`w-5 h-5 text-gray-400 transition-transform ${showOrderItems ? "rotate-180" : ""}`}
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+
+                {/* Order Items - Collapsible */}
+                {showOrderItems && (
+                  <div className="py-4 border-b border-gray-100 max-h-64 overflow-y-auto">
+                    <div className="space-y-3">
+                      {cart.items.map((item) => (
+                        <div
+                          key={item.id}
+                          className="flex items-start justify-between gap-3 p-3 bg-gray-50 rounded-xl"
+                        >
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="bg-[#FF7A00] text-white text-xs font-bold px-2 py-1 rounded-lg">
+                                {item.quantity}x
+                              </span>
+                              <span className="font-medium text-gray-900 text-sm">
+                                {item.food_name}
+                              </span>
+                            </div>
+                            <div className="mt-1 flex items-center gap-2">
+                              <span className="text-xs text-gray-500 bg-white border border-gray-200 px-2 py-0.5 rounded-lg">
+                                {item.size.charAt(0).toUpperCase() + item.size.slice(1)}
+                              </span>
+                              <span className="text-xs text-gray-400">
+                                @ {formatPrice(item.unit_price)} each
+                              </span>
+                            </div>
+                          </div>
+                          <span className="font-semibold text-gray-900 text-sm">
+                            {formatPrice(item.total_price)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Pricing Breakdown */}
+                <div className="py-4 space-y-3">
+                  {/* Minimum Order Warning */}
+                  {!isSubtotalValid && (
+                    <div className="bg-orange-50 border border-orange-200 text-orange-800 px-4 py-3 rounded-xl text-sm mb-3 flex items-center gap-2">
+                      <svg className="w-5 h-5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                      </svg>
+                      <span>
+                        <span className="font-medium">Minimum order:</span> Rs. {MINIMUM_SUBTOTAL}. Add Rs. {(MINIMUM_SUBTOTAL - subtotal).toFixed(2)} more.
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Subtotal</span>
+                    <span className={`font-medium ${isSubtotalValid ? "text-gray-900" : "text-red-600"}`}>
+                      {formatPrice(subtotal)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">
+                      Delivery Fee
+                      {routeInfo && (
+                        <span className="text-xs text-gray-400 ml-1">({routeInfo.distance.toFixed(1)} km)</span>
+                      )}
+                    </span>
+                    <span className="font-medium text-gray-900">
+                      {routeLoading ? (
+                        <span className="text-gray-400">Calculating...</span>
+                      ) : deliveryFee !== null ? (
+                        formatPrice(deliveryFee)
+                      ) : (
+                        <span className="text-gray-400">--</span>
+                      )}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Service Fee</span>
+                    <span className="font-medium text-gray-900">
+                      {isSubtotalValid ? formatPrice(serviceFee) : <span className="text-gray-400">--</span>}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Total */}
+                <div className="pt-4 border-t border-gray-200">
+                  <div className="flex justify-between items-center">
+                    <span className="text-lg font-bold text-gray-900">Total</span>
+                    <span className="text-2xl font-bold text-[#FF7A00]">
+                      {totalAmount !== null ? formatPrice(totalAmount) : <span className="text-gray-400">--</span>}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Error message */}
+                {error && (
+                  <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
+                    {error}
+                  </div>
+                )}
+              </>
+            )}
           </div>
         </div>
+      </main>
+
+      {/* Fixed Bottom CTA */}
+        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 p-4 pb-6 shadow-lg">
+          <button
+            onClick={handlePlaceOrder}
+            disabled={!isSubtotalValid || deliveryFee === null || routeLoading || placing}
+            className={`w-full py-4 font-bold rounded-full transition flex items-center justify-center gap-2 shadow-lg ${
+              !isSubtotalValid || deliveryFee === null || routeLoading || placing
+                ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                : "bg-[#FF7A00] text-white hover:bg-orange-600 shadow-orange-200"
+            }`}
+          >
+            {placing ? (
+              <>
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                Placing Order...
+              </>
+            ) : routeLoading ? (
+              <>
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                Calculating...
+              </>
+            ) : !isSubtotalValid ? (
+              <>
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                Minimum Rs. {MINIMUM_SUBTOTAL} required
+              </>
+            ) : totalAmount !== null ? (
+              <>
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                Place Order • {formatPrice(totalAmount)}
+              </>
+            ) : (
+              "Place Order"
+            )}
+          </button>
+          <p className="text-xs text-gray-500 text-center mt-2">
+            By placing this order, you agree to our terms of service
+          </p>
+        </div>
       </div>
-    </div>
   );
 };
 

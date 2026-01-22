@@ -36,17 +36,21 @@ export default function CustomerNotifications() {
     }
   }, []);
 
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
   useEffect(() => {
     const role = localStorage.getItem("role");
     const userId = localStorage.getItem("userId");
+    const token = localStorage.getItem("token");
 
-    if (role !== "customer") {
-      navigate("/login");
-      return;
+    if (token && role === "customer") {
+      setIsLoggedIn(true);
+      setCustomerId(userId);
+      fetchNotifications();
+    } else {
+      setIsLoggedIn(false);
+      setLoading(false);
     }
-
-    setCustomerId(userId);
-    fetchNotifications();
   }, [navigate, fetchNotifications]);
 
   // Real-time subscription for new notifications (using broadcast channel)
@@ -126,7 +130,23 @@ export default function CustomerNotifications() {
           </p>
         </div>
 
-        {loading ? (
+        {!isLoggedIn ? (
+          <div className="text-center py-12 bg-white rounded-xl shadow">
+            <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg className="w-10 h-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              </svg>
+            </div>
+            <p className="text-xl font-medium text-gray-800">Please login to view notifications</p>
+            <p className="text-gray-500 mt-1">Sign in to see your order updates</p>
+            <button
+              onClick={() => navigate("/login")}
+              className="mt-4 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            >
+              Login
+            </button>
+          </div>
+        ) : loading ? (
           <div className="text-center py-12">
             <div className="animate-spin rounded-full h-10 w-10 border-b-4 border-blue-600 mx-auto"></div>
             <p className="text-gray-600 mt-4">Loading notifications...</p>

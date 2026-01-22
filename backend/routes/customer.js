@@ -99,4 +99,38 @@ router.patch("/notifications/mark-all-read", authenticate, async (req, res) => {
   }
 });
 
+/**
+ * GET /customer/me
+ * Get customer profile details
+ */
+router.get("/me", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "customer") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const customerId = req.user.id;
+
+    const { data: customer, error } = await supabaseAdmin
+      .from("customers")
+      .select("id, username, email, phone, address, city, nic_number, latitude, longitude, created_at")
+      .eq("id", customerId)
+      .single();
+
+    if (error) {
+      console.error("Customer fetch error:", error);
+      return res.status(500).json({ message: "Failed to fetch customer profile" });
+    }
+
+    if (!customer) {
+      return res.status(404).json({ message: "Customer not found" });
+    }
+
+    return res.json({ customer });
+  } catch (e) {
+    console.error("/customer/me error:", e);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
 export default router;
