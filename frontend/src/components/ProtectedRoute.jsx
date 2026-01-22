@@ -1,16 +1,21 @@
 import { Navigate } from "react-router-dom";
 
-export default function ProtectedRoute({ children, allowedRole }) {
+export default function ProtectedRoute({ children, allowedRole, requireAuth = false }) {
   const token = localStorage.getItem("token");
   const role = localStorage.getItem("role");
 
   // Special handling for customer-allowed routes:
-  // - If no token (guest), allow browsing (browse-as-client behavior)
+  // - If requireAuth is true, require authentication
+  // - If no token (guest) and requireAuth is false, allow browsing (browse-as-client behavior)
   // - If token exists and role is customer, allow
   // - If token exists and role is not customer, redirect them away
   if (allowedRole === "customer") {
     if (!token) {
-      // Guest browsing allowed for customer pages
+      // If requireAuth is true, redirect to login
+      if (requireAuth) {
+        return <Navigate to="/login" replace />;
+      }
+      // Guest browsing allowed for customer pages when requireAuth is false
       return children;
     }
 
@@ -22,7 +27,7 @@ export default function ProtectedRoute({ children, allowedRole }) {
       } else if (role === "driver") {
         return <Navigate to="/driver/dashboard" replace />;
       } else {
-        return <Navigate to="/" replace />;
+        return <Navigate to="/welcome" replace />;
       }
     }
 
@@ -42,7 +47,7 @@ export default function ProtectedRoute({ children, allowedRole }) {
     } else if (role === "driver") {
       return <Navigate to="/driver/dashboard" replace />;
     } else {
-      return <Navigate to="/" replace />;
+      return <Navigate to="/welcome" replace />;
     }
   }
 

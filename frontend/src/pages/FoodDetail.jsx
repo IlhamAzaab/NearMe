@@ -85,7 +85,7 @@ const FoodDetail = () => {
     setRole("");
     setUserEmail("");
     setUserName("");
-    navigate("/");
+    navigate("/home");
   };
 
   const formatPrice = (price) => {
@@ -94,20 +94,30 @@ const FoodDetail = () => {
 
   const addToCart = async ({ goToCheckout = false } = {}) => {
     try {
-      if (!isLoggedIn) {
+      // Debug: Check localStorage values
+      const currentToken = localStorage.getItem("token");
+      const currentRole = localStorage.getItem("role");
+      console.log("🛒 addToCart called");
+      console.log("📦 localStorage token:", currentToken ? `${currentToken.substring(0, 20)}...` : "NULL");
+      console.log("📦 localStorage role:", currentRole);
+      console.log("📦 isLoggedIn state:", isLoggedIn);
+      console.log("📦 role state:", role);
+
+      // Check real-time token instead of state
+      if (!currentToken || currentToken === "null" || currentToken === "undefined") {
         alert("Please login to add items to cart");
         navigate("/login");
         return;
       }
 
-      if (role !== "customer") {
+      if (currentRole !== "customer") {
         alert("Only customers can add items to cart");
         return;
       }
 
       setAddingToCart(true);
 
-      const token = localStorage.getItem("token");
+      const token = currentToken;
       const response = await fetch("http://localhost:5000/cart/add", {
         method: "POST",
         headers: {

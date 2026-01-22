@@ -220,8 +220,23 @@ export default function CompleteProfile() {
         return;
       }
 
-      // Success - redirect to login with success message
-      navigate("/login?profileCompleted=true");
+      // Success - save token and user data, then redirect to home
+      console.log("✅ Profile completed, saving token:", data.token ? `${data.token.substring(0, 20)}...` : "NULL");
+      
+      if (data.token) {
+        localStorage.setItem("token", data.token);
+      }
+      localStorage.setItem("role", data.role || "customer");
+      localStorage.setItem("userEmail", userData.email);
+      if (data.userId) {
+        localStorage.setItem("userId", data.userId);
+      }
+      if (data.userName) {
+        localStorage.setItem("userName", data.userName);
+      }
+      
+      // Navigate directly to home (logged in)
+      navigate("/home");
     } catch (err) {
       console.error("Profile completion error:", err);
       setError("Network error. Please try again.");

@@ -39,6 +39,55 @@ router.get("/restaurants", async (req, res) => {
 });
 
 /**
+ * GET /public/foods
+ * Get all available foods from all active restaurants with search capability
+ */
+router.get("/foods", async (req, res) => {
+  try {
+    const { search } = req.query;
+
+    let query = supabaseAdmin
+      .from("foods")
+      .select(`
+        *,
+        restaurants!inner (
+          id,
+          restaurant_name,
+          logo_url,
+          city,
+          restaurant_status
+        )
+      `)
+      .eq("is_available", true)
+      .eq("restaurants.restaurant_status", "active")
+      .order("name", { ascending: true });
+
+    // Add search filter if provided
+    if (search && search.trim()) {
+      query = query.or(`name.ilike.%${search}%,description.ilike.%${search}%`);
+    }
+
+    const { data: foods, error } = await query;
+
+    if (error) {
+      console.error("Fetch all foods error:", error);
+      return res.status(500).json({ message: "Failed to fetch foods" });
+    }
+
+    // Map the data to include price (using regular_price as default)
+    const mappedFoods = (foods || []).map(food => ({
+      ...food,
+      price: food.offer_price || food.regular_price || 0
+    }));
+
+    return res.json({ foods: mappedFoods });
+  } catch (e) {
+    console.error("/public/foods error:", e);
+    return res.status(500).json({ message: "Server error", error: e.message });
+  }
+});
+
+/**
  * GET /public/restaurants/:restaurantId
  * Get single restaurant details
  */

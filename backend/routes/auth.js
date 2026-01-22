@@ -581,8 +581,19 @@ router.post("/complete-profile", async (req, res) => {
     // Update users table with phone
     await supabaseAdmin.from("users").update({ phone }).eq("id", userId);
 
+    // Generate JWT token for the customer
+    const token = jwt.sign(
+      { id: userId, role: "customer" },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
     res.json({
       message: "Profile completed successfully",
+      token, // Return token for immediate login
+      role: "customer",
+      userId: userId,
+      userName: username,
       customer: {
         id: userId,
         username,
@@ -671,9 +682,24 @@ router.post("/login", async (req, res) => {
           message: "Please complete your profile",
         });
       }
+
+      // Generate JWT token
+      const token = jwt.sign(
+        { id: userId, role: roleData.role },
+        process.env.JWT_SECRET,
+        { expiresIn: "7d" }
+      );
+
+      return res.json({
+        token,
+        role: roleData.role,
+        profileCompleted: true,
+        userId: userId,
+        userName: customerProfile.username,
+      });
     }
 
-    // Generate JWT token
+    // Generate JWT token for non-customer roles
     const token = jwt.sign(
       { id: userId, role: roleData.role },
       process.env.JWT_SECRET,
@@ -684,6 +710,7 @@ router.post("/login", async (req, res) => {
       token,
       role: roleData.role,
       profileCompleted: true,
+      userId: userId,
     });
   } catch (error) {
     console.error("Login error:", error);
