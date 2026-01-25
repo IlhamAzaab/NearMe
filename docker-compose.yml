@@ -52,3 +52,7 @@ services:
 networks:
   nearme-network:
     driver: bridge
+
+networks:
+  nearme-network:
+    driver: bridge

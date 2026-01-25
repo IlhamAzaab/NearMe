@@ -13,7 +13,7 @@ export default function DriverDeliveries() {
   const fetchAvailable = useCallback(async () => {
     try {
       const res = await fetch(
-        "http://localhost:5000/driver/deliveries/available",
+        "http://localhost:5000/driver/deliveries/pending",
         {
           headers: { Authorization: `Bearer ${token}` },
         }

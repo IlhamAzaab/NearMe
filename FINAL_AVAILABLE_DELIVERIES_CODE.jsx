@@ -48,7 +48,6 @@ export default function AvailableDeliveries() {
   const [loading, setLoading] = useState(true);
   const [accepting, setAccepting] = useState(null);
   const [driverLocation, setDriverLocation] = useState(DEFAULT_DRIVER_LOCATION);
-  const [inDeliveringMode, setInDeliveringMode] = useState(false);
 
   useEffect(() => {
     const role = localStorage.getItem("role");
@@ -56,9 +55,6 @@ export default function AvailableDeliveries() {
       navigate("/login");
       return;
     }
-
-    // Check if driver is in delivering mode first
-    checkDeliveringMode();
 
     // Get driver's current location, fallback to default
     if (navigator.geolocation) {
@@ -74,51 +70,17 @@ export default function AvailableDeliveries() {
         (error) => {
           console.error(
             "Error getting location, using default Kinniya location:",
-            error
+            error,
           );
           setDriverLocation(DEFAULT_DRIVER_LOCATION);
           fetchPendingDeliveriesWithLocation(DEFAULT_DRIVER_LOCATION);
-        }
+        },
       );
     } else {
       setDriverLocation(DEFAULT_DRIVER_LOCATION);
       fetchPendingDeliveriesWithLocation(DEFAULT_DRIVER_LOCATION);
     }
   }, [navigate]);
-
-  const checkDeliveringMode = async () => {
-    try {
-      const token = localStorage.getItem("token");
-      const res = await fetch("http://localhost:5000/driver/deliveries/pickups?driver_latitude=0&driver_longitude=0", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      
-      if (res.ok) {
-        const data = await res.json();
-        // If driver has any pickups (accepted but not yet picked up), they're in pickup mode
-        // If no pickups but has active deliveries, check for delivering mode
-        if (!data.pickups || data.pickups.length === 0) {
-          // Check for deliveries in delivering statuses
-          const activeRes = await fetch("http://localhost:5000/driver/deliveries/active", {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          if (activeRes.ok) {
-            const activeData = await activeRes.json();
-            const hasDeliveringOrders = activeData.deliveries?.some(d => 
-              ["picked_up", "on_the_way", "at_customer"].includes(d.status)
-            );
-            if (hasDeliveringOrders) {
-              setInDeliveringMode(true);
-              // Redirect to active deliveries
-              setTimeout(() => navigate("/driver/deliveries/active"), 100);
-            }
-          }
-        }
-      }
-    } catch (e) {
-      console.error("Failed to check delivering mode:", e);
-    }
-  };
 
   const fetchPendingDeliveriesWithLocation = async (location) => {
     try {
@@ -162,7 +124,7 @@ export default function AvailableDeliveries() {
         e.message.includes("NetworkError")
       ) {
         alert(
-          "Cannot connect to server. Please check your internet connection and try again."
+          "Cannot connect to server. Please check your internet connection and try again.",
         );
       } else {
         console.error("Fetch error details:", e.message);
@@ -193,7 +155,7 @@ export default function AvailableDeliveries() {
             "Content-Type": "application/json",
           },
           body: JSON.stringify(body),
-        }
+        },
       );
 
       const data = await res.json();
@@ -201,10 +163,10 @@ export default function AvailableDeliveries() {
       if (res.ok) {
         // Remove from list and show success message
         setDeliveries((prev) =>
-          prev.filter((d) => d.delivery_id !== deliveryId)
+          prev.filter((d) => d.delivery_id !== deliveryId),
         );
-        alert("Delivery accepted successfully!");
-        // Stay on current page - driver navigates manually when ready
+        alert("Delivery accepted! Check Active Deliveries.");
+        navigate("/driver/deliveries/active");
       } else {
         alert(data.message || "Failed to accept delivery");
       }
@@ -237,25 +199,8 @@ export default function AvailableDeliveries() {
           </button>
         </div>
 
-        {/* Delivering Mode Restriction */}
-        {inDeliveringMode ? (
-          <div className="bg-yellow-50 rounded-xl shadow border border-yellow-200 p-12 text-center">
-            <div className="text-6xl mb-4">🚗</div>
-            <h3 className="text-xl font-bold text-gray-800 mb-2">
-              Currently in Delivering Mode
-            </h3>
-            <p className="text-gray-600 mb-6">
-              Complete your current deliveries before accepting new ones
-            </p>
-            <button
-              onClick={() => navigate("/driver/deliveries/active")}
-              className="px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all duration-300 shadow-md hover:shadow-lg font-medium"
-            >
-              Go to Active Deliveries
-            </button>
-          </div>
-        ) : loading ? (
-          /* Loading State */
+        {/* Loading State */}
+        {loading ? (
           <div className="bg-white rounded-xl shadow border border-blue-100 p-12 text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-blue-600 mx-auto"></div>
             <p className="mt-4 text-gray-600 font-medium">
@@ -286,7 +231,9 @@ export default function AvailableDeliveries() {
                 Check back later for new delivery requests
               </p>
               <button
-                onClick={() => fetchPendingDeliveriesWithLocation(driverLocation)}
+                onClick={() =>
+                  fetchPendingDeliveriesWithLocation(driverLocation)
+                }
                 className="mt-6 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
               >
                 Refresh
@@ -330,7 +277,7 @@ function DeliveryCard({ delivery, driverLocation, accepting, onAccept }) {
   // Calculate total items
   const totalItems = order_items.reduce(
     (sum, item) => sum + (item.quantity || 0),
-    0
+    0,
   );
 
   // Calculate map center and bounds
@@ -412,7 +359,7 @@ function DeliveryCard({ delivery, driverLocation, accepting, onAccept }) {
               driver_to_restaurant_route.coordinates && (
                 <Polyline
                   positions={driver_to_restaurant_route.coordinates.map(
-                    (coord) => [coord[1], coord[0]]
+                    (coord) => [coord[1], coord[0]],
                   )}
                   color="#86efac"
                   weight={6}
@@ -425,7 +372,7 @@ function DeliveryCard({ delivery, driverLocation, accepting, onAccept }) {
               restaurant_to_customer_route.coordinates && (
                 <Polyline
                   positions={restaurant_to_customer_route.coordinates.map(
-                    (coord) => [coord[1], coord[0]]
+                    (coord) => [coord[1], coord[0]],
                   )}
                   color="#9ca3af"
                   weight={6}
@@ -437,7 +384,9 @@ function DeliveryCard({ delivery, driverLocation, accepting, onAccept }) {
 
         {/* Order Number Badge */}
         <div className="absolute top-3 right-3 bg-gradient-to-r from-blue-600 to-blue-700 px-4 py-2 rounded-full shadow-lg">
-          <p className="text-xs font-semibold text-white">Order #{order_number}</p>
+          <p className="text-xs font-semibold text-white">
+            Order #{order_number}
+          </p>
         </div>
 
         {/* Items Count Badge */}
@@ -476,7 +425,7 @@ function DeliveryCard({ delivery, driverLocation, accepting, onAccept }) {
                     d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"
                   />
                 </svg>
-                <span className="font-bold">{distance_km} km (OSRM)</span>
+                <span className="font-bold">{distance_km} km</span>
               </div>
               <div className="flex items-center gap-2 text-sm text-gray-700">
                 <svg

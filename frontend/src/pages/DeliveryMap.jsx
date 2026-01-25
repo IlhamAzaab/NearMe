@@ -351,7 +351,7 @@ export default function DeliveryMap() {
       },
       { key: "arrived_restaurant", label: "Arrived at Restaurant", icon: "🏪" },
       { key: "picked_up", label: "Picked Up", icon: "📦" },
-      { key: "heading_to_customer", label: "Heading to Customer", icon: "🚗" },
+      { key: "on_the_way", label: "On the Way", icon: "🚗" },
       { key: "arrived_customer", label: "Arrived at Customer", icon: "🏠" },
       { key: "delivered", label: "Delivered", icon: "🎉" },
     ];

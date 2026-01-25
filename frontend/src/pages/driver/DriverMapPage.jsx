@@ -172,7 +172,7 @@ export default function DriverMapPage() {
       });
       const pickupsData = await pickupsRes.json();
 
-      // Fetch deliveries (picked_up, heading_to_customer, at_customer)
+      // Fetch deliveries (picked_up, on_the_way, at_customer)
       const deliveriesUrl = `http://localhost:5000/driver/deliveries/deliveries-route?driver_latitude=${driverLocation.latitude}&driver_longitude=${driverLocation.longitude}`;
       const deliveriesRes = await fetch(deliveriesUrl, {
         headers: { Authorization: `Bearer ${token}` },
@@ -268,7 +268,7 @@ export default function DriverMapPage() {
     try {
       const token = localStorage.getItem("token");
       
-      // First update to heading_to_customer if not already
+      // First update to on_the_way if not already
       if (currentTarget.status === "picked_up") {
         await fetch(
           `http://localhost:5000/driver/deliveries/${currentTarget.delivery_id}/status`,
@@ -278,7 +278,7 @@ export default function DriverMapPage() {
               Authorization: `Bearer ${token}`,
               "Content-Type": "application/json",
             },
-            body: JSON.stringify({ status: "heading_to_customer" }),
+            body: JSON.stringify({ status: "on_the_way" }),
           }
         );
       }
@@ -286,7 +286,7 @@ export default function DriverMapPage() {
       // Then to at_customer if not already
       if (
         currentTarget.status === "picked_up" ||
-        currentTarget.status === "heading_to_customer"
+        currentTarget.status === "on_the_way"
       ) {
         await fetch(
           `http://localhost:5000/driver/deliveries/${currentTarget.delivery_id}/status`,

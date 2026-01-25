@@ -56,7 +56,7 @@ export default function DriverDashboard() {
 
       // Fetch available deliveries count
       const availableRes = await fetch(
-        "http://localhost:5000/driver/deliveries/available",
+        "http://localhost:5000/driver/deliveries/pending",
         {
           headers: { Authorization: `Bearer ${token}` },
         }

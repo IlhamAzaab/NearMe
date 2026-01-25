@@ -39,14 +39,40 @@ function calculateHaversineDistance(lat1, lon1, lat2, lon2) {
 }
 
 // ============================================================================
-// Helper: Fetch with timeout and retry logic
+// Helper: Simple in-memory cache for OSRM responses (avoid duplicate calls)
+// ============================================================================
+const osrmCache = new Map();
+const CACHE_TTL = 3600000; // 1 hour in milliseconds
+
+function getCacheKey(startLng, startLat, endLng, endLat) {
+  return `${startLng},${startLat};${endLng},${endLat}`;
+}
+
+function getFromCache(key) {
+  const cached = osrmCache.get(key);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    console.log(`[OSRM CACHE] ✓ Hit: ${key}`);
+    return cached.data;
+  }
+  osrmCache.delete(key);
+  return null;
+}
+
+function setCache(key, data) {
+  osrmCache.set(key, { data, timestamp: Date.now() });
+}
+
+// ============================================================================
+// Helper: Fetch with timeout and improved retry logic
 // ============================================================================
 async function fetchWithTimeout(
   url,
   options = {},
-  timeout = 5000,
-  retries = 2
+  timeout = 15000,
+  retries = 3
 ) {
+  let lastError;
+  
   for (let i = 0; i <= retries; i++) {
     try {
       const controller = new AbortController();
@@ -60,17 +86,23 @@ async function fetchWithTimeout(
       clearTimeout(timeoutId);
       return response;
     } catch (error) {
+      lastError = error;
+      
       if (i === retries) {
-        throw error;
+        throw lastError;
       }
-      // Wait before retry (exponential backoff)
-      await new Promise((resolve) => setTimeout(resolve, 1000 * (i + 1)));
+      
+      // Exponential backoff: 1s, 2s, 4s
+      const delay = Math.pow(2, i) * 1000;
+      console.log(`[OSRM] Retry ${i + 1}/${retries} after ${delay}ms - Error: ${error.message}`);
+      
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
 }
 
 // ============================================================================
-// Helper: Get route from OSRM with fallback
+// Helper: Get route from OSRM (Public Server) with caching and retry
 // ============================================================================
 async function getRouteDistance(
   startLng,
@@ -80,45 +112,57 @@ async function getRouteDistance(
   overview = "false"
 ) {
   try {
+    const cacheKey = getCacheKey(startLng, startLat, endLng, endLat);
+    
+    // Check cache first
+    const cached = getFromCache(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     const url = `https://router.project-osrm.org/route/v1/driving/${startLng},${startLat};${endLng},${endLat}?overview=${overview}${
       overview === "full" ? "&geometries=geojson" : ""
     }`;
 
-    const response = await fetchWithTimeout(url, {}, 5000, 1);
+    console.log(`[OSRM] Requesting route: (${startLng},${startLat}) → (${endLng},${endLat})`);
+
+    // Use public OSRM with 15 second timeout and 3 retries
+    const response = await fetchWithTimeout(url, {}, 15000, 3);
+    
+    if (!response.ok) {
+      console.error(`[OSRM] HTTP Error: ${response.status} ${response.statusText}`);
+      throw new Error(`OSRM HTTP ${response.status}`);
+    }
+
     const data = await response.json();
 
     if (data.code === "Ok" && data.routes?.[0]) {
+      console.log(`[OSRM] ✅ Success: Distance=${(data.routes[0].distance / 1000).toFixed(2)}km, Duration=${(data.routes[0].duration / 60).toFixed(0)}min`);
+      
+      // Cache the result
+      setCache(cacheKey, data.routes[0]);
+      
       return data.routes[0];
     }
 
-    // Fallback to Haversine if OSRM fails
-    const distance = calculateHaversineDistance(
-      startLat,
-      startLng,
-      endLat,
-      endLng
-    );
-    return {
-      distance: distance * 1.3, // Add 30% for road routing approximation
-      duration: (distance * 1.3) / 10, // Approximate 10 m/s average speed
-      geometry:
-        overview === "full"
-          ? {
-              coordinates: [
-                [startLng, startLat],
-                [endLng, endLat],
-              ],
-            }
-          : undefined,
-    };
+    console.warn(`[OSRM] ⚠️ Invalid response: code=${data.code}, message=${data.message}`);
+    throw new Error(`OSRM code: ${data.code} - ${data.message}`);
+
   } catch (error) {
-    // Fallback to Haversine calculation
+    console.error(`[OSRM] ❌ All retries failed - Error: ${error.message}`);
+    
+    // Fallback to Haversine only if OSRM completely fails
+    console.log(`[HAVERSINE] Using fallback calculation...`);
+    
     const distance = calculateHaversineDistance(
       startLat,
       startLng,
       endLat,
       endLng
     );
+    
+    console.log(`[HAVERSINE] Distance=${(distance / 1000).toFixed(2)}km (estimated)`);
+    
     return {
       distance: distance * 1.3, // Add 30% for road routing approximation
       duration: (distance * 1.3) / 10, // Approximate 10 m/s average speed
@@ -131,6 +175,7 @@ async function getRouteDistance(
               ],
             }
           : undefined,
+      isEstimate: true, // Mark as fallback estimate
     };
   }
 }
@@ -266,23 +311,23 @@ router.get(
           const customerLat = parseFloat(d.orders.delivery_latitude);
           const customerLng = parseFloat(d.orders.delivery_longitude);
 
-          // Calculate driver to restaurant route (OSRM only)
-          const driverToRestaurantRoute = await getRouteDistance(
-            driverLng,
-            driverLat,
-            restaurantLng,
-            restaurantLat,
-            "full"
-          );
-
-          // Calculate restaurant to customer route (OSRM only)
-          const restaurantToCustomerRoute = await getRouteDistance(
-            restaurantLng,
-            restaurantLat,
-            customerLng,
-            customerLat,
-            "full"
-          );
+          // Calculate both routes in PARALLEL for faster response
+          const [driverToRestaurantRoute, restaurantToCustomerRoute] = await Promise.all([
+            getRouteDistance(
+              driverLng,
+              driverLat,
+              restaurantLng,
+              restaurantLat,
+              "full"
+            ),
+            getRouteDistance(
+              restaurantLng,
+              restaurantLat,
+              customerLng,
+              customerLat,
+              "full"
+            ),
+          ]);
 
           const totalDistance =
             (driverToRestaurantRoute.distance || 0) +
@@ -391,6 +436,21 @@ router.post(
     const { driver_latitude, driver_longitude } = req.body;
 
     try {
+      // Check if driver is in delivering mode (has picked_up/on_the_way/at_customer deliveries)
+      const { data: deliveringCheck } = await supabaseAdmin
+        .from("deliveries")
+        .select("id, status")
+        .eq("driver_id", req.user.id)
+        .in("status", ["picked_up", "on_the_way", "at_customer"])
+        .limit(1);
+
+      if (deliveringCheck && deliveringCheck.length > 0) {
+        return res.status(400).json({
+          message: "Cannot accept new deliveries while in delivering mode. Complete current deliveries first.",
+          in_delivering_mode: true,
+        });
+      }
+
       // Atomically assign the delivery to this driver if unassigned and still pending
       const { data: updated, error } = await supabaseAdmin
         .from("deliveries")
@@ -577,26 +637,31 @@ router.get(
           const customerLat = parseFloat(d.orders.delivery_latitude);
           const customerLng = parseFloat(d.orders.delivery_longitude);
 
-          // Route from driver to restaurant
-          const route = await getRouteDistance(
-            driverLng,
-            driverLat,
-            restaurantLng,
-            restaurantLat,
-            "full"
-          );
-
-          // Route from restaurant to customer
-          let customerRoute = null;
-          if (customerLat && customerLng) {
-            customerRoute = await getRouteDistance(
+          // Calculate both routes in PARALLEL for faster response
+          const routePromises = [
+            getRouteDistance(
+              driverLng,
+              driverLat,
               restaurantLng,
               restaurantLat,
-              customerLng,
-              customerLat,
               "full"
+            ),
+          ];
+
+          // Only fetch customer route if coordinates exist
+          if (customerLat && customerLng) {
+            routePromises.push(
+              getRouteDistance(
+                restaurantLng,
+                restaurantLat,
+                customerLng,
+                customerLat,
+                "full"
+              )
             );
           }
+
+          const [route, customerRoute] = await Promise.all(routePromises);
 
           return {
             delivery_id: d.id,
@@ -710,7 +775,7 @@ router.get(
         `
         )
         .eq("driver_id", req.user.id)
-        .in("status", ["picked_up", "heading_to_customer", "at_customer"])
+        .in("status", ["picked_up", "on_the_way", "at_customer"])
         .order("picked_up_at", { ascending: true });
 
       if (error) {
@@ -1057,7 +1122,7 @@ router.patch(
 
     const validStatuses = [
       "picked_up",
-      "heading_to_customer",
+      "on_the_way",
       "at_customer",
       "delivered",
     ];
@@ -1073,7 +1138,7 @@ router.patch(
       const { data: currentDelivery, error: fetchError } = await supabaseAdmin
         .from("deliveries")
         .select(
-          "status, order_id, orders (customer_id, restaurant_id, order_number)"
+          "status, order_id, current_latitude, current_longitude, orders (customer_id, restaurant_id, order_number, restaurant_latitude, restaurant_longitude, delivery_latitude, delivery_longitude)"
         )
         .eq("id", deliveryId)
         .eq("driver_id", req.user.id)
@@ -1086,8 +1151,8 @@ router.patch(
       // Validate state transitions
       const validTransitions = {
         accepted: ["picked_up"],
-        picked_up: ["heading_to_customer"],
-        heading_to_customer: ["at_customer"],
+        picked_up: ["on_the_way"],
+        on_the_way: ["at_customer"],
         at_customer: ["delivered"],
       };
 
@@ -1104,7 +1169,7 @@ router.patch(
       const timestamp = new Date().toISOString();
       if (status === "picked_up") {
         updateData.picked_up_at = timestamp;
-      } else if (status === "heading_to_customer") {
+      } else if (status === "on_the_way") {
         updateData.on_the_way_at = timestamp;
       } else if (status === "at_customer") {
         updateData.arrived_customer_at = timestamp;
@@ -1145,7 +1210,7 @@ router.patch(
           customer: "Your order has been picked up from the restaurant",
           restaurant: "Order has been picked up by driver",
         },
-        heading_to_customer: {
+        on_the_way: {
           customer: "Driver is on the way to your location",
           restaurant: "Driver is delivering the order to customer",
         },
@@ -1193,6 +1258,133 @@ router.patch(
 
       if (notifications.length > 0) {
         await supabaseAdmin.from("notifications").insert(notifications);
+      }
+
+      // Helper: promote the nearest picked_up delivery to on_the_way when no active on_the_way/at_customer exists
+      const promoteNextPickedUp = async (referenceLat, referenceLng) => {
+        if (!referenceLat || !referenceLng) return;
+
+        // If there's already an active on_the_way or at_customer, skip
+        const { data: hasActive } = await supabaseAdmin
+          .from("deliveries")
+          .select("id")
+          .eq("driver_id", req.user.id)
+          .in("status", ["on_the_way", "at_customer"])
+          .limit(1);
+        if (hasActive && hasActive.length > 0) return;
+
+        // Find remaining picked_up deliveries
+        const { data: nextList } = await supabaseAdmin
+          .from("deliveries")
+          .select(
+            `
+            id,
+            order_id,
+            status,
+            picked_up_at,
+            orders (
+              order_number,
+              delivery_latitude,
+              delivery_longitude,
+              customer_id,
+              restaurant_id
+            )
+          `
+          )
+          .eq("driver_id", req.user.id)
+          .eq("status", "picked_up")
+          .order("picked_up_at", { ascending: true });
+
+        if (!nextList || nextList.length === 0) return;
+
+        const routes = await Promise.all(
+          nextList.map(async (n) => {
+            const cLat = parseFloat(n.orders.delivery_latitude);
+            const cLng = parseFloat(n.orders.delivery_longitude);
+            const route = await getRouteDistance(
+              referenceLng,
+              referenceLat,
+              cLng,
+              cLat,
+              "false"
+            );
+            return {
+              id: n.id,
+              order_id: n.order_id,
+              distance: route?.distance || Number.POSITIVE_INFINITY,
+              customer_id: n.orders.customer_id,
+              restaurant_id: n.orders.restaurant_id,
+              order_number: n.orders.order_number,
+            };
+          })
+        );
+
+        routes.sort((a, b) => a.distance - b.distance);
+        const next = routes[0];
+
+        if (next && isFinite(next.distance)) {
+          const ts = new Date().toISOString();
+          const { data: promoted } = await supabaseAdmin
+            .from("deliveries")
+            .update({ status: "on_the_way", on_the_way_at: ts })
+            .eq("id", next.id)
+            .eq("driver_id", req.user.id)
+            .select("id, order_id")
+            .maybeSingle();
+
+          const nextMsgs = statusMessages["on_the_way"];
+          const followups = [];
+          if (nextMsgs) {
+            if (next.customer_id) {
+              followups.push({
+                recipient_id: next.customer_id,
+                type: "delivery_status_update",
+                title: "Order Update",
+                message: nextMsgs.customer,
+                metadata: JSON.stringify({
+                  order_id: promoted?.order_id || next.order_id,
+                  delivery_id: promoted?.id || next.id,
+                  status: "on_the_way",
+                  order_number: next.order_number,
+                }),
+              });
+            }
+            if (next.restaurant_id) {
+              followups.push({
+                recipient_id: next.restaurant_id,
+                type: "delivery_status_update",
+                title: "Delivery Update",
+                message: nextMsgs.restaurant,
+                metadata: JSON.stringify({
+                  order_id: promoted?.order_id || next.order_id,
+                  delivery_id: promoted?.id || next.id,
+                  status: "on_the_way",
+                  order_number: next.order_number,
+                }),
+              });
+            }
+          }
+          if (followups.length > 0) {
+            await supabaseAdmin.from("notifications").insert(followups);
+          }
+        }
+      };
+
+      // Auto-promote cases
+      if (status === "delivered") {
+        const refLat = parseFloat(currentDelivery.orders.delivery_latitude || 0);
+        const refLng = parseFloat(currentDelivery.orders.delivery_longitude || 0);
+        await promoteNextPickedUp(refLat, refLng);
+      }
+
+      if (status === "picked_up") {
+        const refLat = parseFloat(
+          currentDelivery.orders.restaurant_latitude || currentDelivery.current_latitude || 0
+        );
+        const refLng = parseFloat(
+          currentDelivery.orders.restaurant_longitude || currentDelivery.current_longitude || 0
+        );
+        await promoteNextPickedUp(refLat, refLng);
       }
 
       return res.json({
