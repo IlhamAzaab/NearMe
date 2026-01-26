@@ -1,1 +1,31 @@
 @import "tailwindcss";
+
+/* Page slide-up animation for customer pages */
+@keyframes page-slide-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+.page-slide-up {
+  animation: page-slide-up 0.6s cubic-bezier(0.0, 0.0, 0.2, 1);
+}
+
+/* Modal slide-up animation */
+@keyframes slide-up {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.3s ease-out;
+}

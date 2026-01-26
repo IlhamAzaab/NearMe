@@ -100,6 +100,56 @@ router.patch("/notifications/mark-all-read", authenticate, async (req, res) => {
 });
 
 /**
+ * PUT /customer/address
+ * Update customer address
+ */
+router.put("/address", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "customer") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const customerId = req.user.id;
+    const { address, city, latitude, longitude } = req.body;
+
+    if (!address) {
+      return res.status(400).json({ message: "Address is required" });
+    }
+
+    const updateData = {
+      address,
+      city: city || null,
+    };
+
+    // Include coordinates if provided
+    if (latitude !== undefined && longitude !== undefined) {
+      updateData.latitude = latitude;
+      updateData.longitude = longitude;
+    }
+
+    const { data: customer, error } = await supabaseAdmin
+      .from("customers")
+      .update(updateData)
+      .eq("id", customerId)
+      .select("id, username, email, phone, address, city, latitude, longitude")
+      .single();
+
+    if (error) {
+      console.error("Customer address update error:", error);
+      return res.status(500).json({ message: "Failed to update address" });
+    }
+
+    return res.json({ 
+      message: "Address updated successfully",
+      customer 
+    });
+  } catch (e) {
+    console.error("/customer/address error:", e);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
+/**
  * GET /customer/me
  * Get customer profile details
  */

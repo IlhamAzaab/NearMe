@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { createClient } from "@supabase/supabase-js";
-import SiteHeader from "../components/SiteHeader";
+import BottomNavbar from "../components/BottomNavbar";
 
 // Initialize Supabase
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -114,52 +114,75 @@ export default function CustomerNotifications() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <SiteHeader />
-      <div className="max-w-2xl mx-auto py-8 px-4">
-        <div className="mb-8">
-          <h2 className="text-3xl font-bold text-gray-900 mb-2">
-            Order Notifications
-          </h2>
-          <p className="text-gray-500">
-            {notifications.length > 0
-              ? `You have ${notifications.length} notification${
-                  notifications.length > 1 ? "s" : ""
-                }`
-              : "Stay updated on your orders"}
-          </p>
+    <div className="min-h-screen bg-gray-50 font-poppins pb-24 page-slide-up">
+      {/* Sticky Header */}
+      <header className="sticky top-0 z-50 bg-white px-4 py-3 shadow-sm">
+        <div className="max-w-6xl mx-auto">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => navigate(-1)}
+                className="p-2 -ml-2 hover:bg-gray-100 rounded-full transition-colors"
+              >
+                <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+              <div className="flex items-center gap-2">
+                <div className="w-10 h-10 bg-[#FF7A00] rounded-xl flex items-center justify-center shadow-lg shadow-orange-200">
+                  <span className="text-white text-lg font-bold">N</span>
+                </div>
+                <div>
+                  <h1 className="text-xl font-bold text-gray-900">Notifications</h1>
+                  <p className="text-xs text-gray-500">
+                    {notifications.length > 0
+                      ? `${notifications.length} update${notifications.length > 1 ? "s" : ""}`
+                      : "Stay updated"}
+                  </p>
+                </div>
+              </div>
+            </div>
+            
+            {/* Bell Icon */}
+            <div className="w-10 h-10 bg-orange-50 rounded-full flex items-center justify-center">
+              <span className="text-xl">🔔</span>
+            </div>
+          </div>
         </div>
+      </header>
 
+      <main className="max-w-2xl mx-auto px-4 py-6">
         {!isLoggedIn ? (
-          <div className="text-center py-12 bg-white rounded-xl shadow">
-            <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg className="w-10 h-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="text-center py-16">
+            <div className="w-24 h-24 bg-orange-50 rounded-full flex items-center justify-center mx-auto mb-6">
+              <svg className="w-12 h-12 text-[#FF7A00]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
               </svg>
             </div>
-            <p className="text-xl font-medium text-gray-800">Please login to view notifications</p>
-            <p className="text-gray-500 mt-1">Sign in to see your order updates</p>
+            <h3 className="text-xl font-bold text-gray-900 mb-2">Please login to view notifications</h3>
+            <p className="text-gray-500 text-sm mb-6">Sign in to see your order updates</p>
             <button
               onClick={() => navigate("/login")}
-              className="mt-4 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              className="px-8 py-3 bg-[#FF7A00] text-white font-semibold rounded-full hover:bg-orange-600 transition-all shadow-lg shadow-orange-200"
             >
               Login
             </button>
           </div>
         ) : loading ? (
-          <div className="text-center py-12">
-            <div className="animate-spin rounded-full h-10 w-10 border-b-4 border-blue-600 mx-auto"></div>
-            <p className="text-gray-600 mt-4">Loading notifications...</p>
+          <div className="flex flex-col items-center justify-center py-16">
+            <div className="relative">
+              <div className="w-16 h-16 border-4 border-orange-100 rounded-full"></div>
+              <div className="absolute top-0 left-0 w-16 h-16 border-4 border-[#FF7A00] border-t-transparent rounded-full animate-spin"></div>
+            </div>
+            <p className="mt-4 text-gray-500 text-sm font-medium">Loading notifications...</p>
           </div>
         ) : notifications.length === 0 ? (
-          <div className="text-center py-12">
-            <div className="w-20 h-20 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-4">
-              <span className="text-4xl">🔔</span>
+          <div className="text-center py-16">
+            <div className="w-24 h-24 bg-orange-50 rounded-full flex items-center justify-center mx-auto mb-6">
+              <span className="text-5xl">🔔</span>
             </div>
-            <p className="text-xl font-medium text-gray-800">
-              No notifications yet
-            </p>
-            <p className="text-gray-500 mt-1">Place an order to get started</p>
+            <h3 className="text-xl font-bold text-gray-900 mb-2">No notifications yet</h3>
+            <p className="text-gray-500 text-sm">Place an order to get started</p>
           </div>
         ) : (
           <div className="space-y-3">
@@ -171,14 +194,24 @@ export default function CustomerNotifications() {
                 metadata = {};
               }
 
+              const getNotificationColor = (type) => {
+                switch (type) {
+                  case "order_accepted": return "bg-green-500";
+                  case "order_rejected": return "bg-red-500";
+                  case "driver_assigned": return "bg-blue-500";
+                  case "order_delivered": return "bg-green-500";
+                  default: return "bg-[#FF7A00]";
+                }
+              };
+
               return (
                 <div
                   key={n.id}
-                  className="bg-white rounded-xl shadow hover:shadow-md transition-shadow p-4 border-l-4 border-blue-500"
+                  className="bg-white rounded-2xl shadow-md hover:shadow-lg transition-all p-4 border-l-4 border-[#FF7A00]"
                 >
                   <div className="flex items-start gap-4">
                     {/* Icon */}
-                    <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
+                    <div className={`w-12 h-12 ${getNotificationColor(n.type)} rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg`}>
                       <span className="text-xl">
                         {getNotificationIcon(n.type)}
                       </span>
@@ -189,17 +222,20 @@ export default function CustomerNotifications() {
                       <div className="flex items-start justify-between gap-2">
                         <div>
                           <p className="font-bold text-gray-900">{n.title}</p>
-                          <p className="text-gray-700 mt-1">{n.message}</p>
+                          <p className="text-gray-600 text-sm mt-1">{n.message}</p>
                         </div>
+                        <span className="text-xs text-gray-400 whitespace-nowrap">
+                          {getTimeAgo(n.created_at)}
+                        </span>
                       </div>
 
                       {/* Driver Details for driver_assigned notifications */}
                       {n.type === "driver_assigned" && metadata.driver && (
-                        <div className="mt-3 p-3 bg-gray-50 rounded-lg">
-                          <p className="text-sm font-semibold text-gray-900">
-                            Driver Details
+                        <div className="mt-3 p-3 bg-orange-50 rounded-xl">
+                          <p className="text-sm font-semibold text-[#FF7A00] mb-2">
+                            🛵 Driver Details
                           </p>
-                          <div className="mt-2 space-y-1">
+                          <div className="space-y-1">
                             <p className="text-sm text-gray-700">
                               <span className="font-medium">Name:</span>{" "}
                               {metadata.driver.driver_name}
@@ -214,17 +250,12 @@ export default function CustomerNotifications() {
 
                       {/* Metadata Tags */}
                       {metadata.order_id && (
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          <span className="px-2 py-1 bg-gray-100 rounded-md text-xs font-medium text-gray-600">
+                        <div className="mt-3">
+                          <span className="px-3 py-1 bg-orange-50 rounded-full text-xs font-semibold text-[#FF7A00]">
                             Order #{metadata.order_id.substring(0, 8)}
                           </span>
                         </div>
                       )}
-
-                      {/* Time */}
-                      <p className="text-xs text-gray-400 mt-2">
-                        {getTimeAgo(n.created_at)}
-                      </p>
                     </div>
                   </div>
                 </div>
@@ -232,7 +263,10 @@ export default function CustomerNotifications() {
             })}
           </div>
         )}
-      </div>
+      </main>
+
+      {/* Bottom Navigation */}
+      <BottomNavbar />
     </div>
   );
 }

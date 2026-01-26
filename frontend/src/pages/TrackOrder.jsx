@@ -362,7 +362,7 @@ export default function TrackOrder() {
   const isDelivered = order.status === "delivered";
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 page-slide-up">
       <SiteHeader
         isLoggedIn={isLoggedIn}
         role={role}
