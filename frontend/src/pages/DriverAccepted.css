@@ -1,0 +1,469 @@
+/* Driver Accepted Page Styles */
+
+.driver-accepted-container {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Progress bar */
+.driver-accepted-container .progress-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  z-index: 100;
+}
+
+.driver-accepted-container .progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #FF7A00, #FF9A40);
+  border-radius: 0 2px 2px 0;
+  transition: width 0.5s ease;
+}
+
+/* Loading state */
+.driver-accepted-container .loading-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  gap: 16px;
+}
+
+.driver-accepted-container .spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(255, 255, 255, 0.2);
+  border-top-color: #FF7A00;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Header */
+.driver-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  padding-top: 24px;
+}
+
+.driver-header .close-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.driver-header .close-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.driver-header .close-btn svg {
+  width: 20px;
+  height: 20px;
+  color: white;
+}
+
+.header-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.help-btn {
+  padding: 8px 16px;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  border-radius: 20px;
+  color: white;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.help-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Main content */
+.driver-main {
+  flex: 1;
+  padding: 0 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* Success animation */
+.success-animation {
+  margin: 20px 0 30px;
+}
+
+.check-circle {
+  width: 100px;
+  height: 100px;
+}
+
+.check-circle svg {
+  width: 100%;
+  height: 100%;
+}
+
+.check-circle-bg {
+  stroke: #4CAF50;
+  stroke-width: 2;
+  animation: circle-fill 0.6s ease-out forwards;
+}
+
+@keyframes circle-fill {
+  0% {
+    stroke-dasharray: 0 157;
+  }
+  100% {
+    stroke-dasharray: 157 157;
+  }
+}
+
+.check-mark {
+  stroke: #4CAF50;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 48;
+  stroke-dashoffset: 48;
+  animation: check-draw 0.4s ease-out 0.4s forwards;
+}
+
+@keyframes check-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Title section */
+.title-section {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.title-section h1 {
+  color: white;
+  font-size: 26px;
+  font-weight: 700;
+  margin: 0 0 8px;
+}
+
+.title-section .subtitle {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 15px;
+  margin: 0;
+}
+
+/* Driver Card */
+.driver-card {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  border-radius: 20px;
+  padding: 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  max-width: 400px;
+  margin-bottom: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.driver-avatar {
+  width: 70px;
+  height: 70px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: linear-gradient(135deg, #FF7A00, #FF9A40);
+  flex-shrink: 0;
+}
+
+.driver-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatar-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.avatar-placeholder svg {
+  width: 36px;
+  height: 36px;
+  color: white;
+}
+
+.driver-details {
+  flex: 1;
+}
+
+.driver-name {
+  color: white;
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0 0 6px;
+}
+
+.driver-rating {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 14px;
+}
+
+.driver-rating .star {
+  color: #FFD700;
+}
+
+/* Info List */
+.info-list {
+  width: 100%;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.info-item {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.info-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 22px;
+}
+
+.info-icon.phone-icon {
+  background: rgba(76, 175, 80, 0.2);
+}
+
+.info-icon.phone-icon svg {
+  width: 22px;
+  height: 22px;
+  color: #4CAF50;
+}
+
+.info-icon.vehicle-icon {
+  background: rgba(255, 122, 0, 0.2);
+}
+
+.info-icon.vehicle-icon svg {
+  width: 22px;
+  height: 22px;
+  color: #FF7A00;
+}
+
+.info-icon.type-icon {
+  background: rgba(33, 150, 243, 0.2);
+}
+
+.info-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.info-label {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.info-value {
+  color: white;
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.info-value.vehicle-number {
+  font-family: 'Courier New', monospace;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: #FF7A00;
+}
+
+.call-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #4CAF50;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.call-btn:hover {
+  background: #43A047;
+  transform: scale(1.05);
+}
+
+.call-btn svg {
+  width: 20px;
+  height: 20px;
+  color: white;
+}
+
+/* Restaurant Info */
+.restaurant-info {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 16px;
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  max-width: 400px;
+  border: 1px dashed rgba(255, 255, 255, 0.2);
+}
+
+.restaurant-icon {
+  font-size: 28px;
+}
+
+.restaurant-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.heading-to {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 12px;
+}
+
+.restaurant-info .restaurant-name {
+  color: white;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+/* Bottom action */
+.bottom-action {
+  padding: 20px 24px;
+  padding-bottom: 100px;
+}
+
+.view-order-btn {
+  width: 100%;
+  max-width: 400px;
+  margin: 0 auto;
+  display: block;
+  padding: 16px;
+  background: #FF7A00;
+  border: none;
+  border-radius: 12px;
+  color: white;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.view-order-btn:hover {
+  background: #E66A00;
+  transform: translateY(-2px);
+}
+
+/* Status indicator */
+.driver-accepted-container .status-indicator {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(76, 175, 80, 0.95);
+  backdrop-filter: blur(10px);
+  padding: 16px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.driver-accepted-container .status-indicator.accepted {
+  background: rgba(76, 175, 80, 0.95);
+}
+
+.driver-accepted-container .status-dot {
+  width: 8px;
+  height: 8px;
+  background: white;
+  border-radius: 50%;
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.2); }
+}
+
+.driver-accepted-container .status-indicator span {
+  color: white;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+  .title-section h1 {
+    font-size: 22px;
+  }
+  
+  .driver-card {
+    padding: 20px;
+  }
+  
+  .driver-avatar {
+    width: 60px;
+    height: 60px;
+  }
+  
+  .driver-name {
+    font-size: 18px;
+  }
+}

@@ -7,7 +7,13 @@ import VerifyEmail from "./pages/VerifyEmail";
 import RestaurantFoods from "./pages/RestaurantFoods";
 import FoodDetail from "./pages/FoodDetail";
 import Cart from "./pages/Cart";
-import Checkout from "./pages/Checkout";
+import CheckoutWrapper from "./pages/CheckoutWrapper";
+import PlacingOrder from "./pages/PlacingOrder";
+import OrderReceived from "./pages/OrderReceived";
+import DriverAccepted from "./pages/DriverAccepted";
+import OrderPickedUp from "./pages/OrderPickedUp";
+import OrderOnTheWay from "./pages/OrderOnTheWay";
+import OrderDelivered from "./pages/OrderDelivered";
 import CustomerOrders from "./pages/Orders";
 import TrackOrder from "./pages/TrackOrder";
 import ManagerDashboard from "./pages/manager/Dashboard";
@@ -48,17 +54,13 @@ import DeliveryTracking from "./pages/DeliveryTracking";
 import DriverNotifications from "./pages/driver/Notifications";
 import DeliveryHistory from "./pages/driver/DeliveryHistory";
 import CustomerNotifications from "./pages/CustomerNotifications";
-import CustomerProfile from "./pages/CustomerProfile";
 import AdminNotifications from "./pages/admin/AdminNotifications";
-import Splash from "./pages/Splash";
-import Welcome from "./pages/Welcome";
+import CustomerProfile from "./pages/CustomerProfile";
 
 function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Splash />} />
-        <Route path="/welcome" element={<Welcome />} />
         <Route
           path="/home"
           element={
@@ -94,24 +96,24 @@ function App() {
         <Route
           path="/cart"
           element={
-            <ProtectedRoute allowedRole="customer">
+            <ProtectedRoute allowedRole="customer" requireAuth={true}>
               <Cart />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/notifications"
-          element={
-            <ProtectedRoute allowedRole="customer">
-              <CustomerNotifications />
             </ProtectedRoute>
           }
         />
         <Route
           path="/customer/notifications"
           element={
-            <ProtectedRoute allowedRole="customer">
+            <ProtectedRoute allowedRole="customer" requireAuth={true}>
               <CustomerNotifications />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/customer/profile"
+          element={
+            <ProtectedRoute allowedRole="customer" requireAuth={true}>
+              <CustomerProfile />
             </ProtectedRoute>
           }
         />
@@ -121,22 +123,73 @@ function App() {
           path="/checkout"
           element={
             <ProtectedRoute allowedRole="customer" requireAuth={true}>
-              <Checkout />
+              <CheckoutWrapper />
             </ProtectedRoute>
           }
         />
+        
+        {/* Placing Order Confirmation Screen */}
         <Route
-          path="/profile"
+          path="/placing-order"
           element={
-            <ProtectedRoute allowedRole="customer">
-              <CustomerProfile />
+            <ProtectedRoute allowedRole="customer" requireAuth={true}>
+              <PlacingOrder />
+            </ProtectedRoute>
+          }
+        />
+        
+        {/* Order Received - Restaurant accepted */}
+        <Route
+          path="/order-received/:orderId"
+          element={
+            <ProtectedRoute allowedRole="customer" requireAuth={true}>
+              <OrderReceived />
+            </ProtectedRoute>
+          }
+        />
+        
+        {/* Driver Accepted - Driver accepted the order */}
+        <Route
+          path="/driver-accepted/:orderId"
+          element={
+            <ProtectedRoute allowedRole="customer" requireAuth={true}>
+              <DriverAccepted />
+            </ProtectedRoute>
+          }
+        />
+        
+        {/* Order Picked Up - Driver picked up the order */}
+        <Route
+          path="/order-picked-up/:orderId"
+          element={
+            <ProtectedRoute allowedRole="customer" requireAuth={true}>
+              <OrderPickedUp />
+            </ProtectedRoute>
+          }
+        />
+        
+        {/* Order On The Way - Driver heading to customer with live tracking */}
+        <Route
+          path="/order-on-the-way/:orderId"
+          element={
+            <ProtectedRoute allowedRole="customer" requireAuth={true}>
+              <OrderOnTheWay />
+            </ProtectedRoute>
+          }
+        />
+        {/* Order Delivered - Receipt page when delivery is complete */}
+        <Route
+          path="/order-delivered/:orderId"
+          element={
+            <ProtectedRoute allowedRole="customer" requireAuth={true}>
+              <OrderDelivered />
             </ProtectedRoute>
           }
         />
         <Route
           path="/orders"
           element={
-            <ProtectedRoute allowedRole="customer">
+            <ProtectedRoute allowedRole="customer" requireAuth={true}>
               <CustomerOrders />
             </ProtectedRoute>
           }
