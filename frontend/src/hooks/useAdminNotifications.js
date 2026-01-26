@@ -4,15 +4,10 @@
 // ============================================================================
 
 import { useState, useEffect, useCallback } from "react";
-import { createClient } from "@supabase/supabase-js";
+import supabaseClient from "../supabaseClient";
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-const supabase =
-  supabaseUrl && supabaseAnonKey
-    ? createClient(supabaseUrl, supabaseAnonKey)
-    : null;
 
 export function useAdminNotifications() {
   const [notifications, setNotifications] = useState([]);
@@ -33,7 +28,7 @@ export function useAdminNotifications() {
         "http://localhost:5000/admin/notifications?limit=50",
         {
           headers: { Authorization: `Bearer ${token}` },
-        }
+        },
       );
 
       if (!res.ok) throw new Error("Failed to fetch notifications");
@@ -59,14 +54,16 @@ export function useAdminNotifications() {
         {
           method: "PATCH",
           headers: { Authorization: `Bearer ${token}` },
-        }
+        },
       );
 
       if (!res.ok) throw new Error("Failed to mark as read");
 
       // Update local state
       setNotifications((prev) =>
-        prev.map((n) => (n.id === notificationId ? { ...n, is_read: true } : n))
+        prev.map((n) =>
+          n.id === notificationId ? { ...n, is_read: true } : n,
+        ),
       );
       setUnreadCount((prev) => Math.max(0, prev - 1));
     } catch (error) {
@@ -85,7 +82,7 @@ export function useAdminNotifications() {
 
     console.log(
       "🔔 Setting up realtime broadcast subscription for admin:",
-      adminId
+      adminId,
     );
 
     // Subscribe to role-based channel (matches your trigger setup)

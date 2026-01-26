@@ -3,6 +3,7 @@
 ## What Changed (From Broken to Fixed)
 
 ### BEFORE - Why It Was Failing
+
 ```javascript
 // OLD CODE - Too aggressive timeout
 timeout = 4 seconds       // Not enough for public API
@@ -14,6 +15,7 @@ Result: ❌ OSRM timeout → Haversine fallback
 ```
 
 ### AFTER - Production Ready
+
 ```javascript
 // NEW CODE - Production optimized
 timeout = 15 seconds                    // Enough for network variance
@@ -29,6 +31,7 @@ Result: ✅ OSRM almost always succeeds → Accurate distances
 ## The Problem & Solution
 
 ### Why OSRM Was Timing Out
+
 ```
 Public OSRM Server (router.project-osrm.org)
    ├─ Geographically far (in Europe)
@@ -44,6 +47,7 @@ Your Timeout Setting
 ```
 
 ### The Fix
+
 ```
 Timeout = 15 seconds ✓
 ├─ Accounts for network latency (1-2 seconds)
@@ -70,6 +74,7 @@ Caching ✓
 ## How It Works - Request Flow
 
 ### Scenario 1: OSRM Works First Try (70% of cases)
+
 ```
 0ms   Request for route A → B
 50ms  Check cache: MISS
@@ -89,6 +94,7 @@ Next request for same route:
 ```
 
 ### Scenario 2: OSRM Slow But Works (20% of cases)
+
 ```
 0ms   Request for route A → B
 50ms  Check cache: MISS
@@ -105,6 +111,7 @@ Next request for same route:
 ```
 
 ### Scenario 3: OSRM Fails, Use Fallback (10% of cases)
+
 ```
 0ms   Request for route A → B
 50ms  Check cache: MISS
@@ -139,6 +146,7 @@ Next request for same route:
 ### File: backend/routes/driverDelivery.js
 
 #### Added: Response Caching
+
 ```javascript
 const osrmCache = new Map();
 const CACHE_TTL = 3600000; // 1 hour
@@ -156,18 +164,20 @@ setCache(cacheKey, data.routes[0]);
 ```
 
 #### Updated: Timeout Configuration
+
 ```javascript
 // BEFORE
-fetchWithTimeout(url, {}, 4000, 1)   // 4s timeout, 1 retry
+fetchWithTimeout(url, {}, 4000, 1); // 4s timeout, 1 retry
 
 // AFTER
-fetchWithTimeout(url, {}, 15000, 3)  // 15s timeout, 3 retries
+fetchWithTimeout(url, {}, 15000, 3); // 15s timeout, 3 retries
 ```
 
 #### Enhanced: Retry Logic with Exponential Backoff
+
 ```javascript
 // BEFORE - Linear backoff
-await new Promise(resolve => setTimeout(resolve, 200 * (i + 1)));
+await new Promise((resolve) => setTimeout(resolve, 200 * (i + 1)));
 // Results in: 200ms, 400ms delays
 
 // AFTER - Exponential backoff
@@ -176,6 +186,7 @@ const delay = Math.pow(2, i) * 1000;
 ```
 
 #### Improved: Logging
+
 ```javascript
 // Clear visibility into what's happening
 [OSRM] Requesting route: (81.186,8.5017) → (81.2,8.51)
@@ -191,28 +202,33 @@ const delay = Math.pow(2, i) * 1000;
 ## Why This Works for Production
 
 ### 1. **Tolerance for Network Variance**
+
 - Public internet connections vary
 - 4 second timeout is unrealistic
 - 15 seconds covers 99% of cases
 
 ### 2. **Graceful Degradation**
+
 - Works: Use OSRM (accurate)
 - Slow: Retry and wait (accurate, slightly delayed)
 - Failed: Use Haversine (less accurate but functional)
 
 ### 3. **Cost Optimization**
+
 - Caching reduces API calls 70-90%
 - Saves bandwidth
 - Respects OSRM's rate limits
 - Faster response times for users
 
 ### 4. **User Experience**
+
 - 3-4 seconds typical (acceptable)
 - Instant for cached routes
 - UI never breaks (always has fallback)
 - Reliable service
 
 ### 5. **Production Ready**
+
 - No additional infrastructure needed
 - Uses proven public service
 - Scalable and maintained by OSRM project
@@ -223,6 +239,7 @@ const delay = Math.pow(2, i) * 1000;
 ## Expected Performance Metrics
 
 ### Response Time Distribution
+
 ```
 0-1s      30%  ← Very fast (usually cached)
 1-3s      50%  ← Good (fresh OSRM call)
@@ -232,6 +249,7 @@ const delay = Math.pow(2, i) * 1000;
 ```
 
 ### API Call Reduction
+
 ```
 Without Caching:
 - 100 requests = 100 API calls to OSRM
@@ -245,6 +263,7 @@ With 1-Hour Cache:
 ```
 
 ### Reliability
+
 ```
 OSRM Success Rate: 99%+
 - Direct success: 95%+
@@ -263,26 +282,28 @@ User Experience: 100%
 ## Configuration vs. Alternatives
 
 ### Public OSRM (Chosen for Production) ✅
-| Aspect | Rating | Notes |
-|--------|--------|-------|
-| Setup Complexity | Simple ✅ | Just use the URL |
-| Infrastructure | None ✓ | No server to run |
-| Maintenance | None ✓ | Maintained by OSRM project |
-| Cost | Free ✓ | Within usage limits |
-| Accuracy | Excellent ✓ | Real road network |
-| Reliability | 99%+ ✓ | Proven at scale |
-| Speed | Good ✓ | 1-3 seconds typical |
+
+| Aspect           | Rating      | Notes                      |
+| ---------------- | ----------- | -------------------------- |
+| Setup Complexity | Simple ✅   | Just use the URL           |
+| Infrastructure   | None ✓      | No server to run           |
+| Maintenance      | None ✓      | Maintained by OSRM project |
+| Cost             | Free ✓      | Within usage limits        |
+| Accuracy         | Excellent ✓ | Real road network          |
+| Reliability      | 99%+ ✓      | Proven at scale            |
+| Speed            | Good ✓      | 1-3 seconds typical        |
 
 ### Local Docker OSRM ❌
-| Aspect | Rating | Notes |
-|--------|--------|-------|
-| Setup Complexity | Complex ❌ | Download map, configure, process |
-| Infrastructure | Required ❌ | Must run Docker container |
-| Maintenance | Required ❌ | Must update maps |
-| Cost | Free (but effort) ⚠️ | Resource intensive |
-| Accuracy | Excellent ✓ | Same routing engine |
-| Reliability | 100% ✓ | Local, always available |
-| Speed | Excellent ✓ | <500ms responses |
+
+| Aspect           | Rating               | Notes                            |
+| ---------------- | -------------------- | -------------------------------- |
+| Setup Complexity | Complex ❌           | Download map, configure, process |
+| Infrastructure   | Required ❌          | Must run Docker container        |
+| Maintenance      | Required ❌          | Must update maps                 |
+| Cost             | Free (but effort) ⚠️ | Resource intensive               |
+| Accuracy         | Excellent ✓          | Same routing engine              |
+| Reliability      | 100% ✓               | Local, always available          |
+| Speed            | Excellent ✓          | <500ms responses                 |
 
 **Verdict:** Public OSRM better for production SaaS. Local OSRM better for self-hosted deployments.
 
@@ -291,27 +312,33 @@ User Experience: 100%
 ## How to Deploy This
 
 ### Step 1: Code is Ready
+
 The backend is already configured for production OSRM.
 No code changes needed in frontend.
 
 ### Step 2: Docker Compose is Standard
+
 ```bash
 docker-compose up -d
 ```
+
 Uses standard configuration (no OSRM container).
 
 ### Step 3: Monitor Logs
+
 ```bash
 docker logs nearme-backend -f | grep OSRM
 ```
 
 Watch for:
+
 - ✅ `[OSRM] ✅ Success` messages
 - ✅ `[OSRM CACHE] ✓ Hit` messages
 - ⚠️ `[OSRM] Retry` messages (occasional is OK)
 - ❌ `[OSRM] ❌ All retries failed` (rare)
 
 ### Step 4: Verify Performance
+
 ```bash
 # Should see these in first test:
 # [OSRM] Requesting route: ...
@@ -326,18 +353,21 @@ Watch for:
 ## Summary
 
 **What Was Wrong:**
+
 - ❌ 4 second timeout (too short for public API)
 - ❌ Only 1 retry (no resilience)
 - ❌ No caching (every request hits OSRM)
 - ❌ Result: Frequent timeout → Haversine fallback
 
 **What's Fixed:**
+
 - ✅ 15 second timeout (realistic for network)
 - ✅ 3 retries with exponential backoff (resilient)
 - ✅ 1 hour caching (70-90% less API calls)
 - ✅ Result: OSRM works 99%+ of time → Accurate distances
 
 **Why It's Production Ready:**
+
 - ✅ No infrastructure to manage
 - ✅ Public OSRM maintained by professionals
 - ✅ Handles network issues gracefully

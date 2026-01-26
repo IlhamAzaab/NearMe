@@ -74,11 +74,11 @@ export default function AvailableDeliveries() {
         (error) => {
           console.error(
             "Error getting location, using default Kinniya location:",
-            error
+            error,
           );
           setDriverLocation(DEFAULT_DRIVER_LOCATION);
           fetchPendingDeliveriesWithLocation(DEFAULT_DRIVER_LOCATION);
-        }
+        },
       );
     } else {
       setDriverLocation(DEFAULT_DRIVER_LOCATION);
@@ -89,23 +89,29 @@ export default function AvailableDeliveries() {
   const checkDeliveringMode = async () => {
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch("http://localhost:5000/driver/deliveries/pickups?driver_latitude=0&driver_longitude=0", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      
+      const res = await fetch(
+        "http://localhost:5000/driver/deliveries/pickups?driver_latitude=0&driver_longitude=0",
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+
       if (res.ok) {
         const data = await res.json();
         // If driver has any pickups (accepted but not yet picked up), they're in pickup mode
         // If no pickups but has active deliveries, check for delivering mode
         if (!data.pickups || data.pickups.length === 0) {
           // Check for deliveries in delivering statuses
-          const activeRes = await fetch("http://localhost:5000/driver/deliveries/active", {
-            headers: { Authorization: `Bearer ${token}` },
-          });
+          const activeRes = await fetch(
+            "http://localhost:5000/driver/deliveries/active",
+            {
+              headers: { Authorization: `Bearer ${token}` },
+            },
+          );
           if (activeRes.ok) {
             const activeData = await activeRes.json();
-            const hasDeliveringOrders = activeData.deliveries?.some(d => 
-              ["picked_up", "on_the_way", "at_customer"].includes(d.status)
+            const hasDeliveringOrders = activeData.deliveries?.some((d) =>
+              ["picked_up", "on_the_way", "at_customer"].includes(d.status),
             );
             if (hasDeliveringOrders) {
               setInDeliveringMode(true);
@@ -162,7 +168,7 @@ export default function AvailableDeliveries() {
         e.message.includes("NetworkError")
       ) {
         alert(
-          "Cannot connect to server. Please check your internet connection and try again."
+          "Cannot connect to server. Please check your internet connection and try again.",
         );
       } else {
         console.error("Fetch error details:", e.message);
@@ -193,7 +199,7 @@ export default function AvailableDeliveries() {
             "Content-Type": "application/json",
           },
           body: JSON.stringify(body),
-        }
+        },
       );
 
       const data = await res.json();
@@ -201,7 +207,7 @@ export default function AvailableDeliveries() {
       if (res.ok) {
         // Remove from list and show success message
         setDeliveries((prev) =>
-          prev.filter((d) => d.delivery_id !== deliveryId)
+          prev.filter((d) => d.delivery_id !== deliveryId),
         );
         alert("Delivery accepted successfully!");
         // Stay on current page - driver navigates manually when ready
@@ -286,7 +292,9 @@ export default function AvailableDeliveries() {
                 Check back later for new delivery requests
               </p>
               <button
-                onClick={() => fetchPendingDeliveriesWithLocation(driverLocation)}
+                onClick={() =>
+                  fetchPendingDeliveriesWithLocation(driverLocation)
+                }
                 className="mt-6 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
               >
                 Refresh
@@ -330,7 +338,7 @@ function DeliveryCard({ delivery, driverLocation, accepting, onAccept }) {
   // Calculate total items
   const totalItems = order_items.reduce(
     (sum, item) => sum + (item.quantity || 0),
-    0
+    0,
   );
 
   // Calculate map center and bounds
@@ -412,7 +420,7 @@ function DeliveryCard({ delivery, driverLocation, accepting, onAccept }) {
               driver_to_restaurant_route.coordinates && (
                 <Polyline
                   positions={driver_to_restaurant_route.coordinates.map(
-                    (coord) => [coord[1], coord[0]]
+                    (coord) => [coord[1], coord[0]],
                   )}
                   color="#86efac"
                   weight={6}
@@ -425,7 +433,7 @@ function DeliveryCard({ delivery, driverLocation, accepting, onAccept }) {
               restaurant_to_customer_route.coordinates && (
                 <Polyline
                   positions={restaurant_to_customer_route.coordinates.map(
-                    (coord) => [coord[1], coord[0]]
+                    (coord) => [coord[1], coord[0]],
                   )}
                   color="#9ca3af"
                   weight={6}
@@ -437,7 +445,9 @@ function DeliveryCard({ delivery, driverLocation, accepting, onAccept }) {
 
         {/* Order Number Badge */}
         <div className="absolute top-3 right-3 bg-gradient-to-r from-blue-600 to-blue-700 px-4 py-2 rounded-full shadow-lg">
-          <p className="text-xs font-semibold text-white">Order #{order_number}</p>
+          <p className="text-xs font-semibold text-white">
+            Order #{order_number}
+          </p>
         </div>
 
         {/* Items Count Badge */}

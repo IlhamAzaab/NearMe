@@ -69,10 +69,10 @@ async function fetchWithTimeout(
   url,
   options = {},
   timeout = 15000,
-  retries = 3
+  retries = 3,
 ) {
   let lastError;
-  
+
   for (let i = 0; i <= retries; i++) {
     try {
       const controller = new AbortController();
@@ -87,15 +87,17 @@ async function fetchWithTimeout(
       return response;
     } catch (error) {
       lastError = error;
-      
+
       if (i === retries) {
         throw lastError;
       }
-      
+
       // Exponential backoff: 1s, 2s, 4s
       const delay = Math.pow(2, i) * 1000;
-      console.log(`[OSRM] Retry ${i + 1}/${retries} after ${delay}ms - Error: ${error.message}`);
-      
+      console.log(
+        `[OSRM] Retry ${i + 1}/${retries} after ${delay}ms - Error: ${error.message}`,
+      );
+
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
@@ -109,11 +111,11 @@ async function getRouteDistance(
   startLat,
   endLng,
   endLat,
-  overview = "false"
+  overview = "false",
 ) {
   try {
     const cacheKey = getCacheKey(startLng, startLat, endLng, endLat);
-    
+
     // Check cache first
     const cached = getFromCache(cacheKey);
     if (cached) {
@@ -124,45 +126,54 @@ async function getRouteDistance(
       overview === "full" ? "&geometries=geojson" : ""
     }`;
 
-    console.log(`[OSRM] Requesting route: (${startLng},${startLat}) → (${endLng},${endLat})`);
+    console.log(
+      `[OSRM] Requesting route: (${startLng},${startLat}) → (${endLng},${endLat})`,
+    );
 
     // Use public OSRM with 15 second timeout and 3 retries
     const response = await fetchWithTimeout(url, {}, 15000, 3);
-    
+
     if (!response.ok) {
-      console.error(`[OSRM] HTTP Error: ${response.status} ${response.statusText}`);
+      console.error(
+        `[OSRM] HTTP Error: ${response.status} ${response.statusText}`,
+      );
       throw new Error(`OSRM HTTP ${response.status}`);
     }
 
     const data = await response.json();
 
     if (data.code === "Ok" && data.routes?.[0]) {
-      console.log(`[OSRM] ✅ Success: Distance=${(data.routes[0].distance / 1000).toFixed(2)}km, Duration=${(data.routes[0].duration / 60).toFixed(0)}min`);
-      
+      console.log(
+        `[OSRM] ✅ Success: Distance=${(data.routes[0].distance / 1000).toFixed(2)}km, Duration=${(data.routes[0].duration / 60).toFixed(0)}min`,
+      );
+
       // Cache the result
       setCache(cacheKey, data.routes[0]);
-      
+
       return data.routes[0];
     }
 
-    console.warn(`[OSRM] ⚠️ Invalid response: code=${data.code}, message=${data.message}`);
+    console.warn(
+      `[OSRM] ⚠️ Invalid response: code=${data.code}, message=${data.message}`,
+    );
     throw new Error(`OSRM code: ${data.code} - ${data.message}`);
-
   } catch (error) {
     console.error(`[OSRM] ❌ All retries failed - Error: ${error.message}`);
-    
+
     // Fallback to Haversine only if OSRM completely fails
     console.log(`[HAVERSINE] Using fallback calculation...`);
-    
+
     const distance = calculateHaversineDistance(
       startLat,
       startLng,
       endLat,
-      endLng
+      endLng,
     );
-    
-    console.log(`[HAVERSINE] Distance=${(distance / 1000).toFixed(2)}km (estimated)`);
-    
+
+    console.log(
+      `[HAVERSINE] Distance=${(distance / 1000).toFixed(2)}km (estimated)`,
+    );
+
     return {
       distance: distance * 1.3, // Add 30% for road routing approximation
       duration: (distance * 1.3) / 10, // Approximate 10 m/s average speed
@@ -249,7 +260,7 @@ router.get(
               size
             )
           )
-        `
+        `,
         )
         .eq("status", "pending")
         .is("driver_id", null)
@@ -312,22 +323,23 @@ router.get(
           const customerLng = parseFloat(d.orders.delivery_longitude);
 
           // Calculate both routes in PARALLEL for faster response
-          const [driverToRestaurantRoute, restaurantToCustomerRoute] = await Promise.all([
-            getRouteDistance(
-              driverLng,
-              driverLat,
-              restaurantLng,
-              restaurantLat,
-              "full"
-            ),
-            getRouteDistance(
-              restaurantLng,
-              restaurantLat,
-              customerLng,
-              customerLat,
-              "full"
-            ),
-          ]);
+          const [driverToRestaurantRoute, restaurantToCustomerRoute] =
+            await Promise.all([
+              getRouteDistance(
+                driverLng,
+                driverLat,
+                restaurantLng,
+                restaurantLat,
+                "full",
+              ),
+              getRouteDistance(
+                restaurantLng,
+                restaurantLat,
+                customerLng,
+                customerLat,
+                "full",
+              ),
+            ]);
 
           const totalDistance =
             (driverToRestaurantRoute.distance || 0) +
@@ -383,7 +395,7 @@ router.get(
             placed_at: d.orders.placed_at,
             created_at: d.created_at,
           };
-        })
+        }),
       );
 
       return res.json({
@@ -419,7 +431,7 @@ router.get(
         error: error.message,
       });
     }
-  }
+  },
 );
 
 // ============================================================================
@@ -446,7 +458,8 @@ router.post(
 
       if (deliveringCheck && deliveringCheck.length > 0) {
         return res.status(400).json({
-          message: "Cannot accept new deliveries while in delivering mode. Complete current deliveries first.",
+          message:
+            "Cannot accept new deliveries while in delivering mode. Complete current deliveries first.",
           in_delivering_mode: true,
         });
       }
@@ -470,7 +483,7 @@ router.post(
           `id, order_id, status, assigned_at, orders (
           order_number, restaurant_name, restaurant_address, restaurant_latitude, restaurant_longitude,
           delivery_address, delivery_city, delivery_latitude, delivery_longitude, total_amount, distance_km, customer_name, customer_phone, customer_id, restaurant_id
-        ), drivers!driver_id (full_name, phone, profile_photo_url)`
+        ), drivers!driver_id (full_name, phone, profile_photo_url)`,
         )
         .maybeSingle();
 
@@ -551,7 +564,7 @@ router.post(
       console.error("Accept delivery error:", error);
       return res.status(500).json({ message: "Server error" });
     }
-  }
+  },
 );
 
 // ============================================================================
@@ -614,7 +627,7 @@ router.get(
               size
             )
           )
-        `
+        `,
         )
         .eq("driver_id", req.user.id)
         .eq("status", "accepted")
@@ -644,7 +657,7 @@ router.get(
               driverLat,
               restaurantLng,
               restaurantLat,
-              "full"
+              "full",
             ),
           ];
 
@@ -656,8 +669,8 @@ router.get(
                 restaurantLat,
                 customerLng,
                 customerLat,
-                "full"
-              )
+                "full",
+              ),
             );
           }
 
@@ -693,12 +706,12 @@ router.get(
             customer_route_geometry: customerRoute?.geometry,
             accepted_at: d.accepted_at,
           };
-        })
+        }),
       );
 
       // Sort by shortest distance (1st pickup = minimum distance)
       pickupsWithDistances.sort(
-        (a, b) => a.distance_meters - b.distance_meters
+        (a, b) => a.distance_meters - b.distance_meters,
       );
 
       return res.json({
@@ -713,7 +726,7 @@ router.get(
       console.error("Get pickups error:", error);
       return res.status(500).json({ message: "Server error" });
     }
-  }
+  },
 );
 
 // ============================================================================
@@ -772,7 +785,7 @@ router.get(
               size
             )
           )
-        `
+        `,
         )
         .eq("driver_id", req.user.id)
         .in("status", ["picked_up", "on_the_way", "at_customer"])
@@ -800,7 +813,7 @@ router.get(
             driverLat,
             customerLng,
             customerLat,
-            "full"
+            "full",
           );
 
           return {
@@ -833,12 +846,12 @@ router.get(
             route_geometry: route.geometry,
             picked_up_at: d.picked_up_at,
           };
-        })
+        }),
       );
 
       // Sort by shortest distance (1st delivery = minimum distance)
       deliveriesWithDistances.sort(
-        (a, b) => a.distance_meters - b.distance_meters
+        (a, b) => a.distance_meters - b.distance_meters,
       );
 
       return res.json({
@@ -853,7 +866,7 @@ router.get(
       console.error("Get delivery route error:", error);
       return res.status(500).json({ message: "Server error" });
     }
-  }
+  },
 );
 
 // ============================================================================
@@ -896,7 +909,7 @@ router.get(
             customer_name,
             customer_phone
           )
-        `
+        `,
         )
         .eq("id", deliveryId)
         .eq("driver_id", req.user.id)
@@ -932,7 +945,7 @@ router.get(
           driverLat,
           restaurantLng,
           restaurantLat,
-          "full"
+          "full",
         );
 
         if (restaurantRoute) {
@@ -954,7 +967,7 @@ router.get(
           restaurantLat,
           customerLng,
           customerLat,
-          "full"
+          "full",
         );
 
         if (restaurantCustomerRoute) {
@@ -976,7 +989,7 @@ router.get(
           driverLat,
           customerLng,
           customerLat,
-          "full"
+          "full",
         );
 
         if (customerRoute) {
@@ -1040,7 +1053,7 @@ router.get(
       console.error("Get delivery map error:", error);
       return res.status(500).json({ message: "Server error" });
     }
-  }
+  },
 );
 
 // ============================================================================
@@ -1105,7 +1118,7 @@ router.patch(
       console.error("Update location error:", error);
       return res.status(500).json({ message: "Server error" });
     }
-  }
+  },
 );
 
 // ============================================================================
@@ -1138,7 +1151,7 @@ router.patch(
       const { data: currentDelivery, error: fetchError } = await supabaseAdmin
         .from("deliveries")
         .select(
-          "status, order_id, current_latitude, current_longitude, orders (customer_id, restaurant_id, order_number, restaurant_latitude, restaurant_longitude, delivery_latitude, delivery_longitude)"
+          "status, order_id, current_latitude, current_longitude, orders (customer_id, restaurant_id, order_number, restaurant_latitude, restaurant_longitude, delivery_latitude, delivery_longitude)",
         )
         .eq("id", deliveryId)
         .eq("driver_id", req.user.id)
@@ -1289,7 +1302,7 @@ router.patch(
               customer_id,
               restaurant_id
             )
-          `
+          `,
           )
           .eq("driver_id", req.user.id)
           .eq("status", "picked_up")
@@ -1306,7 +1319,7 @@ router.patch(
               referenceLat,
               cLng,
               cLat,
-              "false"
+              "false",
             );
             return {
               id: n.id,
@@ -1316,7 +1329,7 @@ router.patch(
               restaurant_id: n.orders.restaurant_id,
               order_number: n.orders.order_number,
             };
-          })
+          }),
         );
 
         routes.sort((a, b) => a.distance - b.distance);
@@ -1372,17 +1385,25 @@ router.patch(
 
       // Auto-promote cases
       if (status === "delivered") {
-        const refLat = parseFloat(currentDelivery.orders.delivery_latitude || 0);
-        const refLng = parseFloat(currentDelivery.orders.delivery_longitude || 0);
+        const refLat = parseFloat(
+          currentDelivery.orders.delivery_latitude || 0,
+        );
+        const refLng = parseFloat(
+          currentDelivery.orders.delivery_longitude || 0,
+        );
         await promoteNextPickedUp(refLat, refLng);
       }
 
       if (status === "picked_up") {
         const refLat = parseFloat(
-          currentDelivery.orders.restaurant_latitude || currentDelivery.current_latitude || 0
+          currentDelivery.orders.restaurant_latitude ||
+            currentDelivery.current_latitude ||
+            0,
         );
         const refLng = parseFloat(
-          currentDelivery.orders.restaurant_longitude || currentDelivery.current_longitude || 0
+          currentDelivery.orders.restaurant_longitude ||
+            currentDelivery.current_longitude ||
+            0,
         );
         await promoteNextPickedUp(refLat, refLng);
       }
@@ -1398,7 +1419,7 @@ router.patch(
       console.error("Update status error:", error);
       return res.status(500).json({ message: "Server error" });
     }
-  }
+  },
 );
 
 // ============================================================================
@@ -1445,7 +1466,7 @@ router.get("/deliveries/active", authenticate, driverOnly, async (req, res) => {
             size
           )
         )
-      `
+      `,
       )
       .eq("driver_id", req.user.id)
       .not("status", "in", "(delivered,failed,cancelled)")
@@ -1483,7 +1504,7 @@ router.get("/deliveries/active", authenticate, driverOnly, async (req, res) => {
             driverLat,
             restaurantLng,
             restaurantLat,
-            "false"
+            "false",
           );
           if (restaurantRoute) {
             totalDistance += restaurantRoute.distance;
@@ -1495,7 +1516,7 @@ router.get("/deliveries/active", authenticate, driverOnly, async (req, res) => {
             restaurantLat,
             customerLng,
             customerLat,
-            "false"
+            "false",
           );
           if (customerRoute) {
             totalDistance += customerRoute.distance;
@@ -1507,13 +1528,13 @@ router.get("/deliveries/active", authenticate, driverOnly, async (req, res) => {
             driverLat,
             driverLng,
             restaurantLat,
-            restaurantLng
+            restaurantLng,
           );
           const customerDist = calculateHaversineDistance(
             restaurantLat,
             restaurantLng,
             customerLat,
-            customerLng
+            customerLng,
           );
           totalDistance = (restaurantDist + customerDist) * 1.3; // Add 30% for road routing
         }
@@ -1556,7 +1577,7 @@ router.get("/deliveries/active", authenticate, driverOnly, async (req, res) => {
             items: d.orders.order_items,
           },
         };
-      })
+      }),
     );
 
     return res.json({ deliveries: formattedDeliveries });
@@ -1596,7 +1617,7 @@ router.get("/deliveries/:id", authenticate, driverOnly, async (req, res) => {
             customer_name,
             customer_phone
           )
-        `
+        `,
       )
       .eq("id", deliveryId)
       .eq("driver_id", driverId)
@@ -1672,7 +1693,7 @@ router.get(
           total_amount,
           distance_km
         )
-      `
+      `,
         )
         .eq("driver_id", req.user.id)
         .in("status", ["delivered", "failed"])
@@ -1689,7 +1710,7 @@ router.get(
       console.error("Get delivery history error:", error);
       return res.status(500).json({ message: "Server error" });
     }
-  }
+  },
 );
 
 // ============================================================================
@@ -1755,7 +1776,7 @@ router.patch(
       console.error("Update notification error:", error);
       return res.status(500).json({ message: "Server error" });
     }
-  }
+  },
 );
 
 // ============================================================================
@@ -1786,7 +1807,7 @@ router.patch(
       console.error("Mark all notifications error:", error);
       return res.status(500).json({ message: "Server error" });
     }
-  }
+  },
 );
 
 // ============================================================================

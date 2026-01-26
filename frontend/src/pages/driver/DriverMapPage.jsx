@@ -111,7 +111,7 @@ export default function DriverMapPage() {
         console.error("Location error:", error);
         setIsTracking(false);
       },
-      { enableHighAccuracy: true }
+      { enableHighAccuracy: true },
     );
 
     // Update every 5 seconds
@@ -126,7 +126,7 @@ export default function DriverMapPage() {
           updateLocationOnBackend(deliveryId, location);
         },
         (error) => console.error("Location update error:", error),
-        { enableHighAccuracy: true, maximumAge: 0 }
+        { enableHighAccuracy: true, maximumAge: 0 },
       );
     }, 5000);
   };
@@ -154,7 +154,7 @@ export default function DriverMapPage() {
             latitude: location.latitude,
             longitude: location.longitude,
           }),
-        }
+        },
       );
     } catch (e) {
       console.error("Location update error:", e);
@@ -225,13 +225,13 @@ export default function DriverMapPage() {
             latitude: driverLocation.latitude,
             longitude: driverLocation.longitude,
           }),
-        }
+        },
       );
 
       if (res.ok) {
         // Remove from pickups and fetch updated data
         const updatedPickups = pickups.filter(
-          (p) => p.delivery_id !== currentTarget.delivery_id
+          (p) => p.delivery_id !== currentTarget.delivery_id,
         );
         setPickups(updatedPickups);
 
@@ -267,7 +267,7 @@ export default function DriverMapPage() {
     setUpdating(true);
     try {
       const token = localStorage.getItem("token");
-      
+
       // First update to on_the_way if not already
       if (currentTarget.status === "picked_up") {
         await fetch(
@@ -279,7 +279,7 @@ export default function DriverMapPage() {
               "Content-Type": "application/json",
             },
             body: JSON.stringify({ status: "on_the_way" }),
-          }
+          },
         );
       }
 
@@ -297,7 +297,7 @@ export default function DriverMapPage() {
               "Content-Type": "application/json",
             },
             body: JSON.stringify({ status: "at_customer" }),
-          }
+          },
         );
       }
 
@@ -315,12 +315,12 @@ export default function DriverMapPage() {
             latitude: driverLocation.latitude,
             longitude: driverLocation.longitude,
           }),
-        }
+        },
       );
 
       if (res.ok) {
         const updatedDeliveries = deliveries.filter(
-          (d) => d.delivery_id !== currentTarget.delivery_id
+          (d) => d.delivery_id !== currentTarget.delivery_id,
         );
         setDeliveries(updatedDeliveries);
 
@@ -403,8 +403,7 @@ export default function DriverMapPage() {
     ]);
   }
 
-  const mapCenter =
-    mapPositions.length > 0 ? mapPositions[0] : [0, 0];
+  const mapCenter = mapPositions.length > 0 ? mapPositions[0] : [0, 0];
 
   return (
     <DriverLayout>
@@ -449,7 +448,7 @@ export default function DriverMapPage() {
                     currentTarget.route_geometry.coordinates && (
                       <Polyline
                         positions={currentTarget.route_geometry.coordinates.map(
-                          (coord) => [coord[1], coord[0]]
+                          (coord) => [coord[1], coord[0]],
                         )}
                         color="#ef4444"
                         weight={4}
@@ -474,7 +473,7 @@ export default function DriverMapPage() {
                     currentTarget.route_geometry.coordinates && (
                       <Polyline
                         positions={currentTarget.route_geometry.coordinates.map(
-                          (coord) => [coord[1], coord[0]]
+                          (coord) => [coord[1], coord[0]],
                         )}
                         color="#10b981"
                         weight={4}
@@ -535,29 +534,39 @@ export default function DriverMapPage() {
               </h3>
 
               {mode === "pickup" &&
-                pickups.slice(1).map((pickup, index) => (
-                  <UpcomingPickupCard key={pickup.delivery_id} pickup={pickup} index={index + 2} />
-                ))}
+                pickups
+                  .slice(1)
+                  .map((pickup, index) => (
+                    <UpcomingPickupCard
+                      key={pickup.delivery_id}
+                      pickup={pickup}
+                      index={index + 2}
+                    />
+                  ))}
 
               {mode === "delivery" &&
-                deliveries.slice(1).map((delivery, index) => (
-                  <UpcomingDeliveryCard
-                    key={delivery.delivery_id}
-                    delivery={delivery}
-                    index={index + 2}
-                  />
-                ))}
+                deliveries
+                  .slice(1)
+                  .map((delivery, index) => (
+                    <UpcomingDeliveryCard
+                      key={delivery.delivery_id}
+                      delivery={delivery}
+                      index={index + 2}
+                    />
+                  ))}
             </div>
 
             {/* Start Delivery Button */}
-            {mode === "pickup" && pickups.length === 0 && deliveries.length > 0 && (
-              <button
-                onClick={handleStartDelivery}
-                className="w-full mt-4 py-4 bg-blue-600 text-white rounded-xl font-bold text-lg hover:bg-blue-700 transition"
-              >
-                START DELIVERY
-              </button>
-            )}
+            {mode === "pickup" &&
+              pickups.length === 0 &&
+              deliveries.length > 0 && (
+                <button
+                  onClick={handleStartDelivery}
+                  className="w-full mt-4 py-4 bg-blue-600 text-white rounded-xl font-bold text-lg hover:bg-blue-700 transition"
+                >
+                  START DELIVERY
+                </button>
+              )}
           </div>
         </div>
       </div>
@@ -566,7 +575,8 @@ export default function DriverMapPage() {
 }
 
 function PickupInfo({ pickup, onPickedUp, updating }) {
-  const { order_number, restaurant, distance_km, estimated_time_minutes } = pickup;
+  const { order_number, restaurant, distance_km, estimated_time_minutes } =
+    pickup;
 
   return (
     <div>
@@ -582,14 +592,34 @@ function PickupInfo({ pickup, onPickedUp, updating }) {
         <div className="text-right">
           <div className="flex items-center gap-3 text-sm">
             <div className="flex items-center gap-1">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"
+                />
               </svg>
               <span className="font-bold">{distance_km} km</span>
             </div>
             <div className="flex items-center gap-1">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
               </svg>
               <span className="font-bold">{estimated_time_minutes} min</span>
             </div>
@@ -603,8 +633,18 @@ function PickupInfo({ pickup, onPickedUp, updating }) {
           href={`tel:${restaurant.phone}`}
           className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700 font-semibold mb-4"
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+          <svg
+            className="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
+            />
           </svg>
           <span>{restaurant.phone}</span>
         </a>
@@ -622,8 +662,14 @@ function PickupInfo({ pickup, onPickedUp, updating }) {
 }
 
 function DeliveryInfo({ delivery, onDelivered, updating }) {
-  const { order_number, customer, pricing, distance_km, estimated_time_minutes, restaurant_name } =
-    delivery;
+  const {
+    order_number,
+    customer,
+    pricing,
+    distance_km,
+    estimated_time_minutes,
+    restaurant_name,
+  } = delivery;
 
   return (
     <div>
@@ -637,14 +683,34 @@ function DeliveryInfo({ delivery, onDelivered, updating }) {
         <div className="text-right">
           <div className="flex items-center gap-3 text-sm">
             <div className="flex items-center gap-1">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"
+                />
               </svg>
               <span className="font-bold">{distance_km} km</span>
             </div>
             <div className="flex items-center gap-1">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
               </svg>
               <span className="font-bold">{estimated_time_minutes} min</span>
             </div>
@@ -682,8 +748,18 @@ function DeliveryInfo({ delivery, onDelivered, updating }) {
           href={`tel:${customer.phone}`}
           className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700 font-semibold mb-4"
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+          <svg
+            className="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
+            />
           </svg>
           <span>{customer.phone}</span>
         </a>

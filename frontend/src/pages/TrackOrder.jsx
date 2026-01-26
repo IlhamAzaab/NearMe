@@ -11,16 +11,11 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { createClient } from "@supabase/supabase-js";
+import supabaseClient from "../supabaseClient";
 import SiteHeader from "../components/SiteHeader";
 
-// Initialize Supabase client for realtime
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase =
-  supabaseUrl && supabaseAnonKey
-    ? createClient(supabaseUrl, supabaseAnonKey)
-    : null;
+// Shared Supabase client (singleton)
+const supabase = supabaseClient;
 
 export default function TrackOrder() {
   const navigate = useNavigate();
@@ -159,7 +154,7 @@ export default function TrackOrder() {
         (payload) => {
           console.log("Order updated:", payload);
           handleOrderUpdate(payload.new, payload.old);
-        }
+        },
       )
       .subscribe((status) => {
         console.log("Realtime subscription status:", status);
@@ -210,7 +205,7 @@ export default function TrackOrder() {
   const playNotificationSound = () => {
     try {
       const audio = new Audio(
-        "data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2teleQgAVZ/NvZdNBCeE0P/OeC4EOW+93rN8NQQ+WKrEsIsxBUpljZ+vgSwELkticp+XQRAEIThHQXJcPAQNIjk7V2NNBAwkO0FcaksEDik6P1lgSQQLJzc9WGhOBBAuP0djaE0EEy9ARGJoTQQTL0BEYmhN"
+        "data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2teleQgAVZ/NvZdNBCeE0P/OeC4EOW+93rN8NQQ+WKrEsIsxBUpljZ+vgSwELkticp+XQRAEIThHQXJcPAQNIjk7V2NNBAwkO0FcaksEDik6P1lgSQQLJzc9WGhOBBAuP0djaE0EEy9ARGJoTQQTL0BEYmhN",
       );
       audio.volume = 0.5;
       audio.play().catch(() => {});
@@ -357,7 +352,7 @@ export default function TrackOrder() {
 
   const currentIndex = getStatusIndex(order.status);
   const isCancelledOrRejected = ["cancelled", "rejected"].includes(
-    order.status
+    order.status,
   );
   const isDelivered = order.status === "delivered";
 
@@ -379,9 +374,9 @@ export default function TrackOrder() {
               notification.status === "delivered"
                 ? "border-green-500"
                 : notification.status === "cancelled" ||
-                  notification.status === "rejected"
-                ? "border-red-500"
-                : "border-indigo-500"
+                    notification.status === "rejected"
+                  ? "border-red-500"
+                  : "border-indigo-500"
             }`}
           >
             <div className="flex items-center gap-3">
@@ -450,8 +445,8 @@ export default function TrackOrder() {
                     isDelivered
                       ? "bg-green-500 text-white"
                       : isCancelledOrRejected
-                      ? "bg-red-500 text-white"
-                      : "bg-white/20 text-white backdrop-blur"
+                        ? "bg-red-500 text-white"
+                        : "bg-white/20 text-white backdrop-blur"
                   }`}
                 >
                   <span className="text-lg">{getStatusIcon(order.status)}</span>

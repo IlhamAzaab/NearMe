@@ -1,9 +1,11 @@
 # OSRM Setup Guide for NearMe
 
 ## Problem Fixed ✅
+
 The system was using **Haversine formula** (straight-line distance) instead of **OSRM** (actual road routing) because the public OSRM server (`router.project-osrm.org`) was timing out or unreachable.
 
 ## Solution
+
 Set up a **local OSRM service** using Docker that runs on your machine with a pre-downloaded map for Sri Lanka.
 
 ## Installation Steps
@@ -23,6 +25,7 @@ wget https://download.geofabrik.de/asia/sri-lanka-latest.osm.pbf
 ```
 
 **Alternative (faster download):** Use a direct link or download from:
+
 - Geofabrik: https://download.geofabrik.de/asia.html
 - Download: `sri-lanka-latest.osm.pbf`
 
@@ -64,6 +67,7 @@ docker logs nearme-backend -f
 ## How It Works
 
 ### Before (Public OSRM - Failing)
+
 ```
 Frontend
    ↓
@@ -75,6 +79,7 @@ Fallback to Haversine ❌
 ```
 
 ### After (Local OSRM - Working)
+
 ```
 Frontend
    ↓
@@ -90,6 +95,7 @@ Accurate Road Routing + Distance Calculation
 ## Key Changes Made
 
 ### 1. Docker Compose Updated
+
 - Added OSRM service with pre-processing
 - Changed backend port to 5001 (OSRM uses 5000)
 - Added health check for OSRM
@@ -97,19 +103,22 @@ Accurate Road Routing + Distance Calculation
 - Set `OSRM_API_URL=http://osrm:5000` environment variable
 
 ### 2. Backend Updated
+
 - `getRouteDistance()` now uses environment variable: `process.env.OSRM_API_URL`
 - Falls back to public OSRM if local is not available
 - Added detailed logging to show which OSRM instance is being used
 
 ### 3. Now Using OSRM For
+
 ✅ Both driver → restaurant routes  
 ✅ Both restaurant → customer routes  
 ✅ Accurate distance calculations  
-✅ Accurate time estimates  
+✅ Accurate time estimates
 
 ## Troubleshooting
 
 ### OSRM Takes Too Long to Start
+
 The first start processes the map data (5-10 minutes). Subsequent starts are faster (uses cache).
 
 ```bash
@@ -118,6 +127,7 @@ docker logs nearme-osrm -f
 ```
 
 ### OSRM Port Already in Use
+
 If port 5000 is already in use:
 
 ```yaml
@@ -130,6 +140,7 @@ ports:
 ```
 
 ### Memory Issues During Map Processing
+
 The Sri Lanka map requires about 2GB RAM. If Docker runs out of memory:
 
 ```bash
@@ -138,7 +149,9 @@ The Sri Lanka map requires about 2GB RAM. If Docker runs out of memory:
 ```
 
 ### Backend Still Using Haversine
+
 Check logs to see why:
+
 ```bash
 docker logs nearme-backend
 # Look for: [OSRM] ❌ OSRM Failed
@@ -146,13 +159,14 @@ docker logs nearme-backend
 
 ## Port Configuration
 
-| Service | Port | Purpose |
-|---------|------|---------|
-| OSRM | 5000 | Internal Docker routing |
-| Backend | 5001 | Node.js API server |
-| Frontend | 5173 | React dev server |
+| Service  | Port | Purpose                 |
+| -------- | ---- | ----------------------- |
+| OSRM     | 5000 | Internal Docker routing |
+| Backend  | 5001 | Node.js API server      |
+| Frontend | 5173 | React dev server        |
 
 If running locally without Docker:
+
 - Set `OSRM_API_URL=http://localhost:5000` before running backend
 
 ## Why Haversine Was Being Used Before
@@ -162,6 +176,7 @@ If running locally without Docker:
 3. **Long fallback time** - Timeout was 5 seconds before trying fallback
 
 Now with local OSRM:
+
 - ✅ Fast: <500ms per route (local, not internet-dependent)
 - ✅ Parallel: Both routes calculated simultaneously
 - ✅ Reliable: Runs on your machine, no external dependencies
@@ -181,11 +196,13 @@ OSRM_API_URL=http://localhost:5000  # Local OSRM (direct)
 ## Distance Calculation Comparison
 
 ### Haversine (Old - Straight Line)
+
 - Driver at (81.186, 8.5017)
 - Restaurant at (81.2, 8.51)
 - **Haversine**: 1.8 km (as the crow flies)
 
 ### OSRM (New - Actual Roads)
+
 - Same locations
 - **OSRM**: 2.4 km (following actual roads)
 - **Accurate**: Shows drivers real navigation distance

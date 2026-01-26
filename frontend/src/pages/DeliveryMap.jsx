@@ -9,7 +9,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { createClient } from "@supabase/supabase-js";
+import supabaseClient from "../supabaseClient";
 import DriverLayout from "../components/DriverLayout";
 
 // Leaflet imports
@@ -17,12 +17,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
 // Initialize Supabase
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase =
-  supabaseUrl && supabaseAnonKey
-    ? createClient(supabaseUrl, supabaseAnonKey)
-    : null;
+const supabase = supabaseClient;
 
 // Fix default marker icons
 delete L.Icon.Default.prototype._getIconUrl;
@@ -72,34 +67,33 @@ export default function DeliveryMap() {
   // ============================================================================
 
   const fetchDelivery = useCallback(async () => {
-  try {
-    const token = localStorage.getItem("token");
+    try {
+      const token = localStorage.getItem("token");
 
-    const res = await fetch(
-      `http://localhost:5000/driver/deliveries/${deliveryId}`,
-      {
-        headers: { Authorization: `Bearer ${token}` },
+      const res = await fetch(
+        `http://localhost:5000/driver/deliveries/${deliveryId}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+
+      const data = await res.json();
+
+      if (res.ok) {
+        setDelivery(data.delivery);
+        setStatus(data.delivery.status);
+
+        // use backend driver location if exists
+        if (data.delivery.driver_location?.latitude) {
+          setCurrentLocation(data.delivery.driver_location);
+        }
       }
-    );
-
-    const data = await res.json();
-
-    if (res.ok) {
-      setDelivery(data.delivery);
-      setStatus(data.delivery.status);
-
-      // use backend driver location if exists
-      if (data.delivery.driver_location?.latitude) {
-        setCurrentLocation(data.delivery.driver_location);
-      }
+    } catch (err) {
+      console.error("Fetch delivery error:", err);
+    } finally {
+      setLoading(false);
     }
-  } catch (err) {
-    console.error("Fetch delivery error:", err);
-  } finally {
-    setLoading(false);
-  }
-}, [deliveryId]);
-
+  }, [deliveryId]);
 
   useEffect(() => {
     if (driverId) {
@@ -136,14 +130,14 @@ export default function DeliveryMap() {
                   Authorization: `Bearer ${token}`,
                 },
                 body: JSON.stringify({ latitude, longitude }),
-              }
+              },
             );
           } catch (error) {
             console.error("Location update error:", error);
           }
         },
         (error) => console.error("Geolocation error:", error),
-        { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
+        { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 },
       );
     }
 
@@ -174,19 +168,15 @@ export default function DeliveryMap() {
     const map = mapInstanceRef.current;
 
     // Get coordinates
-    
+
     const restaurantLat = delivery.order.restaurant.latitude;
     const restaurantLng = delivery.order.restaurant.longitude;
 
     const customerLat = delivery.order.delivery.latitude;
     const customerLng = delivery.order.delivery.longitude;
 
-    const driverLat =
-    currentLocation?.latitude || restaurantLat;
-    const driverLng =
-    currentLocation?.longitude || restaurantLng;
-
-
+    const driverLat = currentLocation?.latitude || restaurantLat;
+    const driverLng = currentLocation?.longitude || restaurantLng;
 
     // Remove old layers
     if (layersRef.current.driverRoute) {
@@ -276,7 +266,7 @@ export default function DeliveryMap() {
     })
       .addTo(map)
       .bindPopup(
-        `<div><strong>🍽️ ${delivery.order.restaurant.name}</strong><br>${delivery.order.restaurant.address}</div>`
+        `<div><strong>🍽️ ${delivery.order.restaurant.name}</strong><br>${delivery.order.restaurant.address}</div>`,
       );
 
     // Customer marker
@@ -294,7 +284,7 @@ export default function DeliveryMap() {
     })
       .addTo(map)
       .bindPopup(
-        `<div><strong>🏠 ${delivery.order.customer.name}</strong><br>${delivery.order.delivery.address}</div>`
+        `<div><strong>🏠 ${delivery.order.customer.name}</strong><br>${delivery.order.delivery.address}</div>`,
       );
 
     // Fit bounds
@@ -323,7 +313,7 @@ export default function DeliveryMap() {
             Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({ status: newStatus }),
-        }
+        },
       );
 
       if (response.ok) {
@@ -364,26 +354,28 @@ export default function DeliveryMap() {
     return steps[currentIndex + 1];
   };
   if (
-  !delivery ||
-  !delivery.order ||
-  !delivery.order.restaurant ||
-  !delivery.order.delivery ||
-  !delivery.driver_location ||
-  delivery.order.restaurant.latitude == null ||
-  delivery.order.restaurant.longitude == null ||
-  delivery.order.delivery.latitude == null ||
-  delivery.order.delivery.longitude == null
-) {
-  return (
-    <DriverLayout>
-      <div className="flex items-center justify-center h-screen">
-        <div className="text-center">
-          <p className="text-xl font-semibold text-gray-900">Loading map...</p>
+    !delivery ||
+    !delivery.order ||
+    !delivery.order.restaurant ||
+    !delivery.order.delivery ||
+    !delivery.driver_location ||
+    delivery.order.restaurant.latitude == null ||
+    delivery.order.restaurant.longitude == null ||
+    delivery.order.delivery.latitude == null ||
+    delivery.order.delivery.longitude == null
+  ) {
+    return (
+      <DriverLayout>
+        <div className="flex items-center justify-center h-screen">
+          <div className="text-center">
+            <p className="text-xl font-semibold text-gray-900">
+              Loading map...
+            </p>
+          </div>
         </div>
-      </div>
-    </DriverLayout>
-  );
-}
+      </DriverLayout>
+    );
+  }
 
   if (!delivery) {
     return (
@@ -463,8 +455,8 @@ export default function DeliveryMap() {
                         isCurrent
                           ? "bg-blue-50 border border-blue-200"
                           : isCompleted
-                          ? "bg-green-50"
-                          : "bg-gray-50"
+                            ? "bg-green-50"
+                            : "bg-gray-50"
                       }`}
                     >
                       <div className="text-xl">{step.icon}</div>

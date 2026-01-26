@@ -1,14 +1,9 @@
 import React, { useEffect, useState, useCallback } from "react";
-import { createClient } from "@supabase/supabase-js";
+import supabaseClient from "../../supabaseClient";
 import DriverLayout from "../../components/DriverLayout";
 
 // Initialize Supabase
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase =
-  supabaseUrl && supabaseAnonKey
-    ? createClient(supabaseUrl, supabaseAnonKey)
-    : null;
+const supabase = supabaseClient;
 
 export default function DriverNotifications() {
   const [notifications, setNotifications] = useState([]);
@@ -40,7 +35,7 @@ export default function DriverNotifications() {
         "http://localhost:5000/driver/notifications?limit=50",
         {
           headers: { Authorization: `Bearer ${token}` },
-        }
+        },
       );
       const data = await res.json();
       setNotifications(data.notifications || []);
@@ -54,7 +49,7 @@ export default function DriverNotifications() {
           ...notif,
           is_read: true,
           read_at: new Date().toISOString(),
-        }))
+        })),
       );
     } catch (e) {
       console.error("Fetch notifications error:", e);
@@ -99,7 +94,7 @@ export default function DriverNotifications() {
         (payload) => {
           console.log("New driver notification:", payload);
           setNotifications((prev) => [payload.new, ...prev]);
-        }
+        },
       )
       .subscribe();
 
@@ -184,7 +179,9 @@ export default function DriverNotifications() {
 
                 const isUnread = !n.is_read;
                 const bgColor = isUnread ? "bg-blue-50" : "bg-white";
-                const borderColor = isUnread ? "border-blue-600" : "border-gray-300";
+                const borderColor = isUnread
+                  ? "border-blue-600"
+                  : "border-gray-300";
                 const iconBg = isUnread ? "bg-blue-200" : "bg-gray-100";
                 const shadowClass = isUnread ? "shadow-md" : "shadow";
 
@@ -198,7 +195,9 @@ export default function DriverNotifications() {
                       <div
                         className={`w-12 h-12 ${iconBg} rounded-full flex items-center justify-center flex-shrink-0`}
                       >
-                        <span className="text-xl">{getNotificationIcon(n.type)}</span>
+                        <span className="text-xl">
+                          {getNotificationIcon(n.type)}
+                        </span>
                       </div>
 
                       {/* Content */}
@@ -215,7 +214,9 @@ export default function DriverNotifications() {
                                 <span className="w-2 h-2 bg-blue-600 rounded-full animate-pulse"></span>
                               )}
                             </div>
-                            <p className={`mt-1 ${isUnread ? "text-gray-800" : "text-gray-600"}`}>
+                            <p
+                              className={`mt-1 ${isUnread ? "text-gray-800" : "text-gray-600"}`}
+                            >
                               {n.message}
                             </p>
                           </div>
@@ -236,7 +237,9 @@ export default function DriverNotifications() {
                         )}
 
                         {/* Time */}
-                        <p className="text-xs text-gray-400 mt-2">{getTimeAgo(n.created_at)}</p>
+                        <p className="text-xs text-gray-400 mt-2">
+                          {getTimeAgo(n.created_at)}
+                        </p>
                       </div>
                     </div>
                   </div>

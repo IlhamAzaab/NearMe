@@ -1,14 +1,9 @@
 import React, { useEffect, useState, useCallback } from "react";
-import { createClient } from "@supabase/supabase-js";
+import supabaseClient from "../../supabaseClient";
 import AdminSidebar from "../../components/AdminSidebar";
 
 // Initialize Supabase
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase =
-  supabaseUrl && supabaseAnonKey
-    ? createClient(supabaseUrl, supabaseAnonKey)
-    : null;
+const supabase = supabaseClient;
 
 export default function AdminNotifications() {
   const [notifications, setNotifications] = useState([]);
@@ -34,7 +29,7 @@ export default function AdminNotifications() {
         "http://localhost:5000/admin/notifications?limit=100",
         {
           headers: { Authorization: `Bearer ${token}` },
-        }
+        },
       );
       const data = await res.json();
       setNotifications(data.notifications || []);
@@ -48,7 +43,7 @@ export default function AdminNotifications() {
           ...notif,
           is_read: true,
           read_at: new Date().toISOString(),
-        }))
+        })),
       );
     } catch (e) {
       console.error("Fetch error:", e);
@@ -88,7 +83,7 @@ export default function AdminNotifications() {
         (payload) => {
           console.log("New notification:", payload);
           setNotifications((prev) => [payload.new, ...prev]);
-        }
+        },
       )
       .subscribe();
 

@@ -1,10 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { createClient } from "@supabase/supabase-js";
-
-const supabaseUrl =
-  import.meta.env.VITE_SUPABASE_URL || "https://your-project.supabase.co";
-const supabaseAnonKey =
-  import.meta.env.VITE_SUPABASE_ANON_KEY || "your-anon-key";
+import supabaseClient from "../supabaseClient";
 
 /**
  * Custom Hook: useDriverNotifications
@@ -46,16 +41,10 @@ export const useDriverNotifications = (driverId, options = {}) => {
   const subscriptionRef = useRef(null);
   const channelRef = useRef(null);
 
-  // Initialize Supabase client
+  // Initialize Supabase client (singleton)
   useEffect(() => {
     if (!supabaseRef.current) {
-      supabaseRef.current = createClient(supabaseUrl, supabaseAnonKey, {
-        realtime: {
-          params: {
-            eventsPerSecond: 10,
-          },
-        },
-      });
+      supabaseRef.current = supabaseClient;
     }
   }, []);
 

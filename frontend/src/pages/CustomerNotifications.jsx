@@ -1,15 +1,10 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { createClient } from "@supabase/supabase-js";
+import supabaseClient from "../supabaseClient";
 import SiteHeader from "../components/SiteHeader";
 
 // Initialize Supabase
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase =
-  supabaseUrl && supabaseAnonKey
-    ? createClient(supabaseUrl, supabaseAnonKey)
-    : null;
+const supabase = supabaseClient;
 
 export default function CustomerNotifications() {
   const navigate = useNavigate();
@@ -24,7 +19,7 @@ export default function CustomerNotifications() {
         "http://localhost:5000/customer/notifications?limit=100",
         {
           headers: { Authorization: `Bearer ${token}` },
-        }
+        },
       );
       const data = await res.json();
       setNotifications(data.notifications || []);
@@ -133,12 +128,26 @@ export default function CustomerNotifications() {
         {!isLoggedIn ? (
           <div className="text-center py-12 bg-white rounded-xl shadow">
             <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg className="w-10 h-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              <svg
+                className="w-10 h-10 text-gray-400"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                />
               </svg>
             </div>
-            <p className="text-xl font-medium text-gray-800">Please login to view notifications</p>
-            <p className="text-gray-500 mt-1">Sign in to see your order updates</p>
+            <p className="text-xl font-medium text-gray-800">
+              Please login to view notifications
+            </p>
+            <p className="text-gray-500 mt-1">
+              Sign in to see your order updates
+            </p>
             <button
               onClick={() => navigate("/login")}
               className="mt-4 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"

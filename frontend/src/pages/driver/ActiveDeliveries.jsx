@@ -146,19 +146,22 @@ export default function ActiveDeliveries() {
         // Auto-set first delivery to on-the-way when starting delivering mode
         if (list.length > 0 && list[0].status === "picked_up") {
           try {
-            await fetch(`http://localhost:5000/driver/deliveries/${list[0].delivery_id}/status`, {
-              method: "PATCH",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`,
+            await fetch(
+              `http://localhost:5000/driver/deliveries/${list[0].delivery_id}/status`,
+              {
+                method: "PATCH",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({ status: "on_the_way" }),
               },
-              body: JSON.stringify({ status: "on_the_way" }),
-            });
+            );
             // Optimistically reflect status
             setDeliveries((prev) =>
               prev.map((d, i) =>
-                i === 0 ? { ...d, status: "on_the_way" } : d
-              )
+                i === 0 ? { ...d, status: "on_the_way" } : d,
+              ),
             );
           } catch (err) {
             console.error("Failed to auto-set first delivery on-the-way:", err);
@@ -233,7 +236,9 @@ export default function ActiveDeliveries() {
               <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
               <p className="mt-4 text-gray-600">Loading pickups...</p>
             </div>
-          ) : (mode === "pickup" ? pickups.length === 0 : deliveries.length === 0) ? (
+          ) : (
+              mode === "pickup" ? pickups.length === 0 : deliveries.length === 0
+            ) ? (
             <div className="bg-white rounded-xl shadow-md p-12 text-center">
               <svg
                 className="mx-auto h-24 w-24 text-gray-400"
@@ -249,7 +254,9 @@ export default function ActiveDeliveries() {
                 />
               </svg>
               <h3 className="mt-4 text-xl font-semibold text-gray-700">
-                {mode === "pickup" ? "No Active Pickups" : "No Active Deliveries"}
+                {mode === "pickup"
+                  ? "No Active Pickups"
+                  : "No Active Deliveries"}
               </h3>
               <p className="mt-2 text-gray-500">
                 {mode === "pickup"
@@ -325,7 +332,9 @@ export default function ActiveDeliveries() {
                     d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
                   />
                 </svg>
-                <span>{mode === "pickup" ? "START PICK-UP" : "START DELIVERY"}</span>
+                <span>
+                  {mode === "pickup" ? "START PICK-UP" : "START DELIVERY"}
+                </span>
               </button>
             </div>
           </div>
@@ -335,7 +344,14 @@ export default function ActiveDeliveries() {
   );
 }
 
-function PickupCard({ pickup, index, isFirst, driverLocation, showMap = true, showCustomer = false }) {
+function PickupCard({
+  pickup,
+  index,
+  isFirst,
+  driverLocation,
+  showMap = true,
+  showCustomer = false,
+}) {
   const {
     delivery_id,
     order_number,
@@ -440,17 +456,18 @@ function PickupCard({ pickup, index, isFirst, driverLocation, showMap = true, sh
               )}
 
               {/* OSRM Route from Restaurant to Customer - Grey (hidden in pickup mode) */}
-              {showCustomer && customer_route_geometry && customer_route_geometry.coordinates && (
-                <Polyline
-                  positions={customer_route_geometry.coordinates.map((coord) => [
-                    coord[1],
-                    coord[0],
-                  ])}
-                  color="#9ca3af"
-                  weight={6}
-                  opacity={0.9}
-                />
-              )}
+              {showCustomer &&
+                customer_route_geometry &&
+                customer_route_geometry.coordinates && (
+                  <Polyline
+                    positions={customer_route_geometry.coordinates.map(
+                      (coord) => [coord[1], coord[0]],
+                    )}
+                    color="#9ca3af"
+                    weight={6}
+                    opacity={0.9}
+                  />
+                )}
             </MapContainer>
           )}
 
@@ -622,7 +639,13 @@ function PickupCard({ pickup, index, isFirst, driverLocation, showMap = true, sh
   );
 }
 
-function DeliveryCard({ delivery, index, isFirst, driverLocation, showMap = true }) {
+function DeliveryCard({
+  delivery,
+  index,
+  isFirst,
+  driverLocation,
+  showMap = true,
+}) {
   const {
     order_number,
     customer,
@@ -682,7 +705,9 @@ function DeliveryCard({ delivery, index, isFirst, driverLocation, showMap = true
                   <div className="min-w-[200px]">
                     <p className="font-bold text-blue-600">👤 Customer</p>
                     <p className="font-semibold mt-1">{customer.name}</p>
-                    <p className="text-xs text-gray-600 mt-1">{customer.address}</p>
+                    <p className="text-xs text-gray-600 mt-1">
+                      {customer.address}
+                    </p>
                   </div>
                 </Popup>
               </Marker>
@@ -704,7 +729,9 @@ function DeliveryCard({ delivery, index, isFirst, driverLocation, showMap = true
 
           {/* Order Number Badge */}
           <div className="absolute top-3 right-3 bg-gradient-to-r from-green-600 to-green-700 px-4 py-2 rounded-full shadow-lg">
-            <p className="text-xs font-semibold text-white">Order #{order_number}</p>
+            <p className="text-xs font-semibold text-white">
+              Order #{order_number}
+            </p>
           </div>
         </div>
       )}
@@ -716,15 +743,21 @@ function DeliveryCard({ delivery, index, isFirst, driverLocation, showMap = true
           <div className="flex items-center gap-3">
             <div
               className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-lg ${
-                isFirst ? "bg-green-600 text-white" : "bg-gray-200 text-gray-600"
+                isFirst
+                  ? "bg-green-600 text-white"
+                  : "bg-gray-200 text-gray-600"
               }`}
             >
               {index + 1}
             </div>
             <div>
-              <p className="text-xs text-gray-500 uppercase font-semibold">Order #{order_number}</p>
+              <p className="text-xs text-gray-500 uppercase font-semibold">
+                Order #{order_number}
+              </p>
               {isFirst && (
-                <p className="text-xs text-green-600 font-bold mt-1">NEXT DELIVERY</p>
+                <p className="text-xs text-green-600 font-bold mt-1">
+                  NEXT DELIVERY
+                </p>
               )}
             </div>
           </div>
@@ -732,16 +765,38 @@ function DeliveryCard({ delivery, index, isFirst, driverLocation, showMap = true
           {/* Distance and Time */}
           <div className="flex items-center gap-4 text-sm">
             <div className="flex items-center gap-1 text-gray-600">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"
+                />
               </svg>
               <span className="font-semibold">{distance_km} km (OSRM)</span>
             </div>
             <div className="flex items-center gap-1 text-gray-600">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
               </svg>
-              <span className="font-semibold">{estimated_time_minutes} min</span>
+              <span className="font-semibold">
+                {estimated_time_minutes} min
+              </span>
             </div>
           </div>
         </div>
@@ -749,17 +804,42 @@ function DeliveryCard({ delivery, index, isFirst, driverLocation, showMap = true
         {/* Customer Info */}
         <div className="flex items-start gap-3 pt-2">
           <div className="flex-shrink-0 w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
-            <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+            <svg
+              className="w-6 h-6 text-blue-600"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+              />
             </svg>
           </div>
           <div className="flex-1">
-            <p className="font-bold text-gray-800 text-lg">{customer?.name || "Customer"}</p>
+            <p className="font-bold text-gray-800 text-lg">
+              {customer?.name || "Customer"}
+            </p>
             <p className="text-sm text-gray-600 mt-1">{customer?.address}</p>
             {customer?.phone && (
-              <a href={`tel:${customer.phone}`} className="inline-flex items-center gap-2 mt-2 text-blue-600 hover:text-blue-700 font-semibold text-sm">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+              <a
+                href={`tel:${customer.phone}`}
+                className="inline-flex items-center gap-2 mt-2 text-blue-600 hover:text-blue-700 font-semibold text-sm"
+              >
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
+                  />
                 </svg>
                 <span>{customer.phone}</span>
               </a>

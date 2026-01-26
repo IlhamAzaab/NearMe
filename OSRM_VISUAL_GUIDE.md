@@ -3,6 +3,7 @@
 ## The Problem Explained
 
 ### What is Haversine?
+
 Haversine calculates the **straight-line distance** between two points (as the crow flies).
 
 ```
@@ -16,6 +17,7 @@ BUT actual roads: 2.4 km (with turns, streets, navigation)
 ```
 
 ### What is OSRM?
+
 OSRM calculates the **actual road distance** by following real street networks.
 
 ```
@@ -116,6 +118,7 @@ Driver
 ## How It Works - Request Flow
 
 ### OLD FLOW (Sequential + Timeout Risk)
+
 ```
 Request: Get available deliveries
   │
@@ -137,6 +140,7 @@ Request: Get available deliveries
 ```
 
 ### NEW FLOW (Parallel + Local OSRM)
+
 ```
 Request: Get available deliveries
   │
@@ -165,6 +169,7 @@ Request: Get available deliveries
 ## Distance Calculation Comparison
 
 ### Same Route Example: Kinniya to Negombo
+
 ```
 Starting Point (Driver):  8.5017°N, 81.186°E
 Ending Point:             6.8328°N, 80.1772°E
@@ -247,6 +252,7 @@ AFTER (Fixed):
 ### Loading "Available Deliveries" Page
 
 #### BEFORE (With Public OSRM Timeout)
+
 ```
 0s    Start loading
 │
@@ -269,6 +275,7 @@ AFTER (Fixed):
 ```
 
 #### AFTER (With Local OSRM)
+
 ```
 0s    Start loading
 │
@@ -290,6 +297,7 @@ AFTER (Fixed):
 ## Code Comparison
 
 ### BEFORE - Sequential (Slow)
+
 ```javascript
 // Old code - Sequential calls
 const route1 = await getRouteDistance(...);  // Wait 4s
@@ -298,6 +306,7 @@ const route2 = await getRouteDistance(...);  // Wait 4s
 ```
 
 ### AFTER - Parallel (Fast)
+
 ```javascript
 // New code - Parallel calls
 const [route1, route2] = await Promise.all([

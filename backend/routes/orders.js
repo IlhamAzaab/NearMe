@@ -175,7 +175,7 @@ router.post("/place", authenticate, async (req, res) => {
         customer_id,
         restaurant_id,
         status
-      `
+      `,
       )
       .eq("id", cartId)
       .eq("customer_id", customerId)
@@ -201,7 +201,7 @@ router.post("/place", authenticate, async (req, res) => {
         quantity,
         unit_price,
         total_price
-      `
+      `,
       )
       .eq("cart_id", cartId);
 
@@ -227,7 +227,7 @@ router.post("/place", authenticate, async (req, res) => {
         city,
         latitude,
         longitude
-      `
+      `,
       )
       .eq("id", cart.restaurant_id)
       .single();
@@ -257,7 +257,7 @@ router.post("/place", authenticate, async (req, res) => {
     // ========================================================================
     const subtotal = cartItems.reduce(
       (sum, item) => sum + parseFloat(item.total_price),
-      0
+      0,
     );
 
     // Validate minimum order
@@ -349,7 +349,7 @@ router.post("/place", authenticate, async (req, res) => {
       .from("deliveries")
       .insert({
         order_id: order.id,
-        status: "pending",
+        status: "placed",
       });
 
     if (deliveryError) {
@@ -514,7 +514,7 @@ router.get("/my-orders", authenticate, async (req, res) => {
           unit_price,
           total_price
         )
-      `
+      `,
       )
       .eq("customer_id", customerId)
       .order("placed_at", { ascending: false })
@@ -555,7 +555,7 @@ router.get("/:id", authenticate, async (req, res) => {
         *,
         order_items (*),
         deliveries (*)
-      `
+      `,
       )
       .eq("id", orderId)
       .single();
@@ -662,7 +662,7 @@ router.get("/restaurant/orders", authenticate, async (req, res) => {
             longitute
           )
         )
-      `
+      `,
       )
       .eq("restaurant_id", admin.restaurant_id)
       .order("placed_at", { ascending: false })
@@ -900,6 +900,29 @@ router.patch(
             console.log("✅ Delivery record created:", delivery.id);
           } else {
             console.log("ℹ️ Delivery already exists:", delivery.id);
+            // Ensure delivery resets to pending (waiting for driver assignment)
+            const { error: deliveryUpdateError } = await supabaseAdmin
+              .from("deliveries")
+              .update({
+                status: "pending",
+                driver_id: null,
+                assigned_at: null,
+                accepted_at: null,
+                rejected_at: null,
+                picked_up_at: null,
+                on_the_way_at: null,
+                arrived_customer_at: null,
+                delivered_at: null,
+                updated_at: new Date().toISOString(),
+              })
+              .eq("order_id", orderId);
+
+            if (deliveryUpdateError) {
+              console.error(
+                "❌ Failed to reset delivery to pending:",
+                deliveryUpdateError,
+              );
+            }
           }
 
           // Get all active drivers
@@ -911,7 +934,7 @@ router.patch(
 
           if (!driversError && activeDrivers && activeDrivers.length > 0) {
             console.log(
-              `📤 Notifying ${activeDrivers.length} active drivers...`
+              `📤 Notifying ${activeDrivers.length} active drivers...`,
             );
 
             // Notify each driver (direct insert with service_role)
@@ -930,21 +953,21 @@ router.patch(
                   delivery_id: delivery.id,
                   order_number: order.order_number,
                 },
-              })
+              }),
             );
 
             const results = await Promise.allSettled(notificationPromises);
             const successCount = results.filter(
-              (r) => r.status === "fulfilled"
+              (r) => r.status === "fulfilled",
             ).length;
             const failCount = results.filter(
-              (r) => r.status === "rejected"
+              (r) => r.status === "rejected",
             ).length;
 
             console.log(
               `✅ Notified ${successCount} drivers successfully${
                 failCount > 0 ? `, ${failCount} failed` : ""
-              }`
+              }`,
             );
           } else {
             console.log("⚠️ No active drivers found");
@@ -967,7 +990,7 @@ router.patch(
       console.error("Update order status error:", error);
       return res.status(500).json({ message: "Server error" });
     }
-  }
+  },
 );
 
 export default router;

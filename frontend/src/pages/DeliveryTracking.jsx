@@ -11,7 +11,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { createClient } from "@supabase/supabase-js";
+import supabaseClient from "../supabaseClient";
 import {
   MapContainer,
   TileLayer,
@@ -23,13 +23,8 @@ import {
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
-// Initialize Supabase client
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase =
-  supabaseUrl && supabaseAnonKey
-    ? createClient(supabaseUrl, supabaseAnonKey)
-    : null;
+// Shared Supabase client (singleton)
+const supabase = supabaseClient;
 
 // Fix Leaflet marker icons
 delete L.Icon.Default.prototype._getIconUrl;
@@ -101,7 +96,7 @@ export default function DriverDeliveryTracking() {
         "http://localhost:5000/driver/deliveries/active",
         {
           headers: { Authorization: `Bearer ${token}` },
-        }
+        },
       );
 
       const data = await response.json();
@@ -146,7 +141,7 @@ export default function DriverDeliveryTracking() {
           enableHighAccuracy: true,
           timeout: 10000,
           maximumAge: 0,
-        }
+        },
       );
       setWatchId(id);
     }
@@ -180,7 +175,7 @@ export default function DriverDeliveryTracking() {
               latitude: driverLocation.latitude,
               longitude: driverLocation.longitude,
             }),
-          }
+          },
         );
       } catch (err) {
         console.error("Location update error:", err);
@@ -298,7 +293,7 @@ export default function DriverDeliveryTracking() {
             Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({ status: newStatus }),
-        }
+        },
       );
 
       const data = await response.json();

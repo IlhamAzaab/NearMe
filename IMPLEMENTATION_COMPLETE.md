@@ -8,13 +8,14 @@ Your NearMe production delivery system now uses **public OSRM** with production-
 ✅ **Both Routes** - Driver→Restaurant and Restaurant→Customer both use OSRM  
 ✅ **Fast** - 3-4 seconds typical (70-90% faster with caching)  
 ✅ **Reliable** - 99%+ success rate with smart retries  
-✅ **Production Ready** - No additional infrastructure needed  
+✅ **Production Ready** - No additional infrastructure needed
 
 ---
 
 ## The Issue & Solution
 
 ### What Was Wrong
+
 ```javascript
 // OLD - Too aggressive
 timeout = 4 seconds
@@ -25,6 +26,7 @@ Result: OSRM times out → Falls back to Haversine (inaccurate)
 ```
 
 ### What's Fixed
+
 ```javascript
 // NEW - Production optimized
 timeout = 15 seconds                    // Realistic for public API
@@ -41,6 +43,7 @@ Result: OSRM works 99% of time → Always accurate
 ### File: `backend/routes/driverDelivery.js`
 
 #### 1. Added Response Caching (Lines 42-55)
+
 ```javascript
 const osrmCache = new Map();
 const CACHE_TTL = 3600000; // 1 hour
@@ -60,12 +63,13 @@ setCache(cacheKey, data.routes[0]);
 **Benefit:** Same routes return in <100ms instead of 2-3 seconds
 
 #### 2. Updated Timeout & Retry (Lines 58-85)
+
 ```javascript
 async function fetchWithTimeout(
   url,
   options = {},
-  timeout = 15000,    // ← Increased from 4000
-  retries = 3         // ← Increased from 1
+  timeout = 15000, // ← Increased from 4000
+  retries = 3, // ← Increased from 1
 ) {
   for (let i = 0; i <= retries; i++) {
     // Exponential backoff: wait 1s, 2s, 4s
@@ -78,9 +82,14 @@ async function fetchWithTimeout(
 **Benefit:** Handles network issues gracefully without immediate fallback
 
 #### 3. Enhanced OSRM Request (Lines 88-147)
+
 ```javascript
 async function getRouteDistance(
-  startLng, startLat, endLng, endLat, overview = "false"
+  startLng,
+  startLat,
+  endLng,
+  endLat,
+  overview = "false",
 ) {
   try {
     // Check cache first
@@ -91,13 +100,12 @@ async function getRouteDistance(
     // Call public OSRM with timeouts & retries
     const url = `https://router.project-osrm.org/route/v1/driving/...`;
     const response = await fetchWithTimeout(url, {}, 15000, 3);
-    
+
     // ... validate response ...
-    
+
     // Cache successful response
     setCache(cacheKey, data.routes[0]);
     return data.routes[0];
-    
   } catch (error) {
     // Only fallback to Haversine if OSRM completely fails
     // (which is rare with retries)
@@ -108,6 +116,7 @@ async function getRouteDistance(
 **Benefit:** Intelligent retry logic, caching, and reliable fallback
 
 #### 4. Detailed Logging
+
 ```javascript
 [OSRM] Requesting route: (81.186,8.5017) → (81.2,8.51)
 [OSRM CACHE] ✓ Hit: 81.186,8.5017;81.2,8.51
@@ -124,6 +133,7 @@ async function getRouteDistance(
 ## Technical Architecture
 
 ### Request Flow - Happy Path (90% of requests)
+
 ```
 Frontend: "Get available deliveries"
     ↓
@@ -142,6 +152,7 @@ Check Cache
 ```
 
 ### Request Flow - Retry Path (9% of requests)
+
 ```
 Frontend: "Get available deliveries"
     ↓
@@ -167,6 +178,7 @@ Attempt 4: OSRM → SUCCESS ✓
 ```
 
 ### Request Flow - Fallback Path (1% of requests)
+
 ```
 Frontend: "Get available deliveries"
     ↓
@@ -180,7 +192,7 @@ Fallback to Haversine
     ├─ Calculate straight-line distance
     ├─ Return in <50ms
     └─ Mark as "estimate" (less accurate)
-       
+
 Next request (1 hour later):
     ├─ Cache expired
     ├─ Try OSRM again (might work now)
@@ -192,27 +204,30 @@ Next request (1 hour later):
 ## Performance Improvements
 
 ### Speed Comparison
-| Request Type | Before | After | Improvement |
-|--------------|--------|-------|-------------|
-| First route (no cache) | 10-15s (timeout) | 2-3s (OSRM) | **67-85% faster** |
-| Same route again | 10-15s (timeout) | <100ms (cache) | **100x faster** |
-| With slow network | >15s (fails) | 5-10s (retries work) | **Works** ✅ |
-| System down | 15s → Haversine | 50+ retries → Haversine | **Graceful** ✅ |
+
+| Request Type           | Before           | After                   | Improvement       |
+| ---------------------- | ---------------- | ----------------------- | ----------------- |
+| First route (no cache) | 10-15s (timeout) | 2-3s (OSRM)             | **67-85% faster** |
+| Same route again       | 10-15s (timeout) | <100ms (cache)          | **100x faster**   |
+| With slow network      | >15s (fails)     | 5-10s (retries work)    | **Works** ✅      |
+| System down            | 15s → Haversine  | 50+ retries → Haversine | **Graceful** ✅   |
 
 ### API Call Reduction
-| Metric | Value | Benefit |
-|--------|-------|---------|
-| Requests per hour | 100 | Baseline |
-| Unique routes | 10 | Typical |
-| Without caching | 100 API calls | High cost |
-| With 1-hour cache | 15-20 API calls | **80-85% reduction** |
-| Annual savings | ~7M→1.2M API calls | **84% reduction** |
+
+| Metric            | Value              | Benefit              |
+| ----------------- | ------------------ | -------------------- |
+| Requests per hour | 100                | Baseline             |
+| Unique routes     | 10                 | Typical              |
+| Without caching   | 100 API calls      | High cost            |
+| With 1-hour cache | 15-20 API calls    | **80-85% reduction** |
+| Annual savings    | ~7M→1.2M API calls | **84% reduction**    |
 
 ---
 
 ## Reliability Metrics
 
 ### Success Rates
+
 ```
 OSRM Success on first attempt:     95%+
 OSRM Success after 1 retry:         3%+
@@ -224,6 +239,7 @@ Overall User Experience Success:   100%
 ```
 
 ### Response Time Distribution
+
 ```
 0-1s       30%  ← Cached results
 1-3s       50%  ← Normal OSRM
@@ -237,6 +253,7 @@ Overall User Experience Success:   100%
 ## How to Verify It's Working
 
 ### Check Logs
+
 ```bash
 docker logs nearme-backend -f | grep OSRM
 
@@ -251,6 +268,7 @@ docker logs nearme-backend -f | grep OSRM
 ```
 
 ### Test Performance
+
 ```bash
 # First request (should take 2-3 seconds)
 curl http://localhost:5000/driver/deliveries/pending
@@ -265,6 +283,7 @@ curl http://localhost:5000/driver/deliveries/pending
 ```
 
 ### Load Frontend
+
 1. Open "Available Deliveries" page
 2. Should load in **3-4 seconds** (was 10+ seconds)
 3. Distances should be **realistic** (e.g., 2.4 km, not 1.8 km)
@@ -275,11 +294,13 @@ curl http://localhost:5000/driver/deliveries/pending
 ## Production Deployment
 
 ### Prerequisites
+
 - Docker and Docker Compose installed
 - Node.js backend configured
 - Environment variables set (.env file)
 
 ### Deployment Steps
+
 ```bash
 # 1. Build and start services
 docker-compose up -d
@@ -298,6 +319,7 @@ docker logs nearme-backend -f
 ```
 
 ### No Additional Setup Required
+
 - ✅ No local OSRM Docker container needed
 - ✅ No map data to download
 - ✅ No data preprocessing
@@ -309,6 +331,7 @@ docker logs nearme-backend -f
 ## Configuration Options
 
 ### Adjust Timeout (in milliseconds)
+
 ```javascript
 // Current: 15000ms (15 seconds)
 const response = await fetchWithTimeout(url, {}, 15000, 3);
@@ -322,6 +345,7 @@ const response = await fetchWithTimeout(url, {}, 10000, 3);
 ```
 
 ### Adjust Retries
+
 ```javascript
 // Current: 3 retries (4 attempts total)
 const response = await fetchWithTimeout(url, {}, 15000, 3);
@@ -335,6 +359,7 @@ const response = await fetchWithTimeout(url, {}, 15000, 1);
 ```
 
 ### Adjust Cache Duration
+
 ```javascript
 // Current: 3600000ms (1 hour)
 const CACHE_TTL = 3600000;
@@ -351,6 +376,7 @@ const CACHE_TTL = 1800000;
 ## What If OSRM Goes Down?
 
 ### Short Downtime (1-2 minutes)
+
 ```
 Attempt 1: Failed (timeout)
 Wait 1 second
@@ -365,6 +391,7 @@ User gets accurate data after retries
 ```
 
 ### Extended Downtime (>50 seconds)
+
 ```
 All 4 retry attempts fail
 Fallback to Haversine
@@ -378,6 +405,7 @@ If offline, Haversine again
 ```
 
 ### OSRM Rate Limiting
+
 ```
 With caching: 80-85% fewer API calls
 Helps avoid rate limiting
@@ -390,11 +418,14 @@ Users still get estimates
 ## Both Routes Using OSRM
 
 ### Driver → Restaurant Route
+
 ```javascript
 const driverToRestaurantRoute = await getRouteDistance(
-  driverLng, driverLat,
-  restaurantLng, restaurantLat,
-  "full"
+  driverLng,
+  driverLat,
+  restaurantLng,
+  restaurantLat,
+  "full",
 );
 // ✅ Uses OSRM
 // ✅ Cached if requested again
@@ -402,11 +433,14 @@ const driverToRestaurantRoute = await getRouteDistance(
 ```
 
 ### Restaurant → Customer Route
+
 ```javascript
 const restaurantToCustomerRoute = await getRouteDistance(
-  restaurantLng, restaurantLat,
-  customerLng, customerLat,
-  "full"
+  restaurantLng,
+  restaurantLat,
+  customerLng,
+  customerLat,
+  "full",
 );
 // ✅ Uses OSRM
 // ✅ Cached if requested again
@@ -414,9 +448,10 @@ const restaurantToCustomerRoute = await getRouteDistance(
 ```
 
 ### Parallel Execution
+
 ```javascript
 // Both routes calculated simultaneously (not sequentially)
-const [driverToRestaurantRoute, restaurantToCustomerRoute] = 
+const [driverToRestaurantRoute, restaurantToCustomerRoute] =
   await Promise.all([
     getRouteDistance(...),
     getRouteDistance(...)
@@ -430,25 +465,28 @@ const [driverToRestaurantRoute, restaurantToCustomerRoute] =
 ## Summary
 
 ### What Was Fixed
-| Issue | Solution |
-|-------|----------|
-| Timeout too short | Increased from 4s to 15s |
-| No retry logic | Added 3 smart retries with backoff |
-| No caching | Added 1-hour cache (80-85% reduction) |
-| Fallback always | Only fallback if all retries fail |
-| Poor logging | Detailed logging at each step |
+
+| Issue             | Solution                              |
+| ----------------- | ------------------------------------- |
+| Timeout too short | Increased from 4s to 15s              |
+| No retry logic    | Added 3 smart retries with backoff    |
+| No caching        | Added 1-hour cache (80-85% reduction) |
+| Fallback always   | Only fallback if all retries fail     |
+| Poor logging      | Detailed logging at each step         |
 
 ### Results
-| Metric | Before | After |
-|--------|--------|-------|
-| OSRM Success | ~50% | **99%+** |
-| Load Time | 10-15s | **2-3s** |
-| Cached Time | N/A | **<100ms** |
-| API Calls | 100/hour | **15-20/hour** |
-| Accuracy | Haversine | **OSRM** |
-| Both Routes | Inconsistent | **Consistent** |
+
+| Metric       | Before       | After          |
+| ------------ | ------------ | -------------- |
+| OSRM Success | ~50%         | **99%+**       |
+| Load Time    | 10-15s       | **2-3s**       |
+| Cached Time  | N/A          | **<100ms**     |
+| API Calls    | 100/hour     | **15-20/hour** |
+| Accuracy     | Haversine    | **OSRM**       |
+| Both Routes  | Inconsistent | **Consistent** |
 
 ### Production Ready ✅
+
 - ✅ Public OSRM working reliably
 - ✅ Smart retry logic
 - ✅ Response caching

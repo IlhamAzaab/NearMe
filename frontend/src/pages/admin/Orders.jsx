@@ -1,36 +1,233 @@
 import React, { useState, useEffect } from "react";
 import AdminLayout from "../../components/AdminLayout";
+import { API_URL } from "../../config";
 
 export default function Orders() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [actionError, setActionError] = useState(null);
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const [counts, setCounts] = useState({
+    all: 0,
+    pending: 0,
+    accepted: 0,
+    delivered: 0,
+  });
+  const [processingOrderId, setProcessingOrderId] = useState(null);
+
+  const getDeliveryStatus = (order) => {
+    return (
+      order?.deliveries?.[0]?.status ||
+      order?.delivery_status ||
+      order?.status ||
+      "placed"
+    );
+  };
+
+  const computeCounts = (list) => {
+    const allOrders = list || [];
+    const pending = allOrders.filter(
+      (o) => getDeliveryStatus(o) === "placed",
+    ).length;
+    const accepted = allOrders.filter((o) => {
+      const s = getDeliveryStatus(o);
+      return s === "pending" || s === "accepted";
+    }).length;
+    const delivered = allOrders.filter((o) => {
+      const s = getDeliveryStatus(o);
+      return (
+        s === "picked_up" ||
+        s === "on_the_way" ||
+        s === "at_customer" ||
+        s === "delivered"
+      );
+    }).length;
+
+    return {
+      all: allOrders.length,
+      pending,
+      accepted,
+      delivered,
+    };
+  };
 
   useEffect(() => {
-    // TODO: Fetch orders from API
-    setTimeout(() => {
-      setOrders([]);
-      setLoading(false);
-    }, 500);
-  }, []);
+    const fetchOrders = async () => {
+      setLoading(true);
+      setError(null);
+
+      try {
+        const token = localStorage.getItem("token");
+        if (!token) {
+          setError("Missing auth token. Please sign in again.");
+          setLoading(false);
+          return;
+        }
+
+        const response = await fetch(`${API_URL}/orders/restaurant/orders`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        });
+
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          throw new Error(body.message || "Failed to fetch orders");
+        }
+
+        const data = await response.json();
+        setOrders(data.orders || []);
+        setCounts(computeCounts(data.orders));
+      } catch (err) {
+        console.error("Failed to fetch orders", err);
+        setError(err.message || "Failed to fetch orders");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchOrders();
+  }, [statusFilter]);
 
   const filteredOrders = orders.filter((order) => {
-    return statusFilter === "all" || order.status === statusFilter;
+    const deliveryStatus = getDeliveryStatus(order);
+    if (statusFilter === "all") return true;
+    if (statusFilter === "pending") return deliveryStatus === "placed";
+    if (statusFilter === "accepted")
+      return deliveryStatus === "pending" || deliveryStatus === "accepted";
+    if (statusFilter === "delivered")
+      return (
+        deliveryStatus === "picked_up" ||
+        deliveryStatus === "on_the_way" ||
+        deliveryStatus === "at_customer" ||
+        deliveryStatus === "delivered"
+      );
+    return true;
   });
+
+  const handleAcceptOrder = async (orderId) => {
+    setProcessingOrderId(orderId);
+    setActionError(null);
+
+    try {
+      const token = localStorage.getItem("token");
+      if (!token) {
+        setActionError("Missing auth token. Please sign in again.");
+        return;
+      }
+
+      const response = await fetch(
+        `${API_URL}/orders/restaurant/orders/${orderId}/status`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ status: "accepted" }),
+        },
+      );
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.message || "Failed to accept order");
+      }
+
+      // Refresh orders
+      const fetchResponse = await fetch(`${API_URL}/orders/restaurant/orders`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (fetchResponse.ok) {
+        const data = await fetchResponse.json();
+        setOrders(data.orders || []);
+        setCounts(computeCounts(data.orders));
+      }
+    } catch (err) {
+      console.error("Failed to accept order", err);
+      setActionError(err.message || "Failed to accept order");
+    } finally {
+      setProcessingOrderId(null);
+    }
+  };
+
+  const handleRejectOrder = async (orderId) => {
+    setProcessingOrderId(orderId);
+    setActionError(null);
+
+    try {
+      const token = localStorage.getItem("token");
+      if (!token) {
+        setActionError("Missing auth token. Please sign in again.");
+        return;
+      }
+
+      const response = await fetch(
+        `${API_URL}/orders/restaurant/orders/${orderId}/status`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ status: "rejected" }),
+        },
+      );
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.message || "Failed to reject order");
+      }
+
+      // Refresh orders
+      const fetchResponse = await fetch(`${API_URL}/orders/restaurant/orders`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (fetchResponse.ok) {
+        const data = await fetchResponse.json();
+        setOrders(data.orders || []);
+        setCounts(computeCounts(data.orders));
+      }
+    } catch (err) {
+      console.error("Failed to reject order", err);
+      setActionError(err.message || "Failed to reject order");
+    } finally {
+      setProcessingOrderId(null);
+    }
+  };
+
+  const formatDateTime = (value) => {
+    if (!value) return "-";
+    const date = new Date(value);
+    return isNaN(date.getTime()) ? "-" : date.toLocaleString();
+  };
 
   const getStatusColor = (status) => {
     switch (status) {
-      case "pending":
+      case "placed":
         return "bg-yellow-100 text-yellow-700";
-      case "confirmed":
+      case "pending":
         return "bg-blue-100 text-blue-700";
-      case "preparing":
-        return "bg-purple-100 text-purple-700";
-      case "ready":
+      case "accepted":
         return "bg-indigo-100 text-indigo-700";
+      case "picked_up":
+        return "bg-purple-100 text-purple-700";
+      case "on_the_way":
+      case "at_customer":
+        return "bg-sky-100 text-sky-700";
       case "delivered":
         return "bg-green-100 text-green-700";
+      case "failed":
       case "cancelled":
         return "bg-red-100 text-red-700";
       default:
@@ -42,7 +239,9 @@ export default function Orders() {
     <AdminLayout>
       <div className="space-y-4 sm:space-y-6">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-green-600 via-green-500 to-green-600 bg-clip-text text-transparent">Orders</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-green-600 via-green-500 to-green-600 bg-clip-text text-transparent">
+            Orders
+          </h1>
           <p className="text-gray-600 mt-1 text-sm sm:text-base">
             Manage and track customer orders in real-time.
           </p>
@@ -59,7 +258,7 @@ export default function Orders() {
                   : "bg-gray-100 text-gray-700 hover:bg-gray-200"
               }`}
             >
-              All Orders
+              All ({counts.all})
             </button>
             <button
               onClick={() => setStatusFilter("pending")}
@@ -69,37 +268,17 @@ export default function Orders() {
                   : "bg-gray-100 text-gray-700 hover:bg-gray-200"
               }`}
             >
-              Pending
+              Pending ({counts.pending})
             </button>
             <button
-              onClick={() => setStatusFilter("confirmed")}
+              onClick={() => setStatusFilter("accepted")}
               className={`px-4 py-2 rounded-lg font-medium transition ${
-                statusFilter === "confirmed"
+                statusFilter === "accepted"
                   ? "bg-blue-600 text-white"
                   : "bg-gray-100 text-gray-700 hover:bg-gray-200"
               }`}
             >
-              Confirmed
-            </button>
-            <button
-              onClick={() => setStatusFilter("preparing")}
-              className={`px-4 py-2 rounded-lg font-medium transition ${
-                statusFilter === "preparing"
-                  ? "bg-purple-600 text-white"
-                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-              }`}
-            >
-              Preparing
-            </button>
-            <button
-              onClick={() => setStatusFilter("ready")}
-              className={`px-4 py-2 rounded-lg font-medium transition ${
-                statusFilter === "ready"
-                  ? "bg-indigo-600 text-white"
-                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-              }`}
-            >
-              Ready
+              Accepted ({counts.accepted})
             </button>
             <button
               onClick={() => setStatusFilter("delivered")}
@@ -109,17 +288,29 @@ export default function Orders() {
                   : "bg-gray-100 text-gray-700 hover:bg-gray-200"
               }`}
             >
-              Delivered
+              Delivered ({counts.delivered})
             </button>
           </div>
         </div>
 
         {/* Orders List */}
         <div className="bg-white rounded-xl shadow border border-green-100 hover:shadow-xl transition-shadow duration-300">
+          {error && (
+            <div className="bg-red-50 text-red-700 px-4 py-3 text-sm border-b border-red-100">
+              {error}
+            </div>
+          )}
+          {actionError && (
+            <div className="bg-red-50 text-red-700 px-4 py-3 text-sm border-b border-red-100">
+              {actionError}
+            </div>
+          )}
           {loading ? (
             <div className="text-center py-12">
               <div className="animate-spin rounded-full h-10 sm:h-12 w-10 sm:w-12 border-b-4 border-green-600 mx-auto"></div>
-              <p className="text-gray-600 mt-4 text-sm sm:text-base">Loading orders...</p>
+              <p className="text-gray-600 mt-4 text-sm sm:text-base">
+                Loading orders...
+              </p>
             </div>
           ) : filteredOrders.length === 0 ? (
             <div className="text-center py-12 text-gray-500">
@@ -174,48 +365,77 @@ export default function Orders() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                      {filteredOrders.map((order) => (
-                        <tr key={order.id} className="hover:bg-gray-50">
-                          <td className="px-4 sm:px-6 py-4 font-medium text-gray-900 text-sm whitespace-nowrap">\n                            #{order.id}
-                          </td>
-                          <td className="px-4 sm:px-6 py-4">
-                            <div>
-                              <p className="font-medium text-gray-900 text-sm">
-                                {order.customer_name}
-                              </p>
-                              <p className="text-xs sm:text-sm text-gray-500">
-                                {order.customer_phone}
-                              </p>
-                            </div>
-                          </td>
-                          <td className="px-4 sm:px-6 py-4 text-xs sm:text-sm text-gray-700 hidden md:table-cell">
-                            {order.item_count} items
-                          </td>
-                          <td className="px-4 sm:px-6 py-4 font-semibold text-gray-900 text-sm whitespace-nowrap">
-                            Rs. {order.total}
-                          </td>
-                          <td className="px-4 sm:px-6 py-4 hidden lg:table-cell">
-                        <span
-                          className={`px-2.5 py-1 rounded-full text-xs font-medium ${getStatusColor(
-                            order.status
-                          )}`}
-                        >
-                          {order.status}
-                        </span>
-                          </td>
-                          <td className="px-4 sm:px-6 py-4 text-xs sm:text-sm text-gray-600 hidden xl:table-cell">
-                            {order.time}
-                          </td>
-                          <td className="px-4 sm:px-6 py-4">
-                            <button
-                              onClick={() => setSelectedOrder(order)}
-                              className="text-green-600 hover:text-green-800 text-xs sm:text-sm font-medium whitespace-nowrap"
-                            >
-                              View
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                      {filteredOrders.map((order) => {
+                        const deliveryStatus = getDeliveryStatus(order);
+                        return (
+                          <tr key={order.id} className="hover:bg-gray-50">
+                            <td className="px-4 sm:px-6 py-4 font-medium text-gray-900 text-sm whitespace-nowrap">
+                              #{order.order_number || order.id}
+                            </td>
+                            <td className="px-4 sm:px-6 py-4">
+                              <div>
+                                <p className="font-medium text-gray-900 text-sm">
+                                  {order.customer_name}
+                                </p>
+                                <p className="text-xs sm:text-sm text-gray-500">
+                                  {order.customer_phone}
+                                </p>
+                              </div>
+                            </td>
+                            <td className="px-4 sm:px-6 py-4 text-xs sm:text-sm text-gray-700 hidden md:table-cell">
+                              {order.order_items?.length ||
+                                order.item_count ||
+                                0}{" "}
+                              items
+                            </td>
+                            <td className="px-4 sm:px-6 py-4 font-semibold text-gray-900 text-sm whitespace-nowrap">
+                              Rs. {order.total_amount ?? order.total ?? 0}
+                            </td>
+                            <td className="px-4 sm:px-6 py-4 hidden lg:table-cell">
+                              <span
+                                className={`px-2.5 py-1 rounded-full text-xs font-medium ${getStatusColor(deliveryStatus)}`}
+                              >
+                                {deliveryStatus}
+                              </span>
+                            </td>
+                            <td className="px-4 sm:px-6 py-4 text-xs sm:text-sm text-gray-600 hidden xl:table-cell">
+                              {formatDateTime(
+                                order.placed_at || order.created_at,
+                              )}
+                            </td>
+                            <td className="px-4 sm:px-6 py-4">
+                              {statusFilter === "pending" &&
+                              deliveryStatus === "placed" ? (
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={() => handleAcceptOrder(order.id)}
+                                    disabled={processingOrderId === order.id}
+                                    className="text-green-600 hover:text-green-800 text-xs sm:text-sm font-medium whitespace-nowrap disabled:opacity-50"
+                                  >
+                                    {processingOrderId === order.id
+                                      ? "Processing..."
+                                      : "Accept"}
+                                  </button>
+                                  <button
+                                    onClick={() => handleRejectOrder(order.id)}
+                                    disabled={processingOrderId === order.id}
+                                    className="text-red-600 hover:text-red-800 text-xs sm:text-sm font-medium whitespace-nowrap disabled:opacity-50"
+                                  >
+                                    Reject
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => setSelectedOrder(order)}
+                                  className="text-green-600 hover:text-green-800 text-xs sm:text-sm font-medium whitespace-nowrap"
+                                >
+                                  View
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -237,11 +457,19 @@ export default function Orders() {
 }
 
 function OrderDetailsModal({ order, onClose }) {
+  const formatDateTime = (value) => {
+    if (!value) return "-";
+    const date = new Date(value);
+    return isNaN(date.getTime()) ? "-" : date.toLocaleString();
+  };
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
         <div className="sticky top-0 bg-white border-b px-6 py-4 flex items-center justify-between">
-          <h2 className="text-xl font-bold text-gray-800">Order #{order.id}</h2>
+          <h2 className="text-xl font-bold text-gray-800">
+            Order #{order.order_number || order.id}
+          </h2>
           <button
             onClick={onClose}
             className="text-gray-500 hover:text-gray-700"
@@ -288,19 +516,23 @@ function OrderDetailsModal({ order, onClose }) {
           <div>
             <h3 className="font-semibold text-gray-800 mb-2">Order Items</h3>
             <div className="space-y-2">
-              {order.items?.map((item, index) => (
+              {(order.order_items || order.items || []).map((item, index) => (
                 <div
                   key={index}
                   className="flex justify-between items-center bg-gray-50 rounded-lg p-3"
                 >
                   <div>
-                    <p className="font-medium text-gray-900">{item.name}</p>
+                    <p className="font-medium text-gray-900">
+                      {item.food_name || item.name}
+                    </p>
                     <p className="text-sm text-gray-600">
                       Qty: {item.quantity}
                     </p>
                   </div>
                   <p className="font-semibold text-gray-900">
-                    Rs. {item.price * item.quantity}
+                    Rs.{" "}
+                    {item.total_price ??
+                      (item.unit_price ?? item.price ?? 0) * item.quantity}
                   </p>
                 </div>
               ))}
@@ -312,26 +544,20 @@ function OrderDetailsModal({ order, onClose }) {
             <div className="flex justify-between items-center">
               <span className="text-lg font-semibold text-gray-800">Total</span>
               <span className="text-2xl font-bold text-indigo-600">
-                Rs. {order.total}
+                Rs. {order.total_amount ?? order.total ?? 0}
               </span>
             </div>
           </div>
 
-          {/* Status Update Actions */}
-          <div className="flex gap-3">
-            <button className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-              Confirm Order
-            </button>
-            <button className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700">
-              Mark as Preparing
-            </button>
-            <button className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
-              Ready for Pickup
-            </button>
+          {/* Delivery Status Info */}
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <p className="text-sm text-blue-800">
+              <span className="font-semibold">Delivery Status:</span>{" "}
+              {order.deliveries?.[0]?.status || "unknown"}
+            </p>
           </div>
         </div>
       </div>
     </div>
   );
 }
-

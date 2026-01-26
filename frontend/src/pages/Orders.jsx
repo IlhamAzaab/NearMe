@@ -11,15 +11,10 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { createClient } from "@supabase/supabase-js";
+import supabaseClient from "../supabaseClient";
 
-// Initialize Supabase client for realtime
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase =
-  supabaseUrl && supabaseAnonKey
-    ? createClient(supabaseUrl, supabaseAnonKey)
-    : null;
+// Shared Supabase client (singleton)
+const supabase = supabaseClient;
 
 export default function Orders() {
   const navigate = useNavigate();
@@ -74,7 +69,13 @@ export default function Orders() {
       });
       const data = await res.json();
       const totalItems = (data.carts || []).reduce((sum, cart) => {
-        return sum + (cart.items || []).reduce((itemSum, item) => itemSum + item.quantity, 0);
+        return (
+          sum +
+          (cart.items || []).reduce(
+            (itemSum, item) => itemSum + item.quantity,
+            0,
+          )
+        );
       }, 0);
       setCartCount(totalItems);
     } catch (err) {
@@ -132,7 +133,7 @@ export default function Orders() {
         (payload) => {
           console.log("Order updated:", payload);
           handleOrderUpdate(payload.new, payload.old);
-        }
+        },
       )
       .subscribe((status) => {
         console.log("Realtime subscription status:", status);
@@ -151,8 +152,8 @@ export default function Orders() {
     // Update orders list
     setOrders((prev) =>
       prev.map((order) =>
-        order.id === newOrder.id ? { ...order, ...newOrder } : order
-      )
+        order.id === newOrder.id ? { ...order, ...newOrder } : order,
+      ),
     );
 
     // Update selected order if viewing
@@ -201,7 +202,7 @@ export default function Orders() {
   const playNotificationSound = () => {
     try {
       const audio = new Audio(
-        "data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2teleQgAVZ/NvZdNBCeE0P/OeC4EOW+93rN8NQQ+WKrEsIsxBUpljZ+vgSwELkticp+XQRAEIThHQXJcPAQNIjk7V2NNBAwkO0FcaksEDik6P1lgSQQLJzc9WGhOBBAuP0djaE0EEy9ARGJoTQQTL0BEYmhN"
+        "data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2teleQgAVZ/NvZdNBCeE0P/OeC4EOW+93rN8NQQ+WKrEsIsxBUpljZ+vgSwELkticp+XQRAEIThHQXJcPAQNIjk7V2NNBAwkO0FcaksEDik6P1lgSQQLJzc9WGhOBBAuP0djaE0EEy9ARGJoTQQTL0BEYmhN",
       );
       audio.volume = 0.5;
       audio.play().catch(() => {});
@@ -330,17 +331,29 @@ export default function Orders() {
               </div>
               <div>
                 <h1 className="text-xl font-bold text-gray-900">My Orders</h1>
-                <p className="text-xs text-gray-500">Track your orders in real-time</p>
+                <p className="text-xs text-gray-500">
+                  Track your orders in real-time
+                </p>
               </div>
             </div>
-            
+
             {/* Refresh Button */}
             <button
               onClick={fetchOrders}
               className="p-2.5 bg-orange-50 rounded-full hover:bg-orange-100 transition-colors"
             >
-              <svg className="w-5 h-5 text-[#FF7A00]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+              <svg
+                className="w-5 h-5 text-[#FF7A00]"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                />
               </svg>
             </button>
           </div>
@@ -356,9 +369,9 @@ export default function Orders() {
               notification.status === "delivered"
                 ? "border-green-500"
                 : notification.status === "cancelled" ||
-                  notification.status === "rejected"
-                ? "border-red-500"
-                : "border-[#FF7A00]"
+                    notification.status === "rejected"
+                  ? "border-red-500"
+                  : "border-[#FF7A00]"
             }`}
           >
             <div className="flex items-start gap-3">
@@ -434,7 +447,9 @@ export default function Orders() {
               <div className="w-16 h-16 border-4 border-orange-100 rounded-full"></div>
               <div className="absolute top-0 left-0 w-16 h-16 border-4 border-[#FF7A00] border-t-transparent rounded-full animate-spin"></div>
             </div>
-            <p className="mt-4 text-gray-500 text-sm font-medium">Loading your orders...</p>
+            <p className="mt-4 text-gray-500 text-sm font-medium">
+              Loading your orders...
+            </p>
           </div>
         ) : orders.length === 0 ? (
           /* Empty Orders State */
@@ -446,27 +461,81 @@ export default function Orders() {
                 {/* Order/Receipt illustration */}
                 <svg viewBox="0 0 120 120" className="w-32 h-32">
                   {/* Receipt/Paper */}
-                  <path d="M35 25 L35 100 L40 95 L45 100 L50 95 L55 100 L60 95 L65 100 L70 95 L75 100 L80 95 L85 100 L85 25 Z" fill="#FFEDD5" stroke="#FF7A00" strokeWidth="2"/>
-                  
+                  <path
+                    d="M35 25 L35 100 L40 95 L45 100 L50 95 L55 100 L60 95 L65 100 L70 95 L75 100 L80 95 L85 100 L85 25 Z"
+                    fill="#FFEDD5"
+                    stroke="#FF7A00"
+                    strokeWidth="2"
+                  />
+
                   {/* Lines on receipt */}
-                  <line x1="45" y1="40" x2="75" y2="40" stroke="#FDBA74" strokeWidth="3" strokeLinecap="round"/>
-                  <line x1="45" y1="52" x2="70" y2="52" stroke="#FDBA74" strokeWidth="3" strokeLinecap="round"/>
-                  <line x1="45" y1="64" x2="72" y2="64" stroke="#FDBA74" strokeWidth="3" strokeLinecap="round"/>
-                  <line x1="45" y1="76" x2="68" y2="76" stroke="#FDBA74" strokeWidth="3" strokeLinecap="round"/>
-                  
+                  <line
+                    x1="45"
+                    y1="40"
+                    x2="75"
+                    y2="40"
+                    stroke="#FDBA74"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                  />
+                  <line
+                    x1="45"
+                    y1="52"
+                    x2="70"
+                    y2="52"
+                    stroke="#FDBA74"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                  />
+                  <line
+                    x1="45"
+                    y1="64"
+                    x2="72"
+                    y2="64"
+                    stroke="#FDBA74"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                  />
+                  <line
+                    x1="45"
+                    y1="76"
+                    x2="68"
+                    y2="76"
+                    stroke="#FDBA74"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                  />
+
                   {/* Checkmark circle */}
-                  <circle cx="60" cy="55" r="20" fill="none" stroke="#FF7A00" strokeWidth="2" strokeDasharray="5,5"/>
+                  <circle
+                    cx="60"
+                    cy="55"
+                    r="20"
+                    fill="none"
+                    stroke="#FF7A00"
+                    strokeWidth="2"
+                    strokeDasharray="5,5"
+                  />
                 </svg>
               </div>
-              
+
               {/* Decorative floating elements */}
-              <div className="absolute -top-2 -right-2 w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center animate-bounce" style={{animationDelay: '0s', animationDuration: '2s'}}>
+              <div
+                className="absolute -top-2 -right-2 w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center animate-bounce"
+                style={{ animationDelay: "0s", animationDuration: "2s" }}
+              >
                 <span className="text-lg">📦</span>
               </div>
-              <div className="absolute -bottom-1 -left-3 w-7 h-7 bg-orange-100 rounded-full flex items-center justify-center animate-bounce" style={{animationDelay: '0.5s', animationDuration: '2.5s'}}>
+              <div
+                className="absolute -bottom-1 -left-3 w-7 h-7 bg-orange-100 rounded-full flex items-center justify-center animate-bounce"
+                style={{ animationDelay: "0.5s", animationDuration: "2.5s" }}
+              >
                 <span className="text-sm">🛵</span>
               </div>
-              <div className="absolute top-1/2 -right-4 w-6 h-6 bg-orange-100 rounded-full flex items-center justify-center animate-bounce" style={{animationDelay: '1s', animationDuration: '3s'}}>
+              <div
+                className="absolute top-1/2 -right-4 w-6 h-6 bg-orange-100 rounded-full flex items-center justify-center animate-bounce"
+                style={{ animationDelay: "1s", animationDuration: "3s" }}
+              >
                 <span className="text-xs">🍕</span>
               </div>
             </div>
@@ -476,7 +545,8 @@ export default function Orders() {
               No Orders Yet
             </h2>
             <p className="text-gray-500 text-center mb-8 max-w-xs">
-              Your order history will appear here. Let's find something delicious!
+              Your order history will appear here. Let's find something
+              delicious!
             </p>
 
             {/* Primary Action Button */}
@@ -484,8 +554,18 @@ export default function Orders() {
               onClick={() => navigate("/home")}
               className="px-8 py-3.5 bg-[#FF7A00] text-white font-semibold rounded-full hover:bg-orange-600 transition-all shadow-lg shadow-orange-200 flex items-center gap-2 mb-4"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                />
               </svg>
               Browse Restaurants
             </button>
@@ -495,8 +575,18 @@ export default function Orders() {
               onClick={() => navigate("/home")}
               className="text-[#FF7A00] font-medium hover:text-orange-600 transition-colors flex items-center gap-1"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M10 19l-7-7m0 0l7-7m-7 7h18"
+                />
               </svg>
               Go to Home
             </button>
@@ -535,8 +625,18 @@ export default function Orders() {
                           {order.status.replace("_", " ").toUpperCase()}
                         </span>
                         <span className="text-xs text-gray-400 flex items-center gap-1">
-                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                          <svg
+                            className="w-3 h-3"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                            />
                           </svg>
                           {getTimeAgo(order.placed_at)}
                         </span>
@@ -550,29 +650,41 @@ export default function Orders() {
                         {order.order_items?.length || 0} items
                       </p>
                       <div className="mt-2">
-                        <svg className="w-5 h-5 text-gray-300 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/>
+                        <svg
+                          className="w-5 h-5 text-gray-300 ml-auto"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M9 5l7 7-7 7"
+                          />
                         </svg>
                       </div>
                     </div>
                   </div>
 
                   {/* Progress Bar for Active Orders */}
-                  {!["delivered", "cancelled", "rejected"].includes(order.status) && (
+                  {!["delivered", "cancelled", "rejected"].includes(
+                    order.status,
+                  ) && (
                     <div className="mt-4 pt-4 border-t border-gray-100">
                       <div className="relative">
                         {/* Background Progress Line */}
                         <div className="absolute top-4 left-6 right-6 h-0.5 bg-gray-100 rounded-full"></div>
-                        
+
                         {/* Active Progress Line */}
-                        <div 
+                        <div
                           className="absolute top-4 left-6 h-0.5 bg-gradient-to-r from-[#FF7A00] to-orange-400 rounded-full transition-all duration-500"
-                          style={{ 
+                          style={{
                             width: `${Math.min((getStatusIndex(order.status) / 4) * 100, 100)}%`,
-                            maxWidth: 'calc(100% - 48px)'
+                            maxWidth: "calc(100% - 48px)",
                           }}
                         ></div>
-                        
+
                         {/* Status Steps */}
                         <div className="relative flex items-start justify-between">
                           {statusSteps.slice(0, 5).map((step, index) => {
@@ -585,7 +697,7 @@ export default function Orders() {
                               <div
                                 key={step.key}
                                 className="flex flex-col items-center"
-                                style={{ width: '20%' }}
+                                style={{ width: "20%" }}
                               >
                                 {/* Step Circle */}
                                 <div
@@ -593,27 +705,40 @@ export default function Orders() {
                                     isCompleted
                                       ? "bg-[#FF7A00] text-white shadow-md"
                                       : isCurrent
-                                      ? "bg-white border-2 border-[#FF7A00] text-[#FF7A00] shadow-lg shadow-orange-200/50"
-                                      : "bg-gray-50 border border-gray-200 text-gray-300"
+                                        ? "bg-white border-2 border-[#FF7A00] text-[#FF7A00] shadow-lg shadow-orange-200/50"
+                                        : "bg-gray-50 border border-gray-200 text-gray-300"
                                   }`}
-                                  style={isCurrent ? { 
-                                    boxShadow: '0 0 0 4px rgba(255, 122, 0, 0.1), 0 4px 12px rgba(255, 122, 0, 0.25)'
-                                  } : {}}
+                                  style={
+                                    isCurrent
+                                      ? {
+                                          boxShadow:
+                                            "0 0 0 4px rgba(255, 122, 0, 0.1), 0 4px 12px rgba(255, 122, 0, 0.25)",
+                                        }
+                                      : {}
+                                  }
                                 >
                                   {isCompleted ? (
-                                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/>
+                                    <svg
+                                      className="w-4 h-4"
+                                      fill="currentColor"
+                                      viewBox="0 0 20 20"
+                                    >
+                                      <path
+                                        fillRule="evenodd"
+                                        d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                                        clipRule="evenodd"
+                                      />
                                     </svg>
                                   ) : (
                                     <span className="text-sm">{step.icon}</span>
                                   )}
-                                  
+
                                   {/* Pulse Animation for Current */}
                                   {isCurrent && (
                                     <span className="absolute inset-0 rounded-full bg-[#FF7A00] animate-ping opacity-20"></span>
                                   )}
                                 </div>
-                                
+
                                 {/* Step Label */}
                                 <span
                                   className={`text-[10px] mt-2 text-center leading-tight ${
@@ -656,8 +781,18 @@ export default function Orders() {
         <div className="flex justify-around items-center max-w-lg mx-auto">
           <NavItem
             icon={
-              <svg className="w-6 h-6" viewBox="0 0 24 24" fill={activeNav === "home" ? "currentColor" : "none"} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={activeNav === "home" ? 0 : 1.5} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+              <svg
+                className="w-6 h-6"
+                viewBox="0 0 24 24"
+                fill={activeNav === "home" ? "currentColor" : "none"}
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={activeNav === "home" ? 0 : 1.5}
+                  d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
+                />
               </svg>
             }
             label="Home"
@@ -669,8 +804,18 @@ export default function Orders() {
           />
           <NavItem
             icon={
-              <svg className="w-6 h-6" fill={activeNav === "cart" ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"/>
+              <svg
+                className="w-6 h-6"
+                fill={activeNav === "cart" ? "currentColor" : "none"}
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={1.5}
+                  d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"
+                />
               </svg>
             }
             label="Cart"
@@ -683,8 +828,18 @@ export default function Orders() {
           />
           <NavItem
             icon={
-              <svg className="w-6 h-6" fill={activeNav === "orders" ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/>
+              <svg
+                className="w-6 h-6"
+                fill={activeNav === "orders" ? "currentColor" : "none"}
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={1.5}
+                  d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"
+                />
               </svg>
             }
             label="Orders"
@@ -693,8 +848,18 @@ export default function Orders() {
           />
           <NavItem
             icon={
-              <svg className="w-6 h-6" fill={activeNav === "profile" ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+              <svg
+                className="w-6 h-6"
+                fill={activeNav === "profile" ? "currentColor" : "none"}
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={1.5}
+                  d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                />
               </svg>
             }
             label="Profile"
@@ -743,7 +908,7 @@ function OrderDetailsModal({
 }) {
   const currentIndex = getStatusIndex(order.status);
   const isCancelledOrRejected = ["cancelled", "rejected"].includes(
-    order.status
+    order.status,
   );
 
   return (
@@ -752,9 +917,7 @@ function OrderDetailsModal({
         {/* Header */}
         <div className="sticky top-0 bg-gradient-to-r from-[#FF7A00] to-orange-500 rounded-t-3xl px-6 py-5 flex items-center justify-between text-white">
           <div>
-            <h2 className="text-xl font-bold">
-              {order.order_number}
-            </h2>
+            <h2 className="text-xl font-bold">{order.order_number}</h2>
             <p className="text-sm text-white/80">{order.restaurant_name}</p>
           </div>
           <button
@@ -784,16 +947,27 @@ function OrderDetailsModal({
             {isCancelledOrRejected ? (
               <div className="bg-gradient-to-br from-red-50 to-red-100/50 border border-red-100 rounded-2xl p-6 text-center">
                 <div className="w-16 h-16 mx-auto mb-3 bg-red-100 rounded-full flex items-center justify-center">
-                  <svg className="w-8 h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/>
+                  <svg
+                    className="w-8 h-8 text-red-500"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M6 18L18 6M6 6l12 12"
+                    />
                   </svg>
                 </div>
                 <p className="font-semibold text-red-700 text-lg">
-                  Order {order.status === "cancelled" ? "Cancelled" : "Rejected"}
+                  Order{" "}
+                  {order.status === "cancelled" ? "Cancelled" : "Rejected"}
                 </p>
                 <p className="text-red-500/70 text-sm mt-1">
-                  {order.status === "cancelled" 
-                    ? "This order has been cancelled" 
+                  {order.status === "cancelled"
+                    ? "This order has been cancelled"
                     : "The restaurant couldn't accept this order"}
                 </p>
               </div>
@@ -803,16 +977,16 @@ function OrderDetailsModal({
                 <div className="relative">
                   {/* Background Line */}
                   <div className="absolute top-5 left-8 right-8 h-[2px] bg-gray-100 rounded-full"></div>
-                  
+
                   {/* Active Progress Line */}
-                  <div 
+                  <div
                     className="absolute top-5 left-8 h-[2px] rounded-full transition-all duration-700 ease-out"
-                    style={{ 
+                    style={{
                       width: `calc(${(currentIndex / (statusSteps.length - 1)) * 100}% - 32px)`,
-                      background: 'linear-gradient(90deg, #FF7A00, #FF9A40)'
+                      background: "linear-gradient(90deg, #FF7A00, #FF9A40)",
                     }}
                   ></div>
-                  
+
                   {/* Steps Container */}
                   <div className="relative flex justify-between">
                     {statusSteps.map((step, index) => {
@@ -833,22 +1007,35 @@ function OrderDetailsModal({
                                 isCompleted
                                   ? "bg-gradient-to-br from-[#FF7A00] to-orange-500 text-white shadow-md shadow-orange-200/50"
                                   : isCurrent
-                                  ? "bg-white border-[3px] border-[#FF7A00] text-[#FF7A00]"
-                                  : "bg-gray-50 border-2 border-gray-200 text-gray-300"
+                                    ? "bg-white border-[3px] border-[#FF7A00] text-[#FF7A00]"
+                                    : "bg-gray-50 border-2 border-gray-200 text-gray-300"
                               }`}
-                              style={isCurrent ? { 
-                                boxShadow: '0 0 0 6px rgba(255, 122, 0, 0.08), 0 4px 16px rgba(255, 122, 0, 0.2)'
-                              } : {}}
+                              style={
+                                isCurrent
+                                  ? {
+                                      boxShadow:
+                                        "0 0 0 6px rgba(255, 122, 0, 0.08), 0 4px 16px rgba(255, 122, 0, 0.2)",
+                                    }
+                                  : {}
+                              }
                             >
                               {isCompleted ? (
-                                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/>
+                                <svg
+                                  className="w-5 h-5"
+                                  fill="currentColor"
+                                  viewBox="0 0 20 20"
+                                >
+                                  <path
+                                    fillRule="evenodd"
+                                    d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                                    clipRule="evenodd"
+                                  />
                                 </svg>
                               ) : (
                                 <span className="text-base">{step.icon}</span>
                               )}
                             </div>
-                            
+
                             {/* Pulse Effect for Current */}
                             {isCurrent && (
                               <>
@@ -857,20 +1044,20 @@ function OrderDetailsModal({
                               </>
                             )}
                           </div>
-                          
+
                           {/* Label */}
                           <span
                             className={`text-[11px] mt-3 text-center leading-tight max-w-[60px] ${
                               isCompleted
                                 ? "text-[#FF7A00] font-semibold"
                                 : isCurrent
-                                ? "text-gray-900 font-semibold"
-                                : "text-gray-400 font-medium"
+                                  ? "text-gray-900 font-semibold"
+                                  : "text-gray-400 font-medium"
                             }`}
                           >
                             {step.label}
                           </span>
-                          
+
                           {/* Current Status Indicator */}
                           {isCurrent && (
                             <div className="mt-2 px-2 py-0.5 bg-orange-100 rounded-full">
@@ -884,22 +1071,36 @@ function OrderDetailsModal({
                     })}
                   </div>
                 </div>
-                
+
                 {/* Estimated Time Card */}
-                {order.estimated_duration_min && currentIndex < statusSteps.length - 1 && (
-                  <div className="mt-6 pt-4 border-t border-gray-100">
-                    <div className="flex items-center justify-center gap-2 text-sm">
-                      <div className="w-8 h-8 rounded-full bg-green-50 flex items-center justify-center">
-                        <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                        </svg>
+                {order.estimated_duration_min &&
+                  currentIndex < statusSteps.length - 1 && (
+                    <div className="mt-6 pt-4 border-t border-gray-100">
+                      <div className="flex items-center justify-center gap-2 text-sm">
+                        <div className="w-8 h-8 rounded-full bg-green-50 flex items-center justify-center">
+                          <svg
+                            className="w-4 h-4 text-green-600"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                            />
+                          </svg>
+                        </div>
+                        <span className="text-gray-600">
+                          Estimated delivery in{" "}
+                          <span className="font-semibold text-gray-900">
+                            {order.estimated_duration_min} mins
+                          </span>
+                        </span>
                       </div>
-                      <span className="text-gray-600">
-                        Estimated delivery in <span className="font-semibold text-gray-900">{order.estimated_duration_min} mins</span>
-                      </span>
                     </div>
-                  </div>
-                )}
+                  )}
               </div>
             )}
           </div>
@@ -956,7 +1157,9 @@ function OrderDetailsModal({
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">Distance</span>
-                <span className="font-medium text-gray-900">{order.distance_km} km</span>
+                <span className="font-medium text-gray-900">
+                  {order.distance_km} km
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">Est. Time</span>
@@ -971,15 +1174,21 @@ function OrderDetailsModal({
           <div className="border-t pt-4 space-y-3">
             <div className="flex justify-between text-sm">
               <span className="text-gray-500">Subtotal</span>
-              <span className="text-gray-900">Rs. {parseFloat(order.subtotal).toFixed(2)}</span>
+              <span className="text-gray-900">
+                Rs. {parseFloat(order.subtotal).toFixed(2)}
+              </span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-gray-500">Delivery Fee</span>
-              <span className="text-gray-900">Rs. {parseFloat(order.delivery_fee).toFixed(2)}</span>
+              <span className="text-gray-900">
+                Rs. {parseFloat(order.delivery_fee).toFixed(2)}
+              </span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-gray-500">Service Fee</span>
-              <span className="text-gray-900">Rs. {parseFloat(order.service_fee).toFixed(2)}</span>
+              <span className="text-gray-900">
+                Rs. {parseFloat(order.service_fee).toFixed(2)}
+              </span>
             </div>
             <div className="flex justify-between text-lg font-bold border-t pt-3">
               <span className="text-gray-900">Total</span>
@@ -1016,7 +1225,9 @@ const NavItem = ({ icon, label, active, onClick, badge }) => (
   <button
     onClick={onClick}
     className={`flex flex-col items-center gap-0.5 py-1.5 px-4 transition-all duration-200 rounded-xl ${
-      active ? "text-[#FF7A00] bg-orange-50" : "text-gray-400 hover:text-orange-300"
+      active
+        ? "text-[#FF7A00] bg-orange-50"
+        : "text-gray-400 hover:text-orange-300"
     }`}
   >
     <div className="relative">

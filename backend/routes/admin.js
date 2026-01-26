@@ -26,7 +26,7 @@ router.get("/me", authenticate, async (req, res) => {
     const { data, error } = await supabaseAdmin
       .from("admins")
       .select(
-        "id, email, phone, force_password_change, profile_completed, onboarding_step, onboarding_completed, admin_status, restaurant_id"
+        "id, email, phone, force_password_change, profile_completed, onboarding_step, onboarding_completed, admin_status, restaurant_id",
       )
       .eq("id", adminId)
       .maybeSingle();
@@ -186,7 +186,7 @@ router.put("/update-profile", authenticate, async (req, res) => {
     // Update password in Supabase Auth
     const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(
       adminId,
-      { password: newPassword }
+      { password: newPassword },
     );
 
     if (authError) {
@@ -219,6 +219,60 @@ router.put("/update-profile", authenticate, async (req, res) => {
 });
 
 /**
+ * GET /admin/stats
+ * Basic dashboard metrics for admin
+ */
+router.get("/stats", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    // Total orders
+    const { count: ordersCount, error: ordersErr } = await supabaseAdmin
+      .from("orders")
+      .select("id", { count: "exact", head: true });
+
+    if (ordersErr) throw ordersErr;
+
+    // Active deliveries (not delivered/failed/cancelled)
+    const { count: activeDeliveries, error: deliveriesErr } =
+      await supabaseAdmin
+        .from("deliveries")
+        .select("id", { count: "exact", head: true })
+        .not("status", "in", "(delivered,failed,cancelled)");
+
+    if (deliveriesErr) throw deliveriesErr;
+
+    // Restaurants
+    const { count: restaurantsCount, error: restErr } = await supabaseAdmin
+      .from("restaurants")
+      .select("id", { count: "exact", head: true });
+
+    if (restErr) throw restErr;
+
+    // Drivers
+    const { count: driversCount, error: driversErr } = await supabaseAdmin
+      .from("drivers")
+      .select("id", { count: "exact", head: true });
+
+    if (driversErr) throw driversErr;
+
+    return res.json({
+      stats: {
+        total_orders: ordersCount || 0,
+        active_deliveries: activeDeliveries || 0,
+        restaurants: restaurantsCount || 0,
+        drivers: driversCount || 0,
+      },
+    });
+  } catch (e) {
+    console.error("/admin/stats error:", e);
+    return res.status(500).json({ message: "Failed to load stats" });
+  }
+});
+
+/**
  * PUT /admin/change-password
  * Change admin password (for forced password change)
  */
@@ -245,7 +299,7 @@ router.put("/change-password", authenticate, async (req, res) => {
     // Update password in Supabase Auth
     const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(
       adminId,
-      { password: newPassword }
+      { password: newPassword },
     );
 
     if (authError) {
@@ -299,7 +353,7 @@ router.get("/foods", authenticate, async (req, res) => {
     const { data: foods, error } = await supabaseAdmin
       .from("foods")
       .select(
-        "id, name, description, image_url, is_available, available_time, regular_size, regular_portion, regular_price, offer_price, extra_size, extra_portion, extra_price, stars, created_at"
+        "id, name, description, image_url, is_available, available_time, regular_size, regular_portion, regular_price, offer_price, extra_size, extra_portion, extra_price, stars, created_at",
       )
       .eq("restaurant_id", admin.restaurant_id)
       .order("created_at", { ascending: false });
