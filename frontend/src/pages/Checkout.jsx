@@ -22,14 +22,37 @@ L.Icon.Default.mergeOptions({
 });
 
 // Component to handle map clicks
-function LocationMarker({ position, setPosition }) {
+function LocationMarker({ position, setPosition, isEditMode }) {
   useMapEvents({
     click(e) {
-      setPosition([e.latlng.lat, e.latlng.lng]);
+      if (isEditMode) {
+        setPosition([e.latlng.lat, e.latlng.lng]);
+      }
     },
   });
 
   return position === null ? null : <Marker position={position}></Marker>;
+}
+
+// Component to control map interactions based on edit mode
+function MapInteractionController({ isEditMode }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (isEditMode) {
+      map.scrollWheelZoom.enable();
+      map.dragging.enable();
+      map.touchZoom.enable();
+      map.doubleClickZoom.enable();
+    } else {
+      map.scrollWheelZoom.disable();
+      map.dragging.disable();
+      map.touchZoom.disable();
+      map.doubleClickZoom.disable();
+    }
+  }, [isEditMode, map]);
+
+  return null;
 }
 
 // Component to handle map centering
@@ -89,6 +112,12 @@ const Checkout = () => {
   const [position, setPosition] = useState(null);
   const [mapCenter, setMapCenter] = useState([7.8731, 80.7718]);
 
+  // Address edit modal
+  const [showAddressModal, setShowAddressModal] = useState(false);
+  const [editAddress, setEditAddress] = useState("");
+  const [editCity, setEditCity] = useState("");
+  const [savingAddress, setSavingAddress] = useState(false);
+
   // Cart data
   const [cart, setCart] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -103,10 +132,15 @@ const Checkout = () => {
 
   // Location
   const [locating, setLocating] = useState(false);
+  const [isMapEditMode, setIsMapEditMode] = useState(false);
 
   // Route info (OSRM)
   const [routeInfo, setRouteInfo] = useState(null);
   const [routeLoading, setRouteLoading] = useState(false);
+
+  // Delivery options
+  const [deliveryOption, setDeliveryOption] = useState("standard"); // priority, standard, scheduled
+  const [deliveryMethod, setDeliveryMethod] = useState("meet_at_door"); // meet_at_door, leave_at_door
 
   // Minimum order amount
   const MINIMUM_SUBTOTAL = 300;
@@ -371,28 +405,6 @@ const Checkout = () => {
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 font-poppins">
-        {/* Header */}
-        <header className="sticky top-0 z-50 bg-white px-4 py-3 shadow-sm">
-          <div className="max-w-6xl mx-auto flex items-center gap-3">
-            <button
-              onClick={() => navigate("/cart")}
-              className="p-2 -ml-2 hover:bg-gray-100 rounded-full transition-colors"
-            >
-              <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-            </button>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-[#FF7A00] rounded-xl flex items-center justify-center shadow-lg shadow-orange-200">
-                <span className="text-white text-lg font-bold">N</span>
-              </div>
-              <div>
-                <h1 className="text-xl font-bold text-gray-900">Checkout</h1>
-                <p className="text-xs text-gray-500">Complete your order</p>
-              </div>
-            </div>
-          </div>
-        </header>
         <div className="flex flex-col items-center justify-center py-20">
           <div className="relative">
             <div className="w-16 h-16 border-4 border-orange-100 rounded-full"></div>
@@ -408,19 +420,6 @@ const Checkout = () => {
   if (orderSuccess) {
     return (
       <div className="min-h-screen bg-gray-50 font-poppins">
-        {/* Header */}
-        <header className="sticky top-0 z-50 bg-white px-4 py-3 shadow-sm">
-          <div className="max-w-6xl mx-auto flex items-center gap-3">
-            <div className="w-10 h-10 bg-[#FF7A00] rounded-xl flex items-center justify-center shadow-lg shadow-orange-200">
-              <span className="text-white text-lg font-bold">N</span>
-            </div>
-            <div>
-              <h1 className="text-xl font-bold text-gray-900">Order Placed</h1>
-              <p className="text-xs text-gray-500">Thank you for your order!</p>
-            </div>
-          </div>
-        </header>
-
         <div className="px-4 py-8 max-w-md mx-auto">
           <div className="bg-white rounded-2xl shadow-sm p-6 text-center">
             {/* Success Icon */}
@@ -479,8 +478,8 @@ const Checkout = () => {
                   {orderSuccess.payment_method === "cash"
                     ? "Cash on Delivery"
                     : orderSuccess.payment_method === "card"
-                    ? "Card Payment"
-                    : "UPI / Wallet"}
+                    
+              }
                 </span>
               </div>
               <div className="border-t border-gray-200 pt-3 flex justify-between items-center">
@@ -521,29 +520,6 @@ const Checkout = () => {
   if (error && !cart) {
     return (
       <div className="min-h-screen bg-gray-50 font-poppins">
-        {/* Header */}
-        <header className="sticky top-0 z-50 bg-white px-4 py-3 shadow-sm">
-          <div className="max-w-6xl mx-auto flex items-center gap-3">
-            <button
-              onClick={() => navigate("/cart")}
-              className="p-2 -ml-2 hover:bg-gray-100 rounded-full transition-colors"
-            >
-              <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-            </button>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-[#FF7A00] rounded-xl flex items-center justify-center shadow-lg shadow-orange-200">
-                <span className="text-white text-lg font-bold">N</span>
-              </div>
-              <div>
-                <h1 className="text-xl font-bold text-gray-900">Checkout</h1>
-                <p className="text-xs text-gray-500">Complete your order</p>
-              </div>
-            </div>
-          </div>
-        </header>
-
         <div className="px-4 py-8 max-w-2xl mx-auto">
           <div className="bg-red-50 border border-red-100 text-red-600 px-5 py-4 rounded-2xl">
             <p className="font-semibold">Error</p>
@@ -560,468 +536,496 @@ const Checkout = () => {
     );
   }
 
+  // Priority fee
+  const PRIORITY_FEE = 49;
+
+  // Calculate estimated delivery time
+  const getDeliveryTimeRange = () => {
+    if (!routeInfo) return "Calculating...";
+    const baseTime = Math.ceil(routeInfo.duration) + 15; // Add prep time
+    if (deliveryOption === "priority") {
+      return `${baseTime - 5}–${baseTime + 5} min`;
+    }
+    return `${baseTime + 5}–${baseTime + 15} min`;
+  };
+
+  // Recalculate total with priority
+  const priorityExtra = deliveryOption === "priority" ? PRIORITY_FEE : 0;
+  const finalTotal = totalAmount !== null ? totalAmount + priorityExtra : null;
+
   return (
-    <div className="min-h-screen bg-gray-50 font-poppins pb-28">
-      {/* Top Header */}
-      <header className="sticky top-0 z-50 bg-white px-4 py-3 shadow-sm">
-        <div className="max-w-6xl mx-auto flex items-center gap-3">
-          <button
-            onClick={() => navigate("/cart")}
-            className="p-2 -ml-2 hover:bg-gray-100 rounded-full transition-colors"
+    <div className="min-h-screen bg-gray-50 font-poppins pb-32 page-slide-up">
+      {/* Main Content */}
+      <main className="max-w-lg mx-auto">
+        {/* Map Preview Section */}
+        <div className="relative">
+          <div className={`${isMapEditMode ? 'h-64' : 'h-40'} bg-gray-100 relative overflow-hidden transition-all duration-300`}>
+            <MapContainer
+              center={position || [7.8731, 80.7718]}
+              zoom={16}
+              style={{ height: "100%", width: "100%" }}
+              zoomControl={false}
+              attributionControl={false}
+              scrollWheelZoom={false}
+              dragging={false}
+              touchZoom={false}
+              doubleClickZoom={false}
+            >
+              <TileLayer
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              />
+              <LocationMarker position={position} setPosition={setPosition} isEditMode={isMapEditMode} />
+              <MapController center={mapCenter} />
+              <MapInteractionController isEditMode={isMapEditMode} />
+            </MapContainer>
+            
+            {/* Edit Mode Overlay */}
+            {isMapEditMode && (
+              <div className="absolute top-3 left-3 right-3 z-[1000] flex items-center justify-between">
+                <div className="text-black font-semibold px-3 py-1.5 rounded-full text-xs font-medium shadow-lg shadow-black-200">
+                  Set location on the map
+                </div>
+                <button
+                  onClick={handleUseMyLocation}
+                  disabled={locating}
+                  className="bg-white px-3 py-1.5 rounded-full shadow-lg text-xs font-medium text-[#FF7A00] flex items-center gap-1.5 hover:bg-orange-50 transition"
+                >
+                  {locating ? (
+                    <>
+                      <div className="w-3 h-3 border-2 border-gray-900 border-t-transparent rounded-full animate-spin"></div>
+                      <span>Locating...</span>
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                      <span>find Area </span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
+            
+            {/* Edit / Done Button */}
+            <button
+              onClick={() => setIsMapEditMode(!isMapEditMode)}
+              className={`absolute bottom-3 right-3 z-[1000] px-4 py-2 rounded-full shadow-lg text-sm font-medium flex items-center gap-1.5 transition ${
+                isMapEditMode 
+                  ? 'bg-[#FF7A00] text-white hover:bg-orange-600 shadow-orange-200' 
+                  : 'bg-white text-[#FF7A00] hover:bg-orange-50'
+              }`}
+            >
+              {isMapEditMode ? (
+                <>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span>Done</span>
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                  </svg>
+                  <span>Edit</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Delivery Address Card */}
+        <div className="mx-4 mt-4 bg-white rounded-2xl shadow-sm p-4">
+          <div className="flex items-start gap-3">
+            <div className="flex-shrink-0">
+              <svg className="w-6 h-6 text-[#FF7A00]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-gray-500">Delivery Address</p>
+                  <p className="font-semibold text-gray-900 mt-0.5">
+                    {address || "Add delivery address"}
+                  </p>
+                  {city && <p className="text-sm text-gray-500">{city}</p>}
+                </div>
+                <button
+                  onClick={() => {
+                    setEditAddress(address);
+                    setEditCity(city);
+                    setShowAddressModal(true);
+                  }}
+                  className="p-2 bg-orange-50 rounded-xl hover:bg-orange-100 transition"
+                >
+                  <svg className="w-5 h-5 text-[#FF7A00]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Address Edit Modal */}
+        {showAddressModal && (
+          <div className="fixed inset-0 z-[2000] flex items-end sm:items-center justify-center">
+            {/* Backdrop */}
+            <div 
+              className="absolute inset-0 bg-black/50"
+              onClick={() => setShowAddressModal(false)}
+            ></div>
+            
+            {/* Modal Content */}
+            <div className="relative bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl p-6 animate-slide-up">
+              {/* Handle bar for mobile */}
+              <div className="w-12 h-1 bg-gray-300 rounded-full mx-auto mb-4 sm:hidden"></div>
+              
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-lg font-bold text-gray-900">Edit Delivery Address</h3>
+                <button
+                  onClick={() => setShowAddressModal(false)}
+                  className="p-2 hover:bg-gray-100 rounded-full transition"
+                >
+                  <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              
+              <div className="space-y-4">
+                {/* Address Input */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Street Address</label>
+                  <textarea
+                    value={editAddress}
+                    onChange={(e) => setEditAddress(e.target.value)}
+                    placeholder="Enter your full address"
+                    rows={3}
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#FF7A00]/40 focus:border-[#FF7A00] transition resize-none"
+                  />
+                </div>
+                
+                {/* City Input */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">City</label>
+                  <input
+                    type="text"
+                    value={editCity}
+                    onChange={(e) => setEditCity(e.target.value)}
+                    placeholder="Enter city name"
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#FF7A00]/40 focus:border-[#FF7A00] transition"
+                  />
+                </div>
+                
+                {/* Save Button */}
+                <button
+                  onClick={async () => {
+                    if (!editAddress.trim()) {
+                      setError("Address is required");
+                      return;
+                    }
+                    
+                    setSavingAddress(true);
+                    try {
+                      const token = localStorage.getItem("token");
+                      const response = await fetch("http://localhost:5000/customer/address", {
+                        method: "PUT",
+                        headers: {
+                          "Content-Type": "application/json",
+                          Authorization: `Bearer ${token}`,
+                        },
+                        body: JSON.stringify({
+                          address: editAddress,
+                          city: editCity,
+                          latitude: position ? position[0] : null,
+                          longitude: position ? position[1] : null,
+                        }),
+                      });
+                      
+                      const data = await response.json();
+                      
+                      if (response.ok) {
+                        setAddress(editAddress);
+                        setCity(editCity);
+                        setShowAddressModal(false);
+                        setError(null);
+                      } else {
+                        setError(data.message || "Failed to update address");
+                      }
+                    } catch (err) {
+                      console.error("Update address error:", err);
+                      setError("Failed to update address");
+                    } finally {
+                      setSavingAddress(false);
+                    }
+                  }}
+                  disabled={savingAddress}
+                  className="w-full py-3.5 bg-[#FF7A00] text-white font-semibold rounded-xl hover:bg-orange-600 transition shadow-lg shadow-orange-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {savingAddress ? (
+                    <>
+                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      Save Address
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Delivery Method */}
+       
+
+        {/* Phone Number */}
+        <div className="mx-4 mt-3 bg-white rounded-2xl shadow-sm p-4">
+          <div className="flex items-center gap-3">
+            <svg className="w-6 h-6 text-[#FF7A00]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+            </svg>
+            <div>
+              <p className="text-xs text-gray-500">Phone Number</p>
+              <p className="font-semibold text-gray-900">{phone || "No phone number"}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Delivery Time */}
+        <div className="mx-4 mt-3 bg-white rounded-2xl shadow-sm p-4">
+          <div className="flex items-center gap-3">
+            <svg className="w-6 h-6 text-[#FF7A00]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div>
+              <p className="text-xs text-gray-500">Estimated Delivery</p>
+              <p className="font-semibold text-gray-900">
+                {routeLoading ? (
+                  <span className="flex items-center gap-1">
+                    <div className="w-3 h-3 border-2 border-[#FF7A00] border-t-transparent rounded-full animate-spin"></div>
+                    Calculating...
+                  </span>
+                ) : (
+                  getDeliveryTimeRange()
+                )}
+              </p>
+            </div>
+          </div>
+        </div>
+
+
+        {/* Order Summary */}
+        <div className="mx-4 mt-3 bg-white rounded-2xl shadow-sm p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <svg className="w-5 h-5 text-[#FF7A00]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+            </svg>
+            <h3 className="font-bold text-gray-900">Order Summary</h3>
+          </div>
+          <button 
+            onClick={() => setShowOrderItems(!showOrderItems)}
+            className="w-full flex items-center justify-between p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition"
           >
-            <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            <div className="flex items-center gap-3">
+              {cart?.restaurant?.logo_url ? (
+                <img
+                  src={cart.restaurant.logo_url}
+                  alt={cart.restaurant.restaurant_name}
+                  className="w-12 h-12 rounded-xl object-cover"
+                />
+              ) : (
+                <div className="w-12 h-12 rounded-xl bg-orange-100 flex items-center justify-center">
+                  <span className="text-lg font-bold text-[#FF7A00]">
+                    {cart?.restaurant?.restaurant_name?.charAt(0) || "R"}
+                  </span>
+                </div>
+              )}
+              <div className="text-left">
+                <p className="font-semibold text-gray-900">
+                  {cart?.restaurant?.restaurant_name || "Restaurant"}
+                </p>
+                <p className="text-sm text-gray-500">
+                  {cart?.total_items || 0} item{cart?.total_items !== 1 ? "s" : ""} • {formatPrice(subtotal)}
+                </p>
+              </div>
+            </div>
+            <svg
+              className={`w-5 h-5 text-gray-400 transition-transform ${showOrderItems ? "rotate-180" : ""}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
             </svg>
           </button>
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-[#FF7A00] rounded-xl flex items-center justify-center shadow-lg shadow-orange-200">
-              <span className="text-white text-lg font-bold">N</span>
+
+          {/* Expandable Order Items */}
+          {showOrderItems && cart && (
+            <div className="mt-3 space-y-2">
+              {cart.items.map((item) => (
+                <div key={item.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
+                  <div className="flex items-center gap-2">
+                    <span className="w-7 h-7 bg-[#FF7A00] text-white rounded-lg text-xs font-bold flex items-center justify-center">
+                      {item.quantity}x
+                    </span>
+                    <div>
+                      <span className="text-sm font-medium text-gray-900">{item.food_name}</span>
+                      <span className="text-xs text-gray-400 ml-1">({item.size})</span>
+                    </div>
+                  </div>
+                  <span className="text-sm font-semibold text-[#FF7A00]">
+                    {formatPrice(item.total_price)}
+                  </span>
+                </div>
+              ))}
             </div>
-            <div>
-              <h1 className="text-xl font-bold text-gray-900">Checkout</h1>
-              <p className="text-xs text-gray-500">Complete your order details</p>
-            </div>
-          </div>
+          )}
         </div>
-      </header>
 
-      {/* Main Content */}
-      <main className="px-4 py-5 max-w-lg mx-auto">
-        <div className="space-y-5">
-          {/* Delivery Address Card */}
-          <div 
-            className="bg-white rounded-[20px] shadow-[0_4px_20px_rgba(0,0,0,0.06)] p-5 cursor-pointer hover:shadow-[0_6px_24px_rgba(0,0,0,0.08)] transition-shadow duration-300"
-            onClick={() => navigate("/profile")}
-          >
-            {/* Header Row */}
-            <div className="flex items-center justify-between mb-5">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-gradient-to-br from-orange-50 to-orange-100 rounded-full flex items-center justify-center">
-                  <svg className="w-5 h-5 text-[#FF7A00]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                </div>
-                <h2 className="text-lg font-bold text-gray-900">Delivery Address</h2>
-              </div>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  navigate("/profile");
-                }}
-                className="text-[#FF7A00] text-sm font-semibold hover:text-orange-600 transition-colors"
-              >
-                Change
-              </button>
-            </div>
-
-            {/* Content Rows */}
-            <div className="space-y-4">
-              {/* Row 1 - Phone */}
-              <div className="flex items-center gap-4">
-                <div className="w-11 h-11 bg-orange-50 rounded-2xl flex items-center justify-center flex-shrink-0">
-                  <svg className="w-5 h-5 text-[#FF7A00]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-                  </svg>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5">Phone</p>
-                  <p className="text-[15px] font-semibold text-gray-900 truncate">{phone || "Not provided"}</p>
-                </div>
-              </div>
-
-              {/* Divider */}
-              <div className="h-px bg-gray-100 mx-2"></div>
-
-              {/* Row 2 - Address */}
-              <div className="flex items-start gap-4">
-                <div className="w-11 h-11 bg-orange-50 rounded-2xl flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <svg className="w-5 h-5 text-[#FF7A00]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-                  </svg>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5">Address</p>
-                  <p className="text-[15px] font-bold text-gray-900 leading-snug">{address || "Not provided"}</p>
-                  {city && <p className="text-sm text-gray-500 mt-1">{city}</p>}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Delivery Location Hint */}
-          <div className="flex items-center gap-2 px-1">
-            <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+        {/* Payment Method */}
+        <div className="mx-4 mt-3 bg-white rounded-2xl shadow-sm p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <svg className="w-5 h-5 text-[#FF7A00]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
             </svg>
-            <p className="text-xs text-gray-400">Delivery Location <span className="text-gray-500">(Tap map to adjust)</span></p>
+            <h3 className="font-bold text-gray-900">Payment Method</h3>
           </div>
-
-          {/* Map Card */}
-          <div className="bg-white rounded-[20px] shadow-[0_4px_20px_rgba(0,0,0,0.06)] overflow-hidden">
-            <div className="relative">
-              <MapContainer
-                center={position || [7.8731, 80.7718]}
-                zoom={15}
-                style={{ height: "180px", width: "100%" }}
-              >
-                <TileLayer
-                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                />
-                <LocationMarker position={position} setPosition={setPosition} />
-                <MapController center={mapCenter} />
-              </MapContainer>
-            </div>
-            <div className="p-4">
-              <button
-                type="button"
-                onClick={handleUseMyLocation}
-                disabled={locating}
-                className="w-full py-3.5 bg-gradient-to-r from-orange-50 to-orange-100 text-[#FF7A00] font-semibold rounded-2xl hover:from-orange-100 hover:to-orange-150 disabled:from-gray-100 disabled:to-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center gap-2.5"
-              >
-                {locating ? (
-                  <>
-                    <div className="w-5 h-5 border-2 border-[#FF7A00] border-t-transparent rounded-full animate-spin"></div>
-                    <span>Getting location...</span>
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                    </svg>
-                    <span>Use My Current Location</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-
-            {/* Payment Method Card */}
-            <div className="bg-white rounded-2xl shadow-sm p-5">
-              <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-                <div className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center">
-                  <svg
-                    className="w-4 h-4 text-[#FF7A00]"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"
-                    />
-                  </svg>
-                </div>
-                Payment Method
-              </h2>
-
-              <div className="space-y-3">
-                {/* Cash on Delivery */}
-                <button
-                  onClick={() => setPaymentMethod("cash")}
-                  className={`w-full p-4 rounded-2xl border-2 transition-all flex items-center gap-3 ${
-                    paymentMethod === "cash"
-                      ? "border-[#FF7A00] bg-orange-50"
-                      : "border-gray-200 hover:border-gray-300"
-                  }`}
-                >
-                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                    paymentMethod === "cash" ? "border-[#FF7A00]" : "border-gray-300"
-                  }`}>
-                    {paymentMethod === "cash" && (
-                      <div className="w-3 h-3 bg-[#FF7A00] rounded-full"></div>
-                    )}
-                  </div>
-                  <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
-                    <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
-                    </svg>
-                  </div>
-                  <div className="flex-1 text-left">
-                    <p className="font-semibold text-gray-900">Cash on Delivery</p>
-                    <p className="text-xs text-gray-500">Pay when you receive</p>
-                  </div>
-                </button>
-
-                {/* Card Payment */}
-                <button
-                  onClick={() => setPaymentMethod("card")}
-                  className={`w-full p-4 rounded-2xl border-2 transition-all flex items-center gap-3 ${
-                    paymentMethod === "card"
-                      ? "border-[#FF7A00] bg-orange-50"
-                      : "border-gray-200 hover:border-gray-300"
-                  }`}
-                >
-                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                    paymentMethod === "card" ? "border-[#FF7A00]" : "border-gray-300"
-                  }`}>
-                    {paymentMethod === "card" && (
-                      <div className="w-3 h-3 bg-[#FF7A00] rounded-full"></div>
-                    )}
-                  </div>
-                  <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                    <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-                    </svg>
-                  </div>
-                  <div className="flex-1 text-left">
-                    <p className="font-semibold text-gray-900">Card Payment</p>
-                    <p className="text-xs text-gray-500">Credit/Debit card</p>
-                  </div>
-                </button>
-
-                {/* UPI/Wallet */}
-                
-                 
-              </div>
-            </div>
-
-            {/* Promo Code Card */}
-            <div className="bg-white rounded-2xl shadow-sm p-5">
-              <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-                <div className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center">
-                  <svg className="w-4 h-4 text-[#FF7A00]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-                  </svg>
-                </div>
-                Promo Code
-              </h2>
-              <div className="flex gap-3">
-                <input
-                  type="text"
-                  placeholder="Enter promo code"
-                  className="flex-1 px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#FF7A00]/40 focus:border-[#FF7A00] transition-all text-sm"
-                />
-                <button className="px-6 py-3 bg-[#FF7A00] text-white font-semibold rounded-xl hover:bg-orange-600 transition">
-                  Apply
-                </button>
-              </div>
-            </div>
-
-            {/* Order Summary Card */}
-          <div className="bg-white rounded-2xl shadow-sm p-5">
-            <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-              <div className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center">
-                <svg className="w-4 h-4 text-[#FF7A00]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                </svg>
-              </div>
-              Order Summary
-            </h2>
-
-            {/* Restaurant Info - Clickable Dropdown */}
-            {cart && (
-              <>
-                <div
-                  onClick={() => setShowOrderItems(!showOrderItems)}
-                  className="flex items-center gap-3 pb-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 rounded-xl p-3 -mx-1 transition"
-                >
-                  {cart.restaurant.logo_url ? (
-                    <img
-                      src={cart.restaurant.logo_url}
-                      alt={cart.restaurant.restaurant_name}
-                      className="w-14 h-14 rounded-xl object-cover"
-                    />
-                  ) : (
-                    <div className="w-14 h-14 rounded-xl bg-orange-100 flex items-center justify-center">
-                      <span className="text-xl font-bold text-[#FF7A00]">
-                        {cart.restaurant.restaurant_name.charAt(0)}
-                      </span>
-                    </div>
-                  )}
-                  <div className="flex-1">
-                    <h3 className="font-bold text-gray-900">
-                      {cart.restaurant.restaurant_name}
-                    </h3>
-                    <p className="text-sm text-gray-500">
-                      {cart.total_items} item{cart.total_items !== 1 ? "s" : ""}
-                    </p>
-                    {/* Distance and Duration Display */}
-                    {routeLoading ? (
-                      <div className="flex items-center gap-1 mt-1">
-                        <div className="w-3 h-3 border-2 border-[#FF7A00] border-t-transparent rounded-full animate-spin"></div>
-                        <span className="text-sm text-gray-500">Calculating route...</span>
-                      </div>
-                    ) : routeInfo ? (
-                      <div className="flex items-center gap-3 mt-1">
-                        <div className="flex items-center gap-1">
-                          <svg className="w-4 h-4 text-[#FF7A00]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                          </svg>
-                          <span className="text-sm font-medium text-[#FF7A00]">{routeInfo.distance.toFixed(1)} km</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                          <span className="text-sm font-medium text-gray-600">~{Math.ceil(routeInfo.duration)} min</span>
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
-                  <svg
-                    className={`w-5 h-5 text-gray-400 transition-transform ${showOrderItems ? "rotate-180" : ""}`}
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </div>
-
-                {/* Order Items - Collapsible */}
-                {showOrderItems && (
-                  <div className="py-4 border-b border-gray-100 max-h-64 overflow-y-auto">
-                    <div className="space-y-3">
-                      {cart.items.map((item) => (
-                        <div
-                          key={item.id}
-                          className="flex items-start justify-between gap-3 p-3 bg-gray-50 rounded-xl"
-                        >
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2">
-                              <span className="bg-[#FF7A00] text-white text-xs font-bold px-2 py-1 rounded-lg">
-                                {item.quantity}x
-                              </span>
-                              <span className="font-medium text-gray-900 text-sm">
-                                {item.food_name}
-                              </span>
-                            </div>
-                            <div className="mt-1 flex items-center gap-2">
-                              <span className="text-xs text-gray-500 bg-white border border-gray-200 px-2 py-0.5 rounded-lg">
-                                {item.size.charAt(0).toUpperCase() + item.size.slice(1)}
-                              </span>
-                              <span className="text-xs text-gray-400">
-                                @ {formatPrice(item.unit_price)} each
-                              </span>
-                            </div>
-                          </div>
-                          <span className="font-semibold text-gray-900 text-sm">
-                            {formatPrice(item.total_price)}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Pricing Breakdown */}
-                <div className="py-4 space-y-3">
-                  {/* Minimum Order Warning */}
-                  {!isSubtotalValid && (
-                    <div className="bg-orange-50 border border-orange-200 text-orange-800 px-4 py-3 rounded-xl text-sm mb-3 flex items-center gap-2">
-                      <svg className="w-5 h-5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                      </svg>
-                      <span>
-                        <span className="font-medium">Minimum order:</span> Rs. {MINIMUM_SUBTOTAL}. Add Rs. {(MINIMUM_SUBTOTAL - subtotal).toFixed(2)} more.
-                      </span>
-                    </div>
-                  )}
-
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Subtotal</span>
-                    <span className={`font-medium ${isSubtotalValid ? "text-gray-900" : "text-red-600"}`}>
-                      {formatPrice(subtotal)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">
-                      Delivery Fee
-                      {routeInfo && (
-                        <span className="text-xs text-gray-400 ml-1">({routeInfo.distance.toFixed(1)} km)</span>
-                      )}
-                    </span>
-                    <span className="font-medium text-gray-900">
-                      {routeLoading ? (
-                        <span className="text-gray-400">Calculating...</span>
-                      ) : deliveryFee !== null ? (
-                        formatPrice(deliveryFee)
-                      ) : (
-                        <span className="text-gray-400">--</span>
-                      )}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Service Fee</span>
-                    <span className="font-medium text-gray-900">
-                      {isSubtotalValid ? formatPrice(serviceFee) : <span className="text-gray-400">--</span>}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Total */}
-                <div className="pt-4 border-t border-gray-200">
-                  <div className="flex justify-between items-center">
-                    <span className="text-lg font-bold text-gray-900">Total</span>
-                    <span className="text-2xl font-bold text-[#FF7A00]">
-                      {totalAmount !== null ? formatPrice(totalAmount) : <span className="text-gray-400">--</span>}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Error message */}
-                {error && (
-                  <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
-                    {error}
-                  </div>
-                )}
-              </>
+          <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
+            {paymentMethod === "cash" ? (
+              <svg className="w-6 h-6 text-[#FF7A00]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+              </svg>
+            ) : (
+              <svg className="w-6 h-6 text-[#FF7A00]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+              </svg>
             )}
+            <div>
+              <p className="font-semibold text-gray-900">
+                {paymentMethod === "cash" ? "Cash on Delivery" : "Card Payment"}
+              </p>
+              <p className="text-xs text-gray-500">
+                {paymentMethod === "cash" ? "Pay when your order arrives" : "Credit/Debit card"}
+              </p>
+            </div>
           </div>
         </div>
+
+        
+
+        {/* Price Summary */}
+        <div className="mx-4 mt-3 bg-white rounded-2xl shadow-sm p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <svg className="w-5 h-5 text-[#FF7A00]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+            </svg>
+            <h3 className="font-bold text-gray-900">Price Details</h3>
+          </div>
+          <div className="space-y-3">
+            <div className="flex justify-between">
+              <span className="text-gray-600">Subtotal</span>
+              <span className="font-medium text-gray-900">{formatPrice(subtotal)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-600">
+                Delivery fee
+                {routeInfo && <span className="text-gray-400 ml-1">({routeInfo.distance.toFixed(1)} km)</span>}
+              </span>
+              <span className="font-medium text-gray-900">
+                {routeLoading ? "..." : deliveryFee !== null ? formatPrice(deliveryFee) : "--"}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-600">Service fee</span>
+              <span className="font-medium text-gray-900">{formatPrice(serviceFee)}</span>
+            </div>
+            {deliveryOption === "priority" && (
+              <div className="flex justify-between">
+                <span className="text-gray-600">Priority delivery</span>
+                <span className="font-medium text-gray-900">{formatPrice(PRIORITY_FEE)}</span>
+              </div>
+            )}
+            <div className="border-t border-gray-100 pt-3 flex justify-between items-center">
+              <span className="text-lg font-bold text-gray-900">Total</span>
+              <span className="text-xl font-bold text-[#FF7A00]">
+                {finalTotal !== null ? formatPrice(finalTotal) : "--"}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Minimum Order Warning */}
+        {!isSubtotalValid && (
+          <div className="mx-4 mb-4 bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center gap-2">
+            <svg className="w-5 h-5 text-amber-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <p className="text-sm text-amber-800">
+              <span className="font-medium">Minimum order:</span> Rs. {MINIMUM_SUBTOTAL}. Add Rs. {(MINIMUM_SUBTOTAL - subtotal).toFixed(0)} more.
+            </p>
+          </div>
+        )}
+
+        {/* Error message */}
+        {error && (
+          <div className="mx-4 mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
+            {error}
+          </div>
+        )}
       </main>
 
-      {/* Fixed Bottom CTA */}
-        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 p-4 pb-6 shadow-lg">
+      {/* Sticky Bottom CTA */}
+      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 p-4 pb-6 shadow-[0_-4px_20px_rgba(0,0,0,0.08)]">
+        <div className="max-w-lg mx-auto">
           <button
             onClick={handlePlaceOrder}
-            disabled={!isSubtotalValid || deliveryFee === null || routeLoading || placing}
-            className={`w-full py-4 font-bold rounded-full transition flex items-center justify-center gap-2 shadow-lg ${
-              !isSubtotalValid || deliveryFee === null || routeLoading || placing
-                ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-                : "bg-[#FF7A00] text-white hover:bg-orange-600 shadow-orange-200"
+            disabled={!isSubtotalValid || deliveryFee === null || routeLoading || placing || !phone || !address}
+            className={`w-full py-4 font-bold rounded-full transition flex items-center justify-center gap-2 text-base shadow-lg ${
+              !isSubtotalValid || deliveryFee === null || routeLoading || placing || !phone || !address
+                ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+                : "bg-[#FF7A00] text-white hover:bg-orange-600 shadow-orange-200 active:scale-[0.98]"
             }`}
           >
             {placing ? (
               <>
                 <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                Placing Order...
+                Placing order...
               </>
             ) : routeLoading ? (
               <>
-                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                <div className="w-5 h-5 border-2 border-[#FF7A00] border-t-transparent rounded-full animate-spin"></div>
                 Calculating...
               </>
             ) : !isSubtotalValid ? (
-              <>
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                </svg>
-                Minimum Rs. {MINIMUM_SUBTOTAL} required
-              </>
-            ) : totalAmount !== null ? (
+              `Add Rs. ${(MINIMUM_SUBTOTAL - subtotal).toFixed(0)} more`
+            ) : finalTotal !== null ? (
               <>
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
-                Place Order • {formatPrice(totalAmount)}
+                Place Order • {formatPrice(finalTotal)}
               </>
             ) : (
               "Place Order"
             )}
           </button>
-          <p className="text-xs text-gray-500 text-center mt-2">
+          <p className="text-xs text-gray-400 text-center mt-2">
             By placing this order, you agree to our terms of service
           </p>
         </div>
       </div>
+    </div>
   );
 };
 

@@ -103,6 +103,30 @@ async function generateOrderNumber() {
 }
 
 /**
+ * Calculate road distance using OSRM routing API
+ */
+async function calculateRouteDistance(lat1, lon1, lat2, lon2) {
+  try {
+    const url = `https://router.project-osrm.org/route/v1/driving/${lon1},${lat1};${lon2},${lat2}?overview=false`;
+    const response = await fetch(url);
+    const data = await response.json();
+
+    if (data.code === "Ok" && data.routes && data.routes.length > 0) {
+      const route = data.routes[0];
+      return {
+        distance: route.distance / 1000, // Convert meters to kilometers
+        duration: route.duration / 60, // Convert seconds to minutes
+        success: true,
+      };
+    }
+    return { success: false, error: "No route found" };
+  } catch (error) {
+    console.error("OSRM routing error:", error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
  * Valid order status transitions
  */
 const VALID_TRANSITIONS = {
@@ -125,7 +149,7 @@ router.post("/place", authenticate, async (req, res) => {
   }
 
   const customerId = req.user.id;
-  const {
+  let {
     cartId,
     delivery_latitude,
     delivery_longitude,
@@ -141,26 +165,15 @@ router.post("/place", authenticate, async (req, res) => {
     return res.status(400).json({ message: "Cart ID is required" });
   }
 
-  if (!delivery_latitude || !delivery_longitude) {
-    return res.status(400).json({ message: "Delivery location is required" });
+  // Payment method defaults to cash
+  if (!payment_method) {
+    payment_method = "cash";
   }
 
-  if (!delivery_address) {
-    return res.status(400).json({ message: "Delivery address is required" });
-  }
-
-  if (!payment_method || !["cash", "card"].includes(payment_method)) {
+  if (!["cash", "card"].includes(payment_method)) {
     return res
       .status(400)
       .json({ message: "Valid payment method is required" });
-  }
-
-  if (!distance_km || distance_km <= 0) {
-    return res.status(400).json({ message: "Valid distance is required" });
-  }
-
-  if (!estimated_duration_min || estimated_duration_min <= 0) {
-    return res.status(400).json({ message: "Valid duration is required" });
   }
 
   try {
@@ -243,13 +256,62 @@ router.post("/place", authenticate, async (req, res) => {
     // ========================================================================
     const { data: customer, error: customerError } = await supabaseAdmin
       .from("customers")
-      .select("id, username, phone, email")
+      .select("id, username, phone, email, address, city, latitude, longitude")
       .eq("id", customerId)
       .single();
 
     if (customerError || !customer) {
       console.error("Customer fetch error:", customerError);
       return res.status(404).json({ message: "Customer not found" });
+    }
+
+    // ========================================================================
+    // STEP 4.5: Get delivery location from customer if not provided
+    // ========================================================================
+    if (!delivery_latitude || !delivery_longitude) {
+      if (customer.latitude && customer.longitude) {
+        delivery_latitude = parseFloat(customer.latitude);
+        delivery_longitude = parseFloat(customer.longitude);
+      } else {
+        return res.status(400).json({ message: "Delivery location is required. Please set your location in profile." });
+      }
+    }
+
+    if (!delivery_address) {
+      if (customer.address) {
+        delivery_address = customer.address;
+        delivery_city = customer.city || "";
+      } else {
+        return res.status(400).json({ message: "Delivery address is required" });
+      }
+    }
+
+    // ========================================================================
+    // STEP 4.6: Calculate distance and duration if not provided
+    // ========================================================================
+    if (!distance_km || !estimated_duration_min || distance_km <= 0 || estimated_duration_min <= 0) {
+      const routeResult = await calculateRouteDistance(
+        delivery_latitude,
+        delivery_longitude,
+        parseFloat(restaurant.latitude),
+        parseFloat(restaurant.longitude)
+      );
+
+      if (routeResult.success) {
+        distance_km = routeResult.distance;
+        estimated_duration_min = routeResult.duration;
+      } else {
+        // Fallback: calculate straight-line distance
+        const R = 6371; // Earth's radius in km
+        const dLat = (parseFloat(restaurant.latitude) - delivery_latitude) * Math.PI / 180;
+        const dLon = (parseFloat(restaurant.longitude) - delivery_longitude) * Math.PI / 180;
+        const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                  Math.cos(delivery_latitude * Math.PI / 180) * Math.cos(parseFloat(restaurant.latitude) * Math.PI / 180) *
+                  Math.sin(dLon/2) * Math.sin(dLon/2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        distance_km = R * c * 1.3; // Add 30% for road distance approximation
+        estimated_duration_min = distance_km * 3; // Rough estimate: 3 min per km
+      }
     }
 
     // ========================================================================
@@ -584,6 +646,117 @@ router.get("/:id", authenticate, async (req, res) => {
     return res.json({ order });
   } catch (error) {
     console.error("Get order error:", error);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
+// ============================================================================
+// GET /orders/:id/delivery-status - Get delivery status for real-time tracking
+// ============================================================================
+
+router.get("/:id/delivery-status", authenticate, async (req, res) => {
+  const orderId = req.params.id;
+  const userId = req.user.id;
+  const userRole = req.user.role;
+
+  try {
+    // Fetch order with delivery info including driver location
+    const { data: order, error: orderError } = await supabaseAdmin
+      .from("orders")
+      .select(
+        `
+        id,
+        customer_id,
+        restaurant_id,
+        restaurant_name,
+        status,
+        delivery_address,
+        delivery_latitude,
+        delivery_longitude,
+        estimated_duration_min,
+        deliveries (
+          id,
+          status,
+          driver_id,
+          current_latitude,
+          current_longitude,
+          last_location_update,
+          picked_up_at,
+          delivered_at
+        )
+      `
+      )
+      .eq("id", orderId)
+      .single();
+
+    if (orderError || !order) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    // Verify access - customer can only see their own orders
+    if (userRole === "customer" && order.customer_id !== userId) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    // Get delivery status
+    const delivery = order.deliveries?.[0] || order.deliveries;
+    const deliveryStatus = delivery?.status || "placed";
+    
+    // Fetch driver info if driver is assigned
+    let driverInfo = null;
+    if (delivery?.driver_id) {
+      // Get driver details
+      const { data: driver } = await supabaseAdmin
+        .from("drivers")
+        .select("id, full_name, phone, driver_type, profile_photo_url")
+        .eq("id", delivery.driver_id)
+        .single();
+      
+      if (driver) {
+        // Get vehicle info
+        const { data: vehicle } = await supabaseAdmin
+          .from("driver_vehicle_license")
+          .select("vehicle_number, vehicle_type, vehicle_model")
+          .eq("driver_id", delivery.driver_id)
+          .single();
+        
+        driverInfo = {
+          id: driver.id,
+          full_name: driver.full_name,
+          phone: driver.phone,
+          driver_type: driver.driver_type,
+          profile_photo_url: driver.profile_photo_url,
+          vehicle_number: vehicle?.vehicle_number || null,
+          vehicle_type: vehicle?.vehicle_type || driver.driver_type,
+          vehicle_model: vehicle?.vehicle_model || null,
+        };
+      }
+    }
+
+    return res.json({
+      orderId: order.id,
+      orderStatus: order.status,
+      status: deliveryStatus,
+      driverId: delivery?.driver_id || null,
+      pickedUpAt: delivery?.picked_up_at || null,
+      deliveredAt: delivery?.delivered_at || null,
+      driver: driverInfo,
+      // Location data for live tracking
+      driverLocation: delivery?.current_latitude && delivery?.current_longitude ? {
+        latitude: parseFloat(delivery.current_latitude),
+        longitude: parseFloat(delivery.current_longitude),
+        lastUpdate: delivery.last_location_update,
+      } : null,
+      customerLocation: {
+        latitude: order.delivery_latitude ? parseFloat(order.delivery_latitude) : null,
+        longitude: order.delivery_longitude ? parseFloat(order.delivery_longitude) : null,
+        address: order.delivery_address,
+      },
+      restaurantName: order.restaurant_name,
+      estimatedDuration: order.estimated_duration_min,
+    });
+  } catch (error) {
+    console.error("Get delivery status error:", error);
     return res.status(500).json({ message: "Server error" });
   }
 });
