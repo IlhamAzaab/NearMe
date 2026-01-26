@@ -11,8 +11,8 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { createClient } from "@supabase/supabase-js";
 import BottomNavbar from "../components/BottomNavbar";
+import supabaseClient from "../supabaseClient";
 
 // Shared Supabase client (singleton)
 const supabase = supabaseClient;

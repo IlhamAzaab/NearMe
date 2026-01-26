@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { createClient } from "@supabase/supabase-js";
 import BottomNavbar from "../components/BottomNavbar";
+import supabaseClient from "../supabaseClient";
 
 // Initialize Supabase
 const supabase = supabaseClient;
@@ -33,12 +33,9 @@ export default function CustomerNotifications() {
 
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-
   useEffect(() => {
     const role = localStorage.getItem("role");
     const userId = localStorage.getItem("userId");
-    const token = localStorage.getItem("token");
     const token = localStorage.getItem("token");
 
     if (token && role === "customer") {
@@ -278,7 +275,7 @@ export default function CustomerNotifications() {
             })}
           </div>
         )}
-      </main>
+      </header>
 
       {/* Bottom Navigation */}
       <BottomNavbar />

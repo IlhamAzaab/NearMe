@@ -62,7 +62,7 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route
-          path="/home"
+          path="/"
           element={
             <ProtectedRoute allowedRole="customer">
               <Home />
