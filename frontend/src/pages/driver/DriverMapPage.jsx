@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   MapContainer,
@@ -7,6 +7,7 @@ import {
   Polyline,
   Popup,
   useMap,
+  useMapEvents,
 } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -39,16 +40,40 @@ const driverIcon = createCustomIcon("blue");
 const restaurantIcon = createCustomIcon("red");
 const customerIcon = createCustomIcon("green");
 
-// Component to auto-fit map bounds
-function MapBounds({ positions }) {
+// Component to handle map bounds - only fits bounds on initial load or when user requests recenter
+function MapBounds({
+  positions,
+  shouldFitBounds,
+  onBoundsFitted,
+  onUserInteraction,
+}) {
   const map = useMap();
+  const hasInitiallyFitted = useRef(false);
+
+  // Listen for user interactions (zoom, drag, etc.)
+  useMapEvents({
+    zoomstart: () => {
+      // Only mark as user interaction if we've already done initial fit
+      if (hasInitiallyFitted.current) {
+        onUserInteraction();
+      }
+    },
+    dragstart: () => {
+      if (hasInitiallyFitted.current) {
+        onUserInteraction();
+      }
+    },
+  });
 
   useEffect(() => {
-    if (positions && positions.length > 0) {
+    // Only fit bounds on initial load OR when explicitly requested via recenter button
+    if (positions && positions.length > 0 && shouldFitBounds) {
       const bounds = L.latLngBounds(positions);
       map.fitBounds(bounds, { padding: [50, 50] });
+      hasInitiallyFitted.current = true;
+      onBoundsFitted();
     }
-  }, [positions, map]);
+  }, [positions, map, shouldFitBounds, onBoundsFitted]);
 
   return null;
 }
@@ -66,6 +91,26 @@ export default function DriverMapPage() {
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
   const [isTracking, setIsTracking] = useState(false);
+
+  // New state for controlling map auto-fit behavior
+  const [shouldFitBounds, setShouldFitBounds] = useState(true);
+  const [userHasInteracted, setUserHasInteracted] = useState(false);
+
+  // Callbacks for map interaction
+  const handleBoundsFitted = useCallback(() => {
+    setShouldFitBounds(false);
+  }, []);
+
+  const handleUserInteraction = useCallback(() => {
+    setUserHasInteracted(true);
+    setShouldFitBounds(false);
+  }, []);
+
+  // Function to recenter map (user can click this button to re-fit bounds)
+  const handleRecenterMap = useCallback(() => {
+    setUserHasInteracted(false);
+    setShouldFitBounds(true);
+  }, []);
 
   useEffect(() => {
     const role = localStorage.getItem("role");
@@ -114,7 +159,7 @@ export default function DriverMapPage() {
       { enableHighAccuracy: true },
     );
 
-    // Update every 5 seconds
+    // Update every 3 seconds for live tracking
     locationUpdateInterval.current = setInterval(() => {
       navigator.geolocation.getCurrentPosition(
         (position) => {
@@ -128,7 +173,7 @@ export default function DriverMapPage() {
         (error) => console.error("Location update error:", error),
         { enableHighAccuracy: true, maximumAge: 0 },
       );
-    }, 5000);
+    }, 3000);
   };
 
   const stopLocationTracking = () => {
@@ -434,7 +479,12 @@ export default function DriverMapPage() {
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
               />
 
-              <MapBounds positions={mapPositions} />
+              <MapBounds
+                positions={mapPositions}
+                shouldFitBounds={shouldFitBounds}
+                onBoundsFitted={handleBoundsFitted}
+                onUserInteraction={handleUserInteraction}
+              />
 
               {/* Driver Marker */}
               <Marker
@@ -513,10 +563,36 @@ export default function DriverMapPage() {
                 }`}
               ></div>
               <span className="text-sm font-semibold text-gray-700">
-                {isTracking ? "Tracking" : "Not Tracking"}
+                {isTracking ? "Live (3s)" : "Not Tracking"}
               </span>
             </div>
           </div>
+
+          {/* Recenter Button - Shows when user has zoomed/panned */}
+          {userHasInteracted && (
+            <button
+              onClick={handleRecenterMap}
+              className="absolute bottom-4 right-4 bg-white px-4 py-3 rounded-full shadow-lg hover:bg-gray-50 transition-all duration-200 flex items-center gap-2 z-[1000]"
+              title="Recenter map to show full route"
+            >
+              <svg
+                className="w-5 h-5 text-blue-600"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"
+                />
+              </svg>
+              <span className="text-sm font-semibold text-gray-700">
+                Recenter
+              </span>
+            </button>
+          )}
         </div>
 
         {/* Bottom Section */}
