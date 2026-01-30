@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import DriverLayout from "../../components/DriverLayout";
+import DriverRealtimeNotificationListener from "../../components/DriverRealtimeNotificationListener";
 import {
   MapContainer,
   TileLayer,
@@ -49,6 +50,10 @@ export default function AvailableDeliveries() {
   const [accepting, setAccepting] = useState(null);
   const [driverLocation, setDriverLocation] = useState(DEFAULT_DRIVER_LOCATION);
   const [inDeliveringMode, setInDeliveringMode] = useState(false);
+  const [currentRoute, setCurrentRoute] = useState({
+    total_stops: 0,
+    active_deliveries: 0,
+  });
 
   useEffect(() => {
     const role = localStorage.getItem("role");
@@ -89,8 +94,12 @@ export default function AvailableDeliveries() {
   const checkDeliveringMode = async () => {
     try {
       const token = localStorage.getItem("token");
+
+      // Use proper driver location if available, otherwise use default coordinates
+      const currentLoc = driverLocation || DEFAULT_DRIVER_LOCATION;
+
       const res = await fetch(
-        "http://localhost:5000/driver/deliveries/pickups?driver_latitude=0&driver_longitude=0",
+        `http://localhost:5000/driver/deliveries/pickups?driver_latitude=${currentLoc.latitude}&driver_longitude=${currentLoc.longitude}`,
         {
           headers: { Authorization: `Bearer ${token}` },
         },
@@ -133,7 +142,13 @@ export default function AvailableDeliveries() {
 
       // Send driver location with request
       const currentLoc = location || DEFAULT_DRIVER_LOCATION;
-      const url = `http://localhost:5000/driver/deliveries/pending?driver_latitude=${currentLoc.latitude}&driver_longitude=${currentLoc.longitude}`;
+
+      // 🆕 Use the NEW /available/v2 endpoint for route-based filtering
+      const url = `http://localhost:5000/driver/deliveries/available/v2?driver_latitude=${currentLoc.latitude}&driver_longitude=${currentLoc.longitude}`;
+
+      console.log(
+        "🔍 [FRONTEND] Fetching available deliveries with route context...",
+      );
 
       const res = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` },
@@ -151,15 +166,46 @@ export default function AvailableDeliveries() {
       }
 
       const data = await res.json();
-      console.log("Fetched deliveries:", data);
-      setDeliveries(data.deliveries || []);
+      console.log("✅ [FRONTEND] Received route-based deliveries:", data);
+      console.log("📊 [FRONTEND] Total available:", data.total_available);
+      console.log(
+        "🚗 [FRONTEND] Current route stops:",
+        data.current_route?.total_stops || 0,
+      );
+      console.log(
+        "📦 [FRONTEND] Active deliveries:",
+        data.current_route?.active_deliveries || 0,
+      );
+      console.log("🎯 [FRONTEND] Deliveries array:", data.available_deliveries);
+      console.log(
+        "📝 [FRONTEND] Deliveries count:",
+        data.available_deliveries?.length || 0,
+      );
+
+      const deliveriesArray = data.available_deliveries || [];
+      console.log(
+        "🔍 [FRONTEND] Setting deliveries state to:",
+        deliveriesArray,
+      );
+      setDeliveries(deliveriesArray);
+
+      // Store current route info to determine if driver has active deliveries
+      if (data.current_route) {
+        console.log(
+          "🚗 [FRONTEND] Setting currentRoute state to:",
+          data.current_route,
+        );
+        setCurrentRoute(data.current_route);
+      } else {
+        console.log("⚠️ [FRONTEND] No current_route in response!");
+      }
 
       // If driver location from backend is available, use it
       if (data.driver_location) {
         setDriverLocation(data.driver_location);
       }
     } catch (e) {
-      console.error("Failed to fetch deliveries:", e);
+      console.error("❌ [FRONTEND] Failed to fetch deliveries:", e);
       setDeliveries([]);
 
       // Show user-friendly error message
@@ -224,11 +270,19 @@ export default function AvailableDeliveries() {
 
   return (
     <DriverLayout>
+      <DriverRealtimeNotificationListener
+        onNewDelivery={() => {
+          // Refresh deliveries list when new pending delivery arrives
+          if (driverLocation) {
+            fetchPendingDeliveriesWithLocation(driverLocation);
+          }
+        }}
+      />
       <div className="space-y-4 sm:space-y-6 p-4 sm:p-6">
         {/* Header Section */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-blue-600 via-blue-500 to-blue-600 bg-clip-text text-transparent">
+            <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-green-400 via-green-500 to-[#07af45] bg-clip-text text-transparent">
               Available Deliveries
             </h1>
             <p className="text-gray-600 mt-1 text-sm sm:text-base">
@@ -237,7 +291,7 @@ export default function AvailableDeliveries() {
           </div>
           <button
             onClick={() => navigate("/driver/deliveries/active")}
-            className="px-4 sm:px-6 py-2.5 sm:py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all duration-300 shadow-md hover:shadow-lg font-medium text-sm sm:text-base whitespace-nowrap"
+            className="px-4 sm:px-6 py-2.5 sm:py-3 bg-gradient-to-r from-green-400 via-green-500 to-[#07af45] text-white rounded-full hover:from-green-700 hover:to-green-800 transition-all duration-300 shadow-md hover:shadow-lg font-medium text-sm sm:text-base whitespace-nowrap"
           >
             Active Deliveries
           </button>
@@ -255,7 +309,7 @@ export default function AvailableDeliveries() {
             </p>
             <button
               onClick={() => navigate("/driver/deliveries/active")}
-              className="px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all duration-300 shadow-md hover:shadow-lg font-medium"
+              className="px-6 py-3 bg-gradient-to-r from-[#61ecd7] via-[#0da88f] to-[#0da88f] text-white rounded-full hover:from-green-700 hover:to-green-800 transition-all duration-300 shadow-md hover:shadow-lg font-medium"
             >
               Go to Active Deliveries
             </button>
@@ -263,12 +317,22 @@ export default function AvailableDeliveries() {
         ) : loading ? (
           /* Loading State */
           <div className="bg-white rounded-xl shadow border border-blue-100 p-12 text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-blue-600 mx-auto"></div>
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-400 mx-auto"></div>
             <p className="mt-4 text-gray-600 font-medium">
               Loading deliveries...
             </p>
           </div>
-        ) : deliveries.length === 0 ? (
+        ) : (() => {
+            console.log(
+              "🎨 [FRONTEND] Render decision - deliveries.length:",
+              deliveries.length,
+            );
+            console.log(
+              "🎨 [FRONTEND] Render decision - deliveries:",
+              deliveries,
+            );
+            return deliveries.length === 0;
+          })() ? (
           /* Empty State */
           <div className="bg-white rounded-xl shadow border border-blue-100 hover:shadow-xl transition-shadow duration-300">
             <div className="text-center py-12 text-gray-500">
@@ -295,7 +359,7 @@ export default function AvailableDeliveries() {
                 onClick={() =>
                   fetchPendingDeliveriesWithLocation(driverLocation)
                 }
-                className="mt-6 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                className="mt-6 px-6 py-2 bg-green-500 text-white rounded-full hover:bg-green-700 transition-colors font-medium"
               >
                 Refresh
               </button>
@@ -304,15 +368,38 @@ export default function AvailableDeliveries() {
         ) : (
           /* Deliveries Grid */
           <div className="grid gap-6 lg:grid-cols-2">
-            {deliveries.map((delivery) => (
-              <DeliveryCard
-                key={delivery.delivery_id}
-                delivery={delivery}
-                driverLocation={driverLocation}
-                accepting={accepting === delivery.delivery_id}
-                onAccept={handleAcceptDelivery}
-              />
-            ))}
+            {(() => {
+              console.log("🎨 [FRONTEND] About to render deliveries grid");
+              console.log("🎨 [FRONTEND] deliveries.map input:", deliveries);
+              console.log("🎨 [FRONTEND] currentRoute state:", currentRoute);
+              console.log(
+                "🎨 [FRONTEND] total_stops:",
+                currentRoute.total_stops,
+              );
+              console.log(
+                "🎨 [FRONTEND] hasActiveDeliveries would be:",
+                currentRoute.total_stops > 0,
+              );
+              return null;
+            })()}
+            {deliveries.map((delivery, index) => {
+              console.log(`🎨 [FRONTEND] Rendering delivery ${index + 1}:`, {
+                delivery_id: delivery.delivery_id,
+                order_number: delivery.order_number,
+                route_impact: delivery.route_impact,
+                pricing: delivery.pricing,
+              });
+              return (
+                <DeliveryCard
+                  key={delivery.delivery_id}
+                  delivery={delivery}
+                  driverLocation={driverLocation}
+                  accepting={accepting === delivery.delivery_id}
+                  onAccept={handleAcceptDelivery}
+                  hasActiveDeliveries={currentRoute.total_stops > 0}
+                />
+              );
+            })}
           </div>
         )}
       </div>
@@ -320,20 +407,41 @@ export default function AvailableDeliveries() {
   );
 }
 
-function DeliveryCard({ delivery, driverLocation, accepting, onAccept }) {
+function DeliveryCard({
+  delivery,
+  driverLocation,
+  accepting,
+  onAccept,
+  hasActiveDeliveries,
+}) {
   const {
     delivery_id,
     order_number,
     restaurant,
-    delivery: deliveryAddress,
     customer,
     pricing,
     distance_km,
     estimated_time_minutes,
+    // 🆕 Route-extension fields from backend (nested in route_impact)
+    route_impact = {},
+    can_accept = true,
+    reason,
     driver_to_restaurant_route,
     restaurant_to_customer_route,
     order_items = [],
+    route_geometry = null,
+    total_delivery_distance_km = 0,
   } = delivery;
+
+  // Extract route impact fields with proper fallbacks
+  const {
+    extra_distance_km = 0,
+    extra_time_minutes = 0,
+    extra_earnings = 0,
+    bonus_amount = 0,
+    base_earnings = 0,
+    total_enhanced_earnings = 0,
+  } = route_impact || {};
 
   // Calculate total items
   const totalItems = order_items.reduce(
@@ -346,11 +454,37 @@ function DeliveryCard({ delivery, driverLocation, accepting, onAccept }) {
     ? [restaurant.latitude, restaurant.longitude]
     : [0, 0];
 
+  // 🆕 Show route-extension context when driver has active deliveries
+  // This shows the purple "Route Extension Impact" block
+  const showRouteExtension = hasActiveDeliveries;
+
+  console.log("🔍 DeliveryCard Debug:", {
+    delivery_id,
+    order_number,
+    hasActiveDeliveries,
+    extra_distance_km,
+    extra_time_minutes,
+    extra_earnings,
+    bonus_amount,
+    base_earnings,
+    total_enhanced_earnings,
+    showRouteExtension,
+    route_impact: route_impact,
+    pricing: pricing,
+    total_delivery_distance_km,
+    currentRoute: hasActiveDeliveries ? "HAS ACTIVE" : "FIRST DELIVERY",
+  });
+
+  // Safety check for pricing
+  const driverEarnings = pricing?.driver_earnings || 0;
+
   return (
-    <div className="bg-white rounded-xl shadow-lg border border-blue-100 overflow-hidden hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 animate-fade-in">
+    <div
+      className={`bg-white rounded-xl shadow-lg border overflow-hidden hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 animate-fade-in ${!can_accept ? "border-red-300 opacity-75" : "border-blue-100"}`}
+    >
       {/* Interactive Map */}
       <div className="h-72 relative">
-        {restaurant && deliveryAddress && (
+        {restaurant && customer && (
           <MapContainer
             center={mapCenter}
             zoom={13}
@@ -399,7 +533,7 @@ function DeliveryCard({ delivery, driverLocation, accepting, onAccept }) {
 
             {/* Customer Marker */}
             <Marker
-              position={[deliveryAddress.latitude, deliveryAddress.longitude]}
+              position={[customer?.latitude || 0, customer?.longitude || 0]}
               icon={customerIcon}
             >
               <Popup>
@@ -409,34 +543,34 @@ function DeliveryCard({ delivery, driverLocation, accepting, onAccept }) {
                     {customer?.name || "Customer"}
                   </p>
                   <p className="text-xs text-gray-600 mt-1">
-                    {deliveryAddress.address}
+                    {customer?.address || "No address provided"}
                   </p>
                 </div>
               </Popup>
             </Marker>
 
-            {/* Route from Driver to Restaurant - Light Green */}
+            {/* Route from Driver to Restaurant - Blue */}
             {driver_to_restaurant_route &&
               driver_to_restaurant_route.coordinates && (
                 <Polyline
                   positions={driver_to_restaurant_route.coordinates.map(
                     (coord) => [coord[1], coord[0]],
                   )}
-                  color="#86efac"
-                  weight={6}
+                  color="black"
+                  weight={5}
                   opacity={0.9}
                 />
               )}
 
-            {/* Route from Restaurant to Customer - Grey */}
+            {/* Route from Restaurant to Customer - Orange */}
             {restaurant_to_customer_route &&
               restaurant_to_customer_route.coordinates && (
                 <Polyline
                   positions={restaurant_to_customer_route.coordinates.map(
                     (coord) => [coord[1], coord[0]],
                   )}
-                  color="#9ca3af"
-                  weight={6}
+                  color="grey"
+                  weight={5}
                   opacity={0.9}
                 />
               )}
@@ -460,21 +594,125 @@ function DeliveryCard({ delivery, driverLocation, accepting, onAccept }) {
 
       {/* Delivery Details */}
       <div className="p-6 space-y-5">
-        {/* Earnings and Stats */}
-        <div className="bg-gradient-to-r from-green-50 to-green-100 rounded-lg p-4 border border-green-200">
+        {/* 🆕 Route Extension Badge - Purple Block (ALWAYS show when driver has active deliveries) */}
+        {showRouteExtension && (
+          <div className="bg-gradient-to-r from-purple-50 to-purple-100 rounded-lg p-4 border-2 border-purple-300">
+            <p className="text-xs text-purple-700 font-bold uppercase mb-2 flex items-center gap-2">
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"
+                />
+              </svg>
+              🚗 Route Extension - Extra Earnings
+            </p>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="text-center bg-white rounded-lg p-2 shadow-sm">
+                <p className="text-2xl font-bold text-purple-700">
+                  +{extra_distance_km?.toFixed(2) || "0.00"}
+                </p>
+                <p className="text-xs text-purple-600 font-semibold">
+                  km added
+                </p>
+              </div>
+              <div className="text-center bg-white rounded-lg p-2 shadow-sm">
+                <p className="text-2xl font-bold text-purple-700">
+                  +
+                  {extra_time_minutes?.toFixed
+                    ? extra_time_minutes.toFixed(0)
+                    : extra_time_minutes || 0}
+                </p>
+                <p className="text-xs text-purple-600 font-semibold">
+                  min added
+                </p>
+              </div>
+              <div className="text-center bg-white rounded-lg p-2 shadow-sm">
+                <p className="text-2xl font-bold text-green-700">
+                  +Rs. {extra_earnings?.toFixed(2) || "0.00"}
+                </p>
+                <p className="text-xs text-green-600 font-semibold">
+                  extra earnings
+                </p>
+              </div>
+            </div>
+            <p className="text-xs text-purple-600 mt-3 text-center italic bg-purple-50 p-2 rounded">
+              💡 This delivery adds{" "}
+              <strong>{extra_distance_km?.toFixed(2) || "0.00"} km</strong> and{" "}
+              <strong>
+                {extra_time_minutes?.toFixed
+                  ? extra_time_minutes.toFixed(0)
+                  : extra_time_minutes || 0}{" "}
+                min
+              </strong>{" "}
+              to your current route
+            </p>
+          </div>
+        )}
+
+        {/* 🆕 Cannot Accept Warning */}
+        {!can_accept && reason && (
+          <div className="bg-red-50 rounded-lg p-4 border-2 border-red-300">
+            <p className="text-sm text-red-700 font-semibold flex items-center gap-2">
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
+              </svg>
+              Cannot Accept: {reason}
+            </p>
+          </div>
+        )}
+
+        {/* Earnings and Stats - ALWAYS SHOW */}
+        <div
+          className={`rounded-lg p-4 border ${hasActiveDeliveries ? "bg-gradient-to-r from-blue-50 to-blue-100 border-blue-200" : "bg-gradient-to-r from-green-50 to-green-100 border-green-200"}`}
+        >
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs text-green-700 font-semibold uppercase mb-1">
-                Your Earnings
+              <p
+                className={`text-xs font-semibold uppercase mb-1 ${hasActiveDeliveries ? "text-blue-700" : "text-green-700"}`}
+              >
+                {hasActiveDeliveries ? "Additional Earnings" : "Your Earnings"}
               </p>
-              <p className="text-3xl font-bold text-green-600">
-                Rs. {pricing?.driver_earnings?.toFixed(2) || "0.00"}
+              <p
+                className={`text-3xl font-bold ${hasActiveDeliveries ? "text-blue-600" : "text-green-600"}`}
+              >
+                Rs.{" "}
+                {hasActiveDeliveries
+                  ? (
+                      Number(base_earnings || 0) +
+                      Number(extra_earnings || 0) +
+                      Number(bonus_amount || 0)
+                    ).toFixed(2)
+                  : driverEarnings?.toFixed(2) || "0.00"}
+              </p>
+              <p
+                className={`text-xs mt-1 ${hasActiveDeliveries ? "text-blue-600" : "text-green-600"}`}
+              >
+                {hasActiveDeliveries
+                  ? `Base: Rs. ${Number(base_earnings || 0).toFixed(2)} + Extra: Rs. ${Number(extra_earnings || 0).toFixed(2)}${Number(bonus_amount || 0) > 0 ? ` + Bonus: Rs. ${Number(bonus_amount).toFixed(2)}` : ""}`
+                  : "First Delivery Earnings"}
               </p>
             </div>
             <div className="text-right space-y-2">
               <div className="flex items-center gap-2 text-sm text-gray-700">
                 <svg
-                  className="w-5 h-5 text-blue-600"
+                  className={`w-5 h-5 ${hasActiveDeliveries ? "text-blue-600" : "text-green-600"}`}
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -486,11 +724,20 @@ function DeliveryCard({ delivery, driverLocation, accepting, onAccept }) {
                     d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"
                   />
                 </svg>
-                <span className="font-bold">{distance_km} km (OSRM)</span>
+                <span
+                  className={`font-bold ${hasActiveDeliveries ? "text-blue-600" : "text-green-600"}`}
+                >
+                  {Number(total_delivery_distance_km || 0).toFixed(2)} km
+                </span>
+                <span className="text-xs text-gray-500">
+                  {hasActiveDeliveries
+                    ? `(+${Number(extra_distance_km || 0).toFixed(2)} km extra)`
+                    : "(Total Distance)"}
+                </span>
               </div>
               <div className="flex items-center gap-2 text-sm text-gray-700">
                 <svg
-                  className="w-5 h-5 text-blue-600"
+                  className={`w-5 h-5 ${hasActiveDeliveries ? "text-purple-600" : "text-blue-600"}`}
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -502,11 +749,43 @@ function DeliveryCard({ delivery, driverLocation, accepting, onAccept }) {
                     d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
                   />
                 </svg>
-                <span className="font-bold">{estimated_time_minutes} min</span>
+                <span className="font-bold">
+                  {estimated_time_minutes || 0} min
+                </span>
+                {hasActiveDeliveries && (
+                  <span className="text-xs text-gray-500">
+                    (+{Number(extra_time_minutes || 0).toFixed(0)} min extra)
+                  </span>
+                )}
               </div>
             </div>
           </div>
         </div>
+        {Number(bonus_amount || 0) > 0 && (
+          <div className="mt-4 bg-gradient-to-r from-[#6bf7db] via-[#15e1b9] to-[#10c4a9] rounded-lg p-3 border border-yellow-300">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="text-2xl animate-bounce">🎁</div>
+                <div>
+                  <p className="text-purple-700 font-bold text-sm drop-shadow-lg">
+                    DELIVERY BONUS!
+                  </p>
+                  <p className="text-purple-600 text-xs font-semibold">
+                    More orders = More money!
+                  </p>
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="bg-[#97f9eb] bg-opacity-20 rounded px-3 py-1 backdrop-blur-sm">
+                  <p className="text-purple-700 text-lg font-bold drop-shadow-lg">
+                    +Rs. {Number(bonus_amount).toFixed(2)}
+                  </p>
+                  <p className="text-purple-600 text-xs font-semibold">BONUS</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Pick-up Location */}
         <div className="bg-red-50 rounded-lg p-4 border border-red-200">
@@ -584,7 +863,7 @@ function DeliveryCard({ delivery, driverLocation, accepting, onAccept }) {
                 {customer?.name || "Customer"}
               </p>
               <p className="text-sm text-gray-600 mt-1">
-                {deliveryAddress.address}
+                {customer?.address || "No address provided"}
               </p>
               {customer?.phone && (
                 <p className="text-sm text-gray-700 mt-2 flex items-center gap-1 font-medium">
@@ -611,13 +890,34 @@ function DeliveryCard({ delivery, driverLocation, accepting, onAccept }) {
         {/* Accept Button */}
         <button
           onClick={() => onAccept(delivery_id)}
-          disabled={accepting}
-          className="w-full py-4 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-xl font-bold text-lg hover:from-green-700 hover:to-green-800 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg hover:shadow-xl transform hover:scale-105"
+          disabled={accepting || !can_accept}
+          className={`w-full py-4 rounded-xl font-bold text-lg transition-all duration-300 flex items-center justify-center gap-2 shadow-lg transform ${
+            !can_accept
+              ? "bg-gray-400 cursor-not-allowed"
+              : "bg-gradient-to-r from-green-600 to-green-700 text-white hover:from-green-700 hover:to-green-800 hover:shadow-xl hover:scale-105"
+          } ${accepting ? "opacity-50 cursor-not-allowed" : ""}`}
         >
           {accepting ? (
             <>
               <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div>
               <span>Accepting...</span>
+            </>
+          ) : !can_accept ? (
+            <>
+              <svg
+                className="w-6 h-6"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"
+                />
+              </svg>
+              <span>CANNOT ACCEPT</span>
             </>
           ) : (
             <>

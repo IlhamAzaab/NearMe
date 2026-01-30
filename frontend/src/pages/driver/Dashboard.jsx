@@ -42,7 +42,7 @@ export default function DriverDashboard() {
         "http://localhost:5000/driver/deliveries/active",
         {
           headers: { Authorization: `Bearer ${token}` },
-        }
+        },
       );
 
       if (activeRes.status === 401 || activeRes.status === 403) {
@@ -59,7 +59,7 @@ export default function DriverDashboard() {
         "http://localhost:5000/driver/deliveries/pending",
         {
           headers: { Authorization: `Bearer ${token}` },
-        }
+        },
       );
       const availableData = await availableRes.json();
 
@@ -88,143 +88,286 @@ export default function DriverDashboard() {
 
   return (
     <DriverLayout>
-      <div className="min-h-screen bg-gray-50">
-        {/* Header */}
-        <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-4 lg:px-8 py-8">
-          <div className="max-w-4xl mx-auto">
-            <h1 className="text-2xl font-bold">Driver Dashboard</h1>
-            <p className="text-blue-100 mt-1">
-              Welcome back! Here's your overview.
-            </p>
+      <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-green-50 to-teal-50">
+        {/* Animated Header with Gradient */}
+        <div className="relative overflow-hidden bg-gradient-to-r from-emerald-600 via-green-600 to-teal-600 text-white px-4 lg:px-8 py-12 shadow-lg">
+          {/* Animated background elements */}
+          <div className="absolute inset-0 opacity-20">
+            <div className="absolute top-0 -right-40 w-80 h-80 bg-white rounded-full animate-blob"></div>
+            <div className="absolute -bottom-8 -left-40 w-80 h-80 bg-white rounded-full animate-blob animation-delay-2s"></div>
           </div>
+
+          <div className="max-w-4xl mx-auto relative z-10">
+            <div className="flex items-center justify-between">
+              <div className="animate-fade-in">
+                <p className="text-emerald-100 text-sm font-semibold tracking-widest uppercase">
+                  Welcome Back
+                </p>
+                <h1 className="text-4xl font-black mt-2">Driver Dashboard</h1>
+                <p className="text-emerald-100 mt-2 text-lg">
+                  🚀 Ready to deliver great service?
+                </p>
+              </div>
+              <div className="text-6xl animate-bounce hidden sm:block">📦</div>
+            </div>
+          </div>
+
+          {/* Animated CSS */}
+          <style>{`
+            @keyframes blob {
+              0%, 100% { transform: translate(0, 0) scale(1); }
+              33% { transform: translate(30px, -50px) scale(1.1); }
+              66% { transform: translate(-20px, 20px) scale(0.9); }
+            }
+            .animate-blob { animation: blob 7s infinite; }
+            .animation-delay-2s { animation-delay: 2s; }
+            @keyframes fade-in {
+              from { opacity: 0; transform: translateY(10px); }
+              to { opacity: 1; transform: translateY(0); }
+            }
+            .animate-fade-in { animation: fade-in 0.6s ease-out; }
+          `}</style>
         </div>
 
         {/* Content */}
-        <div className="max-w-4xl mx-auto px-4 lg:px-8 py-6">
+        <div className="max-w-4xl mx-auto px-4 lg:px-8 py-8">
           {
             <>
-              {/* Stats Grid */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                <div className="bg-white rounded-xl shadow-sm p-4">
-                  <p className="text-sm text-gray-500">Available Orders</p>
-                  <p className="text-2xl font-bold text-blue-600 mt-1">
-                    {stats.availableCount}
-                  </p>
+              {/* Stats Grid with Animations */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                {/* Available Orders Card */}
+                <div
+                  className="group relative bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-300 p-6 border-2 border-transparent hover:border-emerald-400 transform hover:-translate-y-1 animate-fade-in"
+                  style={{ animationDelay: "0.1s" }}
+                >
+                  <div className="absolute inset-0 bg-gradient-to-br from-emerald-50 to-transparent opacity-0 group-hover:opacity-100 rounded-2xl transition-opacity"></div>
+                  <div className="relative z-10">
+                    <div className="inline-block p-3 bg-emerald-100 rounded-xl text-2xl">
+                      📋
+                    </div>
+                    <p className="text-sm text-gray-600 font-semibold mt-3">
+                      Available Orders
+                    </p>
+                    <p className="text-4xl font-black text-emerald-600 mt-2">
+                      {stats.availableCount}
+                    </p>
+                    <p className="text-xs text-emerald-500 mt-2 font-semibold">
+                      Ready to pick up
+                    </p>
+                  </div>
                 </div>
-                <div className="bg-white rounded-xl shadow-sm p-4">
-                  <p className="text-sm text-gray-500">Active Delivery</p>
-                  <p className="text-2xl font-bold text-orange-600 mt-1">
-                    {stats.activeDelivery ? "1" : "0"}
-                  </p>
+
+                {/* Active Delivery Card */}
+                <div
+                  className="group relative bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-300 p-6 border-2 border-transparent hover:border-green-400 transform hover:-translate-y-1 animate-fade-in"
+                  style={{ animationDelay: "0.2s" }}
+                >
+                  <div className="absolute inset-0 bg-gradient-to-br from-green-50 to-transparent opacity-0 group-hover:opacity-100 rounded-2xl transition-opacity"></div>
+                  <div className="relative z-10">
+                    <div className="inline-block p-3 bg-green-100 rounded-xl text-2xl">
+                      🚗
+                    </div>
+                    <p className="text-sm text-gray-600 font-semibold mt-3">
+                      Active Delivery
+                    </p>
+                    <p className="text-4xl font-black text-green-600 mt-2">
+                      {stats.activeDelivery ? "1" : "0"}
+                    </p>
+                    <p className="text-xs text-green-500 mt-2 font-semibold">
+                      In progress
+                    </p>
+                  </div>
                 </div>
-                <div className="bg-white rounded-xl shadow-sm p-4">
-                  <p className="text-sm text-gray-500">Completed Today</p>
-                  <p className="text-2xl font-bold text-green-600 mt-1">
-                    {stats.completedToday}
-                  </p>
+
+                {/* Completed Today Card */}
+                <div
+                  className="group relative bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-300 p-6 border-2 border-transparent hover:border-teal-400 transform hover:-translate-y-1 animate-fade-in"
+                  style={{ animationDelay: "0.3s" }}
+                >
+                  <div className="absolute inset-0 bg-gradient-to-br from-teal-50 to-transparent opacity-0 group-hover:opacity-100 rounded-2xl transition-opacity"></div>
+                  <div className="relative z-10">
+                    <div className="inline-block p-3 bg-teal-100 rounded-xl text-2xl">
+                      ✅
+                    </div>
+                    <p className="text-sm text-gray-600 font-semibold mt-3">
+                      Completed Today
+                    </p>
+                    <p className="text-4xl font-black text-teal-600 mt-2">
+                      {stats.completedToday}
+                    </p>
+                    <p className="text-xs text-teal-500 mt-2 font-semibold">
+                      Great job!
+                    </p>
+                  </div>
                 </div>
-                <div className="bg-white rounded-xl shadow-sm p-4">
-                  <p className="text-sm text-gray-500">Today's Earnings</p>
-                  <p className="text-2xl font-bold text-gray-800 mt-1">
-                    Rs. {stats.totalEarnings.toFixed(0)}
-                  </p>
+
+                {/* Earnings Card */}
+                <div
+                  className="group relative bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-300 p-6 border-2 border-transparent hover:border-emerald-500 transform hover:-translate-y-1 animate-fade-in"
+                  style={{ animationDelay: "0.4s" }}
+                >
+                  <div className="absolute inset-0 bg-gradient-to-br from-emerald-50 to-transparent opacity-0 group-hover:opacity-100 rounded-2xl transition-opacity"></div>
+                  <div className="relative z-10">
+                    <div className="inline-block p-3 bg-emerald-100 rounded-xl text-2xl">
+                      💰
+                    </div>
+                    <p className="text-sm text-gray-600 font-semibold mt-3">
+                      Today's Earnings
+                    </p>
+                    <p className="text-4xl font-black text-emerald-700 mt-2">
+                      Rs. {stats.totalEarnings.toFixed(0)}
+                    </p>
+                    <p className="text-xs text-emerald-600 mt-2 font-semibold">
+                      Keep it up!
+                    </p>
+                  </div>
                 </div>
               </div>
 
-              {/* Active Delivery Card */}
+              {/* Active Delivery Card - Premium Design */}
               {stats.activeDelivery && (
-                <div className="bg-gradient-to-r from-orange-500 to-orange-600 rounded-xl p-4 mb-6 text-white">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-orange-100 text-sm">Active Delivery</p>
-                      <p className="font-bold text-lg mt-1">
-                        Order #{stats.activeDelivery.order_number}
-                      </p>
-                      <p className="text-sm text-orange-100 mt-1">
-                        {stats.activeDelivery.restaurant_name}
-                      </p>
+                <div
+                  className="relative mb-8 overflow-hidden rounded-2xl shadow-lg animate-fade-in"
+                  style={{ animationDelay: "0.5s" }}
+                >
+                  <div className="absolute inset-0 bg-gradient-to-r from-emerald-600 via-green-600 to-teal-600"></div>
+                  <div className="absolute inset-0 opacity-10">
+                    <div className="absolute top-0 right-0 w-40 h-40 bg-white rounded-full -mr-20 -mt-20"></div>
+                  </div>
+
+                  <div className="relative p-8 text-white">
+                    <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+                      <div className="flex items-start gap-4">
+                        <div className="text-5xl">🚀</div>
+                        <div>
+                          <p className="text-emerald-100 text-sm font-semibold uppercase tracking-wider">
+                            Active Delivery
+                          </p>
+                          <p className="font-black text-2xl mt-1">
+                            Order #{stats.activeDelivery.order_number}
+                          </p>
+                          <p className="text-emerald-100 mt-2 text-sm">
+                            📍 {stats.activeDelivery.restaurant_name}
+                          </p>
+                          <div className="mt-3 flex gap-2">
+                            <span className="inline-block px-3 py-1 bg-white bg-opacity-20 rounded-full text-xs font-semibold">
+                              Status: In Progress
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => navigate("/driver/delivery/active")}
+                        className="bg-white text-emerald-600 px-8 py-3 rounded-xl font-bold hover:shadow-xl hover:scale-105 transition-all duration-300 whitespace-nowrap inline-flex items-center gap-2"
+                      >
+                        <span>View Route</span>
+                        <span className="text-lg">→</span>
+                      </button>
                     </div>
-                    <button
-                      onClick={() => navigate("/driver/delivery/active")}
-                      className="bg-white text-orange-600 px-4 py-2 rounded-lg font-medium"
-                    >
-                      View Details
-                    </button>
                   </div>
                 </div>
               )}
-
-              {/* Quick Actions */}
-              <div className="bg-white rounded-xl shadow-sm p-4 mb-6">
-                <h2 className="font-semibold text-gray-800 mb-4">
+              {/* Quick Actions - Modern Cards */}
+              <div className="mb-8">
+                <h2 className="text-2xl font-black text-gray-800 mb-6">
                   Quick Actions
                 </h2>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                   <button
                     onClick={() => navigate("/driver/deliveries")}
-                    className="flex items-center gap-3 p-4 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
+                    className="group relative bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-300 p-6 border-2 border-transparent hover:border-emerald-400 transform hover:-translate-y-1 animate-fade-in"
+                    style={{ animationDelay: "0.6s" }}
                   >
-                    <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                      <span className="text-xl">📦</span>
-                    </div>
-                    <div className="text-left">
-                      <p className="font-medium text-gray-800">
-                        Find Deliveries
-                      </p>
-                      <p className="text-sm text-gray-500">
+                    <div className="absolute inset-0 bg-gradient-to-br from-emerald-50 to-transparent opacity-0 group-hover:opacity-100 rounded-2xl transition-opacity"></div>
+                    <div className="relative z-10 text-center">
+                      <div className="text-4xl mb-2">📦</div>
+                      <p className="font-bold text-gray-800">Find Deliveries</p>
+                      <p className="text-sm text-emerald-600 font-semibold mt-2">
                         {stats.availableCount} available
                       </p>
                     </div>
                   </button>
+
                   <button
                     onClick={() => navigate("/driver/notifications")}
-                    className="flex items-center gap-3 p-4 bg-purple-50 rounded-lg hover:bg-purple-100 transition-colors"
+                    className="group relative bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-300 p-6 border-2 border-transparent hover:border-green-400 transform hover:-translate-y-1 animate-fade-in"
+                    style={{ animationDelay: "0.7s" }}
                   >
-                    <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
-                      <span className="text-xl">🔔</span>
-                    </div>
-                    <div className="text-left">
-                      <p className="font-medium text-gray-800">Notifications</p>
-                      <p className="text-sm text-gray-500">View updates</p>
+                    <div className="absolute inset-0 bg-gradient-to-br from-green-50 to-transparent opacity-0 group-hover:opacity-100 rounded-2xl transition-opacity"></div>
+                    <div className="relative z-10 text-center">
+                      <div className="text-4xl mb-2 animate-bounce">🔔</div>
+                      <p className="font-bold text-gray-800">Notifications</p>
+                      <p className="text-sm text-green-600 font-semibold mt-2">
+                        Stay updated
+                      </p>
                     </div>
                   </button>
+
                   <button
                     onClick={() => navigate("/driver/history")}
-                    className="flex items-center gap-3 p-4 bg-green-50 rounded-lg hover:bg-green-100 transition-colors"
+                    className="group relative bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-300 p-6 border-2 border-transparent hover:border-teal-400 transform hover:-translate-y-1 animate-fade-in"
+                    style={{ animationDelay: "0.8s" }}
                   >
-                    <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-                      <span className="text-xl">📋</span>
-                    </div>
-                    <div className="text-left">
-                      <p className="font-medium text-gray-800">History</p>
-                      <p className="text-sm text-gray-500">Past deliveries</p>
+                    <div className="absolute inset-0 bg-gradient-to-br from-teal-50 to-transparent opacity-0 group-hover:opacity-100 rounded-2xl transition-opacity"></div>
+                    <div className="relative z-10 text-center">
+                      <div className="text-4xl mb-2">📋</div>
+                      <p className="font-bold text-gray-800">History</p>
+                      <p className="text-sm text-teal-600 font-semibold mt-2">
+                        View past orders
+                      </p>
                     </div>
                   </button>
+
                   <button
                     onClick={() => navigate("/driver/profile")}
-                    className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+                    className="group relative bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-300 p-6 border-2 border-transparent hover:border-emerald-500 transform hover:-translate-y-1 animate-fade-in"
+                    style={{ animationDelay: "0.9s" }}
                   >
-                    <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center">
-                      <span className="text-xl">👤</span>
-                    </div>
-                    <div className="text-left">
-                      <p className="font-medium text-gray-800">Profile</p>
-                      <p className="text-sm text-gray-500">View settings</p>
+                    <div className="absolute inset-0 bg-gradient-to-br from-emerald-50 to-transparent opacity-0 group-hover:opacity-100 rounded-2xl transition-opacity"></div>
+                    <div className="relative z-10 text-center">
+                      <div className="text-4xl mb-2">👤</div>
+                      <p className="font-bold text-gray-800">Profile</p>
+                      <p className="text-sm text-emerald-600 font-semibold mt-2">
+                        Your settings
+                      </p>
                     </div>
                   </button>
                 </div>
               </div>
 
-              {/* Tips Section */}
-              <div className="bg-blue-50 rounded-xl p-4">
-                <h3 className="font-semibold text-blue-800 mb-2">💡 Tips</h3>
-                <ul className="text-sm text-blue-700 space-y-1">
-                  <li>
-                    • Keep your location services enabled for accurate tracking
-                  </li>
-                  <li>• Update delivery status promptly for better ratings</li>
-                  <li>• Check notifications for new order alerts</li>
-                </ul>
+              {/* Tips Section - Beautiful Card */}
+              <div
+                className="relative overflow-hidden rounded-2xl shadow-md animate-fade-in"
+                style={{ animationDelay: "1s" }}
+              >
+                <div className="absolute inset-0 bg-gradient-to-r from-emerald-500 to-teal-500 opacity-90"></div>
+                <div className="absolute inset-0 opacity-20">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-white rounded-full -mr-16 -mt-16"></div>
+                </div>
+                <div className="relative p-8 text-white">
+                  <div className="flex items-start gap-4">
+                    <div className="text-4xl">💡</div>
+                    <div>
+                      <h3 className="font-black text-lg mb-3">
+                        Pro Tips for Maximum Earnings
+                      </h3>
+                      <ul className="space-y-2 text-sm text-emerald-50">
+                        <li className="flex items-center gap-2">
+                          <span className="text-base">✓</span>
+                          Keep location services enabled for accurate tracking
+                        </li>
+                        <li className="flex items-center gap-2">
+                          <span className="text-base">✓</span>
+                          Update delivery status promptly for better ratings
+                        </li>
+                        <li className="flex items-center gap-2">
+                          <span className="text-base">✓</span>
+                          Check notifications regularly for new order alerts
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
               </div>
             </>
           }

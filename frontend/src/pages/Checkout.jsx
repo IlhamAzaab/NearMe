@@ -212,7 +212,7 @@ const Checkout = () => {
         position[0],
         position[1],
         parseFloat(cart.restaurant.latitude),
-        parseFloat(cart.restaurant.longitude)
+        parseFloat(cart.restaurant.longitude),
       );
 
       if (result.success) {
@@ -313,7 +313,7 @@ const Checkout = () => {
       (err) => {
         console.error("Geolocation error:", err);
         setError(
-          "Unable to get your location. Please select manually on the map."
+          "Unable to get your location. Please select manually on the map.",
         );
         setLocating(false);
       },
@@ -321,7 +321,7 @@ const Checkout = () => {
         enableHighAccuracy: true,
         timeout: 10000,
         maximumAge: 0,
-      }
+      },
     );
   };
 
@@ -348,7 +348,7 @@ const Checkout = () => {
   const handlePlaceOrder = async () => {
     if (!phone || !address || !position) {
       setError(
-        "Please ensure all delivery details are filled and location is selected"
+        "Please ensure all delivery details are filled and location is selected",
       );
       return;
     }
@@ -410,7 +410,9 @@ const Checkout = () => {
             <div className="w-16 h-16 border-4 border-orange-100 rounded-full"></div>
             <div className="absolute top-0 left-0 w-16 h-16 border-4 border-[#FF7A00] border-t-transparent rounded-full animate-spin"></div>
           </div>
-          <p className="mt-4 text-gray-500 text-sm font-medium">Loading checkout...</p>
+          <p className="mt-4 text-gray-500 text-sm font-medium">
+            Loading checkout...
+          </p>
         </div>
       </div>
     );
@@ -477,9 +479,7 @@ const Checkout = () => {
                 <span className="font-medium text-gray-900 capitalize">
                   {orderSuccess.payment_method === "cash"
                     ? "Cash on Delivery"
-                    : orderSuccess.payment_method === "card"
-                    
-              }
+                    : orderSuccess.payment_method === "card"}
                 </span>
               </div>
               <div className="border-t border-gray-200 pt-3 flex justify-between items-center">
@@ -559,7 +559,9 @@ const Checkout = () => {
       <main className="max-w-lg mx-auto">
         {/* Map Preview Section */}
         <div className="relative">
-          <div className={`${isMapEditMode ? 'h-64' : 'h-40'} bg-gray-100 relative overflow-hidden transition-all duration-300`}>
+          <div
+            className={`${isMapEditMode ? "h-64" : "h-40"} bg-gray-100 relative overflow-hidden transition-all duration-300`}
+          >
             <MapContainer
               center={position || [7.8731, 80.7718]}
               zoom={16}
@@ -571,14 +573,16 @@ const Checkout = () => {
               touchZoom={false}
               doubleClickZoom={false}
             >
-              <TileLayer
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+              <LocationMarker
+                position={position}
+                setPosition={setPosition}
+                isEditMode={isMapEditMode}
               />
-              <LocationMarker position={position} setPosition={setPosition} isEditMode={isMapEditMode} />
               <MapController center={mapCenter} />
               <MapInteractionController isEditMode={isMapEditMode} />
             </MapContainer>
-            
+
             {/* Edit Mode Overlay */}
             {isMapEditMode && (
               <div className="absolute top-3 left-3 right-3 z-[1000] flex items-center justify-between">
@@ -597,9 +601,24 @@ const Checkout = () => {
                     </>
                   ) : (
                     <>
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                      <svg
+                        className="w-3 h-3"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+                        />
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+                        />
                       </svg>
                       <span>find Area </span>
                     </>
@@ -607,27 +626,101 @@ const Checkout = () => {
                 </button>
               </div>
             )}
-            
+
             {/* Edit / Done Button */}
             <button
-              onClick={() => setIsMapEditMode(!isMapEditMode)}
+              onClick={async () => {
+                if (isMapEditMode) {
+                  // Clicking "Done" - save the location to database
+                  if (position && address) {
+                    setSavingAddress(true);
+                    try {
+                      const token = localStorage.getItem("token");
+                      const response = await fetch(
+                        "http://localhost:5000/customer/address",
+                        {
+                          method: "PUT",
+                          headers: {
+                            "Content-Type": "application/json",
+                            Authorization: `Bearer ${token}`,
+                          },
+                          body: JSON.stringify({
+                            address: address,
+                            city: city,
+                            latitude: position[0],
+                            longitude: position[1],
+                          }),
+                        },
+                      );
+
+                      const data = await response.json();
+
+                      if (response.ok) {
+                        console.log("✅ Location saved to database:", {
+                          lat: position[0],
+                          lng: position[1],
+                        });
+                        setError(null);
+                      } else {
+                        console.error("Failed to save location:", data.message);
+                        setError(data.message || "Failed to save location");
+                      }
+                    } catch (err) {
+                      console.error("Save location error:", err);
+                      setError("Failed to save location");
+                    } finally {
+                      setSavingAddress(false);
+                    }
+                  }
+                  setIsMapEditMode(false);
+                } else {
+                  // Clicking "Edit" - enter edit mode
+                  setIsMapEditMode(true);
+                }
+              }}
+              disabled={savingAddress}
               className={`absolute bottom-3 right-3 z-[1000] px-4 py-2 rounded-full shadow-lg text-sm font-medium flex items-center gap-1.5 transition ${
-                isMapEditMode 
-                  ? 'bg-[#FF7A00] text-white hover:bg-orange-600 shadow-orange-200' 
-                  : 'bg-white text-[#FF7A00] hover:bg-orange-50'
-              }`}
+                isMapEditMode
+                  ? "bg-[#FF7A00] text-white hover:bg-orange-600 shadow-orange-200"
+                  : "bg-white text-[#FF7A00] hover:bg-orange-50"
+              } ${savingAddress ? "opacity-50 cursor-not-allowed" : ""}`}
             >
-              {isMapEditMode ? (
+              {savingAddress ? (
                 <>
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  <span>Saving...</span>
+                </>
+              ) : isMapEditMode ? (
+                <>
+                  <svg
+                    className="w-4 h-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M5 13l4 4L19 7"
+                    />
                   </svg>
                   <span>Done</span>
                 </>
               ) : (
                 <>
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                  <svg
+                    className="w-4 h-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
+                    />
                   </svg>
                   <span>Edit</span>
                 </>
@@ -640,9 +733,24 @@ const Checkout = () => {
         <div className="mx-4 mt-4 bg-white rounded-2xl shadow-sm p-4">
           <div className="flex items-start gap-3">
             <div className="flex-shrink-0">
-              <svg className="w-6 h-6 text-[#FF7A00]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+              <svg
+                className="w-6 h-6 text-[#FF7A00]"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+                />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+                />
               </svg>
             </div>
             <div className="flex-1 min-w-0">
@@ -662,8 +770,18 @@ const Checkout = () => {
                   }}
                   className="p-2 bg-orange-50 rounded-xl hover:bg-orange-100 transition"
                 >
-                  <svg className="w-5 h-5 text-[#FF7A00]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                  <svg
+                    className="w-5 h-5 text-[#FF7A00]"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
+                    />
                   </svg>
                 </button>
               </div>
@@ -675,32 +793,46 @@ const Checkout = () => {
         {showAddressModal && (
           <div className="fixed inset-0 z-[2000] flex items-end sm:items-center justify-center">
             {/* Backdrop */}
-            <div 
+            <div
               className="absolute inset-0 bg-black/50"
               onClick={() => setShowAddressModal(false)}
             ></div>
-            
+
             {/* Modal Content */}
             <div className="relative bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl p-6 animate-slide-up">
               {/* Handle bar for mobile */}
               <div className="w-12 h-1 bg-gray-300 rounded-full mx-auto mb-4 sm:hidden"></div>
-              
+
               <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-bold text-gray-900">Edit Delivery Address</h3>
+                <h3 className="text-lg font-bold text-gray-900">
+                  Edit Delivery Address
+                </h3>
                 <button
                   onClick={() => setShowAddressModal(false)}
                   className="p-2 hover:bg-gray-100 rounded-full transition"
                 >
-                  <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  <svg
+                    className="w-5 h-5 text-gray-500"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M6 18L18 6M6 6l12 12"
+                    />
                   </svg>
                 </button>
               </div>
-              
+
               <div className="space-y-4">
                 {/* Address Input */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Street Address</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    Street Address
+                  </label>
                   <textarea
                     value={editAddress}
                     onChange={(e) => setEditAddress(e.target.value)}
@@ -709,10 +841,12 @@ const Checkout = () => {
                     className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#FF7A00]/40 focus:border-[#FF7A00] transition resize-none"
                   />
                 </div>
-                
+
                 {/* City Input */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">City</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    City
+                  </label>
                   <input
                     type="text"
                     value={editCity}
@@ -721,7 +855,7 @@ const Checkout = () => {
                     className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#FF7A00]/40 focus:border-[#FF7A00] transition"
                   />
                 </div>
-                
+
                 {/* Save Button */}
                 <button
                   onClick={async () => {
@@ -729,26 +863,29 @@ const Checkout = () => {
                       setError("Address is required");
                       return;
                     }
-                    
+
                     setSavingAddress(true);
                     try {
                       const token = localStorage.getItem("token");
-                      const response = await fetch("http://localhost:5000/customer/address", {
-                        method: "PUT",
-                        headers: {
-                          "Content-Type": "application/json",
-                          Authorization: `Bearer ${token}`,
+                      const response = await fetch(
+                        "http://localhost:5000/customer/address",
+                        {
+                          method: "PUT",
+                          headers: {
+                            "Content-Type": "application/json",
+                            Authorization: `Bearer ${token}`,
+                          },
+                          body: JSON.stringify({
+                            address: editAddress,
+                            city: editCity,
+                            latitude: position ? position[0] : null,
+                            longitude: position ? position[1] : null,
+                          }),
                         },
-                        body: JSON.stringify({
-                          address: editAddress,
-                          city: editCity,
-                          latitude: position ? position[0] : null,
-                          longitude: position ? position[1] : null,
-                        }),
-                      });
-                      
+                      );
+
                       const data = await response.json();
-                      
+
                       if (response.ok) {
                         setAddress(editAddress);
                         setCity(editCity);
@@ -774,8 +911,18 @@ const Checkout = () => {
                     </>
                   ) : (
                     <>
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      <svg
+                        className="w-5 h-5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M5 13l4 4L19 7"
+                        />
                       </svg>
                       Save Address
                     </>
@@ -787,17 +934,28 @@ const Checkout = () => {
         )}
 
         {/* Delivery Method */}
-       
 
         {/* Phone Number */}
         <div className="mx-4 mt-3 bg-white rounded-2xl shadow-sm p-4">
           <div className="flex items-center gap-3">
-            <svg className="w-6 h-6 text-[#FF7A00]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+            <svg
+              className="w-6 h-6 text-[#FF7A00]"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
+              />
             </svg>
             <div>
               <p className="text-xs text-gray-500">Phone Number</p>
-              <p className="font-semibold text-gray-900">{phone || "No phone number"}</p>
+              <p className="font-semibold text-gray-900">
+                {phone || "No phone number"}
+              </p>
             </div>
           </div>
         </div>
@@ -805,8 +963,18 @@ const Checkout = () => {
         {/* Delivery Time */}
         <div className="mx-4 mt-3 bg-white rounded-2xl shadow-sm p-4">
           <div className="flex items-center gap-3">
-            <svg className="w-6 h-6 text-[#FF7A00]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            <svg
+              className="w-6 h-6 text-[#FF7A00]"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
             </svg>
             <div>
               <p className="text-xs text-gray-500">Estimated Delivery</p>
@@ -824,16 +992,25 @@ const Checkout = () => {
           </div>
         </div>
 
-
         {/* Order Summary */}
         <div className="mx-4 mt-3 bg-white rounded-2xl shadow-sm p-4">
           <div className="flex items-center gap-2 mb-3">
-            <svg className="w-5 h-5 text-[#FF7A00]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+            <svg
+              className="w-5 h-5 text-[#FF7A00]"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+              />
             </svg>
             <h3 className="font-bold text-gray-900">Order Summary</h3>
           </div>
-          <button 
+          <button
             onClick={() => setShowOrderItems(!showOrderItems)}
             className="w-full flex items-center justify-between p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition"
           >
@@ -856,7 +1033,8 @@ const Checkout = () => {
                   {cart?.restaurant?.restaurant_name || "Restaurant"}
                 </p>
                 <p className="text-sm text-gray-500">
-                  {cart?.total_items || 0} item{cart?.total_items !== 1 ? "s" : ""} • {formatPrice(subtotal)}
+                  {cart?.total_items || 0} item
+                  {cart?.total_items !== 1 ? "s" : ""} • {formatPrice(subtotal)}
                 </p>
               </div>
             </div>
@@ -866,7 +1044,12 @@ const Checkout = () => {
               stroke="currentColor"
               viewBox="0 0 24 24"
             >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M19 9l-7 7-7-7"
+              />
             </svg>
           </button>
 
@@ -874,14 +1057,21 @@ const Checkout = () => {
           {showOrderItems && cart && (
             <div className="mt-3 space-y-2">
               {cart.items.map((item) => (
-                <div key={item.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
+                <div
+                  key={item.id}
+                  className="flex items-center justify-between p-3 bg-gray-50 rounded-xl"
+                >
                   <div className="flex items-center gap-2">
                     <span className="w-7 h-7 bg-[#FF7A00] text-white rounded-lg text-xs font-bold flex items-center justify-center">
                       {item.quantity}x
                     </span>
                     <div>
-                      <span className="text-sm font-medium text-gray-900">{item.food_name}</span>
-                      <span className="text-xs text-gray-400 ml-1">({item.size})</span>
+                      <span className="text-sm font-medium text-gray-900">
+                        {item.food_name}
+                      </span>
+                      <span className="text-xs text-gray-400 ml-1">
+                        ({item.size})
+                      </span>
                     </div>
                   </div>
                   <span className="text-sm font-semibold text-[#FF7A00]">
@@ -896,19 +1086,49 @@ const Checkout = () => {
         {/* Payment Method */}
         <div className="mx-4 mt-3 bg-white rounded-2xl shadow-sm p-4">
           <div className="flex items-center gap-2 mb-3">
-            <svg className="w-5 h-5 text-[#FF7A00]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+            <svg
+              className="w-5 h-5 text-[#FF7A00]"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"
+              />
             </svg>
             <h3 className="font-bold text-gray-900">Payment Method</h3>
           </div>
           <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
             {paymentMethod === "cash" ? (
-              <svg className="w-6 h-6 text-[#FF7A00]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+              <svg
+                className="w-6 h-6 text-[#FF7A00]"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"
+                />
               </svg>
             ) : (
-              <svg className="w-6 h-6 text-[#FF7A00]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+              <svg
+                className="w-6 h-6 text-[#FF7A00]"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"
+                />
               </svg>
             )}
             <div>
@@ -916,44 +1136,68 @@ const Checkout = () => {
                 {paymentMethod === "cash" ? "Cash on Delivery" : "Card Payment"}
               </p>
               <p className="text-xs text-gray-500">
-                {paymentMethod === "cash" ? "Pay when your order arrives" : "Credit/Debit card"}
+                {paymentMethod === "cash"
+                  ? "Pay when your order arrives"
+                  : "Credit/Debit card"}
               </p>
             </div>
           </div>
         </div>
 
-        
-
         {/* Price Summary */}
         <div className="mx-4 mt-3 bg-white rounded-2xl shadow-sm p-4">
           <div className="flex items-center gap-2 mb-3">
-            <svg className="w-5 h-5 text-[#FF7A00]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+            <svg
+              className="w-5 h-5 text-[#FF7A00]"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"
+              />
             </svg>
             <h3 className="font-bold text-gray-900">Price Details</h3>
           </div>
           <div className="space-y-3">
             <div className="flex justify-between">
               <span className="text-gray-600">Subtotal</span>
-              <span className="font-medium text-gray-900">{formatPrice(subtotal)}</span>
+              <span className="font-medium text-gray-900">
+                {formatPrice(subtotal)}
+              </span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-600">
                 Delivery fee
-                {routeInfo && <span className="text-gray-400 ml-1">({routeInfo.distance.toFixed(1)} km)</span>}
+                {routeInfo && (
+                  <span className="text-gray-400 ml-1">
+                    ({routeInfo.distance.toFixed(1)} km)
+                  </span>
+                )}
               </span>
               <span className="font-medium text-gray-900">
-                {routeLoading ? "..." : deliveryFee !== null ? formatPrice(deliveryFee) : "--"}
+                {routeLoading
+                  ? "..."
+                  : deliveryFee !== null
+                    ? formatPrice(deliveryFee)
+                    : "--"}
               </span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-600">Service fee</span>
-              <span className="font-medium text-gray-900">{formatPrice(serviceFee)}</span>
+              <span className="font-medium text-gray-900">
+                {formatPrice(serviceFee)}
+              </span>
             </div>
             {deliveryOption === "priority" && (
               <div className="flex justify-between">
                 <span className="text-gray-600">Priority delivery</span>
-                <span className="font-medium text-gray-900">{formatPrice(PRIORITY_FEE)}</span>
+                <span className="font-medium text-gray-900">
+                  {formatPrice(PRIORITY_FEE)}
+                </span>
               </div>
             )}
             <div className="border-t border-gray-100 pt-3 flex justify-between items-center">
@@ -968,11 +1212,23 @@ const Checkout = () => {
         {/* Minimum Order Warning */}
         {!isSubtotalValid && (
           <div className="mx-4 mb-4 bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center gap-2">
-            <svg className="w-5 h-5 text-amber-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            <svg
+              className="w-5 h-5 text-amber-600 flex-shrink-0"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+              />
             </svg>
             <p className="text-sm text-amber-800">
-              <span className="font-medium">Minimum order:</span> Rs. {MINIMUM_SUBTOTAL}. Add Rs. {(MINIMUM_SUBTOTAL - subtotal).toFixed(0)} more.
+              <span className="font-medium">Minimum order:</span> Rs.{" "}
+              {MINIMUM_SUBTOTAL}. Add Rs.{" "}
+              {(MINIMUM_SUBTOTAL - subtotal).toFixed(0)} more.
             </p>
           </div>
         )}
@@ -990,9 +1246,21 @@ const Checkout = () => {
         <div className="max-w-lg mx-auto">
           <button
             onClick={handlePlaceOrder}
-            disabled={!isSubtotalValid || deliveryFee === null || routeLoading || placing || !phone || !address}
+            disabled={
+              !isSubtotalValid ||
+              deliveryFee === null ||
+              routeLoading ||
+              placing ||
+              !phone ||
+              !address
+            }
             className={`w-full py-4 font-bold rounded-full transition flex items-center justify-center gap-2 text-base shadow-lg ${
-              !isSubtotalValid || deliveryFee === null || routeLoading || placing || !phone || !address
+              !isSubtotalValid ||
+              deliveryFee === null ||
+              routeLoading ||
+              placing ||
+              !phone ||
+              !address
                 ? "bg-gray-200 text-gray-400 cursor-not-allowed"
                 : "bg-[#FF7A00] text-white hover:bg-orange-600 shadow-orange-200 active:scale-[0.98]"
             }`}
@@ -1011,8 +1279,18 @@ const Checkout = () => {
               `Add Rs. ${(MINIMUM_SUBTOTAL - subtotal).toFixed(0)} more`
             ) : finalTotal !== null ? (
               <>
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M5 13l4 4L19 7"
+                  />
                 </svg>
                 Place Order • {formatPrice(finalTotal)}
               </>

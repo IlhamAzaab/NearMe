@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import AdminLayout from "../../components/AdminLayout";
 import { API_URL } from "../../config";
+import supabaseClient from "../../supabaseClient";
 
 export default function Orders() {
   const [orders, setOrders] = useState([]);
@@ -16,6 +17,7 @@ export default function Orders() {
     delivered: 0,
   });
   const [processingOrderId, setProcessingOrderId] = useState(null);
+  const [newOrderNotification, setNewOrderNotification] = useState(null);
 
   const getDeliveryStatus = (order) => {
     return (
@@ -90,7 +92,43 @@ export default function Orders() {
     };
 
     fetchOrders();
-  }, [statusFilter]);
+
+    // Set up real-time subscription for new orders with status "placed"
+    const subscription = supabaseClient
+      .channel("deliveries:status=placed")
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "deliveries",
+          filter: "status=eq.placed",
+        },
+        (payload) => {
+          console.log("New order placed:", payload);
+
+          // Show notification
+          setNewOrderNotification({
+            message: "New order received! 🔔",
+            timestamp: new Date(),
+          });
+
+          // Auto-hide notification after 5 seconds
+          setTimeout(() => {
+            setNewOrderNotification(null);
+          }, 5000);
+
+          // Refetch orders to get the new order with all details
+          fetchOrders();
+        },
+      )
+      .subscribe();
+
+    // Cleanup subscription on unmount
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
 
   const filteredOrders = orders.filter((order) => {
     const deliveryStatus = getDeliveryStatus(order);
@@ -246,6 +284,31 @@ export default function Orders() {
             Manage and track customer orders in real-time.
           </p>
         </div>
+
+        {/* New Order Notification */}
+        {newOrderNotification && (
+          <div className="bg-green-50 border-l-4 border-green-600 rounded-lg p-4 mb-4 animate-slide-down">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="text-green-600 text-xl">🔔</div>
+                <div>
+                  <p className="font-semibold text-green-800">
+                    {newOrderNotification.message}
+                  </p>
+                  <p className="text-xs text-green-700">
+                    {newOrderNotification.timestamp.toLocaleTimeString()}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setNewOrderNotification(null)}
+                className="text-green-600 hover:text-green-800"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Filters */}
         <div className="bg-white rounded-xl shadow border border-green-100 p-3 sm:p-4 hover:shadow-lg transition-shadow duration-300">

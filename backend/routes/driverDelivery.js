@@ -17,6 +17,13 @@
 import express from "express";
 import { supabaseAdmin } from "../supabaseAdmin.js";
 import { authenticate } from "../middleware/authenticate.js";
+import {
+  getDriverRouteContext,
+  insertDeliveryStopsIntoRoute,
+  getFormattedActiveDeliveries,
+  removeDeliveryStops,
+} from "../utils/driverRouteContext.js";
+import { getAvailableDeliveriesForDriver } from "../utils/availableDeliveriesLogic.js";
 
 const router = express.Router();
 
@@ -447,8 +454,16 @@ router.post(
     const deliveryId = req.params.id;
     const { driver_latitude, driver_longitude } = req.body;
 
+    console.log(`\n${"=".repeat(80)}`);
+    console.log(`[ACCEPT DELIVERY] ✅ Accepting delivery: ${deliveryId}`);
+    console.log(`[DRIVER] ${req.user.id}`);
+    console.log(`${"=".repeat(80)}`);
+
     try {
-      // Check if driver is in delivering mode (has picked_up/on_the_way/at_customer deliveries)
+      // Step 1: Check if driver is in delivering mode
+      console.log(
+        `[ACCEPT DELIVERY] → Step 1: Check if driver is in delivering mode`,
+      );
       const { data: deliveringCheck } = await supabaseAdmin
         .from("deliveries")
         .select("id, status")
@@ -457,6 +472,9 @@ router.post(
         .limit(1);
 
       if (deliveringCheck && deliveringCheck.length > 0) {
+        console.log(
+          `[ACCEPT DELIVERY]   ⚠️  Driver is in delivering mode, cannot accept`,
+        );
         return res.status(400).json({
           message:
             "Cannot accept new deliveries while in delivering mode. Complete current deliveries first.",
@@ -464,7 +482,12 @@ router.post(
         });
       }
 
-      // Atomically assign the delivery to this driver if unassigned and still pending
+      console.log(`[ACCEPT DELIVERY]   ✓ Driver can accept deliveries`);
+
+      // Step 2: Atomically assign the delivery
+      console.log(
+        `[ACCEPT DELIVERY] → Step 2: Update delivery status to 'accepted'`,
+      );
       const { data: updated, error } = await supabaseAdmin
         .from("deliveries")
         .update({
@@ -481,23 +504,87 @@ router.post(
         .eq("status", "pending")
         .select(
           `id, order_id, status, assigned_at, orders (
-          order_number, restaurant_name, restaurant_address, restaurant_latitude, restaurant_longitude,
-          delivery_address, delivery_city, delivery_latitude, delivery_longitude, total_amount, distance_km, customer_name, customer_phone, customer_id, restaurant_id
+          id,
+          order_number,
+          restaurant_name,
+          restaurant_address,
+          restaurant_latitude,
+          restaurant_longitude,
+          delivery_address,
+          delivery_city,
+          delivery_latitude,
+          delivery_longitude,
+          total_amount,
+          distance_km,
+          customer_id,
+          customer_name,
+          customer_phone,
+          restaurant_id
         ), drivers!driver_id (full_name, phone, profile_photo_url)`,
         )
         .maybeSingle();
 
       if (error) {
-        console.error("Accept delivery error:", error);
+        console.error(`[ACCEPT DELIVERY] ❌ Database error: ${error.message}`);
         return res.status(500).json({ message: "Failed to accept delivery" });
       }
+
       if (!updated) {
+        console.log(
+          `[ACCEPT DELIVERY] ⚠️  Delivery already taken or not available`,
+        );
         return res
           .status(409)
           .json({ message: "Delivery already taken or not available" });
       }
 
-      // Notify customer and restaurant with driver details
+      console.log(
+        `[ACCEPT DELIVERY]   ✓ Delivery status updated to 'accepted'`,
+      );
+
+      // Step 3: Insert delivery stops into driver's route
+      console.log(
+        `[ACCEPT DELIVERY] → Step 3: Insert stops into driver's route`,
+      );
+
+      const restaurantLat = parseFloat(updated.orders.restaurant_latitude);
+      const restaurantLng = parseFloat(updated.orders.restaurant_longitude);
+      const customerLat = parseFloat(updated.orders.delivery_latitude);
+      const customerLng = parseFloat(updated.orders.delivery_longitude);
+
+      console.log(
+        `[ACCEPT DELIVERY]   Restaurant coords: (${restaurantLat}, ${restaurantLng})`,
+      );
+      console.log(
+        `[ACCEPT DELIVERY]   Customer coords: (${customerLat}, ${customerLng})`,
+      );
+
+      try {
+        const stopsResult = await insertDeliveryStopsIntoRoute(
+          req.user.id,
+          updated.id,
+          restaurantLat,
+          restaurantLng,
+          customerLat,
+          customerLng,
+        );
+        console.log(
+          `[ACCEPT DELIVERY]   ✓ Stops inserted into delivery_stops table`,
+        );
+        console.log(
+          `[ACCEPT DELIVERY]   Stop orders: Restaurant=${stopsResult.restaurant_stop_order}, Customer=${stopsResult.customer_stop_order}`,
+        );
+      } catch (stopsError) {
+        console.error(
+          `[ACCEPT DELIVERY] ⚠️  Error inserting stops: ${stopsError.message}`,
+        );
+        console.error(`[ACCEPT DELIVERY]   Full error:`, stopsError);
+        // Continue anyway - delivery is accepted even if stops insertion fails
+      }
+
+      // Step 4: Send notifications
+      console.log(`[ACCEPT DELIVERY] → Step 4: Send notifications`);
+
       const notifications = [];
       const driverInfo = {
         driver_id: req.user.id,
@@ -535,6 +622,11 @@ router.post(
         await supabaseAdmin.from("notifications").insert(notifications);
       }
 
+      console.log(`[ACCEPT DELIVERY]   ✓ Notifications sent`);
+
+      console.log(`[ACCEPT DELIVERY] ✅ Delivery accepted successfully`);
+      console.log(`${"=".repeat(80)}\n`);
+
       // Return delivery details
       return res.json({
         message: "Delivery accepted successfully",
@@ -545,13 +637,13 @@ router.post(
           restaurant: {
             name: updated.orders.restaurant_name,
             address: updated.orders.restaurant_address,
-            latitude: parseFloat(updated.orders.restaurant_latitude),
-            longitude: parseFloat(updated.orders.restaurant_longitude),
+            latitude: restaurantLat,
+            longitude: restaurantLng,
           },
           delivery: {
             address: updated.orders.delivery_address,
-            latitude: parseFloat(updated.orders.delivery_latitude),
-            longitude: parseFloat(updated.orders.delivery_longitude),
+            latitude: customerLat,
+            longitude: customerLng,
           },
           customer: {
             name: updated.orders.customer_name,
@@ -561,7 +653,7 @@ router.post(
         },
       });
     } catch (error) {
-      console.error("Accept delivery error:", error);
+      console.error(`[ACCEPT DELIVERY] ❌ Error: ${error.message}`);
       return res.status(500).json({ message: "Server error" });
     }
   },
@@ -588,6 +680,23 @@ router.get(
 
       const driverLat = parseFloat(driver_latitude);
       const driverLng = parseFloat(driver_longitude);
+
+      // Validate parsed coordinates - reject 0,0 and NaN values
+      if (
+        isNaN(driverLat) ||
+        isNaN(driverLng) ||
+        (driverLat === 0 && driverLng === 0)
+      ) {
+        return res.status(400).json({
+          message:
+            "Valid driver location required. Cannot use (0,0) coordinates.",
+          received: {
+            driver_latitude,
+            driver_longitude,
+            parsed: { driverLat, driverLng },
+          },
+        });
+      }
 
       // Fetch all accepted deliveries (not yet picked up)
       const { data: deliveries, error } = await supabaseAdmin
@@ -750,6 +859,23 @@ router.get(
 
       const driverLat = parseFloat(driver_latitude);
       const driverLng = parseFloat(driver_longitude);
+
+      // Validate parsed coordinates - reject 0,0 and NaN values
+      if (
+        isNaN(driverLat) ||
+        isNaN(driverLng) ||
+        (driverLat === 0 && driverLng === 0)
+      ) {
+        return res.status(400).json({
+          message:
+            "Valid driver location required. Cannot use (0,0) coordinates.",
+          received: {
+            driver_latitude,
+            driver_longitude,
+            parsed: { driverLat, driverLng },
+          },
+        });
+      }
 
       // Fetch all picked up deliveries (ready for customer delivery)
       const { data: deliveries, error } = await supabaseAdmin
@@ -1131,7 +1257,7 @@ router.patch(
   driverOnly,
   async (req, res) => {
     const deliveryId = req.params.id;
-    const { status } = req.body;
+    const { status, latitude, longitude } = req.body || {};
 
     const validStatuses = [
       "picked_up",
@@ -1177,6 +1303,15 @@ router.patch(
       }
 
       const updateData = { status };
+
+      // If the driver sent a fresh location with the status update, persist it for routing
+      const hasLat = Number.isFinite(Number(latitude));
+      const hasLng = Number.isFinite(Number(longitude));
+      if (hasLat && hasLng) {
+        updateData.current_latitude = Number(latitude);
+        updateData.current_longitude = Number(longitude);
+        updateData.last_location_update = new Date().toISOString();
+      }
 
       // Set timestamps for status transitions
       const timestamp = new Date().toISOString();
@@ -1275,7 +1410,8 @@ router.patch(
 
       // Helper: promote the nearest picked_up delivery to on_the_way when no active on_the_way/at_customer exists
       const promoteNextPickedUp = async (referenceLat, referenceLng) => {
-        if (!referenceLat || !referenceLng) return;
+        const hasReference =
+          Number.isFinite(referenceLat) && Number.isFinite(referenceLng);
 
         // If there's already an active on_the_way or at_customer, skip
         const { data: hasActive } = await supabaseAdmin
@@ -1284,7 +1420,7 @@ router.patch(
           .eq("driver_id", req.user.id)
           .in("status", ["on_the_way", "at_customer"])
           .limit(1);
-        if (hasActive && hasActive.length > 0) return;
+        if (hasActive && hasActive.length > 0) return null;
 
         // Find remaining picked_up deliveries
         const { data: nextList } = await supabaseAdmin
@@ -1308,32 +1444,47 @@ router.patch(
           .eq("status", "picked_up")
           .order("picked_up_at", { ascending: true });
 
-        if (!nextList || nextList.length === 0) return;
+        if (!nextList || nextList.length === 0) return null;
 
-        const routes = await Promise.all(
-          nextList.map(async (n) => {
-            const cLat = parseFloat(n.orders.delivery_latitude);
-            const cLng = parseFloat(n.orders.delivery_longitude);
-            const route = await getRouteDistance(
-              referenceLng,
-              referenceLat,
-              cLng,
-              cLat,
-              "false",
-            );
-            return {
-              id: n.id,
-              order_id: n.order_id,
-              distance: route?.distance || Number.POSITIVE_INFINITY,
-              customer_id: n.orders.customer_id,
-              restaurant_id: n.orders.restaurant_id,
-              order_number: n.orders.order_number,
-            };
-          }),
-        );
+        // If we have a valid reference point, pick the nearest customer; otherwise fall back to oldest picked_up
+        let next;
+        if (hasReference) {
+          const routes = await Promise.all(
+            nextList.map(async (n) => {
+              const cLat = parseFloat(n.orders.delivery_latitude);
+              const cLng = parseFloat(n.orders.delivery_longitude);
+              const route = await getRouteDistance(
+                referenceLng,
+                referenceLat,
+                cLng,
+                cLat,
+                "false",
+              );
+              return {
+                id: n.id,
+                order_id: n.order_id,
+                distance: route?.distance || Number.POSITIVE_INFINITY,
+                customer_id: n.orders.customer_id,
+                restaurant_id: n.orders.restaurant_id,
+                order_number: n.orders.order_number,
+              };
+            }),
+          );
 
-        routes.sort((a, b) => a.distance - b.distance);
-        const next = routes[0];
+          routes.sort((a, b) => a.distance - b.distance);
+          next = routes[0];
+        } else {
+          // No coordinates to compare; use earliest picked_up as a safe default
+          const first = nextList[0];
+          next = {
+            id: first.id,
+            order_id: first.order_id,
+            distance: 0,
+            customer_id: first.orders.customer_id,
+            restaurant_id: first.orders.restaurant_id,
+            order_number: first.orders.order_number,
+          };
+        }
 
         if (next && isFinite(next.distance)) {
           const ts = new Date().toISOString();
@@ -1380,32 +1531,46 @@ router.patch(
           if (followups.length > 0) {
             await supabaseAdmin.from("notifications").insert(followups);
           }
+
+          // Return promoted delivery info so frontend can update immediately
+          return {
+            id: promoted?.id || next.id,
+            order_id: promoted?.order_id || next.order_id,
+            status: "on_the_way",
+          };
         }
+
+        return null;
       };
 
       // Auto-promote cases
+      let promotedDelivery = null;
       if (status === "delivered") {
-        const refLat = parseFloat(
-          currentDelivery.orders.delivery_latitude || 0,
-        );
-        const refLng = parseFloat(
-          currentDelivery.orders.delivery_longitude || 0,
-        );
-        await promoteNextPickedUp(refLat, refLng);
+        const refLat = hasLat
+          ? Number(latitude)
+          : Number.parseFloat(
+              currentDelivery.current_latitude ||
+                currentDelivery.orders.delivery_latitude,
+            );
+        const refLng = hasLng
+          ? Number(longitude)
+          : Number.parseFloat(
+              currentDelivery.current_longitude ||
+                currentDelivery.orders.delivery_longitude,
+            );
+        promotedDelivery = await promoteNextPickedUp(refLat, refLng);
       }
 
       if (status === "picked_up") {
-        const refLat = parseFloat(
+        const refLat = Number.parseFloat(
           currentDelivery.orders.restaurant_latitude ||
-            currentDelivery.current_latitude ||
-            0,
+            currentDelivery.current_latitude,
         );
-        const refLng = parseFloat(
+        const refLng = Number.parseFloat(
           currentDelivery.orders.restaurant_longitude ||
-            currentDelivery.current_longitude ||
-            0,
+            currentDelivery.current_longitude,
         );
-        await promoteNextPickedUp(refLat, refLng);
+        promotedDelivery = await promoteNextPickedUp(refLat, refLng);
       }
 
       return res.json({
@@ -1414,6 +1579,7 @@ router.patch(
           id: delivery.id,
           status: delivery.status,
         },
+        promotedDelivery: promotedDelivery || null,
       });
     } catch (error) {
       console.error("Update status error:", error);
@@ -1851,6 +2017,146 @@ router.get("/stats", authenticate, driverOnly, async (req, res) => {
   } catch (error) {
     console.error("Get driver stats error:", error);
     return res.status(500).json({ message: "Server error" });
+  }
+});
+
+// ============================================================================
+// NEW V2 ENDPOINTS - ROUTE-BASED DELIVERY SYSTEM
+// ============================================================================
+
+// ============================================================================
+// GET /driver/deliveries/available/v2
+// ============================================================================
+// NEW VERSION: Shows available deliveries as route extensions
+// Returns only deliveries that fit within driver's current route
+//
+// Response:
+// {
+//   available_deliveries: [
+//     {
+//       delivery_id,
+//       order_number,
+//       restaurant,
+//       customer,
+//       route_impact: { extra_distance_km, extra_time_minutes, extra_earnings }
+//     }
+//   ],
+//   total_available,
+//   driver_location,
+//   current_route
+// }
+
+router.get(
+  "/deliveries/available/v2",
+  authenticate,
+  driverOnly,
+  async (req, res) => {
+    const driverId = req.user.id;
+    const { driver_latitude, driver_longitude } = req.query;
+
+    console.log(`\n\n${"=".repeat(100)}`);
+    console.log(`[ENDPOINT] GET /driver/deliveries/available/v2`);
+    console.log(`[DRIVER] ${driverId}`);
+    console.log(`[LOCATION] lat=${driver_latitude}, lng=${driver_longitude}`);
+    console.log(`${"=".repeat(100)}`);
+
+    try {
+      const availableDeliveries = await getAvailableDeliveriesForDriver(
+        driverId,
+        driver_latitude ? parseFloat(driver_latitude) : null,
+        driver_longitude ? parseFloat(driver_longitude) : null,
+        getRouteDistance, // Pass the OSRM helper function
+      );
+
+      return res.json(availableDeliveries);
+    } catch (error) {
+      console.error(`[ENDPOINT] ❌ Error: ${error.message}`);
+      return res.status(500).json({
+        message: "Failed to fetch available deliveries",
+        error: error.message,
+      });
+    }
+  },
+);
+
+// ============================================================================
+// GET /driver/deliveries/active/v2
+// ============================================================================
+// NEW VERSION: Returns active deliveries with properly ordered stops
+//
+// Response:
+// {
+//   driver_location,
+//   active_deliveries: [
+//     {
+//       delivery_id,
+//       order_number,
+//       delivery_status,
+//       restaurant,
+//       customer,
+//       stops: [
+//         { stop_order, stop_type, latitude, longitude }
+//       ]
+//     }
+//   ],
+//   total_deliveries,
+//   total_stops
+// }
+
+router.get(
+  "/deliveries/active/v2",
+  authenticate,
+  driverOnly,
+  async (req, res) => {
+    const driverId = req.user.id;
+    const { driver_latitude, driver_longitude } = req.query;
+
+    console.log(`\n${"=".repeat(80)}`);
+    console.log(`[ACTIVE DELIVERIES V2] 📦 Fetching active deliveries`);
+    console.log(`[DRIVER] ${driverId}`);
+    console.log(`${"=".repeat(80)}`);
+
+    try {
+      const formattedDeliveries = await getFormattedActiveDeliveries(
+        driverId,
+        driver_latitude ? parseFloat(driver_latitude) : null,
+        driver_longitude ? parseFloat(driver_longitude) : null,
+      );
+
+      console.log(`${"=".repeat(80)}\n`);
+      return res.json(formattedDeliveries);
+    } catch (error) {
+      console.error(`[ACTIVE DELIVERIES V2] ❌ Error: ${error.message}`);
+      return res.status(500).json({
+        message: "Failed to fetch active deliveries",
+        error: error.message,
+      });
+    }
+  },
+);
+
+// ============================================================================
+// GET /driver/route-context
+// ============================================================================
+// Debug endpoint: Returns raw route context data
+// Useful for frontend debugging and understanding driver's current route
+
+router.get("/route-context", authenticate, driverOnly, async (req, res) => {
+  const driverId = req.user.id;
+
+  console.log(
+    `\n[ROUTE CONTEXT] 🔍 Debug endpoint called for driver: ${driverId}`,
+  );
+
+  try {
+    const routeContext = await getDriverRouteContext(driverId);
+    return res.json(routeContext);
+  } catch (error) {
+    console.error(`[ROUTE CONTEXT] ❌ Error: ${error.message}`);
+    return res.status(500).json({
+      message: "Failed to fetch route context",
+      error: error.message,
+    });
   }
 });
 

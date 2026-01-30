@@ -28,7 +28,7 @@ export default function DeliveryHistory() {
         "http://localhost:5000/driver/deliveries/history",
         {
           headers: { Authorization: `Bearer ${token}` },
-        }
+        },
       );
 
       const data = await response.json();
@@ -38,7 +38,7 @@ export default function DeliveryHistory() {
         const completed = data.deliveries || [];
         const totalEarnings = completed.reduce(
           (sum, d) => sum + (parseFloat(d.driver_earnings) || 0),
-          0
+          0,
         );
 
         setStats({
@@ -54,9 +54,10 @@ export default function DeliveryHistory() {
     }
   }, []);
 
-  const filteredDeliveries = filterStatus === "all"
-    ? deliveries
-    : deliveries.filter((d) => d.status === filterStatus);
+  const filteredDeliveries =
+    filterStatus === "all"
+      ? deliveries
+      : deliveries.filter((d) => d.status === filterStatus);
 
   if (loading) {
     return (
@@ -64,7 +65,9 @@ export default function DeliveryHistory() {
         <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-green-50 to-teal-50 flex items-center justify-center">
           <div className="text-center">
             <div className="inline-block animate-spin rounded-full h-16 w-16 border-b-4 border-emerald-600"></div>
-            <p className="mt-4 text-gray-600 font-semibold">Loading your history...</p>
+            <p className="mt-4 text-gray-600 font-semibold">
+              Loading your history...
+            </p>
           </div>
         </div>
       </DriverLayout>
@@ -78,13 +81,18 @@ export default function DeliveryHistory() {
         <div className="relative overflow-hidden bg-gradient-to-r from-emerald-600 via-green-600 to-teal-600 text-white px-4 lg:px-8 py-12 shadow-xl">
           <div className="absolute inset-0 opacity-20">
             <div className="absolute top-0 -right-40 w-80 h-80 bg-white rounded-full animate-blob"></div>
-            <div className="absolute -bottom-8 -left-40 w-80 h-80 bg-white rounded-full animate-blob" style={{animationDelay: '2s'}}></div>
+            <div
+              className="absolute -bottom-8 -left-40 w-80 h-80 bg-white rounded-full animate-blob"
+              style={{ animationDelay: "2s" }}
+            ></div>
           </div>
 
           <div className="max-w-5xl mx-auto relative z-10">
             <div className="flex items-center justify-between">
               <div className="animate-fade-in">
-                <p className="text-emerald-100 text-sm font-semibold tracking-widest uppercase">📊 Your Performance</p>
+                <p className="text-emerald-100 text-sm font-semibold tracking-widest uppercase">
+                  📊 Your Performance
+                </p>
                 <h1 className="text-4xl font-black mt-2">Delivery History</h1>
                 <p className="text-emerald-100 mt-2 text-lg">
                   Track your completed deliveries and earnings
@@ -126,30 +134,60 @@ export default function DeliveryHistory() {
             <div className="group relative bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-300 p-6 border-2 border-transparent hover:border-emerald-400 transform hover:-translate-y-1 animate-fade-in">
               <div className="absolute inset-0 bg-gradient-to-br from-emerald-50 to-transparent opacity-0 group-hover:opacity-100 rounded-2xl transition-opacity"></div>
               <div className="relative z-10">
-                <div className="inline-block p-3 bg-emerald-100 rounded-xl text-2xl">🚚</div>
-                <p className="text-sm text-gray-600 font-semibold mt-3">Total Deliveries</p>
-                <p className="text-4xl font-black text-emerald-600 mt-2">{stats.totalDeliveries}</p>
-                <p className="text-xs text-emerald-500 mt-2 font-semibold">Completed</p>
+                <div className="inline-block p-3 bg-emerald-100 rounded-xl text-2xl">
+                  🚚
+                </div>
+                <p className="text-sm text-gray-600 font-semibold mt-3">
+                  Total Deliveries
+                </p>
+                <p className="text-4xl font-black text-emerald-600 mt-2">
+                  {stats.totalDeliveries}
+                </p>
+                <p className="text-xs text-emerald-500 mt-2 font-semibold">
+                  Completed
+                </p>
               </div>
             </div>
 
-            <div className="group relative bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-300 p-6 border-2 border-transparent hover:border-green-400 transform hover:-translate-y-1 animate-fade-in" style={{animationDelay: '0.1s'}}>
+            <div
+              className="group relative bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-300 p-6 border-2 border-transparent hover:border-green-400 transform hover:-translate-y-1 animate-fade-in"
+              style={{ animationDelay: "0.1s" }}
+            >
               <div className="absolute inset-0 bg-gradient-to-br from-green-50 to-transparent opacity-0 group-hover:opacity-100 rounded-2xl transition-opacity"></div>
               <div className="relative z-10">
-                <div className="inline-block p-3 bg-green-100 rounded-xl text-2xl">💰</div>
-                <p className="text-sm text-gray-600 font-semibold mt-3">Total Earnings</p>
-                <p className="text-4xl font-black text-green-600 mt-2">Rs. {stats.totalEarnings}</p>
-                <p className="text-xs text-green-500 mt-2 font-semibold">Your commission</p>
+                <div className="inline-block p-3 bg-green-100 rounded-xl text-2xl">
+                  💰
+                </div>
+                <p className="text-sm text-gray-600 font-semibold mt-3">
+                  Total Earnings
+                </p>
+                <p className="text-4xl font-black text-green-600 mt-2">
+                  Rs. {stats.totalEarnings}
+                </p>
+                <p className="text-xs text-green-500 mt-2 font-semibold">
+                  Your commission
+                </p>
               </div>
             </div>
 
-            <div className="group relative bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-300 p-6 border-2 border-transparent hover:border-teal-400 transform hover:-translate-y-1 animate-fade-in" style={{animationDelay: '0.2s'}}>
+            <div
+              className="group relative bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-300 p-6 border-2 border-transparent hover:border-teal-400 transform hover:-translate-y-1 animate-fade-in"
+              style={{ animationDelay: "0.2s" }}
+            >
               <div className="absolute inset-0 bg-gradient-to-br from-teal-50 to-transparent opacity-0 group-hover:opacity-100 rounded-2xl transition-opacity"></div>
               <div className="relative z-10">
-                <div className="inline-block p-3 bg-teal-100 rounded-xl text-2xl">⭐</div>
-                <p className="text-sm text-gray-600 font-semibold mt-3">Avg. Rating</p>
-                <p className="text-4xl font-black text-teal-600 mt-2">{stats.averageRating}</p>
-                <p className="text-xs text-teal-500 mt-2 font-semibold">Great job!</p>
+                <div className="inline-block p-3 bg-teal-100 rounded-xl text-2xl">
+                  ⭐
+                </div>
+                <p className="text-sm text-gray-600 font-semibold mt-3">
+                  Avg. Rating
+                </p>
+                <p className="text-4xl font-black text-teal-600 mt-2">
+                  {stats.averageRating}
+                </p>
+                <p className="text-xs text-teal-500 mt-2 font-semibold">
+                  Great job!
+                </p>
               </div>
             </div>
           </div>
@@ -192,8 +230,12 @@ export default function DeliveryHistory() {
           {filteredDeliveries.length === 0 ? (
             <div className="text-center py-16 bg-white rounded-2xl shadow-md">
               <div className="text-6xl mb-4">📭</div>
-              <h3 className="text-2xl font-bold text-gray-800 mb-2">No Deliveries</h3>
-              <p className="text-gray-500 text-lg">Start accepting deliveries to see your history</p>
+              <h3 className="text-2xl font-bold text-gray-800 mb-2">
+                No Deliveries
+              </h3>
+              <p className="text-gray-500 text-lg">
+                Start accepting deliveries to see your history
+              </p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -237,11 +279,26 @@ function HistoryCard({ delivery, animationDelay }) {
   const getStatusColor = (status) => {
     switch (status) {
       case "delivered":
-        return { bg: "bg-emerald-50", border: "border-emerald-300", text: "text-emerald-700", icon: "✅" };
+        return {
+          bg: "bg-emerald-50",
+          border: "border-emerald-300",
+          text: "text-emerald-700",
+          icon: "✅",
+        };
       case "cancelled":
-        return { bg: "bg-red-50", border: "border-red-300", text: "text-red-700", icon: "❌" };
+        return {
+          bg: "bg-red-50",
+          border: "border-red-300",
+          text: "text-red-700",
+          icon: "❌",
+        };
       default:
-        return { bg: "bg-gray-50", border: "border-gray-300", text: "text-gray-700", icon: "⏳" };
+        return {
+          bg: "bg-gray-50",
+          border: "border-gray-300",
+          text: "text-gray-700",
+          icon: "⏳",
+        };
     }
   };
 
@@ -256,7 +313,9 @@ function HistoryCard({ delivery, animationDelay }) {
         {/* Left Side - Order Info */}
         <div className="flex-1">
           <div className="flex items-start gap-4">
-            <div className={`px-4 py-3 rounded-xl ${statusColor.bg} border-2 ${statusColor.border}`}>
+            <div
+              className={`px-4 py-3 rounded-xl ${statusColor.bg} border-2 ${statusColor.border}`}
+            >
               <span className="text-2xl">{statusColor.icon}</span>
             </div>
             <div>
@@ -282,7 +341,9 @@ function HistoryCard({ delivery, animationDelay }) {
         <div className="flex items-center justify-between md:flex-col md:text-right gap-4 md:gap-2">
           <div>
             <p className="text-sm text-gray-600 font-semibold">Your Earning</p>
-            <p className="text-3xl font-black text-emerald-600">Rs. {driver_earnings}</p>
+            <p className="text-3xl font-black text-emerald-600">
+              Rs. {driver_earnings}
+            </p>
           </div>
           <button
             onClick={() => {

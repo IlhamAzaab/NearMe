@@ -319,9 +319,21 @@ export default function DriverMapPage() {
       );
 
       if (res.ok) {
+        const data = await res.json();
         const updatedDeliveries = deliveries.filter(
           (d) => d.delivery_id !== currentTarget.delivery_id,
         );
+
+        // If a delivery was auto-promoted to on_the_way, update it in the list
+        if (data.promotedDelivery && updatedDeliveries.length > 0) {
+          const promotedIndex = updatedDeliveries.findIndex(
+            (d) => d.delivery_id === data.promotedDelivery.id,
+          );
+          if (promotedIndex !== -1) {
+            updatedDeliveries[promotedIndex].status = "on_the_way";
+          }
+        }
+
         setDeliveries(updatedDeliveries);
 
         // If more deliveries, move to next

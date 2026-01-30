@@ -29,3 +29,19 @@
 .animate-slide-up {
   animation: slide-up 0.3s ease-out;
 }
+
+/* Notification slide-down animation */
+@keyframes slide-down {
+  from {
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-down {
+  animation: slide-down 0.3s ease-out;
+}
