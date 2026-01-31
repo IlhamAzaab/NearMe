@@ -452,11 +452,12 @@ router.post(
   driverOnly,
   async (req, res) => {
     const deliveryId = req.params.id;
-    const { driver_latitude, driver_longitude } = req.body;
+    const { driver_latitude, driver_longitude, earnings_data } = req.body;
 
     console.log(`\n${"=".repeat(80)}`);
     console.log(`[ACCEPT DELIVERY] ✅ Accepting delivery: ${deliveryId}`);
     console.log(`[DRIVER] ${req.user.id}`);
+    console.log(`[EARNINGS DATA] ${JSON.stringify(earnings_data)}`);
     console.log(`${"=".repeat(80)}`);
 
     try {
@@ -484,10 +485,31 @@ router.post(
 
       console.log(`[ACCEPT DELIVERY]   ✓ Driver can accept deliveries`);
 
-      // Step 2: Atomically assign the delivery
+      // Step 2: Atomically assign the delivery with earnings data
       console.log(
-        `[ACCEPT DELIVERY] → Step 2: Update delivery status to 'accepted'`,
+        `[ACCEPT DELIVERY] → Step 2: Update delivery status to 'accepted' with earnings`,
       );
+
+      // Prepare earnings fields
+      const earningsFields = earnings_data
+        ? {
+            delivery_sequence: earnings_data.delivery_sequence || 1,
+            base_amount: earnings_data.base_amount || 0,
+            extra_earnings: earnings_data.extra_earnings || 0,
+            bonus_amount: earnings_data.bonus_amount || 0,
+            r0_distance_km: earnings_data.r0_distance_km || null,
+            r1_distance_km: earnings_data.r1_distance_km || null,
+            extra_distance_km: earnings_data.extra_distance_km || 0,
+            total_distance_km: earnings_data.total_distance_km || 0,
+            // Calculate total driver_earnings
+            driver_earnings:
+              earnings_data.delivery_sequence === 1
+                ? earnings_data.base_amount || 0
+                : (earnings_data.extra_earnings || 0) +
+                  (earnings_data.bonus_amount || 0),
+          }
+        : {};
+
       const { data: updated, error } = await supabaseAdmin
         .from("deliveries")
         .update({
@@ -498,12 +520,13 @@ router.post(
           current_latitude: driver_latitude || null,
           current_longitude: driver_longitude || null,
           last_location_update: new Date().toISOString(),
+          ...earningsFields,
         })
         .eq("id", deliveryId)
         .is("driver_id", null)
         .eq("status", "pending")
         .select(
-          `id, order_id, status, assigned_at, orders (
+          `id, order_id, status, assigned_at, delivery_sequence, base_amount, extra_earnings, bonus_amount, driver_earnings, total_distance_km, orders (
           id,
           order_number,
           restaurant_name,
@@ -540,6 +563,9 @@ router.post(
 
       console.log(
         `[ACCEPT DELIVERY]   ✓ Delivery status updated to 'accepted'`,
+      );
+      console.log(
+        `[ACCEPT DELIVERY]   💰 Earnings stored: Rs.${updated.driver_earnings} (base: ${updated.base_amount}, extra: ${updated.extra_earnings}, bonus: ${updated.bonus_amount})`,
       );
 
       // Step 3: Insert delivery stops into driver's route
@@ -2068,9 +2094,13 @@ router.get(
         getRouteDistance, // Pass the OSRM helper function
       );
 
+      console.log(
+        `[ENDPOINT] ✅ Returning ${availableDeliveries.available_deliveries?.length || 0} available deliveries`,
+      );
       return res.json(availableDeliveries);
     } catch (error) {
       console.error(`[ENDPOINT] ❌ Error: ${error.message}`);
+      console.error(error.stack);
       return res.status(500).json({
         message: "Failed to fetch available deliveries",
         error: error.message,
@@ -2159,5 +2189,419 @@ router.get("/route-context", authenticate, driverOnly, async (req, res) => {
     });
   }
 });
+
+// ============================================================================
+// DRIVER EARNINGS ENDPOINTS
+// ============================================================================
+
+// GET /driver/earnings/history - Get driver's earnings history
+router.get("/earnings/history", authenticate, driverOnly, async (req, res) => {
+  const driverId = req.user.id;
+  const {
+    status = "delivered",
+    start_date,
+    end_date,
+    limit = 50,
+    offset = 0,
+  } = req.query;
+
+  console.log(
+    `\n[EARNINGS HISTORY] 💰 Fetching earnings for driver: ${driverId}`,
+  );
+
+  try {
+    let query = supabaseAdmin
+      .from("deliveries")
+      .select(
+        `
+        id,
+        order_id,
+        delivery_sequence,
+        base_amount,
+        extra_earnings,
+        bonus_amount,
+        tip_amount,
+        driver_earnings,
+        total_distance_km,
+        extra_distance_km,
+        r0_distance_km,
+        r1_distance_km,
+        accepted_at,
+        delivered_at,
+        status,
+        orders (
+          order_number,
+          customer_name,
+          delivery_address,
+          restaurant_name,
+          total_amount
+        )
+      `,
+      )
+      .eq("driver_id", driverId);
+
+    // Apply status filter
+    if (status && status !== "all") {
+      query = query.eq("status", status);
+    }
+
+    // Apply date filters
+    if (start_date) {
+      query = query.gte("delivered_at", start_date);
+    }
+    if (end_date) {
+      query = query.lte("delivered_at", end_date);
+    }
+
+    // Apply pagination and ordering
+    query = query
+      .order("delivered_at", { ascending: false, nullsFirst: false })
+      .order("accepted_at", { ascending: false })
+      .range(parseInt(offset), parseInt(offset) + parseInt(limit) - 1);
+
+    const { data: earnings, error } = await query;
+
+    if (error) {
+      console.error(`[EARNINGS HISTORY] ❌ Error: ${error.message}`);
+      return res
+        .status(500)
+        .json({ success: false, message: "Failed to fetch earnings" });
+    }
+
+    // Format the response
+    const formattedEarnings = earnings.map((e) => ({
+      delivery_id: e.id,
+      order_id: e.order_id,
+      order_number: e.orders?.order_number,
+      customer_name: e.orders?.customer_name,
+      customer_address: e.orders?.delivery_address,
+      restaurant_name: e.orders?.restaurant_name,
+      delivery_sequence: e.delivery_sequence,
+      base_amount: parseFloat(e.base_amount || 0),
+      extra_earnings: parseFloat(e.extra_earnings || 0),
+      bonus_amount: parseFloat(e.bonus_amount || 0),
+      tip_amount: parseFloat(e.tip_amount || 0),
+      driver_earnings: parseFloat(e.driver_earnings || 0),
+      total_distance_km: parseFloat(e.total_distance_km || 0),
+      extra_distance_km: parseFloat(e.extra_distance_km || 0),
+      accepted_at: e.accepted_at,
+      delivered_at: e.delivered_at,
+      status: e.status,
+    }));
+
+    console.log(
+      `[EARNINGS HISTORY] ✅ Found ${formattedEarnings.length} earnings records`,
+    );
+    return res.json({ success: true, earnings: formattedEarnings });
+  } catch (error) {
+    console.error(`[EARNINGS HISTORY] ❌ Error: ${error.message}`);
+    return res
+      .status(500)
+      .json({ success: false, message: "Failed to fetch earnings" });
+  }
+});
+
+// GET /driver/earnings/summary - Get earnings summary (today/week/month)
+router.get("/earnings/summary", authenticate, driverOnly, async (req, res) => {
+  const driverId = req.user.id;
+  const { period = "today" } = req.query;
+
+  console.log(
+    `\n[EARNINGS SUMMARY] 📊 Fetching ${period} summary for driver: ${driverId}`,
+  );
+
+  try {
+    // Build date filter based on period
+    let dateFilter = "";
+    const now = new Date();
+
+    switch (period) {
+      case "today":
+        dateFilter = now.toISOString().split("T")[0]; // YYYY-MM-DD
+        break;
+      case "week":
+        const weekStart = new Date(now);
+        weekStart.setDate(now.getDate() - now.getDay()); // Start of week (Sunday)
+        dateFilter = weekStart.toISOString().split("T")[0];
+        break;
+      case "month":
+        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+        dateFilter = monthStart.toISOString().split("T")[0];
+        break;
+      case "all":
+        dateFilter = null;
+        break;
+    }
+
+    let query = supabaseAdmin
+      .from("deliveries")
+      .select(
+        "base_amount, extra_earnings, bonus_amount, tip_amount, driver_earnings, total_distance_km",
+      )
+      .eq("driver_id", driverId)
+      .eq("status", "delivered");
+
+    if (dateFilter) {
+      query = query.gte("delivered_at", dateFilter);
+    }
+
+    const { data: deliveries, error } = await query;
+
+    if (error) {
+      console.error(`[EARNINGS SUMMARY] ❌ Error: ${error.message}`);
+      return res
+        .status(500)
+        .json({ success: false, message: "Failed to fetch summary" });
+    }
+
+    // Calculate summary
+    const summary = {
+      total_deliveries: deliveries.length,
+      total_distance_km: deliveries.reduce(
+        (sum, d) => sum + parseFloat(d.total_distance_km || 0),
+        0,
+      ),
+      total_base: deliveries.reduce(
+        (sum, d) => sum + parseFloat(d.base_amount || 0),
+        0,
+      ),
+      total_extra: deliveries.reduce(
+        (sum, d) => sum + parseFloat(d.extra_earnings || 0),
+        0,
+      ),
+      total_bonus: deliveries.reduce(
+        (sum, d) => sum + parseFloat(d.bonus_amount || 0),
+        0,
+      ),
+      total_tips: deliveries.reduce(
+        (sum, d) => sum + parseFloat(d.tip_amount || 0),
+        0,
+      ),
+      total_earnings: deliveries.reduce(
+        (sum, d) =>
+          sum +
+          parseFloat(d.driver_earnings || 0) +
+          parseFloat(d.tip_amount || 0),
+        0,
+      ),
+      avg_per_delivery:
+        deliveries.length > 0
+          ? deliveries.reduce(
+              (sum, d) =>
+                sum +
+                parseFloat(d.driver_earnings || 0) +
+                parseFloat(d.tip_amount || 0),
+              0,
+            ) / deliveries.length
+          : 0,
+    };
+
+    console.log(
+      `[EARNINGS SUMMARY] ✅ ${period}: ${summary.total_deliveries} deliveries, Rs.${summary.total_earnings.toFixed(2)} total`,
+    );
+    return res.json({ success: true, summary, period });
+  } catch (error) {
+    console.error(`[EARNINGS SUMMARY] ❌ Error: ${error.message}`);
+    return res
+      .status(500)
+      .json({ success: false, message: "Failed to fetch summary" });
+  }
+});
+
+// GET /driver/earnings/by-customer - Get earnings grouped by customer
+router.get(
+  "/earnings/by-customer",
+  authenticate,
+  driverOnly,
+  async (req, res) => {
+    const driverId = req.user.id;
+    const { limit = 20 } = req.query;
+
+    console.log(
+      `\n[EARNINGS BY CUSTOMER] 👥 Fetching customer earnings for driver: ${driverId}`,
+    );
+
+    try {
+      const { data: deliveries, error } = await supabaseAdmin
+        .from("deliveries")
+        .select(
+          `
+        driver_earnings,
+        tip_amount,
+        delivered_at,
+        orders (
+          customer_id,
+          customer_name,
+          delivery_address
+        )
+      `,
+        )
+        .eq("driver_id", driverId)
+        .eq("status", "delivered")
+        .order("delivered_at", { ascending: false });
+
+      if (error) {
+        console.error(`[EARNINGS BY CUSTOMER] ❌ Error: ${error.message}`);
+        return res
+          .status(500)
+          .json({
+            success: false,
+            message: "Failed to fetch customer earnings",
+          });
+      }
+
+      // Group by customer
+      const customerMap = new Map();
+
+      deliveries.forEach((d) => {
+        const customerId = d.orders?.customer_id;
+        if (!customerId) return;
+
+        if (!customerMap.has(customerId)) {
+          customerMap.set(customerId, {
+            customer_id: customerId,
+            customer_name: d.orders.customer_name,
+            customer_address: d.orders.delivery_address,
+            delivery_count: 0,
+            total_earned: 0,
+            total_tips: 0,
+            last_delivery: null,
+          });
+        }
+
+        const customer = customerMap.get(customerId);
+        customer.delivery_count++;
+        customer.total_earned +=
+          parseFloat(d.driver_earnings || 0) + parseFloat(d.tip_amount || 0);
+        customer.total_tips += parseFloat(d.tip_amount || 0);
+        if (
+          !customer.last_delivery ||
+          new Date(d.delivered_at) > new Date(customer.last_delivery)
+        ) {
+          customer.last_delivery = d.delivered_at;
+        }
+      });
+
+      // Convert to array and sort by total earned
+      const customerEarnings = Array.from(customerMap.values())
+        .map((c) => ({
+          ...c,
+          avg_per_delivery:
+            c.delivery_count > 0 ? c.total_earned / c.delivery_count : 0,
+        }))
+        .sort((a, b) => b.total_earned - a.total_earned)
+        .slice(0, parseInt(limit));
+
+      console.log(
+        `[EARNINGS BY CUSTOMER] ✅ Found ${customerEarnings.length} customers`,
+      );
+      return res.json({ success: true, earnings: customerEarnings });
+    } catch (error) {
+      console.error(`[EARNINGS BY CUSTOMER] ❌ Error: ${error.message}`);
+      return res
+        .status(500)
+        .json({ success: false, message: "Failed to fetch customer earnings" });
+    }
+  },
+);
+
+// GET /driver/earnings/delivery/:deliveryId - Get specific delivery earnings
+router.get(
+  "/earnings/delivery/:deliveryId",
+  authenticate,
+  driverOnly,
+  async (req, res) => {
+    const driverId = req.user.id;
+    const { deliveryId } = req.params;
+
+    console.log(
+      `\n[DELIVERY EARNINGS] 💵 Fetching earnings for delivery: ${deliveryId}`,
+    );
+
+    try {
+      const { data: delivery, error } = await supabaseAdmin
+        .from("deliveries")
+        .select(
+          `
+        id,
+        order_id,
+        delivery_sequence,
+        base_amount,
+        extra_earnings,
+        bonus_amount,
+        tip_amount,
+        driver_earnings,
+        total_distance_km,
+        extra_distance_km,
+        r0_distance_km,
+        r1_distance_km,
+        accepted_at,
+        picked_up_at,
+        delivered_at,
+        status,
+        orders (
+          order_number,
+          customer_name,
+          customer_phone,
+          delivery_address,
+          restaurant_name,
+          restaurant_address,
+          total_amount
+        )
+      `,
+        )
+        .eq("id", deliveryId)
+        .eq("driver_id", driverId)
+        .single();
+
+      if (error || !delivery) {
+        console.error(`[DELIVERY EARNINGS] ❌ Not found or unauthorized`);
+        return res
+          .status(404)
+          .json({ success: false, message: "Delivery not found" });
+      }
+
+      const earning = {
+        delivery_id: delivery.id,
+        order_id: delivery.order_id,
+        order_number: delivery.orders?.order_number,
+        customer_name: delivery.orders?.customer_name,
+        customer_phone: delivery.orders?.customer_phone,
+        customer_address: delivery.orders?.delivery_address,
+        restaurant_name: delivery.orders?.restaurant_name,
+        restaurant_address: delivery.orders?.restaurant_address,
+        order_total: parseFloat(delivery.orders?.total_amount || 0),
+        delivery_sequence: delivery.delivery_sequence,
+        base_amount: parseFloat(delivery.base_amount || 0),
+        extra_earnings: parseFloat(delivery.extra_earnings || 0),
+        bonus_amount: parseFloat(delivery.bonus_amount || 0),
+        tip_amount: parseFloat(delivery.tip_amount || 0),
+        driver_earnings: parseFloat(delivery.driver_earnings || 0),
+        total_distance_km: parseFloat(delivery.total_distance_km || 0),
+        extra_distance_km: parseFloat(delivery.extra_distance_km || 0),
+        r0_distance_km: delivery.r0_distance_km
+          ? parseFloat(delivery.r0_distance_km)
+          : null,
+        r1_distance_km: delivery.r1_distance_km
+          ? parseFloat(delivery.r1_distance_km)
+          : null,
+        accepted_at: delivery.accepted_at,
+        picked_up_at: delivery.picked_up_at,
+        delivered_at: delivery.delivered_at,
+        status: delivery.status,
+      };
+
+      console.log(
+        `[DELIVERY EARNINGS] ✅ Found earnings: Rs.${earning.driver_earnings}`,
+      );
+      return res.json({ success: true, earning });
+    } catch (error) {
+      console.error(`[DELIVERY EARNINGS] ❌ Error: ${error.message}`);
+      return res
+        .status(500)
+        .json({ success: false, message: "Failed to fetch delivery earnings" });
+    }
+  },
+);
 
 export default router;

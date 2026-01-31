@@ -12,6 +12,41 @@ import {
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
 
+// Cache keys for instant loading
+const CACHE_KEY_ACTIVE = "active_deliveries_cache";
+const CACHE_EXPIRY = 30000; // 30 seconds cache for active deliveries (needs fresher data)
+
+// Load cached data
+const loadCachedData = () => {
+  try {
+    const cached = localStorage.getItem(CACHE_KEY_ACTIVE);
+    if (cached) {
+      const { data, timestamp } = JSON.parse(cached);
+      if (Date.now() - timestamp < CACHE_EXPIRY) {
+        return data;
+      }
+    }
+  } catch (e) {
+    console.warn("Cache load error:", e);
+  }
+  return null;
+};
+
+// Save to cache
+const saveCacheData = (data) => {
+  try {
+    localStorage.setItem(
+      CACHE_KEY_ACTIVE,
+      JSON.stringify({
+        data,
+        timestamp: Date.now(),
+      }),
+    );
+  } catch (e) {
+    console.warn("Cache save error:", e);
+  }
+};
+
 // Google Maps container style
 const mapContainerStyle = {
   width: "100%",
@@ -29,12 +64,20 @@ const mapOptions = {
 
 export default function ActiveDeliveries() {
   const navigate = useNavigate();
-  const [pickups, setPickups] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [driverLocation, setDriverLocation] = useState(null);
-  const [mode, setMode] = useState("pickup"); // pickup | deliver
-  const [deliveries, setDeliveries] = useState([]);
-  const [fullRouteData, setFullRouteData] = useState(null); // Store full route for developer view
+
+  // Initialize with cached data for instant display
+  const cachedData = loadCachedData();
+  const [pickups, setPickups] = useState(cachedData?.pickups || []);
+  const [initialLoading, setInitialLoading] = useState(!cachedData); // Only skeleton on first load
+  const [isRefreshing, setIsRefreshing] = useState(false); // Background refresh indicator
+  const [driverLocation, setDriverLocation] = useState(
+    cachedData?.driverLocation || null,
+  );
+  const [mode, setMode] = useState(cachedData?.mode || "pickup"); // pickup | deliver
+  const [deliveries, setDeliveries] = useState(cachedData?.deliveries || []);
+  const [fullRouteData, setFullRouteData] = useState(
+    cachedData?.fullRouteData || null,
+  ); // Store full route for developer view
 
   // Load Google Maps API once at component level
   const { isLoaded, loadError } = useJsApiLoader({
@@ -69,7 +112,7 @@ export default function ActiveDeliveries() {
       fetchPickups(null);
     }
 
-    // Update location every 10 seconds
+    // Update location every 10 seconds (background refresh)
     const locationInterval = setInterval(() => {
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
@@ -79,7 +122,7 @@ export default function ActiveDeliveries() {
               longitude: position.coords.longitude,
             };
             setDriverLocation(location);
-            fetchPickups(location);
+            fetchPickups(location, true); // Background refresh
           },
           (error) => console.error("Location update error:", error),
         );
@@ -89,13 +132,24 @@ export default function ActiveDeliveries() {
     return () => clearInterval(locationInterval);
   }, [navigate]);
 
-  const fetchPickups = async (location) => {
+  const fetchPickups = async (location, isBackgroundRefresh = false) => {
     try {
       const token = localStorage.getItem("token");
 
       if (!location) {
-        setLoading(false);
+        setInitialLoading(false);
         return;
+      }
+
+      // Only show skeleton on initial load when no cached data
+      if (
+        !isBackgroundRefresh &&
+        pickups.length === 0 &&
+        deliveries.length === 0
+      ) {
+        setInitialLoading(true);
+      } else {
+        setIsRefreshing(true);
       }
 
       const url = `http://localhost:5000/driver/deliveries/pickups?driver_latitude=${location.latitude}&driver_longitude=${location.longitude}`;
@@ -118,9 +172,17 @@ export default function ActiveDeliveries() {
         if (list.length > 0) {
           setMode("pickup");
           setDeliveries([]);
+          // Save to cache
+          saveCacheData({
+            pickups: list,
+            deliveries: [],
+            mode: "pickup",
+            driverLocation: location,
+            fullRouteData,
+          });
         } else {
           // No pickups left → switch to delivering mode
-          await fetchDeliveriesRoute(location);
+          await fetchDeliveriesRoute(location, isBackgroundRefresh);
         }
       } else {
         console.error("Failed to fetch pickups:", data.message);
@@ -128,7 +190,8 @@ export default function ActiveDeliveries() {
     } catch (e) {
       console.error("Fetch pickups error:", e);
     } finally {
-      setLoading(false);
+      setInitialLoading(false);
+      setIsRefreshing(false);
     }
   };
 
@@ -188,7 +251,10 @@ export default function ActiveDeliveries() {
     });
   };
 
-  const fetchDeliveriesRoute = async (location) => {
+  const fetchDeliveriesRoute = async (
+    location,
+    isBackgroundRefresh = false,
+  ) => {
     try {
       const token = localStorage.getItem("token");
       const url = `http://localhost:5000/driver/deliveries/deliveries-route?driver_latitude=${location.latitude}&driver_longitude=${location.longitude}`;
@@ -201,6 +267,15 @@ export default function ActiveDeliveries() {
         setDeliveries(list);
         setMode("deliver");
         setPickups([]);
+
+        // Save to cache
+        saveCacheData({
+          pickups: [],
+          deliveries: list,
+          mode: "deliver",
+          driverLocation: location,
+          fullRouteData,
+        });
 
         // Auto-set first delivery to on-the-way when starting delivering mode
         if (list.length > 0 && list[0].status === "picked_up") {
@@ -270,8 +345,11 @@ export default function ActiveDeliveries() {
           {/* Header */}
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h2 className="text-2xl font-bold text-gray-800">
+              <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
                 Active Deliveries
+                {isRefreshing && (
+                  <span className="inline-block w-4 h-4 border-2 border-green-500 border-t-transparent rounded-full animate-spin"></span>
+                )}
               </h2>
               <p className="text-sm text-gray-600 mt-1">
                 {mode === "pickup"
@@ -290,10 +368,12 @@ export default function ActiveDeliveries() {
             </button>
           </div>
 
-          {loading ? (
-            <div className="text-center py-12">
-              <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
-              <p className="mt-4 text-gray-600">Loading pickups...</p>
+          {initialLoading ? (
+            /* Skeleton Loading Blocks */
+            <div className="space-y-4">
+              {[1, 2].map((i) => (
+                <ActiveDeliverySkeletonCard key={i} />
+              ))}
             </div>
           ) : (
               mode === "pickup" ? pickups.length === 0 : deliveries.length === 0
@@ -412,6 +492,100 @@ export default function ActiveDeliveries() {
         )}
       </div>
     </DriverLayout>
+  );
+}
+
+// Skeleton Loading Card for Active Deliveries
+function ActiveDeliverySkeletonCard() {
+  return (
+    <div className="bg-white rounded-xl shadow-md overflow-hidden">
+      {/* Map Skeleton */}
+      <div className="h-48 bg-gray-200 relative">
+        <div
+          className="absolute inset-0"
+          style={{
+            background:
+              "linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%)",
+            backgroundSize: "200% 100%",
+            animation: "shimmer 1.5s infinite",
+          }}
+        ></div>
+        <div className="absolute top-3 left-3 w-24 h-8 bg-gray-300 rounded-lg"></div>
+        <div className="absolute top-3 right-3 w-20 h-8 bg-gray-300 rounded-lg"></div>
+      </div>
+
+      {/* Content Skeleton */}
+      <div className="p-4 space-y-4">
+        {/* Location Info Skeleton */}
+        <div className="flex items-start gap-3">
+          <div
+            className="w-12 h-12 bg-gray-300 rounded-full"
+            style={{
+              background:
+                "linear-gradient(90deg, #e0e0e0 25%, #d0d0d0 50%, #e0e0e0 75%)",
+              backgroundSize: "200% 100%",
+              animation: "shimmer 1.5s infinite",
+            }}
+          ></div>
+          <div className="flex-1 space-y-2">
+            <div
+              className="w-32 h-5 bg-gray-300 rounded"
+              style={{
+                background:
+                  "linear-gradient(90deg, #e0e0e0 25%, #d0d0d0 50%, #e0e0e0 75%)",
+                backgroundSize: "200% 100%",
+                animation: "shimmer 1.5s infinite",
+              }}
+            ></div>
+            <div
+              className="w-48 h-4 bg-gray-200 rounded"
+              style={{
+                background:
+                  "linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%)",
+                backgroundSize: "200% 100%",
+                animation: "shimmer 1.5s infinite",
+              }}
+            ></div>
+          </div>
+        </div>
+
+        {/* Stats Skeleton */}
+        <div className="flex justify-around py-3 bg-gray-50 rounded-lg">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="text-center space-y-1">
+              <div
+                className="w-12 h-6 bg-gray-300 rounded mx-auto"
+                style={{
+                  background:
+                    "linear-gradient(90deg, #e0e0e0 25%, #d0d0d0 50%, #e0e0e0 75%)",
+                  backgroundSize: "200% 100%",
+                  animation: "shimmer 1.5s infinite",
+                }}
+              ></div>
+              <div className="w-16 h-3 bg-gray-200 rounded mx-auto"></div>
+            </div>
+          ))}
+        </div>
+
+        {/* Button Skeleton */}
+        <div
+          className="w-full h-12 bg-green-200 rounded-lg"
+          style={{
+            background:
+              "linear-gradient(90deg, #a7f3d0 25%, #6ee7b7 50%, #a7f3d0 75%)",
+            backgroundSize: "200% 100%",
+            animation: "shimmer 1.5s infinite",
+          }}
+        ></div>
+      </div>
+
+      <style>{`
+        @keyframes shimmer {
+          0% { background-position: -200% 0; }
+          100% { background-position: 200% 0; }
+        }
+      `}</style>
+    </div>
   );
 }
 
@@ -1039,65 +1213,101 @@ function FullRouteMap({
         ? customerWaypoints[customerWaypoints.length - 1].location
         : restaurantWaypoints[restaurantWaypoints.length - 1]?.location;
 
-    // Try multiple travel modes and pick the shortest route
-    const modesToTry = [
-      window.google.maps.TravelMode.TWO_WHEELER,
-      window.google.maps.TravelMode.DRIVING,
-      window.google.maps.TravelMode.WALKING,
-    ];
+    // Prefer WALKING mode for shortest distance (suitable for motorcycles too)
+    // Use route alternatives and pick the shortest distance route
+    const preferredMode = window.google.maps.TravelMode.WALKING;
+    const fallbackMode = window.google.maps.TravelMode.DRIVING;
 
-    const routeResults = [];
+    const getShortestRouteFromResult = (result) => {
+      if (!result?.routes || result.routes.length === 0) return null;
 
-    for (const mode of modesToTry) {
+      let bestRoute = result.routes[0];
+      let bestDistance = 0;
+
+      result.routes[0].legs.forEach((leg) => {
+        bestDistance += leg.distance.value;
+      });
+
+      result.routes.forEach((route) => {
+        let distance = 0;
+        route.legs.forEach((leg) => {
+          distance += leg.distance.value;
+        });
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          bestRoute = route;
+        }
+      });
+
+      return { route: bestRoute, distance: bestDistance };
+    };
+
+    let selectedRoute = null;
+    let selectedMode = preferredMode;
+    let selectedResult = null;
+
+    try {
+      const result = await directionsService.route({
+        origin,
+        destination,
+        waypoints: allWaypoints,
+        optimizeWaypoints: false, // Keep the order: all restaurants first, then all customers
+        travelMode: preferredMode,
+        provideRouteAlternatives: true,
+      });
+
+      selectedRoute = getShortestRouteFromResult(result);
+      selectedResult = result;
+      if (selectedRoute) {
+        console.log(
+          `📍 [FULL ROUTE] WALKING alternatives: ${result.routes.length} routes`,
+        );
+      }
+    } catch (error) {
+      console.log(`📍 [FULL ROUTE] WALKING mode failed:`, error.message);
+    }
+
+    if (!selectedRoute) {
       try {
-        const result = await directionsService.route({
+        const fallbackResult = await directionsService.route({
           origin,
           destination,
           waypoints: allWaypoints,
-          optimizeWaypoints: false, // Keep the order: all restaurants first, then all customers
-          travelMode: mode,
+          optimizeWaypoints: false,
+          travelMode: fallbackMode,
+          provideRouteAlternatives: true,
         });
-
-        // Calculate total distance for this mode
-        let totalDistance = 0;
-        result.routes[0].legs.forEach((leg) => {
-          totalDistance += leg.distance.value;
-        });
-
-        routeResults.push({
-          result,
-          distance: totalDistance,
-          mode: mode,
-        });
-
-        console.log(
-          `📍 [FULL ROUTE] ${mode} mode: ${(totalDistance / 1000).toFixed(2)} km`,
-        );
+        selectedRoute = getShortestRouteFromResult(fallbackResult);
+        selectedResult = fallbackResult;
+        selectedMode = fallbackMode;
+        if (selectedRoute) {
+          console.log(
+            `📍 [FULL ROUTE] DRIVING alternatives: ${fallbackResult.routes.length} routes`,
+          );
+        }
       } catch (error) {
-        console.log(`📍 [FULL ROUTE] ${mode} mode failed:`, error.message);
+        console.log(`📍 [FULL ROUTE] DRIVING mode failed:`, error.message);
       }
     }
 
-    // Pick the shortest route from all successful attempts
-    if (routeResults.length === 0) {
-      console.error("Failed to fetch directions: All modes failed");
+    if (!selectedRoute) {
+      console.error("Failed to fetch directions: No valid routes found");
       return;
     }
 
-    const shortest = routeResults.reduce((best, current) =>
-      current.distance < best.distance ? current : best,
-    );
-
     console.log(
-      `📍 [FULL ROUTE] ✅ Selected ${shortest.mode}: ${(shortest.distance / 1000).toFixed(2)} km (shortest)`,
+      `📍 [FULL ROUTE] ✅ Selected ${selectedMode}: ${(selectedRoute.distance / 1000).toFixed(2)} km (shortest distance)`,
     );
 
-    setDirections(shortest.result);
+    if (selectedResult) {
+      selectedResult.routes = [selectedRoute.route];
+      setDirections(selectedResult);
+    }
 
     // Calculate total distance and time from selected route
     let totalDistance = 0;
     let totalDuration = 0;
-    shortest.result.routes[0].legs.forEach((leg) => {
+    selectedRoute.route.legs.forEach((leg) => {
       totalDistance += leg.distance.value;
       totalDuration += leg.duration.value;
     });
@@ -1105,17 +1315,17 @@ function FullRouteMap({
     setRouteInfo({
       totalDistance: (totalDistance / 1000).toFixed(2),
       totalDuration: Math.ceil(totalDuration / 60),
-      legs: shortest.result.routes[0].legs,
+      legs: selectedRoute.route.legs,
       optimizedRestaurants: optimizedRestaurants,
       optimizedCustomers: optimizedCustomers,
-      selectedMode: shortest.mode,
+      selectedMode: selectedMode,
     });
 
     console.log("📍 [FULL ROUTE] Route calculated:", {
       totalDistance: (totalDistance / 1000).toFixed(2) + " km",
       totalDuration: Math.ceil(totalDuration / 60) + " min",
       waypoints: allWaypoints.length,
-      selectedMode: shortest.mode,
+      selectedMode: selectedMode,
       restaurantOrder: optimizedRestaurants.map((p) => p.restaurant.name),
       customerOrder: optimizedCustomers.map((p) => p.customer.name),
     });
@@ -1389,19 +1599,35 @@ function FullRouteMap({
               </React.Fragment>
             ))}
 
-            {/* Directions Renderer - Shows the full route */}
+            {/* Directions Renderer - Shows the full route with prominent polyline */}
             {directions && (
-              <DirectionsRenderer
-                directions={directions}
-                options={{
-                  suppressMarkers: true, // We use custom markers
-                  polylineOptions: {
-                    strokeColor: "#8b5cf6", // Purple color for full route
-                    strokeOpacity: 0.8,
-                    strokeWeight: 5,
-                  },
-                }}
-              />
+              <>
+                <DirectionsRenderer
+                  directions={directions}
+                  options={{
+                    suppressMarkers: true, // We use custom markers
+                    polylineOptions: {
+                      strokeColor: "#8b5cf6", // Purple color for full route
+                      strokeOpacity: 0.9,
+                      strokeWeight: 6, // Thicker line for better visibility
+                      geodesic: true,
+                    },
+                  }}
+                />
+                {/* Shadow layer for better road visibility */}
+                <DirectionsRenderer
+                  directions={directions}
+                  options={{
+                    suppressMarkers: true,
+                    polylineOptions: {
+                      strokeColor: "#ffffff", // White shadow
+                      strokeOpacity: 0.4,
+                      strokeWeight: 8, // Slightly thicker for shadow effect
+                      geodesic: true,
+                    },
+                  }}
+                />
+              </>
             )}
           </GoogleMap>
         ) : (

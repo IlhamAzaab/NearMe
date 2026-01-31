@@ -45,7 +45,8 @@ const DRIVER_EARNINGS = {
 // ============================================================================
 async function getOSRMRoute(waypoints, context = "") {
   // This function now uses Google Maps but kept the same name for backward compatibility
-  return await getGoogleRoute(waypoints, context);
+  // Uses WALKING mode for shortest distance (suitable for motorcycles too)
+  return await getGoogleRoute(waypoints, context, { useSingleMode: true });
 }
 
 // ============================================================================
@@ -1134,39 +1135,74 @@ async function evaluateAvailableDelivery(
     console.log(`\n${"=".repeat(100)}`);
 
     // Calculate separate earnings components for proper display
-    let extraDistanceEarningsOnly = 0;
-    let baseEarnings = 0;
-    let bonusAmount = 0;
+    // Base Amount = 1st order's delivery earnings (R0 route distance × Rs. 40/km)
+    // Extra Earnings = Extra distance (R1-R0) × Rs. 40/km
+    // Bonus Amount = Rs. 25 for 2nd delivery, Rs. 30 for 3rd+
+    // Total Trip Earnings = Base Amount + Extra Earnings + Bonus Amount
+
+    let baseAmount = 0; // 1st order's delivery earnings
+    let extraDistanceEarnings = 0; // Extra distance earnings for this delivery
+    let bonusAmount = 0; // Delivery count bonus
+    let totalTripEarnings = 0; // Total earnings for the entire trip
 
     if (activeDeliveryCount === 0) {
-      // First delivery - only show extra distance earnings in purple division
-      extraDistanceEarningsOnly = extraEarnings; // Total first delivery earnings
-      baseEarnings = 0;
-      bonusAmount = 0;
+      // First delivery - base amount is the full route earnings
+      baseAmount = (r1Route.distance / 1000) * DRIVER_EARNINGS.RATE_PER_KM; // R1 × Rs. 40/km
+      extraDistanceEarnings = 0; // No extra for first delivery
+      bonusAmount = 0; // No bonus for first delivery
+      totalTripEarnings = baseAmount;
     } else {
-      // Subsequent deliveries - separate components
-      baseEarnings =
-        parseFloat(availableDelivery.orders.delivery_fee || 0) +
-        parseFloat(availableDelivery.orders.service_fee || 0);
-      extraDistanceEarningsOnly =
+      // Subsequent deliveries:
+      // - Base Amount = R0 (existing route) × Rs. 40/km (1st order's earnings)
+      // - Extra Earnings = (R1 - R0) × Rs. 40/km
+      // - Bonus = Rs. 25 for 2nd, Rs. 30 for 3rd+
+      baseAmount = (r0Route.distance / 1000) * DRIVER_EARNINGS.RATE_PER_KM;
+      extraDistanceEarnings =
         Math.max(0, extraDistanceKm) * DRIVER_EARNINGS.RATE_PER_KM;
 
       if (activeDeliveryCount === 1) {
-        bonusAmount = DRIVER_EARNINGS.DELIVERY_BONUS.SECOND_DELIVERY;
+        // Getting 2nd delivery
+        bonusAmount = DRIVER_EARNINGS.DELIVERY_BONUS.SECOND_DELIVERY; // Rs. 25
       } else if (activeDeliveryCount >= 2) {
-        bonusAmount = DRIVER_EARNINGS.DELIVERY_BONUS.ADDITIONAL_DELIVERY;
+        // Getting 3rd, 4th, 5th delivery
+        bonusAmount = DRIVER_EARNINGS.DELIVERY_BONUS.ADDITIONAL_DELIVERY; // Rs. 30
       }
+
+      totalTripEarnings = baseAmount + extraDistanceEarnings + bonusAmount;
     }
+
+    console.log(`\n[EVALUATE] 💰 EARNINGS BREAKDOWN:`);
+    console.log(
+      `[EVALUATE]   📍 R0 (Current Route): ${(r0Route.distance / 1000).toFixed(2)} km`,
+    );
+    console.log(
+      `[EVALUATE]   📍 R1 (Combined Route): ${(r1Route.distance / 1000).toFixed(2)} km`,
+    );
+    console.log(
+      `[EVALUATE]   📍 Extra Distance: ${extraDistanceKm.toFixed(2)} km`,
+    );
+    console.log(
+      `[EVALUATE]   💵 Base Amount (R0 × Rs.40): Rs. ${baseAmount.toFixed(2)}`,
+    );
+    console.log(
+      `[EVALUATE]   💵 Extra Earnings (Extra × Rs.40): Rs. ${extraDistanceEarnings.toFixed(2)}`,
+    );
+    console.log(`[EVALUATE]   🎁 Bonus Amount: Rs. ${bonusAmount.toFixed(2)}`);
+    console.log(
+      `[EVALUATE]   💰 TOTAL TRIP EARNINGS: Rs. ${totalTripEarnings.toFixed(2)}`,
+    );
 
     return {
       delivery_id: deliveryId,
       can_accept: true,
       extra_distance_km: parseFloat(Math.max(0, extraDistanceKm).toFixed(2)),
       extra_time_minutes: parseFloat(Math.max(0, extraTimeMinutes).toFixed(1)),
-      extra_earnings: parseFloat(extraDistanceEarningsOnly.toFixed(2)), // Only extra distance earnings for purple division
-      base_earnings: parseFloat(baseEarnings.toFixed(2)), // Base delivery fee + service fee
-      bonus_amount: parseFloat(bonusAmount.toFixed(2)), // Delivery count bonus
-      total_enhanced_earnings: parseFloat(extraEarnings.toFixed(2)), // Full total for internal calculations
+      // Earnings breakdown:
+      base_amount: parseFloat(baseAmount.toFixed(2)), // 1st order's earnings (R0 × Rs.40)
+      extra_earnings: parseFloat(extraDistanceEarnings.toFixed(2)), // Extra distance × Rs.40
+      bonus_amount: parseFloat(bonusAmount.toFixed(2)), // Rs.25 for 2nd, Rs.30 for 3rd+
+      total_trip_earnings: parseFloat(totalTripEarnings.toFixed(2)), // Base + Extra + Bonus
+      // Route distances:
       total_combined_distance_km: parseFloat(
         totalCombinedDistanceKm.toFixed(2),
       ), // R1 - combined route
@@ -1186,6 +1222,19 @@ async function evaluateAvailableDelivery(
   } catch (error) {
     console.error(`[EVALUATE] ❌ Error: ${error.message}`);
     console.error(error.stack);
+
+    // Add extra details for distance errors
+    if (error.message.includes("distance")) {
+      console.error(
+        `[EVALUATE]    New Restaurant: (${newRestaurantLat.toFixed(6)}, ${newRestaurantLng.toFixed(6)})`,
+      );
+      if (currentDeliveries.length > 0) {
+        console.error(
+          `[EVALUATE]    Existing Restaurants: ${currentDeliveries.map((d) => `(${d.restaurant.lat.toFixed(6)}, ${d.restaurant.lng.toFixed(6)})`).join(", ")}`,
+        );
+      }
+    }
+
     return {
       delivery_id: deliveryId,
       can_accept: false,
@@ -1302,17 +1351,30 @@ export async function getAvailableDeliveriesForDriver(
       `[AVAILABLE DELIVERIES]   Processing ${candidateDeliveries.length} candidates...`,
     );
 
-    const evaluationResults = await Promise.all(
-      candidateDeliveries.map((delivery) =>
-        evaluateAvailableDelivery(
+    // Process deliveries sequentially to avoid API rate limiting
+    const evaluationResults = [];
+    for (const delivery of candidateDeliveries) {
+      try {
+        const result = await evaluateAvailableDelivery(
           driverId,
           delivery.id,
           delivery,
           routeContext,
           getRouteDistance,
-        ),
-      ),
-    );
+        );
+        evaluationResults.push(result);
+      } catch (evalError) {
+        console.error(
+          `[AVAILABLE DELIVERIES] ⚠️ Error evaluating delivery ${delivery.id}:`,
+          evalError.message,
+        );
+        evaluationResults.push({
+          delivery_id: delivery.id,
+          can_accept: false,
+          reason: `Evaluation failed: ${evalError.message}`,
+        });
+      }
+    }
 
     // Filter to only accepted deliveries
     const acceptedDeliveries = evaluationResults
@@ -1345,18 +1407,21 @@ export async function getAvailableDeliveriesForDriver(
             ),
             service_fee: parseFloat(candidateDelivery.orders.service_fee || 0),
             total: parseFloat(candidateDelivery.orders.total_amount || 0),
-            driver_earnings: result.extra_earnings, // Only extra distance earnings for purple division
-            base_earnings: result.base_earnings, // Base delivery + service fees
-            bonus_amount: result.bonus_amount, // Delivery count bonus
-            total_enhanced_earnings: result.total_enhanced_earnings, // Full total for reference
+            // Driver earnings breakdown:
+            base_amount: result.base_amount, // 1st order's earnings (R0 × Rs.40)
+            extra_earnings: result.extra_earnings, // Extra distance × Rs.40
+            bonus_amount: result.bonus_amount, // Rs.25 for 2nd, Rs.30 for 3rd+
+            total_trip_earnings: result.total_trip_earnings, // Base + Extra + Bonus
           },
           route_impact: {
             extra_distance_km: result.extra_distance_km,
             extra_time_minutes: result.extra_time_minutes,
-            extra_earnings: result.extra_earnings, // Extra distance earnings only
-            base_earnings: result.base_earnings, // Base earnings
-            bonus_amount: result.bonus_amount, // Bonus amount
-            total_enhanced_earnings: result.total_enhanced_earnings, // Full total
+            // Earnings breakdown:
+            base_amount: result.base_amount, // 1st order's earnings (R0 × Rs.40)
+            extra_earnings: result.extra_earnings, // Extra distance × Rs.40
+            bonus_amount: result.bonus_amount, // Rs.25 for 2nd, Rs.30 for 3rd+
+            total_trip_earnings: result.total_trip_earnings, // Base + Extra + Bonus
+            // Route info:
             r0_distance_km: result.r0_distance_km,
             r1_distance_km: result.r1_distance_km,
             calculation_method: result.extra_calculation_method, // "R1 - R0"

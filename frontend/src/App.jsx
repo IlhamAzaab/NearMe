@@ -64,6 +64,7 @@ const DriverMapPage = USE_GOOGLE_MAPS
 import DeliveryTracking from "./pages/DeliveryTracking";
 import DriverNotifications from "./pages/driver/Notifications";
 import DeliveryHistory from "./pages/driver/DeliveryHistory";
+import DriverEarnings from "./pages/driver/DriverEarnings";
 import CustomerNotifications from "./pages/CustomerNotifications";
 import AdminNotifications from "./pages/admin/AdminNotifications";
 import CustomerProfile from "./pages/CustomerProfile";
@@ -492,6 +493,14 @@ function App() {
             element={
               <ProtectedRoute allowedRole="driver">
                 <DeliveryHistory />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/driver/earnings"
+            element={
+              <ProtectedRoute allowedRole="driver">
+                <DriverEarnings />
               </ProtectedRoute>
             }
           />

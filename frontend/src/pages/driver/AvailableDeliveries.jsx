@@ -1,6 +1,5 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import DriverLayout from "../../components/DriverLayout";
 import DriverRealtimeNotificationListener from "../../components/DriverRealtimeNotificationListener";
 import {
   GoogleMap,
@@ -12,19 +11,20 @@ import {
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
 
-// Google Maps container style
+// Google Maps container style - mobile optimized
 const mapContainerStyle = {
   width: "100%",
   height: "100%",
 };
 
-// Google Maps options
+// Google Maps options - mobile optimized
 const mapOptions = {
-  disableDefaultUI: false,
-  zoomControl: true,
+  disableDefaultUI: true,
+  zoomControl: false,
   streetViewControl: false,
   mapTypeControl: false,
-  fullscreenControl: true,
+  fullscreenControl: false,
+  gestureHandling: "greedy",
 };
 
 // Default driver location (Kinniya, Sri Lanka)
@@ -33,17 +33,66 @@ const DEFAULT_DRIVER_LOCATION = {
   longitude: 81.186,
 };
 
+// Cache key for localStorage
+const CACHE_KEY = "available_deliveries_cache";
+const CACHE_EXPIRY = 60000; // 1 minute cache
+
+// Load cached data
+const loadCachedData = () => {
+  try {
+    const cached = localStorage.getItem(CACHE_KEY);
+    if (cached) {
+      const { data, timestamp } = JSON.parse(cached);
+      if (Date.now() - timestamp < CACHE_EXPIRY) {
+        return data;
+      }
+    }
+  } catch (e) {
+    console.warn("Cache load error:", e);
+  }
+  return null;
+};
+
+// Save to cache
+const saveCacheData = (data) => {
+  try {
+    localStorage.setItem(
+      CACHE_KEY,
+      JSON.stringify({
+        data,
+        timestamp: Date.now(),
+      }),
+    );
+  } catch (e) {
+    console.warn("Cache save error:", e);
+  }
+};
+
 export default function AvailableDeliveries() {
   const navigate = useNavigate();
-  const [deliveries, setDeliveries] = useState([]);
-  const [loading, setLoading] = useState(true);
+
+  // Initialize with cached data for instant display
+  const cachedData = loadCachedData();
+  const [deliveries, setDeliveries] = useState(cachedData?.deliveries || []);
+  const [declinedIds, setDeclinedIds] = useState(new Set()); // Track declined delivery IDs
+  const [initialLoading, setInitialLoading] = useState(!cachedData); // Only show skeleton on first load
+  const [isRefreshing, setIsRefreshing] = useState(false); // Background refresh indicator
   const [accepting, setAccepting] = useState(null);
-  const [driverLocation, setDriverLocation] = useState(DEFAULT_DRIVER_LOCATION);
+  const [driverLocation, setDriverLocation] = useState(
+    cachedData?.driverLocation || DEFAULT_DRIVER_LOCATION,
+  );
   const [inDeliveringMode, setInDeliveringMode] = useState(false);
-  const [currentRoute, setCurrentRoute] = useState({
-    total_stops: 0,
-    active_deliveries: 0,
-  });
+  const [currentRoute, setCurrentRoute] = useState(
+    cachedData?.currentRoute || {
+      total_stops: 0,
+      active_deliveries: 0,
+    },
+  );
+  const [deliveryListRef, setDeliveryListRef] = useState(null);
+  const [toast, setToast] = useState(null);
+  const [fetchError, setFetchError] = useState(null); // Network error state
+  const deliveryListRefEl = useRef(null);
+  const abortControllerRef = useRef(null); // For cancelling pending requests
 
   // Load Google Maps API once at component level
   const { isLoaded, loadError } = useJsApiLoader({
@@ -85,6 +134,18 @@ export default function AvailableDeliveries() {
       fetchPendingDeliveriesWithLocation(DEFAULT_DRIVER_LOCATION);
     }
   }, [navigate]);
+
+  // Auto-refresh every 30 seconds
+  useEffect(() => {
+    if (!driverLocation) return;
+
+    const intervalId = setInterval(() => {
+      console.log("[AUTO-REFRESH] Polling for new deliveries...");
+      fetchPendingDeliveriesWithLocation(driverLocation, true);
+    }, 30000); // 30 seconds
+
+    return () => clearInterval(intervalId);
+  }, [driverLocation]);
 
   const checkDeliveringMode = async () => {
     try {
@@ -130,92 +191,97 @@ export default function AvailableDeliveries() {
     }
   };
 
-  const fetchPendingDeliveriesWithLocation = async (location) => {
-    try {
-      setLoading(true);
-      const token = localStorage.getItem("token");
+  const fetchPendingDeliveriesWithLocation = async (
+    location,
+    isBackgroundRefresh = false,
+  ) => {
+    // Cancel any pending request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    abortControllerRef.current = new AbortController();
 
-      // Send driver location with request
+    try {
+      // Only show skeleton on initial load when no cached data
+      if (!isBackgroundRefresh && deliveries.length === 0) {
+        setInitialLoading(true);
+      } else {
+        setIsRefreshing(true);
+      }
+
+      const token = localStorage.getItem("token");
       const currentLoc = location || DEFAULT_DRIVER_LOCATION;
 
-      // 🆕 Use the NEW /available/v2 endpoint for route-based filtering
       const url = `http://localhost:5000/driver/deliveries/available/v2?driver_latitude=${currentLoc.latitude}&driver_longitude=${currentLoc.longitude}`;
 
-      console.log(
-        "🔍 [FRONTEND] Fetching available deliveries with route context...",
-      );
+      console.log("[FETCH] Requesting available deliveries from:", url);
 
       const res = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` },
+        signal: abortControllerRef.current.signal,
       });
+
+      console.log("[FETCH] Response status:", res.status);
 
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
-
-        // If it's a network error that can be retried
-        if (res.status === 503 && errorData.retry) {
-          console.error("Database connection issue, will retry...");
-        }
-
+        console.error("[FETCH] Error response:", errorData);
         throw new Error(errorData.message || `HTTP ${res.status}`);
       }
 
       const data = await res.json();
-      console.log("✅ [FRONTEND] Received route-based deliveries:", data);
-      console.log("📊 [FRONTEND] Total available:", data.total_available);
-      console.log(
-        "🚗 [FRONTEND] Current route stops:",
-        data.current_route?.total_stops || 0,
-      );
-      console.log(
-        "📦 [FRONTEND] Active deliveries:",
-        data.current_route?.active_deliveries || 0,
-      );
-      console.log("🎯 [FRONTEND] Deliveries array:", data.available_deliveries);
-      console.log(
-        "📝 [FRONTEND] Deliveries count:",
-        data.available_deliveries?.length || 0,
-      );
+      console.log("[FETCH] Response data:", {
+        total_available: data.total_available,
+        deliveries_count: data.available_deliveries?.length || 0,
+        current_route: data.current_route,
+      });
 
-      const deliveriesArray = data.available_deliveries || [];
-      console.log(
-        "🔍 [FRONTEND] Setting deliveries state to:",
-        deliveriesArray,
-      );
+      let deliveriesArray = data.available_deliveries || [];
+
+      // Sort: Non-declined first (newest first), declined at bottom
+      deliveriesArray = sortDeliveries(deliveriesArray, declinedIds);
       setDeliveries(deliveriesArray);
 
-      // Store current route info to determine if driver has active deliveries
-      if (data.current_route) {
-        console.log(
-          "🚗 [FRONTEND] Setting currentRoute state to:",
-          data.current_route,
-        );
-        setCurrentRoute(data.current_route);
-      } else {
-        console.log("⚠️ [FRONTEND] No current_route in response!");
-      }
+      const newCurrentRoute = data.current_route || {
+        total_stops: 0,
+        active_deliveries: 0,
+      };
+      setCurrentRoute(newCurrentRoute);
 
-      // If driver location from backend is available, use it
-      if (data.driver_location) {
-        setDriverLocation(data.driver_location);
-      }
+      const newDriverLocation = data.driver_location || currentLoc;
+      setDriverLocation(newDriverLocation);
+
+      // Save to cache for instant load next time
+      saveCacheData({
+        deliveries: deliveriesArray,
+        currentRoute: newCurrentRoute,
+        driverLocation: newDriverLocation,
+      });
+
+      // Clear any previous errors on successful fetch
+      setFetchError(null);
     } catch (e) {
+      if (e.name === "AbortError") return; // Ignore aborted requests
       console.error("❌ [FRONTEND] Failed to fetch deliveries:", e);
-      setDeliveries([]);
 
-      // Show user-friendly error message
-      if (
-        e.message.includes("Failed to fetch") ||
-        e.message.includes("NetworkError")
-      ) {
-        alert(
-          "Cannot connect to server. Please check your internet connection and try again.",
-        );
-      } else {
-        console.error("Fetch error details:", e.message);
+      // Set error message for display
+      const errorMessage = e.message.includes("NetworkError")
+        ? "No internet connection. Retrying..."
+        : e.message.includes("HTTP 500")
+          ? "Server error. Please try again."
+          : e.message.includes("HTTP 401")
+            ? "Authentication failed. Please log in again."
+            : e.message || "Failed to fetch deliveries";
+
+      setFetchError(errorMessage);
+
+      // Don't clear deliveries on error if we have cached data
+      if (deliveries.length === 0) {
+        setDeliveries([]);
       }
     } finally {
-      setLoading(false);
+      setInitialLoading(false);
+      setIsRefreshing(false);
     }
   };
 
@@ -223,13 +289,34 @@ export default function AvailableDeliveries() {
     setAccepting(deliveryId);
     try {
       const token = localStorage.getItem("token");
-      const body = {};
 
-      // Send driver location if available
-      if (driverLocation) {
-        body.driver_latitude = driverLocation.latitude;
-        body.driver_longitude = driverLocation.longitude;
-      }
+      // Find the delivery to get its earnings data
+      const delivery = deliveries.find((d) => d.delivery_id === deliveryId);
+
+      const body = {
+        // Driver location
+        driver_latitude: driverLocation?.latitude,
+        driver_longitude: driverLocation?.longitude,
+        // Earnings data from route_impact
+        earnings_data: delivery
+          ? {
+              delivery_sequence: currentRoute.active_deliveries + 1,
+              base_amount:
+                delivery.route_impact?.base_amount ||
+                delivery.pricing?.total_trip_earnings ||
+                0,
+              extra_earnings: delivery.route_impact?.extra_earnings || 0,
+              bonus_amount: delivery.route_impact?.bonus_amount || 0,
+              r0_distance_km: delivery.route_impact?.r0_distance_km || null,
+              r1_distance_km:
+                delivery.route_impact?.r1_distance_km ||
+                delivery.total_delivery_distance_km ||
+                0,
+              extra_distance_km: delivery.route_impact?.extra_distance_km || 0,
+              total_distance_km: delivery.total_delivery_distance_km || 0,
+            }
+          : null,
+      };
 
       const res = await fetch(
         `http://localhost:5000/driver/deliveries/${deliveryId}/accept`,
@@ -246,160 +333,445 @@ export default function AvailableDeliveries() {
       const data = await res.json();
 
       if (res.ok) {
-        // Remove from list and show success message
+        // Remove accepted delivery
         setDeliveries((prev) =>
           prev.filter((d) => d.delivery_id !== deliveryId),
         );
-        alert("Delivery accepted successfully!");
-        // Stay on current page - driver navigates manually when ready
+
+        // Show toast notification
+        showToast("✅ Delivery accepted!");
+
+        // Auto-refresh in background to get updated earnings calculations
+        setTimeout(() => {
+          fetchPendingDeliveriesWithLocation(driverLocation, true);
+        }, 300);
       } else {
-        alert(data.message || "Failed to accept delivery");
+        showToast(data.message || "Failed to accept delivery", "error");
       }
     } catch (e) {
       console.error("Accept error:", e);
-      alert("Failed to accept delivery");
+      showToast("Failed to accept delivery", "error");
     } finally {
       setAccepting(null);
     }
   };
 
+  // Sort deliveries: non-declined first, declined at bottom
+  const sortDeliveries = (deliveriesArray, declinedSet) => {
+    const nonDeclined = deliveriesArray.filter(
+      (d) => !declinedSet.has(d.delivery_id),
+    );
+    const declined = deliveriesArray.filter((d) =>
+      declinedSet.has(d.delivery_id),
+    );
+    return [...nonDeclined, ...declined];
+  };
+
+  // Handle decline - move to bottom of list
+  const handleDecline = (deliveryId) => {
+    const newDeclinedIds = new Set([...declinedIds, deliveryId]);
+    setDeclinedIds(newDeclinedIds);
+    setDeliveries((prev) => sortDeliveries(prev, newDeclinedIds));
+
+    // Scroll to top to show next delivery
+    if (deliveryListRefEl.current) {
+      deliveryListRefEl.current.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  };
+
+  // Simple toast notification
+  const showToast = (message, type = "success") => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  };
+
   return (
-    <DriverLayout>
+    <div
+      className="min-h-screen bg-gray-50 flex flex-col"
+      style={{ fontFamily: "'Work Sans', sans-serif" }}
+    >
       <DriverRealtimeNotificationListener
         onNewDelivery={() => {
-          // Refresh deliveries list when new pending delivery arrives
           if (driverLocation) {
-            fetchPendingDeliveriesWithLocation(driverLocation);
+            // Background refresh - don't block UI
+            fetchPendingDeliveriesWithLocation(driverLocation, true);
           }
         }}
       />
-      <div className="space-y-4 sm:space-y-6 p-4 sm:p-6">
-        {/* Header Section */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-green-400 via-green-500 to-[#07af45] bg-clip-text text-transparent">
-              Available Deliveries
-            </h1>
-            <p className="text-gray-600 mt-1 text-sm sm:text-base">
-              Accept deliveries and start earning
-            </p>
+
+      {/* Toast Notification */}
+      {toast && (
+        <div
+          className={`fixed top-4 left-1/2 transform -translate-x-1/2 z-50 px-6 py-3 rounded-full shadow-lg text-white font-medium text-sm animate-slide-down ${
+            toast.type === "error" ? "bg-red-500" : "bg-green-500"
+          }`}
+        >
+          {toast.message}
+        </div>
+      )}
+
+      {/* Network Error Alert */}
+      {fetchError && (
+        <div className="bg-red-50 border-b border-red-200 px-4 py-3 flex items-start gap-3">
+          <div className="flex-shrink-0 mt-0.5">
+            <svg
+              className="w-5 h-5 text-red-500"
+              fill="currentColor"
+              viewBox="0 0 20 20"
+            >
+              <path
+                fillRule="evenodd"
+                d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                clipRule="evenodd"
+              />
+            </svg>
+          </div>
+          <div className="flex-1">
+            <h3 className="text-sm font-medium text-red-800">
+              Connection Error
+            </h3>
+            <p className="text-xs text-red-700 mt-0.5">{fetchError}</p>
           </div>
           <button
-            onClick={() => navigate("/driver/deliveries/active")}
-            className="px-4 sm:px-6 py-2.5 sm:py-3 bg-gradient-to-r from-green-400 via-green-500 to-[#07af45] text-white rounded-full hover:from-green-700 hover:to-green-800 transition-all duration-300 shadow-md hover:shadow-lg font-medium text-sm sm:text-base whitespace-nowrap"
+            onClick={() => {
+              setFetchError(null);
+              if (driverLocation) {
+                fetchPendingDeliveriesWithLocation(driverLocation);
+              }
+            }}
+            className="flex-shrink-0 text-red-700 hover:text-red-800 font-medium text-xs"
           >
-            Active Deliveries
+            Retry
           </button>
         </div>
+      )}
 
-        {/* Delivering Mode Restriction */}
+      {/* Top Navbar */}
+      <div className="shrink-0 bg-white border-b border-gray-100 px-4 py-3 sticky top-0 z-20">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => navigate("/driver/deliveries/active")}
+            className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 active:scale-95 transition-all"
+          >
+            <svg
+              className="w-6 h-6 text-gray-800"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M15 19l-7-7 7-7"
+              />
+            </svg>
+          </button>
+          <div className="flex-1">
+            <h1 className="text-lg font-bold text-gray-900">
+              New Delivery Request
+            </h1>
+            <p className="text-xs text-gray-500 flex items-center gap-1">
+              {deliveries.length} available
+              {isRefreshing && (
+                <span className="inline-block w-3 h-3 border-2 border-green-500 border-t-transparent rounded-full animate-spin ml-1"></span>
+              )}
+            </p>
+          </div>
+          {currentRoute.active_deliveries > 0 && (
+            <span className="bg-green-500 text-white text-xs font-bold px-2.5 py-1 rounded-full">
+              {currentRoute.active_deliveries} Active
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div ref={deliveryListRefEl} className="flex-1 overflow-y-auto pb-24">
         {inDeliveringMode ? (
-          <div className="bg-yellow-50 rounded-xl shadow border border-yellow-200 p-12 text-center">
-            <div className="text-6xl mb-4">🚗</div>
-            <h3 className="text-xl font-bold text-gray-800 mb-2">
-              Currently in Delivering Mode
+          <div className="p-6 text-center">
+            <div className="text-5xl mb-4">🚗</div>
+            <h3 className="text-lg font-bold text-gray-800 mb-2">
+              Currently Delivering
             </h3>
-            <p className="text-gray-600 mb-6">
-              Complete your current deliveries before accepting new ones
+            <p className="text-sm text-gray-600 mb-4">
+              Complete current deliveries first
             </p>
             <button
               onClick={() => navigate("/driver/deliveries/active")}
-              className="px-6 py-3 bg-gradient-to-r from-[#61ecd7] via-[#0da88f] to-[#0da88f] text-white rounded-full hover:from-green-700 hover:to-green-800 transition-all duration-300 shadow-md hover:shadow-lg font-medium"
+              className="px-6 py-3 bg-green-500 text-white rounded-full font-medium"
             >
               Go to Active Deliveries
             </button>
           </div>
-        ) : loading ? (
-          /* Loading State */
-          <div className="bg-white rounded-xl shadow border border-blue-100 p-12 text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-400 mx-auto"></div>
-            <p className="mt-4 text-gray-600 font-medium">
-              Loading deliveries...
-            </p>
+        ) : initialLoading ? (
+          /* Skeleton Loading Blocks */
+          <div className="space-y-4 p-4">
+            {[1, 2, 3].map((i) => (
+              <SkeletonCard key={i} />
+            ))}
           </div>
-        ) : (() => {
-            console.log(
-              "🎨 [FRONTEND] Render decision - deliveries.length:",
-              deliveries.length,
-            );
-            console.log(
-              "🎨 [FRONTEND] Render decision - deliveries:",
-              deliveries,
-            );
-            return deliveries.length === 0;
-          })() ? (
-          /* Empty State */
-          <div className="bg-white rounded-xl shadow border border-blue-100 hover:shadow-xl transition-shadow duration-300">
-            <div className="text-center py-12 text-gray-500">
-              <svg
-                className="w-20 h-20 mx-auto text-gray-400 mb-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"
-                />
-              </svg>
-              <h3 className="text-xl font-bold text-gray-700 mb-2">
-                No Available Deliveries
-              </h3>
-              <p className="text-gray-500">
-                Check back later for new delivery requests
-              </p>
+        ) : deliveries.length === 0 ? (
+          <div className="p-8 text-center">
+            <div className="text-5xl mb-4">📦</div>
+            <h3 className="text-lg font-bold text-gray-700 mb-2">
+              No Deliveries Available
+            </h3>
+            <p className="text-sm text-gray-500 mb-6">
+              {currentRoute.active_deliveries >= 5
+                ? "You've reached the maximum deliveries. Complete some deliveries first."
+                : "No new delivery requests match your current location. Check back soon!"}
+            </p>
+            <div className="flex gap-3 justify-center">
               <button
                 onClick={() =>
                   fetchPendingDeliveriesWithLocation(driverLocation)
                 }
-                className="mt-6 px-6 py-2 bg-green-500 text-white rounded-full hover:bg-green-700 transition-colors font-medium"
+                className="px-6 py-2 bg-green-500 text-white rounded-full text-sm font-medium hover:bg-green-600 active:scale-95 transition-all"
               >
                 Refresh
               </button>
+              {currentRoute.active_deliveries > 0 && (
+                <button
+                  onClick={() => navigate("/driver/deliveries/active")}
+                  className="px-6 py-2 border border-green-500 text-green-500 rounded-full text-sm font-medium hover:bg-green-50 active:scale-95 transition-all"
+                >
+                  View Active ({currentRoute.active_deliveries})
+                </button>
+              )}
             </div>
           </div>
         ) : (
-          /* Deliveries Grid */
-          <div className="grid gap-6 lg:grid-cols-2">
-            {(() => {
-              console.log("🎨 [FRONTEND] About to render deliveries grid");
-              console.log("🎨 [FRONTEND] deliveries.map input:", deliveries);
-              console.log("🎨 [FRONTEND] currentRoute state:", currentRoute);
-              console.log(
-                "🎨 [FRONTEND] total_stops:",
-                currentRoute.total_stops,
-              );
-              console.log(
-                "🎨 [FRONTEND] hasActiveDeliveries would be:",
-                currentRoute.total_stops > 0,
-              );
-              return null;
-            })()}
-            {deliveries.map((delivery, index) => {
-              console.log(`🎨 [FRONTEND] Rendering delivery ${index + 1}:`, {
-                delivery_id: delivery.delivery_id,
-                order_number: delivery.order_number,
-                route_impact: delivery.route_impact,
-                pricing: delivery.pricing,
-              });
-              return (
-                <DeliveryCard
-                  key={delivery.delivery_id}
-                  delivery={delivery}
-                  driverLocation={driverLocation}
-                  accepting={accepting === delivery.delivery_id}
-                  onAccept={handleAcceptDelivery}
-                  hasActiveDeliveries={currentRoute.total_stops > 0}
-                  isLoaded={isLoaded}
-                />
-              );
-            })}
+          <div className="space-y-0">
+            {deliveries.map((delivery, index) => (
+              <DeliveryCard
+                key={delivery.delivery_id}
+                delivery={delivery}
+                driverLocation={driverLocation}
+                accepting={accepting === delivery.delivery_id}
+                onAccept={handleAcceptDelivery}
+                onDecline={handleDecline}
+                hasActiveDeliveries={currentRoute.total_stops > 0}
+                isLoaded={isLoaded}
+                isFirstDelivery={
+                  index === 0 && !declinedIds.has(delivery.delivery_id)
+                }
+                isDeclined={declinedIds.has(delivery.delivery_id)}
+              />
+            ))}
           </div>
         )}
       </div>
-    </DriverLayout>
+
+      {/* Bottom Navigation */}
+      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-6 py-2 z-20">
+        <div className="flex items-center justify-around">
+          <button
+            onClick={() => navigate("/driver/dashboard")}
+            className="flex flex-col items-center gap-1 py-2 px-4 text-gray-500 hover:text-gray-900 transition-colors"
+          >
+            <svg
+              className="w-6 h-6"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
+              />
+            </svg>
+            <span className="text-xs font-medium">Home</span>
+          </button>
+          <button className="flex flex-col items-center gap-1 py-2 px-4 text-[#13ec37]">
+            <svg
+              className="w-6 h-6"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+              />
+            </svg>
+            <span className="text-xs font-bold">Orders</span>
+          </button>
+          <button
+            onClick={() => navigate("/driver/deliveries/active")}
+            className="flex flex-col items-center gap-1 py-2 px-4 text-gray-500 hover:text-gray-900 transition-colors relative"
+          >
+            <svg
+              className="w-6 h-6"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+              />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+              />
+            </svg>
+            <span className="text-xs font-medium">Active</span>
+            {currentRoute.active_deliveries > 0 && (
+              <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center">
+                {currentRoute.active_deliveries}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => navigate("/driver/profile")}
+            className="flex flex-col items-center gap-1 py-2 px-4 text-gray-500 hover:text-gray-900 transition-colors"
+          >
+            <svg
+              className="w-6 h-6"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+              />
+            </svg>
+            <span className="text-xs font-medium">Profile</span>
+          </button>
+        </div>
+      </div>
+
+      <style>{`
+        @keyframes slide-down {
+          from {
+            opacity: 0;
+            transform: translate(-50%, -20px);
+          }
+          to {
+            opacity: 1;
+            transform: translate(-50%, 0);
+          }
+        }
+        .animate-slide-down {
+          animation: slide-down 0.3s ease-out;
+        }
+        @keyframes shimmer {
+          0% { background-position: -200% 0; }
+          100% { background-position: 200% 0; }
+        }
+        .animate-shimmer {
+          background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+          background-size: 200% 100%;
+          animation: shimmer 1.5s infinite;
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// Skeleton Loading Card Component - Matches new design
+function SkeletonCard() {
+  return (
+    <div className="bg-white overflow-hidden">
+      {/* Map Skeleton - Full Width */}
+      <div className="h-[40vh] min-h-[220px] bg-gradient-to-br from-gray-100 to-gray-200 relative">
+        <div
+          className="absolute inset-0"
+          style={{
+            background:
+              "linear-gradient(90deg, transparent 25%, rgba(255,255,255,0.4) 50%, transparent 75%)",
+            backgroundSize: "200% 100%",
+            animation: "shimmer 1.5s infinite",
+          }}
+        ></div>
+        <div className="absolute top-4 right-4 w-10 h-10 bg-white/60 rounded-full"></div>
+      </div>
+
+      {/* Content Card Skeleton */}
+      <div className="bg-white rounded-t-[28px] -mt-7 relative z-10 px-5 pt-6 pb-5">
+        {/* Earnings Row */}
+        <div className="flex items-center justify-between mb-5 pb-5 border-b border-gray-100">
+          <div className="space-y-2">
+            <div
+              className="w-24 h-8 bg-gray-200 rounded-lg"
+              style={{
+                background:
+                  "linear-gradient(90deg, #e5e7eb 25%, #f3f4f6 50%, #e5e7eb 75%)",
+                backgroundSize: "200% 100%",
+                animation: "shimmer 1.5s infinite",
+              }}
+            ></div>
+            <div className="w-32 h-4 bg-gray-200 rounded"></div>
+          </div>
+          <div className="space-y-2">
+            <div className="w-20 h-7 bg-gray-100 rounded-lg"></div>
+            <div className="w-20 h-7 bg-gray-100 rounded-lg"></div>
+          </div>
+        </div>
+
+        {/* Route Details Header */}
+        <div className="w-28 h-5 bg-gray-200 rounded mb-4"></div>
+
+        {/* Timeline Skeleton - New Style */}
+        <div className="flex flex-col gap-0 mb-5">
+          {/* Pickup Skeleton */}
+          <div className="flex gap-3">
+            <div className="flex flex-col items-center">
+              <div className="w-10 h-10 bg-[#13ec37]/20 rounded-full"></div>
+              <div className="w-0.5 bg-[#13ec37]/30 flex-1 min-h-[40px]"></div>
+            </div>
+            <div className="flex-1 pb-4 space-y-2">
+              <div className="w-14 h-3 bg-[#13ec37]/30 rounded"></div>
+              <div
+                className="w-40 h-5 bg-gray-200 rounded"
+                style={{
+                  background:
+                    "linear-gradient(90deg, #e5e7eb 25%, #f3f4f6 50%, #e5e7eb 75%)",
+                  backgroundSize: "200% 100%",
+                  animation: "shimmer 1.5s infinite",
+                }}
+              ></div>
+              <div className="w-52 h-4 bg-gray-100 rounded"></div>
+            </div>
+          </div>
+
+          {/* Drop-off Skeleton */}
+          <div className="flex gap-3">
+            <div className="flex flex-col items-center">
+              <div className="w-10 h-10 bg-gray-100 rounded-full"></div>
+            </div>
+            <div className="flex-1 space-y-2">
+              <div className="w-14 h-3 bg-gray-200 rounded"></div>
+              <div className="w-32 h-5 bg-gray-200 rounded"></div>
+              <div className="w-44 h-4 bg-gray-100 rounded"></div>
+            </div>
+          </div>
+        </div>
+
+        {/* Button Skeleton */}
+        <div
+          className="w-full h-14 rounded-full"
+          style={{
+            background:
+              "linear-gradient(90deg, #bbf7d0 25%, #86efac 50%, #bbf7d0 75%)",
+            backgroundSize: "200% 100%",
+            animation: "shimmer 1.5s infinite",
+          }}
+        ></div>
+      </div>
+    </div>
   );
 }
 
@@ -408,8 +780,11 @@ function DeliveryCard({
   driverLocation,
   accepting,
   onAccept,
+  onDecline,
   hasActiveDeliveries,
   isLoaded = false,
+  isFirstDelivery = false,
+  isDeclined = false,
 }) {
   const {
     delivery_id,
@@ -434,10 +809,12 @@ function DeliveryCard({
   const {
     extra_distance_km = 0,
     extra_time_minutes = 0,
-    extra_earnings = 0,
-    bonus_amount = 0,
-    base_earnings = 0,
-    total_enhanced_earnings = 0,
+    base_amount = 0, // 1st order's earnings (R0 × Rs.40)
+    extra_earnings = 0, // Extra distance × Rs.40
+    bonus_amount = 0, // Rs.25 for 2nd, Rs.30 for 3rd+
+    total_trip_earnings = 0, // Base + Extra + Bonus
+    r0_distance_km = 0,
+    r1_distance_km = 0,
   } = route_impact || {};
 
   // Calculate total items
@@ -461,10 +838,12 @@ function DeliveryCard({
     hasActiveDeliveries,
     extra_distance_km,
     extra_time_minutes,
+    base_amount,
     extra_earnings,
     bonus_amount,
-    base_earnings,
-    total_enhanced_earnings,
+    total_trip_earnings,
+    r0_distance_km,
+    r1_distance_km,
     showRouteExtension,
     route_impact: route_impact,
     pricing: pricing,
@@ -472,8 +851,9 @@ function DeliveryCard({
     currentRoute: hasActiveDeliveries ? "HAS ACTIVE" : "FIRST DELIVERY",
   });
 
-  // Safety check for pricing
-  const driverEarnings = pricing?.driver_earnings || 0;
+  // Safety check for pricing - use total_trip_earnings for first delivery
+  const driverEarnings =
+    pricing?.total_trip_earnings || total_trip_earnings || 0;
 
   // Decode polyline for routes
   const decodePolyline = (encoded) => {
@@ -535,12 +915,18 @@ function DeliveryCard({
   // State for info windows
   const [selectedMarker, setSelectedMarker] = useState(null);
 
+  // 🆕 Only show routes for first delivery when no active deliveries
+  const showRoutes = isFirstDelivery && !hasActiveDeliveries;
+
+  // Is this a stacked delivery (2nd or more)?
+  const isStackedDelivery = hasActiveDeliveries;
+
   return (
     <div
-      className={`bg-white rounded-xl shadow-lg border overflow-hidden hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 animate-fade-in ${!can_accept ? "border-red-300 opacity-75" : "border-blue-100"}`}
+      className={`bg-white overflow-hidden transition-all duration-300 ${isDeclined ? "opacity-50 scale-[0.98]" : ""} ${!can_accept ? "border-2 border-red-200 opacity-75" : ""}`}
     >
-      {/* Interactive Map */}
-      <div className="h-72 relative">
+      {/* Map Section - Full Width */}
+      <div className="relative w-full h-[40vh] min-h-[220px]">
         {restaurant && customer && isLoaded ? (
           <GoogleMap
             mapContainerStyle={mapContainerStyle}
@@ -558,7 +944,7 @@ function DeliveryCard({
                 icon={{
                   path: window.google?.maps?.SymbolPath?.CIRCLE || 0,
                   scale: 10,
-                  fillColor: "#10b981",
+                  fillColor: "#13ec37",
                   fillOpacity: 1,
                   strokeWeight: 3,
                   strokeColor: "#ffffff",
@@ -575,9 +961,8 @@ function DeliveryCard({
                 }}
                 onCloseClick={() => setSelectedMarker(null)}
               >
-                <div className="text-center p-2">
-                  <p className="font-bold text-green-600">📍 Your Location</p>
-                  <p className="text-xs text-gray-600">Driver Position</p>
+                <div className="text-center p-1">
+                  <p className="font-bold text-green-600 text-sm">📍 You</p>
                 </div>
               </InfoWindow>
             )}
@@ -591,7 +976,7 @@ function DeliveryCard({
               icon={{
                 path: window.google?.maps?.SymbolPath?.CIRCLE || 0,
                 scale: 10,
-                fillColor: "#ef4444",
+                fillColor: "#13ec37",
                 fillOpacity: 1,
                 strokeWeight: 3,
                 strokeColor: "#ffffff",
@@ -607,12 +992,8 @@ function DeliveryCard({
                 }}
                 onCloseClick={() => setSelectedMarker(null)}
               >
-                <div className="min-w-[200px] p-2">
-                  <p className="font-bold text-red-600">🍽️ Restaurant</p>
-                  <p className="font-semibold mt-1">{restaurant.name}</p>
-                  <p className="text-xs text-gray-600 mt-1">
-                    {restaurant.address}
-                  </p>
+                <div className="p-1">
+                  <p className="font-bold text-sm">🍽️ {restaurant.name}</p>
                 </div>
               </InfoWindow>
             )}
@@ -626,7 +1007,7 @@ function DeliveryCard({
               icon={{
                 path: window.google?.maps?.SymbolPath?.CIRCLE || 0,
                 scale: 10,
-                fillColor: "#3b82f6",
+                fillColor: "#111812",
                 fillOpacity: 1,
                 strokeWeight: 3,
                 strokeColor: "#ffffff",
@@ -642,188 +1023,158 @@ function DeliveryCard({
                 }}
                 onCloseClick={() => setSelectedMarker(null)}
               >
-                <div className="min-w-[200px] p-2">
-                  <p className="font-bold text-blue-600">👤 Customer</p>
-                  <p className="font-semibold mt-1">
-                    {customer?.name || "Customer"}
-                  </p>
-                  <p className="text-xs text-gray-600 mt-1">
-                    {customer?.address || "No address provided"}
+                <div className="p-1">
+                  <p className="font-bold text-sm">
+                    📍 {customer?.name || "Customer"}
                   </p>
                 </div>
               </InfoWindow>
             )}
 
-            {/* Route from Driver to Restaurant - Black */}
-            {driverToRestaurantPath.length > 0 && (
+            {/* Route Polylines */}
+            {showRoutes && driverToRestaurantPath.length > 0 && (
               <Polyline
                 path={driverToRestaurantPath}
                 options={{
-                  strokeColor: "#000000",
+                  strokeColor: "#13ec37",
                   strokeOpacity: 0.9,
                   strokeWeight: 5,
                 }}
               />
             )}
 
-            {/* Route from Restaurant to Customer - Grey */}
-            {restaurantToCustomerPath.length > 0 && (
+            {showRoutes && restaurantToCustomerPath.length > 0 && (
               <Polyline
                 path={restaurantToCustomerPath}
                 options={{
-                  strokeColor: "#808080",
-                  strokeOpacity: 0.9,
-                  strokeWeight: 5,
+                  strokeColor: "#13ec37",
+                  strokeOpacity: 0.6,
+                  strokeWeight: 4,
                 }}
               />
             )}
           </GoogleMap>
         ) : (
-          <div className="h-full w-full bg-gray-200 flex items-center justify-center">
-            <p className="text-gray-500">
-              {!GOOGLE_MAPS_API_KEY
-                ? "Google Maps API key not configured"
-                : "Loading map..."}
-            </p>
+          <div className="h-full w-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
+            <div className="text-center">
+              <div className="w-10 h-10 border-3 border-green-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+              <p className="text-gray-500 text-sm">Loading map...</p>
+            </div>
           </div>
         )}
 
-        {/* Order Number Badge */}
-        <div className="absolute top-3 right-3 bg-gradient-to-r from-blue-600 to-blue-700 px-4 py-2 rounded-full shadow-lg">
-          <p className="text-xs font-semibold text-white">
-            Order #{order_number}
-          </p>
-        </div>
-
-        {/* Items Count Badge */}
-        <div className="absolute top-3 left-3 bg-gradient-to-r from-green-600 to-green-700 px-4 py-2 rounded-full shadow-lg">
-          <p className="text-xs font-bold text-white">
-            {totalItems} item{totalItems !== 1 ? "s" : ""}
-          </p>
-        </div>
+        {/* Floating Decline Button */}
+        {onDecline && (
+          <button
+            onClick={() => onDecline(delivery_id)}
+            className="absolute top-4 right-4 bg-white/90 backdrop-blur shadow-lg rounded-full p-2.5 text-gray-600 hover:text-gray-900 hover:bg-white transition-all active:scale-90 z-10"
+          >
+            <svg
+              className="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M6 18L18 6M6 6l12 12"
+              />
+            </svg>
+          </button>
+        )}
       </div>
 
-      {/* Delivery Details */}
-      <div className="p-6 space-y-5">
-        {/* 🆕 Route Extension Badge - Purple Block (ALWAYS show when driver has active deliveries) */}
-        {showRouteExtension && (
-          <div className="bg-gradient-to-r from-purple-50 to-purple-100 rounded-lg p-4 border-2 border-purple-300">
-            <p className="text-xs text-purple-700 font-bold uppercase mb-2 flex items-center gap-2">
-              <svg
-                className="w-4 h-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"
-                />
-              </svg>
-              🚗 Route Extension - Extra Earnings
-            </p>
-            <div className="grid grid-cols-3 gap-3">
-              <div className="text-center bg-white rounded-lg p-2 shadow-sm">
-                <p className="text-2xl font-bold text-purple-700">
-                  +{extra_distance_km?.toFixed(2) || "0.00"}
-                </p>
-                <p className="text-xs text-purple-600 font-semibold">
-                  km added
-                </p>
-              </div>
-              <div className="text-center bg-white rounded-lg p-2 shadow-sm">
-                <p className="text-2xl font-bold text-purple-700">
-                  +
-                  {extra_time_minutes?.toFixed
-                    ? extra_time_minutes.toFixed(0)
-                    : extra_time_minutes || 0}
-                </p>
-                <p className="text-xs text-purple-600 font-semibold">
-                  min added
-                </p>
-              </div>
-              <div className="text-center bg-white rounded-lg p-2 shadow-sm">
-                <p className="text-2xl font-bold text-green-700">
-                  +Rs. {extra_earnings?.toFixed(2) || "0.00"}
-                </p>
-                <p className="text-xs text-green-600 font-semibold">
-                  extra earnings
-                </p>
-              </div>
-            </div>
-            <p className="text-xs text-purple-600 mt-3 text-center italic bg-purple-50 p-2 rounded">
-              💡 This delivery adds{" "}
-              <strong>{extra_distance_km?.toFixed(2) || "0.00"} km</strong> and{" "}
-              <strong>
-                {extra_time_minutes?.toFixed
-                  ? extra_time_minutes.toFixed(0)
-                  : extra_time_minutes || 0}{" "}
-                min
-              </strong>{" "}
-              to your current route
-            </p>
-          </div>
-        )}
-
-        {/* 🆕 Cannot Accept Warning */}
+      {/* Content Card - Slides over map */}
+      <div className="bg-white rounded-t-[28px] -mt-7 relative z-10 px-5 pt-6 pb-5">
+        {/* Cannot Accept Warning */}
         {!can_accept && reason && (
-          <div className="bg-red-50 rounded-lg p-4 border-2 border-red-300">
+          <div className="bg-red-50 rounded-xl p-3 border border-red-200 mb-4">
             <p className="text-sm text-red-700 font-semibold flex items-center gap-2">
-              <svg
-                className="w-5 h-5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-              Cannot Accept: {reason}
+              <span>⚠️</span> {reason}
             </p>
           </div>
         )}
 
-        {/* Earnings and Stats - ALWAYS SHOW */}
-        <div
-          className={`rounded-lg p-4 border ${hasActiveDeliveries ? "bg-gradient-to-r from-blue-50 to-blue-100 border-blue-200" : "bg-gradient-to-r from-green-50 to-green-100 border-green-200"}`}
-        >
-          <div className="flex items-center justify-between">
+        {/* For STACKED deliveries (2nd or more) - Show bonus above earnings */}
+        {isStackedDelivery ? (
+          <>
+            {/* Bonus Amount Box - Only show if bonus exists */}
+            {Number(bonus_amount || 0) > 0 && (
+              <div className="p-3 rounded-xl border-2 border-dashed border-[#13ec37] bg-green-50 mb-4 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-800 font-bold text-sm">
+                    Bonus For This Delivery
+                  </span>
+                </div>
+                <span className="text-[#13ec37] font-bold text-lg">
+                  +Rs.{Number(bonus_amount).toFixed(0)}
+                </span>
+              </div>
+            )}
+
+            {/* Extra Earnings & Stats */}
+            <div className="flex items-center justify-between mb-5 pb-5 border-b border-gray-100">
+              <div>
+                <p className="text-[#13ec37] text-3xl font-bold leading-tight">
+                  +Rs.{Number(extra_earnings || 0).toFixed(2)}
+                </p>
+                <p className="text-gray-500 text-sm font-medium">
+                  Extra Earnings
+                </p>
+              </div>
+              <div className="flex flex-col items-end gap-1.5">
+                <div className="flex items-center gap-2 text-[#111812] dark:text-black font-bold bg-gray-50 dark:bg-gray-50 px-3 py-1 rounded-full">
+                  <svg
+                    className="w-4 h-4 text-[#13ec37] font-bold"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"
+                    />
+                  </svg>
+                  +{Number(extra_distance_km || 0).toFixed(1)} km
+                </div>
+                <div className="flex items-center gap-2 text-black dark:text-black font-bold bg-gray-50 dark:bg-gray-50 px-3 py-1 rounded-full">
+                  <svg
+                    className="w-4 h-4 text-[#13ec37] font-bold"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                  +{Number(extra_time_minutes || 0).toFixed(0)} mins
+                </div>
+              </div>
+            </div>
+          </>
+        ) : (
+          /* For FIRST delivery - Show earnings prominently */
+          <div className="flex items-center justify-between mb-5 pb-5 border-b border-gray-100">
             <div>
-              <p
-                className={`text-xs font-semibold uppercase mb-1 ${hasActiveDeliveries ? "text-blue-700" : "text-green-700"}`}
-              >
-                {hasActiveDeliveries ? "Additional Earnings" : "Your Earnings"}
+              <p className="text-[#13ec37] text-3xl font-bold leading-tight">
+                Rs. {driverEarnings?.toFixed(0) || "0"}
               </p>
-              <p
-                className={`text-3xl font-bold ${hasActiveDeliveries ? "text-blue-600" : "text-green-600"}`}
-              >
-                Rs.{" "}
-                {hasActiveDeliveries
-                  ? (
-                      Number(base_earnings || 0) +
-                      Number(extra_earnings || 0) +
-                      Number(bonus_amount || 0)
-                    ).toFixed(2)
-                  : driverEarnings?.toFixed(2) || "0.00"}
-              </p>
-              <p
-                className={`text-xs mt-1 ${hasActiveDeliveries ? "text-blue-600" : "text-green-600"}`}
-              >
-                {hasActiveDeliveries
-                  ? `Base: Rs. ${Number(base_earnings || 0).toFixed(2)} + Extra: Rs. ${Number(extra_earnings || 0).toFixed(2)}${Number(bonus_amount || 0) > 0 ? ` + Bonus: Rs. ${Number(bonus_amount).toFixed(2)}` : ""}`
-                  : "First Delivery Earnings"}
+              <p className="text-gray-500 text-sm font-medium">
+                Estimated Earnings
               </p>
             </div>
-            <div className="text-right space-y-2">
-              <div className="flex items-center gap-2 text-sm text-gray-700">
+            <div className="flex flex-col items-end gap-1.5">
+              <div className="flex items-center gap-2 text-black dark:text-black font-bold bg-gray-50 dark:bg-gray-50 px-3 py-1 rounded-full">
                 <svg
-                  className={`w-5 h-5 ${hasActiveDeliveries ? "text-blue-600" : "text-green-600"}`}
+                  className="w-4 h-4 text-green-400 font-bold"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -835,20 +1186,11 @@ function DeliveryCard({
                     d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"
                   />
                 </svg>
-                <span
-                  className={`font-bold ${hasActiveDeliveries ? "text-blue-600" : "text-green-600"}`}
-                >
-                  {Number(total_delivery_distance_km || 0).toFixed(2)} km
-                </span>
-                <span className="text-xs text-gray-500">
-                  {hasActiveDeliveries
-                    ? `(+${Number(extra_distance_km || 0).toFixed(2)} km extra)`
-                    : "(Total Distance)"}
-                </span>
+                {Number(total_delivery_distance_km || 0).toFixed(1)} km
               </div>
-              <div className="flex items-center gap-2 text-sm text-gray-700">
+              <div className="flex items-center gap-2 text-black dark:text-black font-bold bg-gray-50 dark:bg-gray-50 px-3 py-1 rounded-full">
                 <svg
-                  className={`w-5 h-5 ${hasActiveDeliveries ? "text-purple-600" : "text-blue-600"}`}
+                  className="w-4 h-4 text-green-400 font-bold"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -860,54 +1202,25 @@ function DeliveryCard({
                     d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
                   />
                 </svg>
-                <span className="font-bold">
-                  {estimated_time_minutes || 0} min
-                </span>
-                {hasActiveDeliveries && (
-                  <span className="text-xs text-gray-500">
-                    (+{Number(extra_time_minutes || 0).toFixed(0)} min extra)
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-        {Number(bonus_amount || 0) > 0 && (
-          <div className="mt-4 bg-gradient-to-r from-[#6bf7db] via-[#15e1b9] to-[#10c4a9] rounded-lg p-3 border border-yellow-300">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="text-2xl animate-bounce">🎁</div>
-                <div>
-                  <p className="text-purple-700 font-bold text-sm drop-shadow-lg">
-                    DELIVERY BONUS!
-                  </p>
-                  <p className="text-purple-600 text-xs font-semibold">
-                    More orders = More money!
-                  </p>
-                </div>
-              </div>
-              <div className="text-right">
-                <div className="bg-[#97f9eb] bg-opacity-20 rounded px-3 py-1 backdrop-blur-sm">
-                  <p className="text-purple-700 text-lg font-bold drop-shadow-lg">
-                    +Rs. {Number(bonus_amount).toFixed(2)}
-                  </p>
-                  <p className="text-purple-600 text-xs font-semibold">BONUS</p>
-                </div>
+                {estimated_time_minutes || 0} mins
               </div>
             </div>
           </div>
         )}
 
-        {/* Pick-up Location */}
-        <div className="bg-red-50 rounded-lg p-4 border border-red-200">
-          <div className="flex items-start gap-3">
-            <div className="flex-shrink-0 w-12 h-12 bg-gradient-to-r from-red-500 to-red-600 rounded-full flex items-center justify-center text-2xl shadow-md">
-              🍽️
-            </div>
-            <div className="flex-1">
-              <p className="text-xs text-red-700 uppercase font-bold mb-1 flex items-center gap-1">
+        {/* Route Details Header */}
+        <h3 className="text-gray-900 text-base font-bold mb-4">
+          Route Details
+        </h3>
+
+        {/* Timeline Component - Address Style from Mockup */}
+        <div className="flex flex-col gap-0 mb-5">
+          {/* Pickup */}
+          <div className="flex gap-3">
+            <div className="flex flex-col items-center">
+              <div className="w-10 h-10 bg-[#13ec37]/10 rounded-full flex items-center justify-center">
                 <svg
-                  className="w-4 h-4"
+                  className="w-5 h-5 text-[#13ec37]"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -916,124 +1229,118 @@ function DeliveryCard({
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     strokeWidth={2}
-                    d="M5 10l7-7m0 0l7 7m-7-7v18"
+                    d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
                   />
                 </svg>
-                Pick-up Location
+              </div>
+              <div className="w-1 bg-[#13ec37]/30 flex-0.5 min-h-[40px]"></div>
+            </div>
+            <div className="flex-1 pb-4">
+              <p className="text-[#13ec37] text-xs font-bold uppercase tracking-wide">
+                Pickup:{" "}
+                <span className="text-gray-900 text-[15px] font-bold leading-snug">
+                  {restaurant.name}
+                </span>
               </p>
-              <p className="font-bold text-gray-900 text-lg">
-                {restaurant.name}
+
+              <p className="text-gray-500 text-sm leading-snug">
+                {restaurant.address}
               </p>
-              <p className="text-sm text-gray-600 mt-1">{restaurant.address}</p>
-              {restaurant.phone && (
-                <p className="text-sm text-gray-700 mt-2 flex items-center gap-1 font-medium">
-                  <svg
-                    className="w-4 h-4"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
-                    />
-                  </svg>
-                  {restaurant.phone}
-                </p>
-              )}
+            </div>
+          </div>
+
+          {/* Drop-off */}
+          <div className="flex gap-3">
+            <div className="flex flex-col items-center">
+              <div className="w-10 h-10 bg-[#13ec37]/10 rounded-full flex items-center justify-center">
+                <svg
+                  className="w-5 h-5 text-[#13ec37]"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+                  />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+                  />
+                </svg>
+              </div>
+            </div>
+            <div className="flex-1">
+              <p className="text-[#13ec37] text-xs font-bold uppercase tracking-wide">
+                Drop-off:{" "}
+                <span className="text-black font-bold leading-snug">
+                  {customer?.name || "Customer"}
+                </span>
+              </p>
+              <p className="text-gray-500 text-sm leading-snug">
+                {customer?.address || "No address"}
+              </p>
             </div>
           </div>
         </div>
 
-        {/* Delivery Address */}
-        <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-          <div className="flex items-start gap-3">
-            <div className="flex-shrink-0 w-12 h-12 bg-gradient-to-r from-blue-500 to-blue-600 rounded-full flex items-center justify-center text-2xl shadow-md">
-              👤
-            </div>
-            <div className="flex-1">
-              <p className="text-xs text-blue-700 uppercase font-bold mb-1 flex items-center gap-1">
-                <svg
-                  className="w-4 h-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M19 14l-7 7m0 0l-7-7m7 7V3"
-                  />
-                </svg>
-                Delivery Address
-              </p>
-              <p className="font-bold text-gray-900 text-lg">
-                {customer?.name || "Customer"}
-              </p>
-              <p className="text-sm text-gray-600 mt-1">
-                {customer?.address || "No address provided"}
-              </p>
-              {customer?.phone && (
-                <p className="text-sm text-gray-700 mt-2 flex items-center gap-1 font-medium">
-                  <svg
-                    className="w-4 h-4"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
-                    />
-                  </svg>
-                  {customer.phone}
-                </p>
-              )}
-            </div>
+        {/* Items Badge */}
+        {totalItems > 0 && (
+          <div className="flex items-center gap-2 mb-5">
+            <span className="bg-gray-100 px-3 py-1.5 rounded-full text-sm text-gray-700 font-medium flex items-center gap-1.5">
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"
+                />
+              </svg>
+              {totalItems} item{totalItems !== 1 ? "s" : ""}
+            </span>
+            <span className="bg-gray-100 px-3 py-1.5 rounded-full text-sm text-gray-700 font-medium">
+              #{order_number}
+            </span>
           </div>
-        </div>
+        )}
 
         {/* Accept Button */}
         <button
           onClick={() => onAccept(delivery_id)}
           disabled={accepting || !can_accept}
-          className={`w-full py-4 rounded-xl font-bold text-lg transition-all duration-300 flex items-center justify-center gap-2 shadow-lg transform ${
+          className={`w-full py-4 rounded-full font-bold text-base transition-all flex items-center justify-center gap-2 ${
             !can_accept
-              ? "bg-gray-400 cursor-not-allowed"
-              : "bg-gradient-to-r from-green-600 to-green-700 text-white hover:from-green-700 hover:to-green-800 hover:shadow-xl hover:scale-105"
-          } ${accepting ? "opacity-50 cursor-not-allowed" : ""}`}
+              ? "bg-gray-200 text-gray-500 cursor-not-allowed"
+              : accepting
+                ? "bg-[#13ec37]/70 text-gray-900 cursor-not-allowed"
+                : "bg-[#13ec37] text-gray-900 hover:bg-[#10d632] active:scale-[0.98]"
+          }`}
         >
           {accepting ? (
             <>
-              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div>
+              <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
               <span>Accepting...</span>
             </>
           ) : !can_accept ? (
-            <>
-              <svg
-                className="w-6 h-6"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"
-                />
-              </svg>
-              <span>CANNOT ACCEPT</span>
-            </>
+            <span>Cannot Accept</span>
           ) : (
             <>
+              <span>
+                {isStackedDelivery
+                  ? "Accept Stacked Delivery"
+                  : "Accept Delivery"}
+              </span>
               <svg
-                className="w-6 h-6"
+                className="w-5 h-5"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -1042,31 +1349,13 @@ function DeliveryCard({
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   strokeWidth={2}
-                  d="M5 13l4 4L19 7"
+                  d="M9 5l7 7-7 7"
                 />
               </svg>
-              <span>ACCEPT DELIVERY</span>
             </>
           )}
         </button>
       </div>
-
-      <style>{`
-        @keyframes fade-in {
-          from {
-            opacity: 0;
-            transform: translateY(20px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-
-        .animate-fade-in {
-          animation: fade-in 0.5s ease-out;
-        }
-      `}</style>
     </div>
   );
 }

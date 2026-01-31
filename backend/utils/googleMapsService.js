@@ -64,7 +64,7 @@ async function fetchRouteForMode(
 }
 
 /**
- * Get route using Google Directions API - tries multiple modes for shortest route
+ * Get route using Google Directions API - uses WALKING mode for shortest distance
  * @param {Array} waypoints - Array of {lat, lng, label} objects
  * @param {string} context - Optional context for logging
  * @param {Object} options - Additional options (travelMode, optimize, findShortest)
@@ -74,15 +74,15 @@ export async function getGoogleRoute(waypoints, context = "", options = {}) {
   // Read API key at runtime (after dotenv has loaded)
   const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
 
-  // findShortest: try multiple modes and pick the shortest (handles inaccurate map data)
-  const findShortest = options.findShortest !== false; // Default to true
+  // Use WALKING mode by default (shortest distance, suitable for motorcycles too)
+  const useSingleMode = options.useSingleMode !== false; // Default to true - use WALKING only
   const optimize = options.optimize !== false; // Default to true - optimize waypoint order
 
   console.log(
     `\n[GOOGLE MAPS] 🗺️ Getting route for ${waypoints.length} waypoints${context ? ` (${context})` : ""}`,
   );
   console.log(
-    `[GOOGLE MAPS] 🔍 Find shortest across modes: ${findShortest}, Optimize waypoints: ${optimize}`,
+    `[GOOGLE MAPS] 🔍 Mode: ${useSingleMode ? "WALKING (shortest distance)" : "Multiple modes"}, Optimize waypoints: ${optimize}`,
   );
 
   if (!waypoints || waypoints.length < 2) {
@@ -124,11 +124,11 @@ export async function getGoogleRoute(waypoints, context = "", options = {}) {
   }
 
   // Try multiple travel modes to find the shortest route
-  // This handles cases where Google Maps has inaccurate data (buildings blocking roads)
-  // WALKING mode ignores most vehicle restrictions and gives more direct paths
-  const modesToTry = findShortest
-    ? ["two_wheeler", "driving", "walking"]
-    : ["two_wheeler"];
+  // WALKING mode gives shortest distance (suitable for motorcycles too)
+  // Single mode: Just use WALKING (optimized for shortest distance)
+  const modesToTry = useSingleMode
+    ? ["walking"]
+    : ["two_wheeler", "driving", "walking"];
 
   console.log(`[GOOGLE MAPS] → Trying modes: ${modesToTry.join(", ")}...`);
 
@@ -161,7 +161,7 @@ export async function getGoogleRoute(waypoints, context = "", options = {}) {
     );
   });
 
-  // Select the shortest route across all modes
+  // Select the shortest route across all modes (already sorted by distance in fetchRouteForMode)
   const shortest = validRoutes.reduce((best, current) =>
     current.distance < best.distance ? current : best,
   );
