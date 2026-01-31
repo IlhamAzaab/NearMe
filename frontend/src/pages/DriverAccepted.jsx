@@ -1,105 +1,64 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
+import OrderMapLayout from "../components/OrderMapLayout";
 import "./DriverAccepted.css";
 
 const DriverAccepted = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { orderId } = useParams();
-  
-  const [orderData, setOrderData] = useState(location.state || null);
-  const [driverInfo, setDriverInfo] = useState(null);
+  const { orderId: paramOrderId } = useParams();
+
+  // Get order data from navigation state
+  const orderData = location.state || {};
+  const {
+    orderId: stateOrderId,
+    driver,
+  } = orderData;
+
+  const orderId = paramOrderId || stateOrderId;
   const [deliveryStatus, setDeliveryStatus] = useState("accepted");
-  const [loading, setLoading] = useState(true);
+  const [driverInfo, setDriverInfo] = useState(driver || null);
 
-  // Fetch order and driver data
+  // Poll for status updates
   useEffect(() => {
-    const fetchData = async () => {
-      const id = orderId || orderData?.orderId;
-      if (!id) return;
-      
-      const token = localStorage.getItem("token");
-      
-      try {
-        // Fetch delivery status with driver info
-        const response = await fetch(`http://localhost:5000/orders/${id}/delivery-status`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          setDeliveryStatus(data.status);
-          
-          if (data.driver) {
-            setDriverInfo(data.driver);
-          }
-          
-          // Also update order data if not present
-          if (!orderData) {
-            const orderResponse = await fetch(`http://localhost:5000/orders/${id}`, {
-              headers: { Authorization: `Bearer ${token}` },
-            });
-            if (orderResponse.ok) {
-              const orderResult = await orderResponse.json();
-              setOrderData({
-                order: orderResult.order,
-                orderId: orderResult.order.id,
-                orderNumber: orderResult.order.order_number,
-                restaurantName: orderResult.order.restaurant_name,
-              });
-            }
-          }
-        }
-      } catch (err) {
-        console.error("Error fetching data:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchData();
-  }, [orderId, orderData]);
-
-  // Poll for status changes
-  useEffect(() => {
-    const id = orderId || orderData?.orderId;
-    if (!id) return;
+    if (!orderId) return;
 
     const pollStatus = async () => {
-      const token = localStorage.getItem("token");
       try {
+        const token = localStorage.getItem("token");
         const response = await fetch(
-          `http://localhost:5000/orders/${id}/delivery-status`,
-          { headers: { Authorization: `Bearer ${token}` } }
+          `http://localhost:5000/orders/${orderId}/delivery-status`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          }
         );
-        
+
         if (response.ok) {
           const data = await response.json();
           const newStatus = data.status;
-          
-          // Update driver info if available
+
           if (data.driver) {
             setDriverInfo(data.driver);
           }
-          
-          if (newStatus !== deliveryStatus) {
+
+          if (newStatus && newStatus !== deliveryStatus) {
             setDeliveryStatus(newStatus);
-            
-            // Navigate based on status
+
+            // Navigate to appropriate screen based on status
             if (newStatus === "picked_up") {
-              navigate(`/order-picked-up/${id}`, { 
+              navigate(`/order-picked-up/${orderId}`, {
                 state: { ...orderData, deliveryStatus: newStatus, driver: data.driver },
-                replace: true 
+                replace: true,
               });
             } else if (newStatus === "on_the_way") {
-              navigate(`/order-on-the-way/${id}`, { 
+              navigate(`/order-on-the-way/${orderId}`, {
                 state: { ...orderData, deliveryStatus: newStatus, driver: data.driver },
-                replace: true 
+                replace: true,
               });
             } else if (newStatus === "delivered") {
-              navigate(`/order-delivered/${id}`, { 
+              navigate(`/order-delivered/${orderId}`, {
                 state: { ...orderData, deliveryStatus: newStatus },
-                replace: true 
+                replace: true,
               });
             }
           }
@@ -109,170 +68,162 @@ const DriverAccepted = () => {
       }
     };
 
-    // Poll every 3 seconds
-    const interval = setInterval(pollStatus, 3000);
-    pollStatus(); // Initial poll
+    const interval = setInterval(pollStatus, 2000);
+    pollStatus();
 
     return () => clearInterval(interval);
-  }, [orderId, orderData, deliveryStatus, navigate]);
+  }, [orderId, deliveryStatus, navigate, orderData]);
 
-  const handleClose = () => {
-    navigate("/home");
-  };
-
-  const handleCallDriver = () => {
-    if (driverInfo?.phone) {
-      window.location.href = `tel:${driverInfo.phone}`;
+  // Navigate to full tracking page
+  const handleTrackOrder = () => {
+    if (orderId) {
+      navigate(`/track/${orderId}`, { state: orderData });
     }
   };
 
-  const handleViewOrder = () => {
-    const id = orderId || orderData?.orderId;
-    navigate(`/orders/${id}`);
+  // Handle back navigation
+  const handleBack = () => {
+    navigate("/home");
   };
 
-  if (loading) {
-    return (
-      <div className="driver-accepted-container">
-        <div className="loading-state">
-          <div className="spinner"></div>
-          <p>Loading driver details...</p>
-        </div>
-      </div>
-    );
-  }
+  // Handle copy phone number to clipboard
+  const handleCopyPhone = async () => {
+    if (driverInfo?.phone) {
+      try {
+        await navigator.clipboard.writeText(driverInfo.phone);
+        alert('Phone number copied to clipboard!');
+      } catch (err) {
+        console.error('Failed to copy:', err);
+      }
+    }
+  };
+
+  // Calculate arrival time range
+  const getArrivalTimeRange = () => {
+    const now = new Date();
+    const start = new Date(now.getTime() + 25 * 60000);
+    const end = new Date(now.getTime() + 35 * 60000);
+    const format = (d) => d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: false });
+    return `${format(start)} – ${format(end)}`;
+  };
+
+  const address = orderData.address || "Your Address";
+  const totalAmount = orderData.order?.total_amount || orderData.totalAmount || 0;
 
   return (
-    <div className="driver-accepted-container">
-      {/* Progress bar at top */}
-      <div className="progress-bar">
-        <div className="progress-fill" style={{ width: "50%" }}></div>
-      </div>
-
-      {/* Header */}
-      <header className="driver-header">
-        <button className="close-btn" onClick={handleClose}>
-          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-        <div className="header-actions">
-          <button className="help-btn">Help</button>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="driver-main">
-        {/* Success Animation */}
-        <div className="success-animation">
-          <div className="check-circle">
-            <svg viewBox="0 0 52 52">
-              <circle className="check-circle-bg" cx="26" cy="26" r="25" fill="none"/>
-              <path className="check-mark" fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8"/>
-            </svg>
-          </div>
+    <OrderMapLayout
+      title="Driver accepted"
+      arrivalTimeText={getArrivalTimeRange()}
+      stepIndex={2}
+      deliveryAddress={address}
+      actionButtons={[]}
+      onBack={handleBack}
+    >
+      {/* ===== Driver Profile Card ===== */}
+      <div className="driver-card">
+        {/* Driver Avatar */}
+        <div className="driver-avatar">
+          {driverInfo?.photo_url ? (
+            <img 
+              src={driverInfo.photo_url} 
+              alt={driverInfo.full_name || "Driver"} 
+              className="driver-avatar-img"
+            />
+          ) : (
+            <div className="driver-avatar-default">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <circle cx="12" cy="8" r="4" />
+                <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
+              </svg>
+            </div>
+          )}
         </div>
 
-        {/* Title */}
-        <div className="title-section">
-          <h1>Driver accepted your order!</h1>
-          <p className="subtitle">Your delivery partner is on the way to the restaurant</p>
-        </div>
-
-        {/* Driver Card */}
-        <div className="driver-card">
-          <div className="driver-avatar">
-            {driverInfo?.profile_photo_url ? (
-              <img src={driverInfo.profile_photo_url} alt={driverInfo.full_name} />
-            ) : (
-              <div className="avatar-placeholder">
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                </svg>
-              </div>
-            )}
-          </div>
-          
-          <div className="driver-details">
-            <h2 className="driver-name">{driverInfo?.full_name || "Driver"}</h2>
+        {/* Driver Info */}
+        <div className="driver-info">
+          <h3 className="driver-name">
+            {driverInfo?.full_name || "Driver"}
+          </h3>
+          {(driverInfo?.  driverInfo?.license_plate) && (
+            <div className="driver-vehicle-number">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="5.5" cy="17.5" r="2.5" />
+                <circle cx="18.5" cy="17.5" r="2.5" />
+                <path d="M15 6h4l3 4v7h-3M2 17h3V9.5L7 6h6v11" />
+              </svg>
+              <span>{driverInfo?.vehicle_number || driverInfo?.license_plate}</span>
+            </div>
+          )}
+          {driverInfo?.rating && (
             <div className="driver-rating">
-              <span className="star">★</span>
-              <span>4.9</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Driver Info List */}
-        <div className="info-list">
-          {/* Phone */}
-          <div className="info-item">
-            <div className="info-icon phone-icon">
-              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+              <svg viewBox="0 0 24 24" fill="#FFC107" stroke="none">
+                <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
               </svg>
+              <span>{parseFloat(driverInfo.rating).toFixed(1)}</span>
             </div>
-            <div className="info-content">
-              <span className="info-label">Phone</span>
-              <span className="info-value">{driverInfo?.phone || "Not available"}</span>
-            </div>
-            {driverInfo?.phone && (
-              <button className="call-btn" onClick={handleCallDriver}>
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-                </svg>
-              </button>
-            )}
-          </div>
-
-          {/* Vehicle Number */}
-          <div className="info-item">
-            <div className="info-icon vehicle-icon">
-              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0" />
+          )}
+          {driverInfo?.phone && (
+            <div className="driver-phone">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 16.92z" />
               </svg>
+              <span>{driverInfo.phone}</span>
             </div>
-            <div className="info-content">
-              <span className="info-label">Vehicle Number</span>
-              <span className="info-value vehicle-number">{driverInfo?.vehicle_number || "Not available"}</span>
-            </div>
-          </div>
-
-          {/* Vehicle Type */}
-          <div className="info-item">
-            <div className="info-icon type-icon">
-              🏍️
-            </div>
-            <div className="info-content">
-              <span className="info-label">Vehicle Type</span>
-              <span className="info-value">{driverInfo?.vehicle_type || driverInfo?.driver_type || "Bike"}</span>
-            </div>
-          </div>
+          )}
         </div>
 
-        {/* Restaurant Info */}
-        <div className="restaurant-info">
-          <div className="restaurant-icon">🍽️</div>
-          <div className="restaurant-text">
-            <span className="heading-to">Heading to</span>
-            <span className="restaurant-name">{orderData?.restaurantName || "Restaurant"}</span>
-          </div>
-        </div>
-      </main>
-
-      {/* Bottom Action */}
-      <div className="bottom-action">
-        <button className="view-order-btn" onClick={handleViewOrder}>
-          View Order Details
-        </button>
+        {/* Copy Phone Button */}
+        {driverInfo?.phone && (
+          <button className="copy-phone-btn" onClick={handleCopyPhone} title="Copy phone number">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+              <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+            </svg>
+          </button>
+        )}
       </div>
 
-      {/* Status Indicator */}
-      <div className="status-indicator accepted">
-        <div className="status-dot"></div>
-        <span>Driver is heading to pick up your order</span>
+      {/* ===== Vehicle Info Card ===== */}
+      <div className="vehicle-card">
+        {/* Vehicle Image */}
+        <div className="vehicle-image">
+          {driverInfo?.vehicle_image_url ? (
+            <img 
+              src={driverInfo.vehicle_image_url} 
+              alt="Vehicle" 
+              className="vehicle-img"
+            />
+          ) : (
+            <div className="vehicle-image-default">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <circle cx="5.5" cy="17.5" r="3.5" />
+                <circle cx="18.5" cy="17.5" r="3.5" />
+                <path d="M15 6h4l3 5-2.5 3M7.5 17.5h7M5.5 14l1-5h5l2 5" />
+                <path d="M12 9v5" />
+              </svg>
+            </div>
+          )}
+        </div>
+
+        {/* Vehicle Details */}
+        <div className="vehicle-details">
+          <div className="vehicle-row">
+            <span className="vehicle-label">Vehicle</span>
+            <span className="vehicle-value">{driverInfo?.vehicle_type || "Motorbike"}</span>
+          </div>
+          <div className="vehicle-row">
+            <span className="vehicle-label">Plate Number</span>
+            <span className="vehicle-plate">{driverInfo?.vehicle_number || driverInfo?.license_plate || "---"}</span>
+          </div>
+          {driverInfo?.vehicle_color && (
+            <div className="vehicle-row">
+              <span className="vehicle-label">Color</span>
+              <span className="vehicle-value">{driverInfo.vehicle_color}</span>
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+    </OrderMapLayout>
   );
 };
 

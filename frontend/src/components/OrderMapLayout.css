@@ -1,7 +1,7 @@
-/* OrderReceived.css - Modern Food Delivery Tracking Screen */
-/* High-fidelity Android UI with realistic map background */
+/* OrderMapLayout.css - Reusable Order Map Layout Component */
+/* Extracted from OrderReceived.css for consistent UI across all order status pages */
 
-.order-received-screen {
+.order-map-layout {
   min-height: 100vh;
   min-height: 100dvh;
   width: 100%;
@@ -407,40 +407,191 @@
   color: #333;
 }
 
-/* ===== Loading State ===== */
-.loading-screen {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  background: #f5f5f5;
-  gap: 16px;
-}
-
-.loading-spinner {
-  width: 48px;
-  height: 48px;
-  border: 3px solid #e8e8e8;
-  border-top-color: #22c55e;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-.loading-screen p {
-  color: #666;
-  font-size: 14px;
-}
-
 /* ===== Responsive ===== */
 @media (min-width: 480px) {
-  .order-received-screen {
+  .order-map-layout {
     max-width: 480px;
     margin: 0 auto;
     box-shadow: 0 0 60px rgba(0,0,0,0.1);
   }
+}
+
+/* ===== View Order Section ===== */
+.view-order-section {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.view-order-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  background: white;
+  border: 2px solid #e5e5e5;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.view-order-btn:hover {
+  border-color: #22c55e;
+  background: #f8fdf9;
+}
+
+.view-order-btn.expanded {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  border-color: #22c55e;
+  background: #f8fdf9;
+}
+
+.view-order-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.view-order-left svg {
+  width: 20px;
+  height: 20px;
+  color: #22c55e;
+}
+
+.view-order-left span {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.view-order-btn .chevron {
+  width: 20px;
+  height: 20px;
+  color: #666;
+  transition: transform 0.3s ease;
+}
+
+.view-order-btn .chevron.rotated {
+  transform: rotate(180deg);
+}
+
+/* Order Details Expanded */
+.order-details-expanded {
+  border: 2px solid #22c55e;
+  border-top: none;
+  border-radius: 0 0 12px 12px;
+  padding: 16px;
+  background: white;
+  animation: expandIn 0.3s ease-out;
+}
+
+@keyframes expandIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.order-detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid #f5f5f5;
+}
+
+.order-detail-row:last-child {
+  border-bottom: none;
+}
+
+.detail-label-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.detail-value-text {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1a1a1a;
+  text-align: right;
+}
+
+.order-items-section {
+  padding: 12px 0;
+  border-bottom: 1px solid #f5f5f5;
+}
+
+.order-items-section .detail-label-text {
+  display: block;
+  margin-bottom: 12px;
+}
+
+.items-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.item-detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 10px;
+  background: #f8f8f8;
+  border-radius: 8px;
+}
+
+.item-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.item-qty {
+  font-size: 13px;
+  font-weight: 700;
+  color: #22c55e;
+  min-width: 26px;
+}
+
+.item-name-text {
+  font-size: 14px;
+  font-weight: 500;
+  color: #333;
+}
+
+.item-price-text {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1a1a1a;
+  white-space: nowrap;
+}
+
+.total-row {
+  padding: 14px 0;
+  margin-top: 8px;
+  border-top: 2px solid #e5e5e5;
+}
+
+.total-row .detail-label-text {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1a1a1a;
+}
+
+.total-row .total-amount {
+  font-size: 16px;
+  font-weight: 700;
+  color: #22c55e;
 }

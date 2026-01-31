@@ -220,7 +220,7 @@ router.put("/update-profile", authenticate, async (req, res) => {
 
 /**
  * GET /admin/stats
- * Basic dashboard metrics for admin
+ * Enhanced dashboard metrics for admin
  */
 router.get("/stats", authenticate, async (req, res) => {
   try {
@@ -235,40 +235,105 @@ router.get("/stats", authenticate, async (req, res) => {
 
     if (ordersErr) throw ordersErr;
 
-    // Active deliveries (not delivered/failed/cancelled)
-    const { count: activeDeliveries, error: deliveriesErr } =
-      await supabaseAdmin
-        .from("deliveries")
-        .select("id", { count: "exact", head: true })
-        .not("status", "in", "(delivered,failed,cancelled)");
+    // Total revenue
+    const { data: revenueData, error: revenueErr } = await supabaseAdmin
+      .from("orders")
+      .select("total_amount");
 
-    if (deliveriesErr) throw deliveriesErr;
+    const totalRevenue = revenueData?.reduce((sum, order) => sum + (parseFloat(order.total_amount) || 0), 0) || 0;
 
-    // Restaurants
-    const { count: restaurantsCount, error: restErr } = await supabaseAdmin
-      .from("restaurants")
+    // Today's orders and revenue
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayISO = today.toISOString();
+
+    const { data: todayOrders, error: todayErr } = await supabaseAdmin
+      .from("orders")
+      .select("total_amount")
+      .gte("created_at", todayISO);
+
+    const todayOrdersCount = todayOrders?.length || 0;
+    const todayRevenue = todayOrders?.reduce((sum, order) => sum + (parseFloat(order.total_amount) || 0), 0) || 0;
+
+    // Foods count (products)
+    const { count: foodsCount, error: foodsErr } = await supabaseAdmin
+      .from("foods")
       .select("id", { count: "exact", head: true });
 
-    if (restErr) throw restErr;
+    // Available foods
+    const { count: availableFoods, error: availErr } = await supabaseAdmin
+      .from("foods")
+      .select("id", { count: "exact", head: true })
+      .eq("is_available", true);
 
-    // Drivers
-    const { count: driversCount, error: driversErr } = await supabaseAdmin
-      .from("drivers")
-      .select("id", { count: "exact", head: true });
+    // Active customers (users with role customer)
+    const { count: customersCount, error: custErr } = await supabaseAdmin
+      .from("users")
+      .select("id", { count: "exact", head: true })
+      .eq("role", "customer");
 
-    if (driversErr) throw driversErr;
+    // Calculate average order value
+    const avgOrderValue = ordersCount > 0 ? totalRevenue / ordersCount : 0;
 
     return res.json({
       stats: {
-        total_orders: ordersCount || 0,
-        active_deliveries: activeDeliveries || 0,
-        restaurants: restaurantsCount || 0,
-        drivers: driversCount || 0,
+        totalOrders: ordersCount || 0,
+        totalRevenue: totalRevenue,
+        totalProducts: foodsCount || 0,
+        availableProducts: availableFoods || 0,
+        activeCustomers: customersCount || 0,
+        todayOrders: todayOrdersCount,
+        todayRevenue: todayRevenue,
+        avgOrderValue: avgOrderValue,
       },
     });
   } catch (e) {
     console.error("/admin/stats error:", e);
     return res.status(500).json({ message: "Failed to load stats" });
+  }
+});
+
+/**
+ * GET /admin/orders
+ * Get recent orders for admin dashboard
+ */
+router.get("/orders", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const limit = parseInt(req.query.limit) || 10;
+
+    const { data: orders, error } = await supabaseAdmin
+      .from("orders")
+      .select(`
+        id,
+        order_number,
+        customer_id,
+        restaurant_id,
+        total_amount,
+        status,
+        created_at,
+        updated_at,
+        users:customer_id (
+          full_name,
+          email
+        ),
+        restaurants:restaurant_id (
+          name,
+          logo_url
+        )
+      `)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+
+    if (error) throw error;
+
+    return res.json({ orders: orders || [] });
+  } catch (e) {
+    console.error("/admin/orders error:", e);
+    return res.status(500).json({ message: "Failed to load orders" });
   }
 });
 

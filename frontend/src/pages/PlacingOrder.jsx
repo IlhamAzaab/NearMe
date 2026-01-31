@@ -1,29 +1,36 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
+import OrderMapLayout from "../components/OrderMapLayout";
+import { getStatusConfig } from "../config/orderStatusConfig";
 import "./PlacingOrder.css";
 
 const PlacingOrder = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
-  const [deliveryStatus, setDeliveryStatus] = useState("placed");
+  const [showDetails, setShowDetails] = useState(false);
+  const [viewOrderExpanded, setViewOrderExpanded] = useState(false);
+  const [fetchedRestaurantLogo, setFetchedRestaurantLogo] = useState(null);
+  const [imageError, setImageError] = useState(false);
 
   // Get order data passed from checkout
   const orderData = location.state || {};
   const {
     address = "123 Main Street, City",
-    city = "",
-    deliveryMethod = "meet_at_door",
-    deliveryOption = "standard",
     restaurantName = "Restaurant",
+    restaurantLogo = null,
     items = [],
-    paymentMethod = "cash",
     totalAmount = 0,
     orderPlaced = false,
     orderId = null,
     orderNumber = null,
     order = null,
   } = orderData;
+
+  // Get logo URL from fetched data, order data, or order object
+  const logoUrl = fetchedRestaurantLogo || restaurantLogo || order?.restaurant?.logo_url || order?.logo_url || null;
+
+  // Get status configuration
+  const statusConfig = getStatusConfig("placed");
 
   // Poll for delivery status changes
   useEffect(() => {
@@ -41,17 +48,34 @@ const PlacingOrder = () => {
           const data = await response.json();
           const newStatus = data.status;
           
-          console.log("Delivery status:", newStatus);
+          console.log("Delivery status:", newStatus, "Logo:", data.restaurantLogo);
           
-          if (newStatus !== deliveryStatus) {
-            setDeliveryStatus(newStatus);
+          // Update restaurant logo if available from API
+          if (data.restaurantLogo && !fetchedRestaurantLogo) {
+            setFetchedRestaurantLogo(data.restaurantLogo);
+            setImageError(false);
+          }
+          
+          // Navigate to the correct page based on the new status
+          if (newStatus && newStatus !== "placed") {
+            const stateData = { 
+              ...orderData, 
+              deliveryStatus: newStatus, 
+              driver: data.driver,
+              restaurantLogo: data.restaurantLogo 
+            };
             
-            // Navigate to Order Received when status becomes 'pending' (restaurant accepted)
-            if (newStatus === "pending") {
-              navigate(`/order-received/${orderId}`, { 
-                state: { ...orderData, deliveryStatus: newStatus },
-                replace: true 
-              });
+            // Route to the dedicated page for each status
+            if (newStatus === "pending" || newStatus === "received") {
+              navigate(`/order-received/${orderId}`, { state: stateData, replace: true });
+            } else if (newStatus === "accepted") {
+              navigate(`/driver-accepted/${orderId}`, { state: stateData, replace: true });
+            } else if (newStatus === "picked_up") {
+              navigate(`/order-picked-up/${orderId}`, { state: stateData, replace: true });
+            } else if (newStatus === "on_the_way") {
+              navigate(`/order-on-the-way/${orderId}`, { state: stateData, replace: true });
+            } else if (newStatus === "delivered") {
+              navigate(`/order-delivered/${orderId}`, { state: stateData, replace: true });
             }
           }
         }
@@ -65,317 +89,97 @@ const PlacingOrder = () => {
     pollStatus(); // Initial poll
 
     return () => clearInterval(interval);
-  }, [orderId, orderPlaced, deliveryStatus, navigate, orderData]);
+  }, [orderId, orderPlaced, navigate, orderData, fetchedRestaurantLogo]);
 
-  // Calculate delivery time window
-  const getDeliveryTimeWindow = () => {
-    const now = new Date();
-    // Use estimated duration from order if available, otherwise default
-    const estimatedDuration = order?.estimated_duration_min || 30;
-    const baseTime = Math.ceil(estimatedDuration) + 15;
-    const startMinutes = deliveryOption === "priority" ? baseTime : baseTime + 5;
-    const endMinutes = deliveryOption === "priority" ? baseTime + 10 : baseTime + 15;
-    
-    const startTime = new Date(now.getTime() + startMinutes * 60000);
-    const endTime = new Date(now.getTime() + endMinutes * 60000);
-    
-    const formatTime = (date) =>
-      date.toLocaleTimeString("en-US", {
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false,
-      });
-    
-    return `${formatTime(startTime)}–${formatTime(endTime)}`;
+  // Handle view order details
+  const handleToggleDetails = () => {
+    setShowDetails(!showDetails);
   };
 
-  // Handle cancel button click - show confirmation
-  const handleCancelClick = () => {
-    setShowCancelConfirm(true);
+  const handleToggleViewOrder = () => {
+    setViewOrderExpanded(!viewOrderExpanded);
   };
 
-  // Confirm cancellation
-  const handleConfirmCancel = () => {
-    console.log("Order cancelled by user");
-    navigate(-1);
+  // Handle image error
+  const handleImageError = () => {
+    setImageError(true);
   };
 
-  // Dismiss cancel confirmation
-  const handleDismissCancel = () => {
-    setShowCancelConfirm(false);
-  };
-
-  // Go back
-  const handleGoBack = () => {
-    navigate(-1);
-  };
-
-  // Navigate to track order
-  const handleTrackOrder = () => {
-    if (orderId) {
-      navigate(`/orders/${orderId}`);
-    } else {
-      navigate("/orders");
-    }
-  };
-
-  // Navigate to home
-  const handleBackToHome = () => {
+  const handleBack = () => {
     navigate("/home");
   };
 
-  // Format price
-  const formatPrice = (price) => {
-    return price ? `Rs. ${parseFloat(price).toFixed(2)}` : "Rs. 0.00";
-  };
-
   return (
-    <div className={`placing-order-container ${orderPlaced ? 'order-success' : ''}`}>
-      {/* Floating food icons */}
-      <div className="floating-icons">
-        <span className="floating-icon">🍔</span>
-        <span className="floating-icon">🍕</span>
-        <span className="floating-icon">🛵</span>
-        <span className="floating-icon">🥡</span>
-        <span className="floating-icon">🍜</span>
-        <span className="floating-icon">🍗</span>
-      </div>
-
-      {/* Bottom Sheet Card */}
-      <div className="bottom-sheet">
-        <div className="sheet-content">
-          {/* Drag Handle */}
-          <div className="drag-handle"></div>
-
-          {/* Title */}
-          <div className="title-section">
-            {orderPlaced ? (
-              <div className="success-icon-container">
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-              </div>
+    <OrderMapLayout
+      title={statusConfig.title}
+      arrivalTimeText={null}
+      stepIndex={statusConfig.stepIndex}
+      deliveryAddress={address}
+      showViewOrder={true}
+      viewOrderExpanded={viewOrderExpanded}
+      onToggleViewOrder={handleToggleViewOrder}
+      orderDetails={{
+        restaurantName,
+        orderNumber,
+        items,
+        totalAmount: order?.total_amount || totalAmount,
+      }}
+      onBack={handleBack}
+    >
+      {/* Order Details Section - Only for PlacingOrder page */}
+      <div className="order-details-section">
+        {/* Restaurant Name */}
+        <div className="detail-group">
+          <p className="detail-label">Restaurant</p>
+          <div className="restaurant-info-row">
+            {logoUrl && !imageError ? (
+              <img 
+                src={logoUrl} 
+                alt={restaurantName} 
+                className="restaurant-thumbnail"
+                onError={handleImageError}
+              />
             ) : (
-              <div className="spinner-container">
-                <div className="spinner"></div>
+              <div className="restaurant-thumbnail-placeholder">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                </svg>
               </div>
             )}
-            <div>
-              <h1 className="title-text">{orderPlaced ? 'Order Placed!' : 'Placing order…'}</h1>
-              {orderPlaced && orderNumber && (
-                <p className="order-number">Order #{orderNumber}</p>
-              )}
-            </div>
+            <span className="restaurant-name-text">{restaurantName}</span>
           </div>
-
-          {/* Order Details */}
-          <div className="order-details">
-            {/* Location */}
-            <div className="detail-row">
-              <div className="icon-box">
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
-                  />
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
-                  />
-                </svg>
-              </div>
-              <div className="detail-content">
-                <p className="detail-title">Home</p>
-                <p className="detail-subtitle">
-                  {deliveryMethod === "meet_at_door"
-                    ? "Meet at my door"
-                    : "Leave at my door"}
-                </p>
-                <p className="detail-address">{address}</p>
-              </div>
-            </div>
-
-            {/* Delivery Time */}
-            <div className="detail-row">
-              <div className="icon-box">
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
-                </svg>
-              </div>
-              <div className="detail-content">
-                <p className="detail-title">
-                  {deliveryOption === "priority" ? "Priority" : "Standard"}{" "}
-                  delivery: {getDeliveryTimeWindow()}
-                </p>
-              </div>
-            </div>
-
-            {/* Restaurant */}
-            <div className="detail-row">
-              <div className="icon-box">
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
-                  />
-                </svg>
-              </div>
-              <div className="detail-content">
-                <p className="detail-title">{restaurantName}</p>
-              </div>
-            </div>
-
-            {/* Ordered Items */}
-            <div className="detail-row">
-              <div className="icon-box">
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"
-                  />
-                </svg>
-              </div>
-              <div className="detail-content">
-                {items.length > 0 ? (
-                  items.map((item, idx) => (
-                    <p key={idx} className="detail-title" style={{ marginBottom: idx < items.length - 1 ? '0.25rem' : 0 }}>
-                      {item.quantity}× {item.name}
-                    </p>
-                  ))
-                ) : (
-                  <p className="detail-title">1× Chicken Kottu 🍗</p>
-                )}
-              </div>
-            </div>
-
-            {/* Payment Method */}
-            <div className="detail-row">
-              <div className="icon-box">
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"
-                  />
-                </svg>
-              </div>
-              <div className="detail-content">
-                <p className="detail-title">
-                  {paymentMethod === "cash"
-                    ? "Cash on Delivery"
-                    : "Personal: Mastercard ••••0673"}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Total */}
-          <div className="total-section">
-            <p className="total-label">Total</p>
-            <p className="total-amount">{formatPrice(order?.total_amount || totalAmount)}</p>
-          </div>
-
-          {/* Actions - Different for placed vs placing */}
-          <div className="actions">
-            {orderPlaced ? (
-              <>
-                <button
-                  className="btn-primary btn-success"
-                  onClick={handleTrackOrder}
-                >
-                  <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
-                    />
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
-                    />
-                  </svg>
-                  Track Order
-                </button>
-                <button
-                  className="btn-secondary"
-                  onClick={handleBackToHome}
-                >
-                  Back to Home
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  className="btn-primary"
-                  onClick={handleCancelClick}
-                >
-                  <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg>
-                  Cancel order
-                </button>
-                <button
-                  className="btn-secondary"
-                  onClick={handleGoBack}
-                >
-                  Go back
-                </button>
-              </>
-            )}
-          </div>
-
-          {/* Cancel Confirmation Modal */}
-          {showCancelConfirm && (
-            <div className="cancel-modal-overlay">
-              <div className="cancel-modal">
-                <div className="cancel-modal-icon">
-                  <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                    />
-                  </svg>
-                </div>
-                <h3 className="cancel-modal-title">Cancel Order?</h3>
-                <p className="cancel-modal-text">Are you sure you want to cancel this order?</p>
-                <div className="cancel-modal-actions">
-                  <button className="cancel-modal-btn cancel-modal-btn-secondary" onClick={handleDismissCancel}>
-                    No, keep it
-                  </button>
-                  <button className="cancel-modal-btn cancel-modal-btn-primary" onClick={handleConfirmCancel}>
-                    Yes, cancel
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
+
+        {/* Food Items */}
+        {items && items.length > 0 && (
+          <div className="detail-group">
+            <p className="detail-label">Food Items</p>
+            <div className="food-items-list">
+              {items.map((item, idx) => (
+                <div key={idx} className="food-item-row">
+                  <div className="item-name-qty">
+                    <span className="item-quantity">{item.quantity}×</span>
+                    <span className="item-name">{item.name}</span>
+                  </div>
+                  <span className="item-price">
+                    LKR {(item.price * item.quantity).toFixed(2)}
+                  </span>
+                </div>
+              ))}
+              <div className="food-items-total">
+                <span className="total-label">Total</span>
+                <span className="total-value">
+                  LKR {parseFloat(order?.total_amount || totalAmount).toFixed(2)}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Instruction */}
+       
       </div>
-    </div>
+    </OrderMapLayout>
   );
 };
 

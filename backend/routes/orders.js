@@ -683,6 +683,9 @@ router.get("/:id/delivery-status", authenticate, async (req, res) => {
           last_location_update,
           picked_up_at,
           delivered_at
+        ),
+        restaurants (
+          logo_url
         )
       `
       )
@@ -701,6 +704,18 @@ router.get("/:id/delivery-status", authenticate, async (req, res) => {
     // Get delivery status
     const delivery = order.deliveries?.[0] || order.deliveries;
     const deliveryStatus = delivery?.status || "placed";
+    
+    // Fetch restaurant logo if not included in the join
+    let restaurantLogo = order.restaurants?.logo_url || null;
+    if (!restaurantLogo && order.restaurant_id) {
+      const { data: restaurant } = await supabaseAdmin
+        .from("restaurants")
+        .select("logo_url")
+        .eq("id", order.restaurant_id)
+        .single();
+      
+      restaurantLogo = restaurant?.logo_url || null;
+    }
     
     // Fetch driver info if driver is assigned
     let driverInfo = null;
@@ -753,6 +768,7 @@ router.get("/:id/delivery-status", authenticate, async (req, res) => {
         address: order.delivery_address,
       },
       restaurantName: order.restaurant_name,
+      restaurantLogo: restaurantLogo,
       estimatedDuration: order.estimated_duration_min,
     });
   } catch (error) {

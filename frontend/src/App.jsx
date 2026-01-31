@@ -56,6 +56,7 @@ import DeliveryHistory from "./pages/driver/DeliveryHistory";
 import CustomerNotifications from "./pages/CustomerNotifications";
 import AdminNotifications from "./pages/admin/AdminNotifications";
 import CustomerProfile from "./pages/CustomerProfile";
+import OrderTracking from "./pages/OrderTracking";
 
 function App() {
   return (
@@ -186,6 +187,17 @@ function App() {
             </ProtectedRoute>
           }
         />
+        
+        {/* Unified Order Tracking - Material Design with bottom sheets */}
+        <Route
+          path="/track/:orderId"
+          element={
+            <ProtectedRoute allowedRole="customer" requireAuth={true}>
+              <OrderTracking />
+            </ProtectedRoute>
+          }
+        />
+        
         <Route
           path="/orders"
           element={
