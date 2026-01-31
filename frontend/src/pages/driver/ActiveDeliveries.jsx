@@ -1,40 +1,31 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import DriverLayout from "../../components/DriverLayout";
 import {
-  MapContainer,
-  TileLayer,
+  GoogleMap,
+  useJsApiLoader,
   Marker,
   Polyline,
-  Popup,
-} from "react-leaflet";
-import "leaflet/dist/leaflet.css";
-import L from "leaflet";
+  InfoWindow,
+  DirectionsRenderer,
+} from "@react-google-maps/api";
 
-// Fix for default markers
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl:
-    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png",
-  iconUrl:
-    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
-  shadowUrl:
-    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
-});
+const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
 
-// Custom emoji icons
-const createEmojiIcon = (emoji, bgColor) =>
-  L.divIcon({
-    html: `<div style="background-color: ${bgColor}; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; border: 3px solid white; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">${emoji}</div>`,
-    className: "",
-    iconSize: [40, 40],
-    iconAnchor: [20, 20],
-    popupAnchor: [0, -20],
-  });
+// Google Maps container style
+const mapContainerStyle = {
+  width: "100%",
+  height: "100%",
+};
 
-const driverIcon = createEmojiIcon("📍", "#10b981"); // Green location pin
-const restaurantIcon = createEmojiIcon("🍽️", "#ef4444"); // Red restaurant
-const customerIcon = createEmojiIcon("👤", "#3b82f6"); // Blue person
+// Google Maps options
+const mapOptions = {
+  disableDefaultUI: false,
+  zoomControl: true,
+  streetViewControl: false,
+  mapTypeControl: false,
+  fullscreenControl: true,
+};
 
 export default function ActiveDeliveries() {
   const navigate = useNavigate();
@@ -43,6 +34,12 @@ export default function ActiveDeliveries() {
   const [driverLocation, setDriverLocation] = useState(null);
   const [mode, setMode] = useState("pickup"); // pickup | deliver
   const [deliveries, setDeliveries] = useState([]);
+  const [fullRouteData, setFullRouteData] = useState(null); // Store full route for developer view
+
+  // Load Google Maps API once at component level
+  const { isLoaded, loadError } = useJsApiLoader({
+    googleMapsApiKey: GOOGLE_MAPS_API_KEY,
+  });
 
   useEffect(() => {
     const role = localStorage.getItem("role");
@@ -112,6 +109,12 @@ export default function ActiveDeliveries() {
       if (res.ok) {
         const list = data.pickups || [];
         setPickups(list);
+
+        // Also fetch full route data for developer overview
+        if (list.length > 0) {
+          fetchFullRoute(location, list);
+        }
+
         if (list.length > 0) {
           setMode("pickup");
           setDeliveries([]);
@@ -127,6 +130,62 @@ export default function ActiveDeliveries() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Fetch full route for developer overview (Driver → All Restaurants → All Customers)
+  const fetchFullRoute = async (location, pickupsList) => {
+    try {
+      const token = localStorage.getItem("token");
+      const url = `http://localhost:5000/driver/deliveries/full-route?driver_latitude=${location.latitude}&driver_longitude=${location.longitude}`;
+
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        console.log("📍 [FULL ROUTE] Received full route data:", data);
+        setFullRouteData(data);
+      } else {
+        // If endpoint doesn't exist, build route data from pickups
+        console.log("📍 [FULL ROUTE] Building route from pickups data");
+        buildRouteFromPickups(location, pickupsList);
+      }
+    } catch (e) {
+      console.error("Fetch full route error:", e);
+      // Fallback: build route from pickups
+      buildRouteFromPickups(location, pickupsList);
+    }
+  };
+
+  // Build route data from pickups when full-route endpoint isn't available
+  const buildRouteFromPickups = (location, pickupsList) => {
+    const restaurants = pickupsList.map((p, idx) => ({
+      id: p.delivery_id,
+      order_number: p.order_number,
+      lat: p.restaurant.latitude,
+      lng: p.restaurant.longitude,
+      name: p.restaurant.name,
+      address: p.restaurant.address,
+      label: `R${idx + 1}`,
+    }));
+
+    const customers = pickupsList.map((p, idx) => ({
+      id: p.delivery_id,
+      order_number: p.order_number,
+      lat: p.customer.latitude,
+      lng: p.customer.longitude,
+      name: p.customer.name,
+      address: p.customer.address,
+      label: `C${idx + 1}`,
+    }));
+
+    setFullRouteData({
+      driver_location: location,
+      restaurants,
+      customers,
+      total_deliveries: pickupsList.length,
+    });
   };
 
   const fetchDeliveriesRoute = async (location) => {
@@ -272,6 +331,16 @@ export default function ActiveDeliveries() {
             </div>
           ) : (
             <>
+              {/* Full Route Overview Map (Developer View) - Shows before pickup starts */}
+              {mode === "pickup" && pickups.length > 0 && fullRouteData && (
+                <FullRouteMap
+                  driverLocation={driverLocation}
+                  pickups={pickups}
+                  fullRouteData={fullRouteData}
+                  isLoaded={isLoaded}
+                />
+              )}
+
               {/* List */}
               {mode === "pickup" ? (
                 <div className="space-y-4 mb-6">
@@ -284,6 +353,7 @@ export default function ActiveDeliveries() {
                       driverLocation={driverLocation}
                       showMap={index === 0}
                       showCustomer={false}
+                      isLoaded={isLoaded}
                     />
                   ))}
                 </div>
@@ -297,6 +367,7 @@ export default function ActiveDeliveries() {
                       isFirst={index === 0}
                       driverLocation={driverLocation}
                       showMap={index === 0}
+                      isLoaded={isLoaded}
                     />
                   ))}
                 </div>
@@ -351,6 +422,7 @@ function PickupCard({
   driverLocation,
   showMap = true,
   showCustomer = false,
+  isLoaded = false,
 }) {
   const {
     delivery_id,
@@ -363,10 +435,67 @@ function PickupCard({
     customer_route_geometry,
   } = pickup;
 
+  const [selectedMarker, setSelectedMarker] = useState(null);
+
   // Calculate map center
   const mapCenter = restaurant
-    ? [restaurant.latitude, restaurant.longitude]
-    : [0, 0];
+    ? { lat: restaurant.latitude, lng: restaurant.longitude }
+    : { lat: 0, lng: 0 };
+
+  // Decode polyline helper
+  const decodePolyline = (encoded) => {
+    if (!encoded) return [];
+    const poly = [];
+    let index = 0,
+      len = encoded.length;
+    let lat = 0,
+      lng = 0;
+
+    while (index < len) {
+      let b,
+        shift = 0,
+        result = 0;
+      do {
+        b = encoded.charCodeAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      const dlat = result & 1 ? ~(result >> 1) : result >> 1;
+      lat += dlat;
+
+      shift = 0;
+      result = 0;
+      do {
+        b = encoded.charCodeAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      const dlng = result & 1 ? ~(result >> 1) : result >> 1;
+      lng += dlng;
+
+      poly.push({ lat: lat / 1e5, lng: lng / 1e5 });
+    }
+    return poly;
+  };
+
+  // Prepare route paths
+  const driverToRestaurantPath = route_geometry?.encoded_polyline
+    ? decodePolyline(route_geometry.encoded_polyline)
+    : route_geometry?.coordinates
+      ? route_geometry.coordinates.map((coord) => ({
+          lat: coord[1],
+          lng: coord[0],
+        }))
+      : [];
+
+  const restaurantToCustomerPath = customer_route_geometry?.encoded_polyline
+    ? decodePolyline(customer_route_geometry.encoded_polyline)
+    : customer_route_geometry?.coordinates
+      ? customer_route_geometry.coordinates.map((coord) => ({
+          lat: coord[1],
+          lng: coord[0],
+        }))
+      : [];
 
   return (
     <div
@@ -377,98 +506,149 @@ function PickupCard({
       {/* Interactive Map (only for active item) */}
       {showMap && (
         <div className="h-64 relative">
-          {restaurant && (
-            <MapContainer
+          {restaurant && isLoaded ? (
+            <GoogleMap
+              mapContainerStyle={mapContainerStyle}
               center={mapCenter}
               zoom={13}
-              scrollWheelZoom={true}
-              className="h-full w-full"
-              zoomControl={true}
-              dragging={true}
-              doubleClickZoom={true}
-              touchZoom={true}
+              options={mapOptions}
             >
-              <TileLayer
-                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              />
-
               {/* Driver Marker */}
               {driverLocation && (
                 <Marker
-                  position={[driverLocation.latitude, driverLocation.longitude]}
-                  icon={driverIcon}
+                  position={{
+                    lat: driverLocation.latitude,
+                    lng: driverLocation.longitude,
+                  }}
+                  icon={{
+                    path: window.google?.maps?.SymbolPath?.CIRCLE || 0,
+                    scale: 10,
+                    fillColor: "#10b981",
+                    fillOpacity: 1,
+                    strokeWeight: 3,
+                    strokeColor: "#ffffff",
+                  }}
+                  onClick={() => setSelectedMarker("driver")}
+                />
+              )}
+
+              {selectedMarker === "driver" && driverLocation && (
+                <InfoWindow
+                  position={{
+                    lat: driverLocation.latitude,
+                    lng: driverLocation.longitude,
+                  }}
+                  onCloseClick={() => setSelectedMarker(null)}
                 >
-                  <Popup>
-                    <div className="text-center">
-                      <p className="font-bold text-green-600">Your Location</p>
-                      <p className="text-xs text-gray-600">Driver Position</p>
-                    </div>
-                  </Popup>
-                </Marker>
+                  <div className="text-center p-2">
+                    <p className="font-bold text-green-600">📍 Your Location</p>
+                    <p className="text-xs text-gray-600">Driver Position</p>
+                  </div>
+                </InfoWindow>
               )}
 
               {/* Restaurant Marker */}
               <Marker
-                position={[restaurant.latitude, restaurant.longitude]}
-                icon={restaurantIcon}
-              >
-                <Popup>
-                  <div className="min-w-[200px]">
+                position={{
+                  lat: restaurant.latitude,
+                  lng: restaurant.longitude,
+                }}
+                icon={{
+                  path: window.google?.maps?.SymbolPath?.CIRCLE || 0,
+                  scale: 10,
+                  fillColor: "#ef4444",
+                  fillOpacity: 1,
+                  strokeWeight: 3,
+                  strokeColor: "#ffffff",
+                }}
+                onClick={() => setSelectedMarker("restaurant")}
+              />
+
+              {selectedMarker === "restaurant" && (
+                <InfoWindow
+                  position={{
+                    lat: restaurant.latitude,
+                    lng: restaurant.longitude,
+                  }}
+                  onCloseClick={() => setSelectedMarker(null)}
+                >
+                  <div className="min-w-[200px] p-2">
                     <p className="font-bold text-red-600">🍽️ Restaurant</p>
                     <p className="font-semibold mt-1">{restaurant.name}</p>
                     <p className="text-xs text-gray-600 mt-1">
                       {restaurant.address}
                     </p>
                   </div>
-                </Popup>
-              </Marker>
+                </InfoWindow>
+              )}
 
               {/* Customer Marker (hidden in pickup mode) */}
               {showCustomer && customer && (
                 <Marker
-                  position={[customer.latitude, customer.longitude]}
-                  icon={customerIcon}
-                >
-                  <Popup>
-                    <div className="min-w-[200px]">
-                      <p className="font-bold text-blue-600">👤 Customer</p>
-                      <p className="font-semibold mt-1">{customer.name}</p>
-                      <p className="text-xs text-gray-600 mt-1">
-                        {customer.address}
-                      </p>
-                    </div>
-                  </Popup>
-                </Marker>
-              )}
-
-              {/* OSRM Route from Driver to Restaurant - Light Green */}
-              {route_geometry && route_geometry.coordinates && (
-                <Polyline
-                  positions={route_geometry.coordinates.map((coord) => [
-                    coord[1],
-                    coord[0],
-                  ])}
-                  color="#86efac"
-                  weight={6}
-                  opacity={0.9}
+                  position={{
+                    lat: customer.latitude,
+                    lng: customer.longitude,
+                  }}
+                  icon={{
+                    path: window.google?.maps?.SymbolPath?.CIRCLE || 0,
+                    scale: 10,
+                    fillColor: "#3b82f6",
+                    fillOpacity: 1,
+                    strokeWeight: 3,
+                    strokeColor: "#ffffff",
+                  }}
+                  onClick={() => setSelectedMarker("customer")}
                 />
               )}
 
-              {/* OSRM Route from Restaurant to Customer - Grey (hidden in pickup mode) */}
-              {showCustomer &&
-                customer_route_geometry &&
-                customer_route_geometry.coordinates && (
-                  <Polyline
-                    positions={customer_route_geometry.coordinates.map(
-                      (coord) => [coord[1], coord[0]],
-                    )}
-                    color="#9ca3af"
-                    weight={6}
-                    opacity={0.9}
-                  />
-                )}
-            </MapContainer>
+              {showCustomer && selectedMarker === "customer" && customer && (
+                <InfoWindow
+                  position={{
+                    lat: customer.latitude,
+                    lng: customer.longitude,
+                  }}
+                  onCloseClick={() => setSelectedMarker(null)}
+                >
+                  <div className="min-w-[200px] p-2">
+                    <p className="font-bold text-blue-600">👤 Customer</p>
+                    <p className="font-semibold mt-1">{customer.name}</p>
+                    <p className="text-xs text-gray-600 mt-1">
+                      {customer.address}
+                    </p>
+                  </div>
+                </InfoWindow>
+              )}
+
+              {/* Route from Driver to Restaurant - Green */}
+              {driverToRestaurantPath.length > 0 && (
+                <Polyline
+                  path={driverToRestaurantPath}
+                  options={{
+                    strokeColor: "#86efac",
+                    strokeOpacity: 0.9,
+                    strokeWeight: 6,
+                  }}
+                />
+              )}
+
+              {/* Route from Restaurant to Customer - Grey (hidden in pickup mode) */}
+              {showCustomer && restaurantToCustomerPath.length > 0 && (
+                <Polyline
+                  path={restaurantToCustomerPath}
+                  options={{
+                    strokeColor: "#9ca3af",
+                    strokeOpacity: 0.9,
+                    strokeWeight: 6,
+                  }}
+                />
+              )}
+            </GoogleMap>
+          ) : (
+            <div className="h-full w-full bg-gray-200 flex items-center justify-center">
+              <p className="text-gray-500">
+                {!isLoaded ? "Loading map..." : "Map data unavailable"}
+              </p>
+            </div>
           )}
 
           {/* Order Number Badge */}
@@ -639,12 +819,728 @@ function PickupCard({
   );
 }
 
+// Full Route Map Component - Shows complete route (Driver → All Restaurants → All Customers)
+function FullRouteMap({
+  driverLocation,
+  pickups,
+  fullRouteData,
+  isLoaded = false,
+}) {
+  const [selectedMarker, setSelectedMarker] = useState(null);
+  const [directions, setDirections] = useState(null);
+  const [routeInfo, setRouteInfo] = useState(null);
+  const [mapRef, setMapRef] = useState(null);
+  const [optimizedCustomerOrder, setOptimizedCustomerOrder] = useState([]);
+
+  // Calculate map center (average of all points)
+  const calculateCenter = () => {
+    const points = [];
+    if (driverLocation) {
+      points.push({
+        lat: driverLocation.latitude,
+        lng: driverLocation.longitude,
+      });
+    }
+    pickups.forEach((p) => {
+      if (p.restaurant) {
+        points.push({
+          lat: p.restaurant.latitude,
+          lng: p.restaurant.longitude,
+        });
+      }
+      if (p.customer) {
+        points.push({ lat: p.customer.latitude, lng: p.customer.longitude });
+      }
+    });
+
+    if (points.length === 0) return { lat: 0, lng: 0 };
+
+    const avgLat = points.reduce((sum, p) => sum + p.lat, 0) / points.length;
+    const avgLng = points.reduce((sum, p) => sum + p.lng, 0) / points.length;
+    return { lat: avgLat, lng: avgLng };
+  };
+
+  const mapCenter = calculateCenter();
+
+  // Helper: Calculate distance between two points using Haversine formula
+  const haversineDistance = (lat1, lng1, lat2, lng2) => {
+    const R = 6371000; // Earth's radius in meters
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLng = ((lng2 - lng1) * Math.PI) / 180;
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos((lat1 * Math.PI) / 180) *
+        Math.cos((lat2 * Math.PI) / 180) *
+        Math.sin(dLng / 2) *
+        Math.sin(dLng / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c; // Distance in meters
+  };
+
+  // Optimize restaurant pickup order: nearest to driver first, then nearest to previous
+  const getOptimizedRestaurantOrder = (pickupsList, driverLoc) => {
+    if (pickupsList.length <= 1) return pickupsList;
+
+    const remaining = [...pickupsList];
+    const ordered = [];
+
+    // Start from driver location
+    let currentLat = driverLoc.latitude;
+    let currentLng = driverLoc.longitude;
+
+    console.log(
+      `📍 [RESTAURANT ORDER] Optimizing ${remaining.length} restaurants from driver location`,
+    );
+
+    while (remaining.length > 0) {
+      let nearestIdx = 0;
+      let nearestDist = Infinity;
+
+      remaining.forEach((pickup, idx) => {
+        const dist = haversineDistance(
+          currentLat,
+          currentLng,
+          pickup.restaurant.latitude,
+          pickup.restaurant.longitude,
+        );
+        if (dist < nearestDist) {
+          nearestDist = dist;
+          nearestIdx = idx;
+        }
+      });
+
+      const nearest = remaining[nearestIdx];
+      ordered.push(nearest);
+
+      console.log(
+        `📍 [RESTAURANT ORDER]   R${ordered.length}. ${nearest.restaurant.name} (${(nearestDist / 1000).toFixed(2)} km from ${ordered.length === 1 ? "driver" : "previous restaurant"})`,
+      );
+
+      // Update current location to this restaurant
+      currentLat = nearest.restaurant.latitude;
+      currentLng = nearest.restaurant.longitude;
+
+      remaining.splice(nearestIdx, 1);
+    }
+
+    return ordered;
+  };
+
+  // Optimize customer delivery order: nearest to last restaurant first, then nearest to previous
+  const getOptimizedCustomerOrder = (pickupsList, lastRestaurant) => {
+    if (pickupsList.length <= 1) return pickupsList;
+
+    const remaining = [...pickupsList];
+    const ordered = [];
+
+    // Start from last restaurant location
+    let currentLat = lastRestaurant.latitude;
+    let currentLng = lastRestaurant.longitude;
+
+    console.log(
+      `📍 [CUSTOMER ORDER] Optimizing ${remaining.length} customers from last restaurant (${lastRestaurant.name})`,
+    );
+
+    while (remaining.length > 0) {
+      let nearestIdx = 0;
+      let nearestDist = Infinity;
+
+      remaining.forEach((pickup, idx) => {
+        const dist = haversineDistance(
+          currentLat,
+          currentLng,
+          pickup.customer.latitude,
+          pickup.customer.longitude,
+        );
+        if (dist < nearestDist) {
+          nearestDist = dist;
+          nearestIdx = idx;
+        }
+      });
+
+      const nearest = remaining[nearestIdx];
+      ordered.push(nearest);
+
+      console.log(
+        `📍 [CUSTOMER ORDER]   C${ordered.length}. ${nearest.customer.name} (${(nearestDist / 1000).toFixed(2)} km from ${ordered.length === 1 ? "last restaurant" : "previous customer"})`,
+      );
+
+      currentLat = nearest.customer.latitude;
+      currentLng = nearest.customer.longitude;
+
+      remaining.splice(nearestIdx, 1);
+    }
+
+    return ordered;
+  };
+
+  // State for optimized orders
+  const [optimizedRestaurantOrder, setOptimizedRestaurantOrder] = useState([]);
+
+  // Fetch directions when map loads - tries multiple modes for shortest route
+  const fetchDirections = useCallback(async () => {
+    if (!window.google || !driverLocation || pickups.length === 0) return;
+
+    const directionsService = new window.google.maps.DirectionsService();
+
+    // STEP 1: Optimize restaurant pickup order (nearest to driver first)
+    const optimizedRestaurants = getOptimizedRestaurantOrder(
+      pickups,
+      driverLocation,
+    );
+    setOptimizedRestaurantOrder(optimizedRestaurants);
+
+    // Get the last restaurant in optimized order (where driver will be after all pickups)
+    const lastRestaurant =
+      optimizedRestaurants[optimizedRestaurants.length - 1].restaurant;
+
+    // STEP 2: Optimize customer delivery order (nearest to last restaurant first)
+    const optimizedCustomers = getOptimizedCustomerOrder(
+      optimizedRestaurants,
+      lastRestaurant,
+    );
+    setOptimizedCustomerOrder(optimizedCustomers);
+
+    console.log(`📍 [FULL ROUTE] ═══════════════════════════════════════════`);
+    console.log(`📍 [FULL ROUTE] OPTIMIZED ROUTE ORDER:`);
+    console.log(
+      `📍 [FULL ROUTE]   Restaurants (nearest first): ${optimizedRestaurants.map((p) => p.restaurant.name).join(" → ")}`,
+    );
+    console.log(
+      `📍 [FULL ROUTE]   Customers (nearest to last restaurant): ${optimizedCustomers.map((p) => p.customer.name).join(" → ")}`,
+    );
+    console.log(`📍 [FULL ROUTE] ═══════════════════════════════════════════`);
+
+    // Build waypoints for Google Directions API
+    const restaurantWaypoints = optimizedRestaurants.map((p) => ({
+      location: { lat: p.restaurant.latitude, lng: p.restaurant.longitude },
+      stopover: true,
+    }));
+
+    const customerWaypoints = optimizedCustomers.map((p) => ({
+      location: { lat: p.customer.latitude, lng: p.customer.longitude },
+      stopover: true,
+    }));
+
+    // All waypoints: Driver → Optimized Restaurants → Optimized Customers (except last which is destination)
+    const allWaypoints = [
+      ...restaurantWaypoints,
+      ...customerWaypoints.slice(0, -1),
+    ];
+
+    const origin = {
+      lat: driverLocation.latitude,
+      lng: driverLocation.longitude,
+    };
+
+    // Destination is the last customer in optimized order
+    const destination =
+      customerWaypoints.length > 0
+        ? customerWaypoints[customerWaypoints.length - 1].location
+        : restaurantWaypoints[restaurantWaypoints.length - 1]?.location;
+
+    // Try multiple travel modes and pick the shortest route
+    const modesToTry = [
+      window.google.maps.TravelMode.TWO_WHEELER,
+      window.google.maps.TravelMode.DRIVING,
+      window.google.maps.TravelMode.WALKING,
+    ];
+
+    const routeResults = [];
+
+    for (const mode of modesToTry) {
+      try {
+        const result = await directionsService.route({
+          origin,
+          destination,
+          waypoints: allWaypoints,
+          optimizeWaypoints: false, // Keep the order: all restaurants first, then all customers
+          travelMode: mode,
+        });
+
+        // Calculate total distance for this mode
+        let totalDistance = 0;
+        result.routes[0].legs.forEach((leg) => {
+          totalDistance += leg.distance.value;
+        });
+
+        routeResults.push({
+          result,
+          distance: totalDistance,
+          mode: mode,
+        });
+
+        console.log(
+          `📍 [FULL ROUTE] ${mode} mode: ${(totalDistance / 1000).toFixed(2)} km`,
+        );
+      } catch (error) {
+        console.log(`📍 [FULL ROUTE] ${mode} mode failed:`, error.message);
+      }
+    }
+
+    // Pick the shortest route from all successful attempts
+    if (routeResults.length === 0) {
+      console.error("Failed to fetch directions: All modes failed");
+      return;
+    }
+
+    const shortest = routeResults.reduce((best, current) =>
+      current.distance < best.distance ? current : best,
+    );
+
+    console.log(
+      `📍 [FULL ROUTE] ✅ Selected ${shortest.mode}: ${(shortest.distance / 1000).toFixed(2)} km (shortest)`,
+    );
+
+    setDirections(shortest.result);
+
+    // Calculate total distance and time from selected route
+    let totalDistance = 0;
+    let totalDuration = 0;
+    shortest.result.routes[0].legs.forEach((leg) => {
+      totalDistance += leg.distance.value;
+      totalDuration += leg.duration.value;
+    });
+
+    setRouteInfo({
+      totalDistance: (totalDistance / 1000).toFixed(2),
+      totalDuration: Math.ceil(totalDuration / 60),
+      legs: shortest.result.routes[0].legs,
+      optimizedRestaurants: optimizedRestaurants,
+      optimizedCustomers: optimizedCustomers,
+      selectedMode: shortest.mode,
+    });
+
+    console.log("📍 [FULL ROUTE] Route calculated:", {
+      totalDistance: (totalDistance / 1000).toFixed(2) + " km",
+      totalDuration: Math.ceil(totalDuration / 60) + " min",
+      waypoints: allWaypoints.length,
+      selectedMode: shortest.mode,
+      restaurantOrder: optimizedRestaurants.map((p) => p.restaurant.name),
+      customerOrder: optimizedCustomers.map((p) => p.customer.name),
+    });
+  }, [driverLocation, pickups]);
+
+  // Marker colors
+  const markerColors = {
+    driver: "#10b981", // Green
+    restaurant: "#ef4444", // Red
+    customer: "#3b82f6", // Blue
+  };
+
+  return (
+    <div className="bg-white rounded-xl shadow-lg border-2 border-purple-300 overflow-hidden mb-6">
+      {/* Header */}
+      <div className="bg-gradient-to-r from-purple-500 to-purple-600 px-4 py-3">
+        <h3 className="text-white font-bold text-lg flex items-center gap-2">
+          🗺️ Optimized Route Overview
+        </h3>
+        <p className="text-purple-100 text-sm mt-1">
+          Driver → {pickups.length} Restaurant{pickups.length > 1 ? "s" : ""} →{" "}
+          {pickups.length} Customer{pickups.length > 1 ? "s" : ""} (Optimized by
+          distance)
+        </p>
+      </div>
+
+      {/* Route Info Summary */}
+      {routeInfo && (
+        <div className="bg-purple-50 p-4 border-b border-purple-200">
+          <div className="grid grid-cols-3 gap-4 text-center mb-3">
+            <div>
+              <p className="text-2xl font-bold text-purple-700">
+                {routeInfo.totalDistance} km
+              </p>
+              <p className="text-xs text-purple-600 font-semibold">
+                Total Distance
+              </p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-purple-700">
+                {routeInfo.totalDuration} min
+              </p>
+              <p className="text-xs text-purple-600 font-semibold">
+                Estimated Time
+              </p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-purple-700">
+                {pickups.length * 2}
+              </p>
+              <p className="text-xs text-purple-600 font-semibold">
+                Total Stops
+              </p>
+            </div>
+          </div>
+          {routeInfo.selectedMode && (
+            <p className="text-xs text-center text-purple-500">
+              Route Mode: {routeInfo.selectedMode} (shortest path selected)
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Optimized Order Flow */}
+      {routeInfo && routeInfo.optimizedRestaurants && (
+        <div className="bg-green-50 px-4 py-3 border-b border-green-200">
+          <p className="font-semibold text-green-700 text-sm mb-2">
+            📋 Optimized Order Flow:
+          </p>
+
+          {/* Pickup Order */}
+          <div className="mb-2">
+            <p className="text-xs font-semibold text-red-600 mb-1">
+              🍽️ PICKUP ORDER (nearest to driver first):
+            </p>
+            <div className="flex flex-wrap items-center gap-1 text-xs">
+              <span className="bg-green-500 text-white px-2 py-1 rounded font-semibold">
+                Driver
+              </span>
+              {routeInfo.optimizedRestaurants.map((p, i) => (
+                <React.Fragment key={`r-flow-${i}`}>
+                  <span className="text-green-600">→</span>
+                  <span className="bg-red-500 text-white px-2 py-1 rounded">
+                    R{i + 1}: {p.restaurant.name}
+                  </span>
+                </React.Fragment>
+              ))}
+            </div>
+          </div>
+
+          {/* Delivery Order */}
+          <div>
+            <p className="text-xs font-semibold text-blue-600 mb-1">
+              👤 DELIVERY ORDER (nearest to last restaurant first):
+            </p>
+            <div className="flex flex-wrap items-center gap-1 text-xs">
+              <span className="bg-red-500 text-white px-2 py-1 rounded font-semibold">
+                R{routeInfo.optimizedRestaurants.length}
+              </span>
+              {routeInfo.optimizedCustomers.map((p, i) => (
+                <React.Fragment key={`c-flow-${i}`}>
+                  <span className="text-blue-600">→</span>
+                  <span className="bg-blue-500 text-white px-2 py-1 rounded">
+                    C{i + 1}: {p.customer.name}
+                  </span>
+                </React.Fragment>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Map */}
+      <div className="h-96 relative">
+        {isLoaded ? (
+          <GoogleMap
+            mapContainerStyle={mapContainerStyle}
+            center={mapCenter}
+            zoom={12}
+            options={mapOptions}
+            onLoad={(map) => {
+              setMapRef(map);
+              fetchDirections();
+            }}
+          >
+            {/* Driver Marker */}
+            {driverLocation && (
+              <Marker
+                position={{
+                  lat: driverLocation.latitude,
+                  lng: driverLocation.longitude,
+                }}
+                label={{
+                  text: "D",
+                  color: "#ffffff",
+                  fontWeight: "bold",
+                }}
+                icon={{
+                  path: window.google?.maps?.SymbolPath?.CIRCLE || 0,
+                  scale: 15,
+                  fillColor: markerColors.driver,
+                  fillOpacity: 1,
+                  strokeWeight: 3,
+                  strokeColor: "#ffffff",
+                }}
+                onClick={() => setSelectedMarker("driver")}
+              />
+            )}
+
+            {selectedMarker === "driver" && driverLocation && (
+              <InfoWindow
+                position={{
+                  lat: driverLocation.latitude,
+                  lng: driverLocation.longitude,
+                }}
+                onCloseClick={() => setSelectedMarker(null)}
+              >
+                <div className="p-2">
+                  <p className="font-bold text-green-600">📍 Driver Location</p>
+                  <p className="text-xs text-gray-600">Starting Point</p>
+                </div>
+              </InfoWindow>
+            )}
+
+            {/* Restaurant Markers - Use optimized order */}
+            {(optimizedRestaurantOrder.length > 0
+              ? optimizedRestaurantOrder
+              : pickups
+            ).map((pickup, idx) => (
+              <React.Fragment key={`restaurant-${pickup.delivery_id}`}>
+                <Marker
+                  position={{
+                    lat: pickup.restaurant.latitude,
+                    lng: pickup.restaurant.longitude,
+                  }}
+                  label={{
+                    text: `R${idx + 1}`,
+                    color: "#ffffff",
+                    fontWeight: "bold",
+                    fontSize: "12px",
+                  }}
+                  icon={{
+                    path: window.google?.maps?.SymbolPath?.CIRCLE || 0,
+                    scale: 15,
+                    fillColor: markerColors.restaurant,
+                    fillOpacity: 1,
+                    strokeWeight: 3,
+                    strokeColor: "#ffffff",
+                  }}
+                  onClick={() => setSelectedMarker(`restaurant-${idx}`)}
+                />
+                {selectedMarker === `restaurant-${idx}` && (
+                  <InfoWindow
+                    position={{
+                      lat: pickup.restaurant.latitude,
+                      lng: pickup.restaurant.longitude,
+                    }}
+                    onCloseClick={() => setSelectedMarker(null)}
+                  >
+                    <div className="p-2 min-w-[200px]">
+                      <p className="font-bold text-red-600">
+                        🍽️ Restaurant #{idx + 1}
+                      </p>
+                      <p className="font-semibold mt-1">
+                        {pickup.restaurant.name}
+                      </p>
+                      <p className="text-xs text-gray-600 mt-1">
+                        {pickup.restaurant.address}
+                      </p>
+                      <p className="text-xs text-blue-600 mt-2">
+                        Order #{pickup.order_number}
+                      </p>
+                    </div>
+                  </InfoWindow>
+                )}
+              </React.Fragment>
+            ))}
+
+            {/* Customer Markers - Use optimized order for numbering */}
+            {(optimizedCustomerOrder.length > 0
+              ? optimizedCustomerOrder
+              : pickups
+            ).map((pickup, idx) => (
+              <React.Fragment key={`customer-${pickup.delivery_id}`}>
+                <Marker
+                  position={{
+                    lat: pickup.customer.latitude,
+                    lng: pickup.customer.longitude,
+                  }}
+                  label={{
+                    text: `C${idx + 1}`,
+                    color: "#ffffff",
+                    fontWeight: "bold",
+                    fontSize: "12px",
+                  }}
+                  icon={{
+                    path: window.google?.maps?.SymbolPath?.CIRCLE || 0,
+                    scale: 15,
+                    fillColor: markerColors.customer,
+                    fillOpacity: 1,
+                    strokeWeight: 3,
+                    strokeColor: "#ffffff",
+                  }}
+                  onClick={() => setSelectedMarker(`customer-${idx}`)}
+                />
+                {selectedMarker === `customer-${idx}` && (
+                  <InfoWindow
+                    position={{
+                      lat: pickup.customer.latitude,
+                      lng: pickup.customer.longitude,
+                    }}
+                    onCloseClick={() => setSelectedMarker(null)}
+                  >
+                    <div className="p-2 min-w-[200px]">
+                      <p className="font-bold text-blue-600">
+                        👤 Customer #{idx + 1}{" "}
+                        {optimizedCustomerOrder.length > 0 && "(Optimized)"}
+                      </p>
+                      <p className="font-semibold mt-1">
+                        {pickup.customer.name}
+                      </p>
+                      <p className="text-xs text-gray-600 mt-1">
+                        {pickup.customer.address}
+                      </p>
+                      <p className="text-xs text-blue-600 mt-2">
+                        Order #{pickup.order_number}
+                      </p>
+                    </div>
+                  </InfoWindow>
+                )}
+              </React.Fragment>
+            ))}
+
+            {/* Directions Renderer - Shows the full route */}
+            {directions && (
+              <DirectionsRenderer
+                directions={directions}
+                options={{
+                  suppressMarkers: true, // We use custom markers
+                  polylineOptions: {
+                    strokeColor: "#8b5cf6", // Purple color for full route
+                    strokeOpacity: 0.8,
+                    strokeWeight: 5,
+                  },
+                }}
+              />
+            )}
+          </GoogleMap>
+        ) : (
+          <div className="h-full w-full bg-gray-200 flex items-center justify-center">
+            <p className="text-gray-500">Loading map...</p>
+          </div>
+        )}
+      </div>
+
+      {/* Route Legend */}
+      <div className="bg-gray-50 px-4 py-3 border-t">
+        <div className="flex flex-wrap items-center justify-center gap-4 text-sm">
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 rounded-full bg-green-500"></div>
+            <span className="text-gray-600">Driver (D)</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 rounded-full bg-red-500"></div>
+            <span className="text-gray-600">Restaurant (R1, R2...)</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 rounded-full bg-blue-500"></div>
+            <span className="text-gray-600">Customer (C1, C2...)</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-1 bg-purple-500 rounded"></div>
+            <span className="text-gray-600">Route Path</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Leg Details - Distance between each stop */}
+      {routeInfo && routeInfo.legs && (
+        <div className="px-4 py-3 border-t bg-white">
+          <p className="font-semibold text-gray-700 mb-2 text-sm">
+            📏 Distance Between Each Stop:
+          </p>
+          <div className="space-y-2">
+            {routeInfo.legs.map((leg, idx) => {
+              // Determine segment type with optimized orders
+              let segmentLabel = "";
+              let fromIcon = "";
+              let toIcon = "";
+              const totalRestaurants = pickups.length;
+              const optRestaurants =
+                routeInfo.optimizedRestaurants ||
+                optimizedRestaurantOrder ||
+                pickups;
+              const optCustomers =
+                routeInfo.optimizedCustomers ||
+                optimizedCustomerOrder ||
+                pickups;
+
+              if (idx === 0) {
+                // Driver to first restaurant (optimized)
+                fromIcon = "🚗";
+                toIcon = "🍽️";
+                segmentLabel = `Driver → R1 (${optRestaurants[0]?.restaurant?.name || "Restaurant"})`;
+              } else if (idx < totalRestaurants) {
+                // Restaurant to restaurant (optimized order)
+                fromIcon = "🍽️";
+                toIcon = "🍽️";
+                segmentLabel = `R${idx} (${optRestaurants[idx - 1]?.restaurant?.name}) → R${idx + 1} (${optRestaurants[idx]?.restaurant?.name})`;
+              } else if (idx === totalRestaurants) {
+                // Last restaurant to first customer (optimized)
+                fromIcon = "🍽️";
+                toIcon = "👤";
+                const lastRestName =
+                  optRestaurants[totalRestaurants - 1]?.restaurant?.name ||
+                  "Restaurant";
+                const firstCustName =
+                  optCustomers[0]?.customer?.name || "Customer";
+                segmentLabel = `R${totalRestaurants} (${lastRestName}) → C1 (${firstCustName})`;
+              } else {
+                // Customer to customer (optimized order)
+                fromIcon = "👤";
+                toIcon = "👤";
+                const customerIdx = idx - totalRestaurants;
+                const prevCustName =
+                  optCustomers[customerIdx - 1]?.customer?.name || "Customer";
+                const currCustName =
+                  optCustomers[customerIdx]?.customer?.name || "Customer";
+                segmentLabel = `C${customerIdx} (${prevCustName}) → C${customerIdx + 1} (${currCustName})`;
+              }
+
+              return (
+                <div
+                  key={idx}
+                  className="flex items-center justify-between text-sm bg-gray-50 px-3 py-2 rounded"
+                >
+                  <div className="flex items-center gap-2">
+                    <span>{fromIcon}</span>
+                    <span className="text-gray-600 text-xs">
+                      {segmentLabel}
+                    </span>
+                    <span>{toIcon}</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="font-bold text-purple-600">
+                      {(leg.distance.value / 1000).toFixed(2)} km
+                    </span>
+                    <span className="text-gray-500 text-xs">
+                      ({Math.ceil(leg.duration.value / 60)} min)
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Total Summary */}
+          <div className="mt-3 p-3 bg-purple-100 rounded-lg border border-purple-300">
+            <div className="flex justify-between items-center">
+              <span className="font-semibold text-purple-700">
+                📊 TOTAL ROUTE:
+              </span>
+              <div className="text-right">
+                <span className="font-bold text-purple-700 text-lg">
+                  {routeInfo.totalDistance} km
+                </span>
+                <span className="text-purple-600 ml-2">
+                  ({routeInfo.totalDuration} min)
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DeliveryCard({
   delivery,
   index,
   isFirst,
   driverLocation,
   showMap = true,
+  isLoaded = false,
 }) {
   const {
     order_number,
@@ -654,7 +1550,57 @@ function DeliveryCard({
     route_geometry,
   } = delivery;
 
-  const mapCenter = customer ? [customer.latitude, customer.longitude] : [0, 0];
+  const [selectedMarker, setSelectedMarker] = useState(null);
+
+  const mapCenter = customer
+    ? { lat: customer.latitude, lng: customer.longitude }
+    : { lat: 0, lng: 0 };
+
+  // Decode polyline helper
+  const decodePolyline = (encoded) => {
+    if (!encoded) return [];
+    const poly = [];
+    let index = 0,
+      len = encoded.length;
+    let lat = 0,
+      lng = 0;
+
+    while (index < len) {
+      let b,
+        shift = 0,
+        result = 0;
+      do {
+        b = encoded.charCodeAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      const dlat = result & 1 ? ~(result >> 1) : result >> 1;
+      lat += dlat;
+
+      shift = 0;
+      result = 0;
+      do {
+        b = encoded.charCodeAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      const dlng = result & 1 ? ~(result >> 1) : result >> 1;
+      lng += dlng;
+
+      poly.push({ lat: lat / 1e5, lng: lng / 1e5 });
+    }
+    return poly;
+  };
+
+  // Prepare route path
+  const routePath = route_geometry?.encoded_polyline
+    ? decodePolyline(route_geometry.encoded_polyline)
+    : route_geometry?.coordinates
+      ? route_geometry.coordinates.map((coord) => ({
+          lat: coord[1],
+          lng: coord[0],
+        }))
+      : [];
 
   return (
     <div
@@ -665,66 +1611,98 @@ function DeliveryCard({
       {/* Interactive Map (only for active item) */}
       {showMap && (
         <div className="h-64 relative">
-          {customer && (
-            <MapContainer
+          {customer && isLoaded ? (
+            <GoogleMap
+              mapContainerStyle={mapContainerStyle}
               center={mapCenter}
               zoom={13}
-              scrollWheelZoom={true}
-              className="h-full w-full"
-              zoomControl={true}
-              dragging={true}
-              doubleClickZoom={true}
-              touchZoom={true}
+              options={mapOptions}
             >
-              <TileLayer
-                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              />
-
               {/* Driver Marker */}
               {driverLocation && (
                 <Marker
-                  position={[driverLocation.latitude, driverLocation.longitude]}
-                  icon={driverIcon}
+                  position={{
+                    lat: driverLocation.latitude,
+                    lng: driverLocation.longitude,
+                  }}
+                  icon={{
+                    path: window.google?.maps?.SymbolPath?.CIRCLE || 0,
+                    scale: 10,
+                    fillColor: "#10b981",
+                    fillOpacity: 1,
+                    strokeWeight: 3,
+                    strokeColor: "#ffffff",
+                  }}
+                  onClick={() => setSelectedMarker("driver")}
+                />
+              )}
+
+              {selectedMarker === "driver" && driverLocation && (
+                <InfoWindow
+                  position={{
+                    lat: driverLocation.latitude,
+                    lng: driverLocation.longitude,
+                  }}
+                  onCloseClick={() => setSelectedMarker(null)}
                 >
-                  <Popup>
-                    <div className="text-center">
-                      <p className="font-bold text-green-600">Your Location</p>
-                      <p className="text-xs text-gray-600">Driver Position</p>
-                    </div>
-                  </Popup>
-                </Marker>
+                  <div className="text-center p-2">
+                    <p className="font-bold text-green-600">📍 Your Location</p>
+                    <p className="text-xs text-gray-600">Driver Position</p>
+                  </div>
+                </InfoWindow>
               )}
 
               {/* Customer Marker */}
               <Marker
-                position={[customer.latitude, customer.longitude]}
-                icon={customerIcon}
-              >
-                <Popup>
-                  <div className="min-w-[200px]">
+                position={{
+                  lat: customer.latitude,
+                  lng: customer.longitude,
+                }}
+                icon={{
+                  path: window.google?.maps?.SymbolPath?.CIRCLE || 0,
+                  scale: 10,
+                  fillColor: "#3b82f6",
+                  fillOpacity: 1,
+                  strokeWeight: 3,
+                  strokeColor: "#ffffff",
+                }}
+                onClick={() => setSelectedMarker("customer")}
+              />
+
+              {selectedMarker === "customer" && (
+                <InfoWindow
+                  position={{
+                    lat: customer.latitude,
+                    lng: customer.longitude,
+                  }}
+                  onCloseClick={() => setSelectedMarker(null)}
+                >
+                  <div className="min-w-[200px] p-2">
                     <p className="font-bold text-blue-600">👤 Customer</p>
                     <p className="font-semibold mt-1">{customer.name}</p>
                     <p className="text-xs text-gray-600 mt-1">
                       {customer.address}
                     </p>
                   </div>
-                </Popup>
-              </Marker>
+                </InfoWindow>
+              )}
 
-              {/* OSRM Route from Driver to Customer */}
-              {route_geometry && route_geometry.coordinates && (
+              {/* Route from Driver to Customer */}
+              {routePath.length > 0 && (
                 <Polyline
-                  positions={route_geometry.coordinates.map((coord) => [
-                    coord[1],
-                    coord[0],
-                  ])}
-                  color="#86efac"
-                  weight={6}
-                  opacity={0.9}
+                  path={routePath}
+                  options={{
+                    strokeColor: "#86efac",
+                    strokeOpacity: 0.9,
+                    strokeWeight: 6,
+                  }}
                 />
               )}
-            </MapContainer>
+            </GoogleMap>
+          ) : (
+            <div className="h-full w-full bg-gray-200 flex items-center justify-center">
+              <p className="text-gray-500">Loading map...</p>
+            </div>
           )}
 
           {/* Order Number Badge */}

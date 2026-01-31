@@ -7,16 +7,20 @@
  *
  * EXTRA DISTANCE CALCULATION:
  * 1. R0 = Current optimal route (Driver → All current Restaurants → All current Customers)
- * 2. R1 = New delivery's SINGLE route (Driver → New Restaurant → New Customer)
- * 3. Find common road segments between R0 and R1 using OSRM geometry
- * 4. Extra Distance = R1 - (common road segments)
+ * 2. R1 = COMBINED optimal route (Driver → All Restaurants including new → All Customers including new)
+ * 3. Extra Distance = R1 - R0 (TRUE extra distance driver needs to travel)
  *
- * This ensures we only count the TRUE extra driving distance
+ * OPTIMIZATION:
+ * - Restaurants: Nearest to driver first, then nearest to previous restaurant
+ * - Customers: Nearest to last restaurant first, then nearest to previous customer
+ *
+ * This ensures we calculate the ACTUAL extra km the driver needs to travel
  * ============================================================================
  */
 
 import { supabaseAdmin } from "../supabaseAdmin.js";
 import { getDriverRouteContext } from "./driverRouteContext.js";
+import { getGoogleRoute } from "./googleMapsService.js";
 
 // Thresholds for showing available deliveries
 const AVAILABLE_DELIVERY_THRESHOLDS = {
@@ -37,101 +41,11 @@ const DRIVER_EARNINGS = {
 };
 
 // ============================================================================
-// OSRM ROUTE CALCULATION
+// GOOGLE MAPS ROUTE CALCULATION (Replaces OSRM)
 // ============================================================================
 async function getOSRMRoute(waypoints, context = "") {
-  console.log(
-    `\n[OSRM] 🗺️ Getting route for ${waypoints.length} waypoints${context ? ` (${context})` : ""}`,
-  );
-
-  if (!waypoints || waypoints.length < 2) {
-    throw new Error("Need at least 2 waypoints for routing");
-  }
-
-  // Format for OSRM: lng,lat;lng,lat;lng,lat...
-  const coordinates = waypoints.map((wp) => `${wp.lng},${wp.lat}`).join(";");
-
-  waypoints.forEach((wp, idx) => {
-    const label = wp.label || `Point ${idx}`;
-    console.log(
-      `[OSRM]   ${idx}: ${label} (${wp.lat.toFixed(6)}, ${wp.lng.toFixed(6)})`,
-    );
-  });
-
-  const url = `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=true&alternatives=true&continue_straight=false`;
-
-  console.log(`[OSRM] → Requesting...`);
-
-  const response = await fetch(url);
-
-  if (!response.ok) {
-    const text = await response.text();
-    console.error(
-      `[OSRM] ❌ HTTP ${response.status}: ${text.substring(0, 100)}`,
-    );
-    throw new Error(`OSRM HTTP ${response.status}`);
-  }
-
-  const data = await response.json();
-
-  if (data.code !== "Ok") {
-    console.error(`[OSRM] ❌ Error: ${data.code} - ${data.message}`);
-    throw new Error(`OSRM error: ${data.code}`);
-  }
-
-  // Select the shortest route from alternatives (OSRM returns routes sorted by duration, but we want shortest distance)
-  let selectedRoute = data.routes[0]; // Default to first route
-  if (data.routes && data.routes.length > 1) {
-    // Find the route with minimum distance
-    selectedRoute = data.routes.reduce((shortest, current) =>
-      current.distance < shortest.distance ? current : shortest,
-    );
-    console.log(
-      `[OSRM] 🎯 Selected shortest route: ${(selectedRoute.distance / 1000).toFixed(3)} km from ${data.routes.length} alternatives`,
-    );
-  }
-
-  const route = selectedRoute;
-  const totalDistance = route.distance; // meters
-  const totalDuration = route.duration; // seconds
-
-  console.log(`[OSRM] ✓ Distance: ${(totalDistance / 1000).toFixed(3)} km`);
-  console.log(`[OSRM] ✓ Duration: ${Math.ceil(totalDuration / 60)} mins`);
-
-  // Extract all road segments from steps
-  const roadSegments = [];
-  if (route.legs) {
-    route.legs.forEach((leg, legIdx) => {
-      if (leg.steps) {
-        leg.steps.forEach((step, stepIdx) => {
-          if (
-            step.geometry &&
-            step.geometry.coordinates &&
-            step.geometry.coordinates.length >= 2
-          ) {
-            // Each step has its own geometry (road segment)
-            roadSegments.push({
-              legIdx,
-              stepIdx,
-              name: step.name || "unnamed",
-              distance: step.distance,
-              duration: step.duration,
-              coordinates: step.geometry.coordinates,
-            });
-          }
-        });
-      }
-    });
-  }
-
-  console.log(`[OSRM] ✓ Road segments (steps): ${roadSegments.length}`);
-
-  return {
-    distance: totalDistance,
-    duration: totalDuration,
-    geometry: route.geometry,
-    roadSegments: roadSegments,
-  };
+  // This function now uses Google Maps but kept the same name for backward compatibility
+  return await getGoogleRoute(waypoints, context);
 }
 
 // ============================================================================
@@ -149,6 +63,108 @@ function haversineDistance(lat1, lng1, lat2, lng2) {
       Math.sin(dLng / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c; // Distance in meters
+}
+
+// ============================================================================
+// OPTIMIZED ORDER FUNCTIONS (for nearest-neighbor routing)
+// ============================================================================
+
+/**
+ * Get optimized restaurant pickup order (nearest to driver first, then nearest to previous)
+ * @param {Object} driverLocation - {lat, lng, label}
+ * @param {Array} restaurants - Array of {lat, lng, label} objects
+ * @returns {Array} Optimized order of restaurants
+ */
+function getOptimizedRestaurantOrder(driverLocation, restaurants) {
+  if (restaurants.length <= 1) return restaurants;
+
+  const optimized = [];
+  const remaining = [...restaurants];
+
+  // Start from driver location
+  let currentLat = driverLocation.lat;
+  let currentLng = driverLocation.lng;
+
+  while (remaining.length > 0) {
+    // Find nearest restaurant to current position
+    let nearestIndex = 0;
+    let nearestDistance = haversineDistance(
+      currentLat,
+      currentLng,
+      remaining[0].lat,
+      remaining[0].lng,
+    );
+
+    for (let i = 1; i < remaining.length; i++) {
+      const dist = haversineDistance(
+        currentLat,
+        currentLng,
+        remaining[i].lat,
+        remaining[i].lng,
+      );
+      if (dist < nearestDistance) {
+        nearestDistance = dist;
+        nearestIndex = i;
+      }
+    }
+
+    // Move to nearest restaurant
+    const nearest = remaining.splice(nearestIndex, 1)[0];
+    optimized.push(nearest);
+    currentLat = nearest.lat;
+    currentLng = nearest.lng;
+  }
+
+  return optimized;
+}
+
+/**
+ * Get optimized customer delivery order (nearest to last restaurant first, then nearest to previous)
+ * @param {Object} lastRestaurant - Last restaurant location {lat, lng}
+ * @param {Array} customers - Array of {lat, lng, label} objects
+ * @returns {Array} Optimized order of customers
+ */
+function getOptimizedCustomerOrder(lastRestaurant, customers) {
+  if (customers.length <= 1) return customers;
+
+  const optimized = [];
+  const remaining = [...customers];
+
+  // Start from last restaurant location
+  let currentLat = lastRestaurant.lat;
+  let currentLng = lastRestaurant.lng;
+
+  while (remaining.length > 0) {
+    // Find nearest customer to current position
+    let nearestIndex = 0;
+    let nearestDistance = haversineDistance(
+      currentLat,
+      currentLng,
+      remaining[0].lat,
+      remaining[0].lng,
+    );
+
+    for (let i = 1; i < remaining.length; i++) {
+      const dist = haversineDistance(
+        currentLat,
+        currentLng,
+        remaining[i].lat,
+        remaining[i].lng,
+      );
+      if (dist < nearestDistance) {
+        nearestDistance = dist;
+        nearestIndex = i;
+      }
+    }
+
+    // Move to nearest customer
+    const nearest = remaining.splice(nearestIndex, 1)[0];
+    optimized.push(nearest);
+    currentLat = nearest.lat;
+    currentLng = nearest.lng;
+  }
+
+  return optimized;
 }
 
 // ============================================================================
@@ -259,6 +275,8 @@ async function getCompleteOptimizedRoute(
     duration: totalDuration,
     driverToRestaurantGeometry: driverToRestaurantRoute.geometry,
     restaurantToCustomerGeometry: bestRestaurantToCustomer.route.geometry,
+    driverToRestaurantPolyline: driverToRestaurantRoute.polyline, // Google Maps encoded polyline
+    restaurantToCustomerPolyline: bestRestaurantToCustomer.route.polyline, // Google Maps encoded polyline
     roadSegments: combinedRoadSegments,
     driverToRestaurantDistance: driverToRestaurantRoute.distance,
     restaurantToCustomerDistance: bestRestaurantToCustomer.route.distance,
@@ -731,26 +749,42 @@ async function evaluateAvailableDelivery(
     );
 
     // =========================================================================
-    // STEP 1: Calculate R0 (current route) using OSRM
-    // Route: Driver → All Restaurants (optimal order) → All Customers (optimal order)
+    // STEP 1: Calculate R0 (current route with existing deliveries ONLY)
+    // Route: Driver → All Restaurants (optimized order) → All Customers (optimized order)
     // =========================================================================
     console.log(`\n${"─".repeat(80)}`);
     console.log(
-      `[EVALUATE] 📊 STEP 1: Calculate R0 (current route with existing deliveries)`,
+      `[EVALUATE] 📊 STEP 1: Calculate R0 (current route WITHOUT new delivery)`,
     );
     console.log(`${"─".repeat(80)}`);
 
-    let r0Route = { distance: 0, duration: 0, roadSegments: [] };
+    let r0Route = { distance: 0, duration: 0 };
 
     if (currentDeliveries.length > 0) {
-      // Build waypoints: Driver → All Restaurants → All Customers
-      const restaurants = currentDeliveries.map((d) => d.restaurant);
-      const customers = currentDeliveries.map((d) => d.customer);
+      // Get restaurants and customers from current deliveries
+      const currentRestaurants = currentDeliveries.map((d) => d.restaurant);
+      const currentCustomers = currentDeliveries.map((d) => d.customer);
 
-      // Simple order: as they were accepted (can be optimized later)
-      const r0Waypoints = [driverLocation, ...restaurants, ...customers];
+      // Optimize order: nearest restaurant to driver first, nearest customer to last restaurant first
+      const optimizedRestaurants = getOptimizedRestaurantOrder(
+        driverLocation,
+        currentRestaurants,
+      );
+      const lastRestaurant =
+        optimizedRestaurants[optimizedRestaurants.length - 1];
+      const optimizedCustomers = getOptimizedCustomerOrder(
+        lastRestaurant,
+        currentCustomers,
+      );
 
-      console.log(`[EVALUATE] R0 Route waypoints:`);
+      // Build R0 waypoints: Driver → All Restaurants (optimized) → All Customers (optimized)
+      const r0Waypoints = [
+        driverLocation,
+        ...optimizedRestaurants,
+        ...optimizedCustomers,
+      ];
+
+      console.log(`[EVALUATE] R0 Route waypoints (optimized order):`);
       r0Waypoints.forEach((wp, i) => {
         console.log(
           `[EVALUATE]   ${i}: ${wp.label} (${wp.lat.toFixed(6)}, ${wp.lng.toFixed(6)})`,
@@ -764,78 +798,80 @@ async function evaluateAvailableDelivery(
       console.log(
         `[EVALUATE] ✓ R0 Duration: ${Math.ceil(r0Route.duration / 60)} mins`,
       );
-      console.log(
-        `[EVALUATE] ✓ R0 Road Segments: ${r0Route.roadSegments.length}`,
-      );
     } else {
       console.log(`[EVALUATE] (No current deliveries - R0 = 0)`);
     }
 
     // =========================================================================
-    // STEP 2: Calculate R1 (NEW delivery's SINGLE route) using OSRM
-    // Route: Driver → New Restaurant → New Customer
+    // STEP 2: Calculate R1 (COMBINED route WITH new delivery)
+    // Route: Driver → All Restaurants including new (optimized) → All Customers including new (optimized)
     // =========================================================================
     console.log(`\n${"─".repeat(80)}`);
     console.log(
-      `[EVALUATE] 📊 STEP 2: Calculate R1 (new delivery's single route)`,
+      `[EVALUATE] 📊 STEP 2: Calculate R1 (COMBINED route WITH new delivery)`,
     );
     console.log(`${"─".repeat(80)}`);
 
-    // Calculate R1 using complete optimized routing (Driver → Restaurant → Customer)
-    console.log(`[EVALUATE] → Creating complete optimized route`);
-
-    const r1Route = await getCompleteOptimizedRoute(
-      driverLocation,
+    // Add new restaurant and customer to existing lists
+    const allRestaurants = [
+      ...currentDeliveries.map((d) => d.restaurant),
       newRestaurant,
+    ];
+    const allCustomers = [
+      ...currentDeliveries.map((d) => d.customer),
       newCustomer,
-      "R1 Complete Route",
+    ];
+
+    // Optimize order: nearest restaurant to driver first, nearest customer to last restaurant first
+    const optimizedAllRestaurants = getOptimizedRestaurantOrder(
+      driverLocation,
+      allRestaurants,
+    );
+    const lastRestaurantForR1 =
+      optimizedAllRestaurants[optimizedAllRestaurants.length - 1];
+    const optimizedAllCustomers = getOptimizedCustomerOrder(
+      lastRestaurantForR1,
+      allCustomers,
     );
 
+    // Build R1 waypoints: Driver → All Restaurants (optimized) → All Customers (optimized)
+    const r1Waypoints = [
+      driverLocation,
+      ...optimizedAllRestaurants,
+      ...optimizedAllCustomers,
+    ];
+
     console.log(
-      `[EVALUATE] ✓ R1 Distance: ${(r1Route.distance / 1000).toFixed(3)} km ${r1Route.isOptimized ? "(OPTIMIZED)" : "(DIRECT)"}`,
+      `[EVALUATE] R1 Route waypoints (optimized order with new delivery):`,
     );
-    console.log(
-      `[EVALUATE]   - Driver to Restaurant: ${(r1Route.driverToRestaurantDistance / 1000).toFixed(3)} km`,
-    );
-    console.log(
-      `[EVALUATE]   - Restaurant to Customer: ${(r1Route.restaurantToCustomerDistance / 1000).toFixed(3)} km (${r1Route.selectedOption})`,
-    );
-    if (r1Route.overlapSavings > 0) {
+    r1Waypoints.forEach((wp, i) => {
       console.log(
-        `[EVALUATE]   - Overlap Savings: ${(r1Route.overlapSavings / 1000).toFixed(3)} km 🎯`,
+        `[EVALUATE]   ${i}: ${wp.label} (${wp.lat.toFixed(6)}, ${wp.lng.toFixed(6)})`,
       );
-    }
+    });
+
+    const r1Route = await getOSRMRoute(r1Waypoints, "R1 - Combined Route");
+    console.log(
+      `[EVALUATE] ✓ R1 Distance: ${(r1Route.distance / 1000).toFixed(3)} km`,
+    );
     console.log(
       `[EVALUATE] ✓ R1 Duration: ${Math.ceil(r1Route.duration / 60)} mins`,
     );
-    console.log(
-      `[EVALUATE] ✓ R1 Road Segments: ${r1Route.roadSegments.length}`,
-    );
 
     // =========================================================================
-    // STEP 3: Find common road segments between R0 and R1
+    // STEP 3: Calculate EXTRA distance = R1 - R0
     // =========================================================================
     console.log(`\n${"─".repeat(80)}`);
-    console.log(`[EVALUATE] 📊 STEP 3: Find common road segments`);
+    console.log(`[EVALUATE] 📊 STEP 3: Calculate EXTRA distance (R1 - R0)`);
     console.log(`${"─".repeat(80)}`);
 
-    const { commonDistance, commonSegments, uniqueSegments } =
-      findCommonRoadSegments(r0Route.roadSegments, r1Route.roadSegments);
+    const extraDistance = r1Route.distance - r0Route.distance;
+    const extraDistanceKm = Math.max(0, extraDistance / 1000); // Ensure non-negative
 
-    // =========================================================================
-    // STEP 4: Calculate EXTRA distance = R1 - Common
-    // =========================================================================
-    console.log(`\n${"─".repeat(80)}`);
-    console.log(`[EVALUATE] 📊 STEP 4: Calculate EXTRA distance`);
-    console.log(`${"─".repeat(80)}`);
-
-    const extraDistance = r1Route.distance - commonDistance;
-    const extraDistanceKm = extraDistance / 1000;
-
-    // Calculate extra time based on OSRM duration ratio
+    // Calculate extra time proportionally
     const r1DurationMinutes = r1Route.duration / 60;
-    const extraTimeMinutes =
-      r1DurationMinutes * (extraDistance / r1Route.distance);
+    const r0DurationMinutes = r0Route.duration / 60;
+    const extraTimeMinutes = Math.max(0, r1DurationMinutes - r0DurationMinutes);
 
     console.log(
       `\n[EVALUATE] ╔══════════════════════════════════════════════════════════════╗`,
@@ -850,19 +886,16 @@ async function evaluateAvailableDelivery(
       `[EVALUATE] ║  R0 (current route):        ${(r0Route.distance / 1000).toFixed(3).padStart(10)} km              ║`,
     );
     console.log(
-      `[EVALUATE] ║  R1 (new delivery single):  ${(r1Route.distance / 1000).toFixed(3).padStart(10)} km              ║`,
-    );
-    console.log(
-      `[EVALUATE] ║  Common road segments:      ${(commonDistance / 1000).toFixed(3).padStart(10)} km              ║`,
+      `[EVALUATE] ║  R1 (combined route):       ${(r1Route.distance / 1000).toFixed(3).padStart(10)} km              ║`,
     );
     console.log(
       `[EVALUATE] ╠══════════════════════════════════════════════════════════════╣`,
     );
     console.log(
-      `[EVALUATE] ║  EXTRA DISTANCE = R1 - Common                                ║`,
+      `[EVALUATE] ║  EXTRA DISTANCE = R1 - R0                                    ║`,
     );
     console.log(
-      `[EVALUATE] ║  EXTRA DISTANCE = ${(r1Route.distance / 1000).toFixed(3)} - ${(commonDistance / 1000).toFixed(3)} = ${extraDistanceKm.toFixed(3)} km         ║`,
+      `[EVALUATE] ║  EXTRA DISTANCE = ${(r1Route.distance / 1000).toFixed(3)} - ${(r0Route.distance / 1000).toFixed(3)} = ${extraDistanceKm.toFixed(3)} km         ║`,
     );
     console.log(
       `[EVALUATE] ║  EXTRA TIME:                ${extraTimeMinutes.toFixed(1).padStart(10)} min              ║`,
@@ -1049,9 +1082,9 @@ async function evaluateAvailableDelivery(
       }
     }
 
-    // Total delivery distance (R1 = single delivery route)
-    const totalDeliveryDistanceKm = r1Route.distance / 1000;
-    const totalDeliveryTimeMinutes = r1Route.duration / 60;
+    // Total combined route distance (R1 = combined route with all deliveries including new)
+    const totalCombinedDistanceKm = r1Route.distance / 1000;
+    const totalCombinedTimeMinutes = r1Route.duration / 60;
 
     console.log(`\n[EVALUATE] 💰 Final Earnings Summary:`);
     if (activeDeliveryCount === 0) {
@@ -1095,7 +1128,7 @@ async function evaluateAvailableDelivery(
       );
     }
     console.log(
-      `[EVALUATE] 📍 Total single delivery distance: ${totalDeliveryDistanceKm.toFixed(3)} km`,
+      `[EVALUATE] 📍 Total combined route distance (R1): ${totalCombinedDistanceKm.toFixed(3)} km`,
     );
 
     console.log(`\n${"=".repeat(100)}`);
@@ -1134,16 +1167,21 @@ async function evaluateAvailableDelivery(
       base_earnings: parseFloat(baseEarnings.toFixed(2)), // Base delivery fee + service fee
       bonus_amount: parseFloat(bonusAmount.toFixed(2)), // Delivery count bonus
       total_enhanced_earnings: parseFloat(extraEarnings.toFixed(2)), // Full total for internal calculations
-      total_delivery_distance_km: parseFloat(
-        totalDeliveryDistanceKm.toFixed(2),
-      ),
-      estimated_time_minutes: Math.ceil(totalDeliveryTimeMinutes),
+      total_combined_distance_km: parseFloat(
+        totalCombinedDistanceKm.toFixed(2),
+      ), // R1 - combined route
+      estimated_time_minutes: Math.ceil(totalCombinedTimeMinutes),
       r0_distance_km: parseFloat((r0Route.distance / 1000).toFixed(2)),
       r1_distance_km: parseFloat((r1Route.distance / 1000).toFixed(2)),
-      common_distance_km: parseFloat((commonDistance / 1000).toFixed(2)),
-      driver_to_restaurant_route: r1Route.driverToRestaurantGeometry || null,
-      restaurant_to_customer_route:
-        r1Route.restaurantToCustomerGeometry || null,
+      extra_calculation_method: "R1 - R0", // Combined route minus current route
+      driver_to_restaurant_route: {
+        coordinates: r1Route.geometry?.coordinates || null,
+        encoded_polyline: r1Route.polyline || null, // Google Maps polyline
+      },
+      restaurant_to_customer_route: {
+        coordinates: null, // Combined route, not separate segments
+        encoded_polyline: null,
+      },
     };
   } catch (error) {
     console.error(`[EVALUATE] ❌ Error: ${error.message}`);
@@ -1321,9 +1359,9 @@ export async function getAvailableDeliveriesForDriver(
             total_enhanced_earnings: result.total_enhanced_earnings, // Full total
             r0_distance_km: result.r0_distance_km,
             r1_distance_km: result.r1_distance_km,
-            common_distance_km: result.common_distance_km,
+            calculation_method: result.extra_calculation_method, // "R1 - R0"
           },
-          total_delivery_distance_km: result.total_delivery_distance_km, // 🆕 Total distance
+          total_delivery_distance_km: result.total_combined_distance_km, // R1 - Combined route distance
           estimated_time_minutes: result.estimated_time_minutes, // 🆕 Total time for this delivery
           route_geometry: result.route_geometry, // OSRM route geometry
           driver_to_restaurant_route: result.driver_to_restaurant_route, // 🆕 Blue route

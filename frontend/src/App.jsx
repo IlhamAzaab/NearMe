@@ -53,7 +53,14 @@ import NotificationBar from "./components/NotificationBar";
 import RealtimeNotificationListener from "./components/RealtimeNotificationListener";
 import DriverDeliveryNotificationListener from "./components/DriverDeliveryNotificationListener";
 import ActiveDeliveries from "./pages/driver/ActiveDeliveries";
-import DriverMapPage from "./pages/driver/DriverMapPage";
+// Choose map implementation: Google Maps (new) or Leaflet (legacy)
+// Set USE_GOOGLE_MAPS=true in .env to use Google Maps
+const USE_GOOGLE_MAPS = import.meta.env.VITE_USE_GOOGLE_MAPS === "true";
+import DriverMapPageLeaflet from "./pages/driver/DriverMapPage";
+import DriverMapPageGoogle from "./pages/driver/DriverMapPageGoogle";
+const DriverMapPage = USE_GOOGLE_MAPS
+  ? DriverMapPageGoogle
+  : DriverMapPageLeaflet;
 import DeliveryTracking from "./pages/DeliveryTracking";
 import DriverNotifications from "./pages/driver/Notifications";
 import DeliveryHistory from "./pages/driver/DeliveryHistory";
