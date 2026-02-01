@@ -1,469 +1,554 @@
-/* Driver Accepted Page Styles */
+/* DriverAccepted.css - Driver Info Screen */
+/* Modern Android UI with map background and driver details */
 
-.driver-accepted-container {
+.driver-accepted-screen {
   min-height: 100vh;
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-  display: flex;
-  flex-direction: column;
+  min-height: 100dvh;
+  width: 100%;
   position: relative;
   overflow: hidden;
+  font-family: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: #f0f0f0;
 }
 
-/* Progress bar */
-.driver-accepted-container .progress-bar {
-  position: fixed;
+/* ===== Map Background ===== */
+.driver-accepted-screen .map-background {
+  position: absolute;
   top: 0;
   left: 0;
   right: 0;
+  height: 48%;
+  background: #e8e6e1;
+  overflow: hidden;
+}
+
+.driver-accepted-screen .map-background::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: 
+    /* Primary horizontal road */
+    linear-gradient(180deg, 
+      transparent 0%, 
+      transparent 38%,
+      #ffffff 39%,
+      #ffffff 42%,
+      transparent 43%,
+      transparent 100%
+    ),
+    /* Primary vertical road */
+    linear-gradient(90deg, 
+      transparent 0%, 
+      transparent 48%,
+      #ffffff 49%,
+      #ffffff 52%,
+      transparent 53%,
+      transparent 100%
+    ),
+    /* Secondary roads */
+    linear-gradient(180deg, 
+      transparent 0%, 
+      transparent 18%,
+      rgba(255,255,255,0.7) 19%,
+      rgba(255,255,255,0.7) 21%,
+      transparent 22%,
+      transparent 58%,
+      rgba(255,255,255,0.7) 59%,
+      rgba(255,255,255,0.7) 61%,
+      transparent 62%,
+      transparent 100%
+    ),
+    linear-gradient(90deg, 
+      transparent 0%, 
+      transparent 18%,
+      rgba(255,255,255,0.6) 19%,
+      rgba(255,255,255,0.6) 21%,
+      transparent 22%,
+      transparent 68%,
+      rgba(255,255,255,0.6) 69%,
+      rgba(255,255,255,0.6) 71%,
+      transparent 72%,
+      transparent 100%
+    );
+}
+
+.driver-accepted-screen .map-background::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    to bottom, 
+    rgba(255,255,255,0) 0%, 
+    rgba(255,255,255,0) 60%,
+    rgba(255,255,255,0.5) 85%,
+    rgba(255,255,255,0.95) 100%
+  );
+  pointer-events: none;
+}
+
+.driver-accepted-screen .map-blocks {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+}
+
+.driver-accepted-screen .map-block {
+  position: absolute;
+  background: #d4d2cd;
+  border-radius: 3px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+}
+
+/* ===== Driver Pin ===== */
+.driver-pin {
+  position: absolute;
+  top: 26%;
+  left: 50%;
+  transform: translate(-50%, -100%);
+  z-index: 10;
+}
+
+.driver-pin-icon {
+  width: 56px;
+  height: 56px;
+  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 6px 20px rgba(34, 197, 94, 0.4);
+  animation: driverFloat 3s ease-in-out infinite;
+}
+
+.driver-pin-icon svg {
+  width: 28px;
+  height: 28px;
+  color: white;
+}
+
+.driver-pin-pulse {
+  position: absolute;
+  bottom: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 24px;
+  height: 8px;
+  background: rgba(34, 197, 94, 0.3);
+  border-radius: 50%;
+  animation: driverPulse 3s ease-in-out infinite;
+}
+
+@keyframes driverFloat {
+  0%, 100% { transform: translate(-50%, -100%) translateY(0); }
+  50% { transform: translate(-50%, -100%) translateY(-8px); }
+}
+
+@keyframes driverPulse {
+  0%, 100% { 
+    transform: translateX(-50%) scale(1); 
+    opacity: 0.4; 
+  }
+  50% { 
+    transform: translateX(-50%) scale(0.7); 
+    opacity: 0.2; 
+  }
+}
+
+/* ===== Header Back Button ===== */
+.driver-accepted-screen .header-back-btn {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 30;
+  width: 40px;
+  height: 40px;
+  background: white;
+  border: none;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.driver-accepted-screen .header-back-btn:hover {
+  background: #f8f8f8;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.driver-accepted-screen .header-back-btn:active {
+  transform: scale(0.95);
+}
+
+.driver-accepted-screen .header-back-btn svg {
+  width: 18px;
+  height: 18px;
+  color: #333;
+}
+
+/* ===== Bottom Sheet Card ===== */
+.driver-accepted-screen .bottom-sheet-card {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: white;
+  border-radius: 24px 24px 0 0;
+  box-shadow: 
+    0 -4px 20px rgba(0, 0, 0, 0.08),
+    0 -12px 48px rgba(0, 0, 0, 0.06);
+  padding: 16px 20px 32px;
+  z-index: 20;
+  min-height: 56%;
+}
+
+.driver-accepted-screen .sheet-handle {
+  width: 36px;
   height: 4px;
-  background: rgba(255, 255, 255, 0.1);
-  z-index: 100;
+  background: #ddd;
+  border-radius: 2px;
+  margin: 0 auto 20px;
 }
 
-.driver-accepted-container .progress-fill {
-  height: 100%;
-  background: linear-gradient(90deg, #FF7A00, #FF9A40);
-  border-radius: 0 2px 2px 0;
-  transition: width 0.5s ease;
-}
-
-/* Loading state */
-.driver-accepted-container .loading-state {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  gap: 16px;
-}
-
-.driver-accepted-container .spinner {
-  width: 40px;
-  height: 40px;
-  border: 3px solid rgba(255, 255, 255, 0.2);
-  border-top-color: #FF7A00;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-/* Header */
-.driver-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 16px 20px;
-  padding-top: 24px;
-}
-
-.driver-header .close-btn {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.1);
-  border: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.driver-header .close-btn:hover {
-  background: rgba(255, 255, 255, 0.2);
-}
-
-.driver-header .close-btn svg {
-  width: 20px;
-  height: 20px;
-  color: white;
-}
-
-.header-actions {
-  display: flex;
-  gap: 12px;
-}
-
-.help-btn {
-  padding: 8px 16px;
-  background: rgba(255, 255, 255, 0.1);
-  border: none;
-  border-radius: 20px;
-  color: white;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.help-btn:hover {
-  background: rgba(255, 255, 255, 0.2);
-}
-
-/* Main content */
-.driver-main {
-  flex: 1;
-  padding: 0 24px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-/* Success animation */
-.success-animation {
-  margin: 20px 0 30px;
-}
-
-.check-circle {
-  width: 100px;
-  height: 100px;
-}
-
-.check-circle svg {
-  width: 100%;
-  height: 100%;
-}
-
-.check-circle-bg {
-  stroke: #4CAF50;
-  stroke-width: 2;
-  animation: circle-fill 0.6s ease-out forwards;
-}
-
-@keyframes circle-fill {
-  0% {
-    stroke-dasharray: 0 157;
-  }
-  100% {
-    stroke-dasharray: 157 157;
-  }
-}
-
-.check-mark {
-  stroke: #4CAF50;
-  stroke-width: 3;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-dasharray: 48;
-  stroke-dashoffset: 48;
-  animation: check-draw 0.4s ease-out 0.4s forwards;
-}
-
-@keyframes check-draw {
-  to {
-    stroke-dashoffset: 0;
-  }
-}
-
-/* Title section */
-.title-section {
-  text-align: center;
-  margin-bottom: 32px;
-}
-
-.title-section h1 {
-  color: white;
-  font-size: 26px;
+.driver-accepted-screen .main-heading {
+  font-size: 22px;
   font-weight: 700;
-  margin: 0 0 8px;
+  color: #1a1a1a;
+  text-align: center;
+  margin: 0 0 4px;
+  letter-spacing: -0.3px;
 }
 
-.title-section .subtitle {
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 15px;
-  margin: 0;
+.driver-accepted-screen .sub-heading {
+  font-size: 14px;
+  color: #666;
+  text-align: center;
+  margin: 0 0 20px;
 }
 
-/* Driver Card */
+/* ===== Driver Card ===== */
 .driver-card {
-  background: rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(10px);
-  border-radius: 20px;
-  padding: 24px;
   display: flex;
   align-items: center;
-  gap: 16px;
-  width: 100%;
-  max-width: 400px;
-  margin-bottom: 24px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  gap: 14px;
+  padding: 16px;
+  background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%);
+  border-radius: 16px;
+  margin-bottom: 14px;
+  border: 1px solid rgba(34, 197, 94, 0.12);
 }
 
 .driver-avatar {
-  width: 70px;
-  height: 70px;
+  width: 60px;
+  height: 60px;
   border-radius: 50%;
   overflow: hidden;
-  background: linear-gradient(135deg, #FF7A00, #FF9A40);
   flex-shrink: 0;
+  border: 3px solid #22c55e;
+  box-shadow: 0 4px 12px rgba(34, 197, 94, 0.2);
 }
 
-.driver-avatar img {
+.driver-avatar-img {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
-.avatar-placeholder {
+.driver-avatar-default {
+  width: 100%;
+  height: 100%;
+  background: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.driver-avatar-default svg {
+  width: 30px;
+  height: 30px;
+  color: #9ca3af;
+}
+
+.driver-info {
+  flex: 1;
+}
+
+.driver-name {
+  font-size: 17px;
+  font-weight: 700;
+  color: #1a1a1a;
+  margin: 0 0 4px;
+}
+
+.driver-vehicle-number {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1a1a1a;
+  background: #f0f9ff;
+  padding: 4px 10px;
+  border-radius: 6px;
+  margin-bottom: 4px;
+}
+
+.driver-vehicle-number svg {
+  width: 16px;
+  height: 16px;
+  color: #3b82f6;
+}
+
+.driver-rating {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #666;
+}
+
+.driver-rating svg {
+  width: 16px;
+  height: 16px;
+}
+
+.driver-phone {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #22c55e;
+  margin-top: 4px;
+}
+
+.driver-phone svg {
+  width: 14px;
+  height: 14px;
+}
+
+.copy-phone-btn {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: #3b82f6;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.copy-phone-btn:hover {
+  background: #2563eb;
+  transform: scale(1.05);
+}
+
+.copy-phone-btn:active {
+  transform: scale(0.95);
+}
+
+.copy-phone-btn svg {
+  width: 22px;
+  height: 22px;
+}
+
+.call-driver-btn {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: #22c55e;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.call-driver-btn:hover {
+  background: #16a34a;
+  transform: scale(1.05);
+}
+
+.call-driver-btn svg {
+  width: 22px;
+  height: 22px;
+}
+
+.call-btn {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: #22c55e;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.call-btn:hover:not(:disabled) {
+  background: #16a34a;
+  transform: scale(1.05);
+}
+
+.call-btn:disabled {
+  background: #d1d5db;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.call-btn svg {
+  width: 22px;
+  height: 22px;
+}
+
+/* ===== Vehicle Card ===== */
+.vehicle-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.vehicle-image {
+  width: 80px;
+  height: 64px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #f3f4f6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.vehicle-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.vehicle-image-default {
   width: 100%;
   height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
+  background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
 }
 
-.avatar-placeholder svg {
-  width: 36px;
-  height: 36px;
-  color: white;
+.vehicle-image-default svg {
+  width: 42px;
+  height: 42px;
+  color: #9ca3af;
 }
 
-.driver-details {
-  flex: 1;
-}
-
-.driver-name {
-  color: white;
-  font-size: 20px;
-  font-weight: 600;
-  margin: 0 0 6px;
-}
-
-.driver-rating {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  color: rgba(255, 255, 255, 0.8);
-  font-size: 14px;
-}
-
-.driver-rating .star {
-  color: #FFD700;
-}
-
-/* Info List */
-.info-list {
-  width: 100%;
-  max-width: 400px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin-bottom: 24px;
-}
-
-.info-item {
-  background: rgba(255, 255, 255, 0.08);
-  border-radius: 16px;
-  padding: 16px;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-
-.info-icon {
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  font-size: 22px;
-}
-
-.info-icon.phone-icon {
-  background: rgba(76, 175, 80, 0.2);
-}
-
-.info-icon.phone-icon svg {
-  width: 22px;
-  height: 22px;
-  color: #4CAF50;
-}
-
-.info-icon.vehicle-icon {
-  background: rgba(255, 122, 0, 0.2);
-}
-
-.info-icon.vehicle-icon svg {
-  width: 22px;
-  height: 22px;
-  color: #FF7A00;
-}
-
-.info-icon.type-icon {
-  background: rgba(33, 150, 243, 0.2);
-}
-
-.info-content {
+.vehicle-details {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 8px;
 }
 
-.info-label {
-  color: rgba(255, 255, 255, 0.6);
+.vehicle-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.vehicle-label {
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-}
-
-.info-value {
-  color: white;
-  font-size: 16px;
+  color: #9ca3af;
   font-weight: 500;
 }
 
-.info-value.vehicle-number {
-  font-family: 'Courier New', monospace;
+.vehicle-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.vehicle-plate {
+  font-size: 15px;
   font-weight: 700;
-  letter-spacing: 1px;
-  color: #FF7A00;
+  color: #1a1a1a;
+  font-family: 'SF Mono', 'Roboto Mono', monospace;
+  letter-spacing: 1.5px;
+  background: #f3f4f6;
+  padding: 4px 10px;
+  border-radius: 6px;
 }
 
-.call-btn {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: #4CAF50;
-  border: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.call-btn:hover {
-  background: #43A047;
-  transform: scale(1.05);
-}
-
-.call-btn svg {
-  width: 20px;
-  height: 20px;
-  color: white;
-}
-
-/* Restaurant Info */
-.restaurant-info {
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 16px;
-  padding: 16px 20px;
-  display: flex;
-  align-items: center;
-  gap: 14px;
+/* ===== Track Button ===== */
+.track-btn {
   width: 100%;
-  max-width: 400px;
-  border: 1px dashed rgba(255, 255, 255, 0.2);
-}
-
-.restaurant-icon {
-  font-size: 28px;
-}
-
-.restaurant-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.heading-to {
-  color: rgba(255, 255, 255, 0.5);
-  font-size: 12px;
-}
-
-.restaurant-info .restaurant-name {
-  color: white;
-  font-size: 16px;
-  font-weight: 600;
-}
-
-/* Bottom action */
-.bottom-action {
-  padding: 20px 24px;
-  padding-bottom: 100px;
-}
-
-.view-order-btn {
-  width: 100%;
-  max-width: 400px;
-  margin: 0 auto;
-  display: block;
-  padding: 16px;
-  background: #FF7A00;
-  border: none;
-  border-radius: 12px;
-  color: white;
-  font-size: 16px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.view-order-btn:hover {
-  background: #E66A00;
-  transform: translateY(-2px);
-}
-
-/* Status indicator */
-.driver-accepted-container .status-indicator {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  background: rgba(76, 175, 80, 0.95);
-  backdrop-filter: blur(10px);
-  padding: 16px 24px;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
-}
-
-.driver-accepted-container .status-indicator.accepted {
-  background: rgba(76, 175, 80, 0.95);
-}
-
-.driver-accepted-container .status-dot {
-  width: 8px;
-  height: 8px;
-  background: white;
-  border-radius: 50%;
-  animation: pulse-dot 1.5s ease-in-out infinite;
-}
-
-@keyframes pulse-dot {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.6; transform: scale(1.2); }
-}
-
-.driver-accepted-container .status-indicator span {
+  padding: 16px 24px;
+  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+  border: none;
+  border-radius: 14px;
+  font-size: 16px;
+  font-weight: 600;
   color: white;
-  font-size: 14px;
-  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 14px rgba(34, 197, 94, 0.3);
 }
 
-/* Responsive */
-@media (max-width: 480px) {
-  .title-section h1 {
-    font-size: 22px;
-  }
-  
-  .driver-card {
-    padding: 20px;
-  }
-  
-  .driver-avatar {
-    width: 60px;
-    height: 60px;
-  }
-  
-  .driver-name {
-    font-size: 18px;
+.track-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(34, 197, 94, 0.4);
+}
+
+.track-btn:active {
+  transform: translateY(0);
+}
+
+.track-btn svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* ===== Responsive ===== */
+@media (min-width: 480px) {
+  .driver-accepted-screen {
+    max-width: 480px;
+    margin: 0 auto;
+    box-shadow: 0 0 60px rgba(0,0,0,0.1);
   }
 }

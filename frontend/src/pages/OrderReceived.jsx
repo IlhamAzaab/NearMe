@@ -1,95 +1,93 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
+import OrderMapLayout from "../components/OrderMapLayout";
 import "./OrderReceived.css";
 
 const OrderReceived = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { orderId } = useParams();
-  
-  const [orderData, setOrderData] = useState(location.state || null);
+  const { orderId: paramOrderId } = useParams();
+
+  // Get order data from navigation state
+  const orderData = location.state || {};
+  const {
+    orderId: stateOrderId,
+    restaurantName = "Restaurant",
+    restaurantLogo = null,
+    items = [],
+    totalAmount,
+    address = "Old Dartiains board house",
+    orderNumber,
+    order,
+  } = orderData;
+
+  // Get logo URL from order data or order object
+  const logoUrl = restaurantLogo || order?.restaurant?.logo_url || order?.logo_url || null;
+
+  const orderId = paramOrderId || stateOrderId;
   const [deliveryStatus, setDeliveryStatus] = useState("pending");
-  const [loading, setLoading] = useState(!location.state);
+  const [loading, setLoading] = useState(false);
+  const [viewOrderExpanded, setViewOrderExpanded] = useState(false);
+  const [imageError, setImageError] = useState(false);
+  
+  // Current step index for progress bar (0-indexed)
+  // "pending" status = step 1 (0=placed, 1=preparing, 2=driver accepted)
+  const stepIndex = 1;
 
-  // Fetch order data if not passed via state
+  // Calculate total for cash badge
+  const displayTotal = order?.total_amount || totalAmount || 1599;
+
+  // Calculate arrival time (30-45 mins from now)
+  const getArrivalTimeRange = () => {
+    const now = new Date();
+    const start = new Date(now.getTime() + 30 * 60000);
+    const end = new Date(now.getTime() + 45 * 60000);
+    const format = (d) => d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: false });
+    return `${format(start)} – ${format(end)}`;
+  };
+
+
+  // Poll for status updates
   useEffect(() => {
-    const fetchOrderData = async () => {
-      if (!orderId && !orderData?.orderId) return;
-      
-      const id = orderId || orderData?.orderId;
-      const token = localStorage.getItem("token");
-      
-      try {
-        const response = await fetch(`http://localhost:5000/orders/${id}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          setOrderData({
-            order: data.order,
-            orderId: data.order.id,
-            orderNumber: data.order.order_number,
-            restaurantName: data.order.restaurant_name,
-            items: data.order.items || [],
-            totalAmount: data.order.total_amount,
-          });
-          setDeliveryStatus(data.order.delivery?.status || "pending");
-        }
-      } catch (err) {
-        console.error("Error fetching order:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    if (!orderData) {
-      fetchOrderData();
-    } else {
-      setLoading(false);
-    }
-  }, [orderId, orderData]);
-
-  // Poll for status changes
-  useEffect(() => {
-    if (!orderData?.orderId) return;
+    if (!orderId) return;
 
     const pollStatus = async () => {
-      const token = localStorage.getItem("token");
       try {
+        const token = localStorage.getItem("token");
         const response = await fetch(
-          `http://localhost:5000/orders/${orderData.orderId}/delivery-status`,
-          { headers: { Authorization: `Bearer ${token}` } }
+          `http://localhost:5000/orders/${orderId}/delivery-status`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          }
         );
-        
+
         if (response.ok) {
           const data = await response.json();
           const newStatus = data.status;
-          
-          if (newStatus !== deliveryStatus) {
+
+          if (newStatus && newStatus !== deliveryStatus) {
             setDeliveryStatus(newStatus);
-            
-            // Navigate based on status
+
+            // Navigate to appropriate screen based on status
             if (newStatus === "accepted") {
-              // Driver accepted - go to DriverAccepted page
-              navigate(`/driver-accepted/${orderData.orderId}`, { 
+              navigate(`/driver-accepted/${orderId}`, {
                 state: { ...orderData, deliveryStatus: newStatus, driver: data.driver },
-                replace: true 
+                replace: true,
               });
             } else if (newStatus === "picked_up") {
-              navigate(`/order-picked-up/${orderData.orderId}`, { 
-                state: { ...orderData, deliveryStatus: newStatus },
-                replace: true 
+              navigate(`/order-picked-up/${orderId}`, {
+                state: { ...orderData, deliveryStatus: newStatus, driver: data.driver },
+                replace: true,
               });
             } else if (newStatus === "on_the_way") {
-              navigate(`/order-on-the-way/${orderData.orderId}`, { 
-                state: { ...orderData, deliveryStatus: newStatus },
-                replace: true 
+              navigate(`/order-on-the-way/${orderId}`, {
+                state: { ...orderData, deliveryStatus: newStatus, driver: data.driver },
+                replace: true,
               });
             } else if (newStatus === "delivered") {
-              navigate(`/order-delivered/${orderData.orderId}`, { 
+              navigate(`/order-delivered/${orderId}`, {
                 state: { ...orderData, deliveryStatus: newStatus },
-                replace: true 
+                replace: true,
               });
             }
           }
@@ -99,148 +97,101 @@ const OrderReceived = () => {
       }
     };
 
-    // Poll every 3 seconds
-    const interval = setInterval(pollStatus, 3000);
-    pollStatus(); // Initial poll
+    const interval = setInterval(pollStatus, 2000);
+    pollStatus();
 
     return () => clearInterval(interval);
-  }, [orderData?.orderId, deliveryStatus, navigate]);
+  }, [orderId, deliveryStatus, navigate, orderData]);
 
-  // Calculate estimated arrival time
-  const getEstimatedArrival = () => {
-    const now = new Date();
-    const estimatedMinutes = orderData?.order?.estimated_duration_min || 30;
-    const arrivalTime = new Date(now.getTime() + (estimatedMinutes + 15) * 60000);
-    return arrivalTime.toLocaleTimeString("en-US", {
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    });
-  };
-
-  const handleClose = () => {
+  const handleBack = () => {
     navigate("/home");
   };
 
-  const handleHelp = () => {
-    // Could navigate to help/support page
-    alert("Help & Support - Coming Soon");
+  const handleToggleViewOrder = () => {
+    setViewOrderExpanded(!viewOrderExpanded);
   };
 
-  const handleViewDetails = () => {
-    navigate(`/orders/${orderData?.orderId}`);
+  const handleImageError = () => {
+    setImageError(true);
   };
 
   if (loading) {
     return (
-      <div className="order-received-container">
-        <div className="loading-state">
-          <div className="spinner"></div>
-          <p>Loading order details...</p>
-        </div>
+      <div className="loading-screen">
+        <div className="loading-spinner"></div>
+        <p>Loading order details...</p>
       </div>
     );
   }
 
-  /* =====================================================
-     UI REDESIGN: Uber Eats "Order Received" Style
-     - All existing logic, state, and data unchanged
-     - Only JSX structure and CSS classes modified
-     ===================================================== */
-
   return (
-    <div className="order-received-container">
-      {/* ===== Progress Bar (Uber-style thin line at top) ===== */}
-      <div className="progress-bar-container">
-        <div className="progress-bar-track">
-          <div className="progress-bar-fill" style={{ width: '25%' }}></div>
-        </div>
-      </div>
-
-      {/* ===== Header with Close Button ===== */}
-      <header className="order-header">
-        <button className="close-btn" onClick={handleClose} aria-label="Close">
-          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-        <div className="header-actions">
-          <button className="help-btn" onClick={handleHelp}>
-            Help
-          </button>
-        </div>
-      </header>
-
-      {/* ===== Main Content Area ===== */}
-      <main className="order-main">
-        {/* Title Section - "Order received" + ETA */}
-        <div className="order-title-section">
-          <h1 className="order-title">Order received</h1>
-          <p className="estimated-arrival">
-            Estimated arrival <strong>{getEstimatedArrival()}</strong>
-          </p>
-        </div>
-
-        {/* Center Illustration Area */}
-        <div className="order-illustration">
-          <div className="illustration-container">
-            {/* Placeholder illustration - restaurant preparing order */}
-            <svg className="illustration-svg" viewBox="0 0 200 160" fill="none" xmlns="http://www.w3.org/2000/svg">
-              {/* Background circle */}
-              <circle cx="100" cy="80" r="70" fill="#F0FDF4" />
-              {/* Shopping bag */}
-              <rect x="70" y="50" width="60" height="70" rx="8" fill="#10B981" />
-              <rect x="75" y="55" width="50" height="10" rx="2" fill="#059669" />
-              {/* Bag handles */}
-              <path d="M85 50 C85 35, 115 35, 115 50" stroke="#059669" strokeWidth="4" fill="none" />
-              {/* Checkmark */}
-              <circle cx="130" cy="95" r="18" fill="#FFFFFF" stroke="#10B981" strokeWidth="3" />
-              <path d="M122 95 L128 101 L140 89" stroke="#10B981" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-              {/* Small decorative dots */}
-              <circle cx="55" cy="60" r="4" fill="#D1FAE5" />
-              <circle cx="150" cy="50" r="3" fill="#D1FAE5" />
-              <circle cx="45" cy="100" r="5" fill="#D1FAE5" />
-            </svg>
+    <OrderMapLayout
+      title="Preparing your order…"
+      arrivalTimeText={getArrivalTimeRange()}
+      stepIndex={stepIndex}
+      deliveryAddress={address}
+      showViewOrder={true}
+      viewOrderExpanded={viewOrderExpanded}
+      onToggleViewOrder={handleToggleViewOrder}
+      orderDetails={{
+        restaurantName,
+        orderNumber,
+        items,
+        totalAmount: displayTotal,
+      }}
+      onBack={handleBack}
+    >
+      {/* Order Details Section */}
+      <div className="order-details-section">
+        {/* Restaurant Name */}
+        <div className="detail-group">
+          <p className="detail-label">Restaurant</p>
+          <div className="restaurant-info-row">
+            {logoUrl && !imageError ? (
+              <img 
+                src={logoUrl} 
+                alt={restaurantName} 
+                className="restaurant-thumbnail"
+                onError={handleImageError}
+              />
+            ) : (
+              <div className="restaurant-thumbnail-placeholder">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                </svg>
+              </div>
+            )}
+            <span className="restaurant-name-text">{restaurantName}</span>
           </div>
         </div>
 
-        {/* Order Items Preview (small thumbnails) */}
-        <div className="order-items-preview">
-          {orderData?.items?.slice(0, 3).map((item, idx) => (
-            <div key={idx} className="item-preview">
-              {item.food_image_url ? (
-                <img src={item.food_image_url} alt={item.food_name || item.name} />
-              ) : (
-                <div className="item-placeholder">
-                  <span>🍽️</span>
+        {/* Food Items */}
+        {items && items.length > 0 && (
+          <div className="detail-group">
+            <p className="detail-label">Food Items</p>
+            <div className="food-items-list">
+              {items.map((item, idx) => (
+                <div key={idx} className="food-item-row">
+                  <div className="item-name-qty">
+                    <span className="item-quantity">{item.quantity}×</span>
+                    <span className="item-name">{item.name}</span>
+                  </div>
+                  <span className="item-price">
+                    LKR {(item.price * item.quantity).toFixed(2)}
+                  </span>
                 </div>
-              )}
+              ))}
+              <div className="food-items-total">
+                <span className="total-label">Total</span>
+                <span className="total-value">
+                  LKR {parseFloat(displayTotal).toFixed(2)}
+                </span>
+              </div>
             </div>
-          ))}
-          {orderData?.items?.length > 3 && (
-            <div className="more-items">+{orderData.items.length - 3}</div>
-          )}
-        </div>
-      </main>
-
-      {/* ===== Bottom Floating Status Card ===== */}
-      <div className="bottom-status-card" onClick={handleViewDetails}>
-        <div className="status-card-content">
-          <div className="restaurant-avatar">
-            <span>{orderData?.restaurantName?.charAt(0) || "R"}</span>
           </div>
-          <div className="restaurant-info">
-            <h3 className="restaurant-name">{orderData?.restaurantName || "Restaurant"}</h3>
-            <p className="restaurant-status">Preparing your order...</p>
-          </div>
-          <div className="chevron">
-            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-            </svg>
-          </div>
-        </div>
+        )}
       </div>
-    </div>
+    </OrderMapLayout>
   );
 };
 

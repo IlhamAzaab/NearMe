@@ -86,7 +86,7 @@ export default function AdminDashboard() {
             </p>
             <p className={`text-3xl font-bold mt-3 ${color} drop-shadow-sm`}>
               {title.includes("Revenue") || title.includes("Avg") ? "Rs. " : ""}
-              {value.toLocaleString()}
+              {(value || 0).toLocaleString()}
             </p>
             {change !== 0 && (
               <p className="text-xs mt-2 flex items-center">
@@ -286,7 +286,7 @@ export default function AdminDashboard() {
                       Today's Orders
                     </p>
                     <p className="text-3xl font-bold text-blue-600 mt-1">
-                      {stats.todayOrders}
+                      {stats.todayOrders || 0}
                     </p>
                   </div>
                   <div className="text-4xl">📦</div>
@@ -297,7 +297,7 @@ export default function AdminDashboard() {
                       Today's Revenue
                     </p>
                     <p className="text-3xl font-bold text-green-600 mt-1">
-                      Rs. {stats.todayRevenue.toLocaleString()}
+                      Rs. {(stats.todayRevenue || 0).toLocaleString()}
                     </p>
                   </div>
                   <div className="text-4xl">💰</div>

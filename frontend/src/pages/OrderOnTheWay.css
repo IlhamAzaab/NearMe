@@ -1,438 +1,677 @@
-/* Order On The Way Page Styles */
+/* OrderOnTheWay.css - Live Map Tracking Styles */
 
-.order-ontheway-container {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  background: #f5f5f5;
-  position: relative;
-}
-
-/* Loading state */
-.order-ontheway-container .loading-state {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-  color: white;
-  gap: 16px;
-}
-
-.order-ontheway-container .spinner {
-  width: 40px;
-  height: 40px;
-  border: 3px solid rgba(255, 255, 255, 0.2);
-  border-top-color: #FF7A00;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-/* Map Section */
-.map-section {
-  flex: 1;
-  position: relative;
-  min-height: 50vh;
-}
-
-.map-container {
-  width: 100%;
-  height: 100%;
-  min-height: 50vh;
-}
-
-/* Map Header Overlay */
-.map-header {
-  position: absolute;
+.order-on-the-way-screen {
+  position: fixed;
   top: 0;
   left: 0;
   right: 0;
+  bottom: 0;
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 16px 20px;
-  padding-top: 24px;
-  z-index: 1000;
-  background: linear-gradient(to bottom, rgba(0,0,0,0.3), transparent);
+  flex-direction: column;
+  background: #f5f5f5;
+  overflow: hidden;
 }
 
-.map-header .close-btn {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
+/* ===== Live Map Container ===== */
+.live-map-container {
+  flex: 1;
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.live-map-container .leaflet-container {
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+}
+
+/* ===== Back Button on Map ===== */
+.map-back-btn {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 1000;
+  width: 44px;
+  height: 44px;
   background: white;
   border: none;
+  border-radius: 50%;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-  transition: all 0.2s;
+  transition: all 0.2s ease;
 }
 
-.map-header .close-btn:hover {
+.map-back-btn:hover {
+  background: #f8f8f8;
   transform: scale(1.05);
 }
 
-.map-header .close-btn svg {
-  width: 20px;
-  height: 20px;
+.map-back-btn svg {
+  width: 24px;
+  height: 24px;
   color: #333;
 }
 
-.map-header .help-btn {
-  padding: 10px 20px;
-  background: white;
-  border: none;
-  border-radius: 20px;
-  color: #333;
-  font-weight: 600;
-  cursor: pointer;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-  transition: all 0.2s;
-}
-
-.map-header .help-btn:hover {
-  background: #f5f5f5;
-}
-
-/* ETA Badge */
-.eta-badge {
+/* ===== Tracking Bottom Sheet ===== */
+.tracking-bottom-sheet {
   position: absolute;
-  top: 80px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: #FF7A00;
-  color: white;
-  padding: 12px 24px;
-  border-radius: 30px;
-  display: flex;
-  align-items: baseline;
-  gap: 4px;
-  box-shadow: 0 4px 12px rgba(255, 122, 0, 0.4);
-  z-index: 1000;
-}
-
-.eta-time {
-  font-size: 28px;
-  font-weight: 700;
-}
-
-.eta-label {
-  font-size: 14px;
-  font-weight: 500;
-}
-
-/* Custom Markers */
-.driver-marker {
-  background: none !important;
-  border: none !important;
-}
-
-.driver-marker-inner {
-  width: 40px;
-  height: 40px;
-  background: #FF7A00;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 22px;
-  box-shadow: 0 4px 12px rgba(255, 122, 0, 0.5);
-  animation: pulse-driver 2s ease-in-out infinite;
-}
-
-@keyframes pulse-driver {
-  0%, 100% { transform: scale(1); box-shadow: 0 4px 12px rgba(255, 122, 0, 0.5); }
-  50% { transform: scale(1.1); box-shadow: 0 6px 20px rgba(255, 122, 0, 0.7); }
-}
-
-.customer-marker {
-  background: none !important;
-  border: none !important;
-}
-
-.customer-marker-inner {
-  width: 40px;
-  height: 40px;
-  background: #4CAF50;
-  border-radius: 50% 50% 50% 0;
-  transform: rotate(-45deg);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 18px;
-  box-shadow: 0 4px 12px rgba(76, 175, 80, 0.5);
-}
-
-.customer-marker-inner::after {
-  content: '🏠';
-  transform: rotate(45deg);
-}
-
-/* Bottom Sheet */
-.bottom-sheet {
+  bottom: 0;
+  left: 0;
+  right: 0;
   background: white;
   border-radius: 24px 24px 0 0;
-  padding: 16px 24px 32px;
-  margin-top: -24px;
-  position: relative;
-  z-index: 100;
-  box-shadow: 0 -4px 20px rgba(0,0,0,0.1);
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.1);
+  padding: 12px 20px 32px;
+  z-index: 1000;
+  max-height: 55%;
+  overflow-y: auto;
 }
 
-.sheet-handle {
+/* Drag Handle */
+.tracking-bottom-sheet .drag-handle-bar {
   width: 40px;
   height: 4px;
-  background: #ddd;
+  background: #e0e0e0;
   border-radius: 2px;
-  margin: 0 auto 20px;
+  margin: 0 auto 16px;
 }
 
-/* Status Header */
-.status-header {
+/* ===== Tracking Header ===== */
+.tracking-header {
   display: flex;
   align-items: center;
-  gap: 14px;
-  margin-bottom: 20px;
-}
-
-.status-icon {
-  width: 50px;
-  height: 50px;
-  background: linear-gradient(135deg, #FF7A00, #FF9A40);
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 24px;
-  animation: bounce-icon 2s ease-in-out infinite;
-}
-
-@keyframes bounce-icon {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-5px); }
-}
-
-.status-text h2 {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 700;
-  color: #1a1a1a;
-}
-
-.status-text p {
-  margin: 4px 0 0;
-  font-size: 14px;
-  color: #666;
-}
-
-/* Route Info */
-.route-info {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 24px;
-  background: #f8f9fa;
-  border-radius: 16px;
-  padding: 16px;
-  margin-bottom: 20px;
-}
-
-.route-item {
-  text-align: center;
-}
-
-.route-value {
-  display: block;
-  font-size: 24px;
-  font-weight: 700;
-  color: #FF7A00;
-}
-
-.route-label {
-  font-size: 12px;
-  color: #666;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.route-divider {
-  width: 1px;
-  height: 40px;
-  background: #ddd;
-}
-
-/* Driver Card */
-.order-ontheway-container .driver-card {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 16px;
-  background: #f8f9fa;
-  border-radius: 16px;
+  gap: 12px;
   margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #f0f0f0;
 }
 
-.order-ontheway-container .driver-avatar {
-  width: 50px;
-  height: 50px;
+.tracking-icon {
+  width: 48px;
+  height: 48px;
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
   border-radius: 50%;
-  overflow: hidden;
-  background: linear-gradient(135deg, #FF7A00, #FF9A40);
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
 }
 
-.order-ontheway-container .driver-avatar img {
+.tracking-icon svg {
+  width: 24px;
+  height: 24px;
+  color: white;
+}
+
+.tracking-text h2 {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1f2937;
+  margin: 0 0 4px;
+}
+
+.tracking-text p {
+  font-size: 14px;
+  color: #6b7280;
+  margin: 0;
+}
+
+/* ===== Progress Indicator ===== */
+.tracking-bottom-sheet .progress-indicator {
+  margin-bottom: 16px;
+}
+
+.tracking-bottom-sheet .progress-track {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px;
+  margin-bottom: 8px;
+}
+
+.tracking-bottom-sheet .progress-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #e5e7eb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.3s ease;
+}
+
+.tracking-bottom-sheet .progress-dot.completed {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+}
+
+.tracking-bottom-sheet .progress-dot.completed svg {
+  width: 12px;
+  height: 12px;
+  color: white;
+}
+
+.tracking-bottom-sheet .progress-dot.current {
+  background: white;
+  border: 3px solid #f97316;
+  box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.2);
+}
+
+.tracking-bottom-sheet .progress-line {
+  flex: 1;
+  height: 3px;
+  background: #e5e7eb;
+  margin: 0 4px;
+}
+
+.tracking-bottom-sheet .progress-line.completed {
+  background: linear-gradient(90deg, #10b981, #059669);
+}
+
+.tracking-bottom-sheet .progress-labels {
+  display: flex;
+  justify-content: space-between;
+  padding: 0;
+}
+
+.tracking-bottom-sheet .progress-label {
+  font-size: 10px;
+  color: #9ca3af;
+  text-align: center;
+  flex: 1;
+  max-width: 60px;
+}
+
+.tracking-bottom-sheet .progress-label.current {
+  color: #f97316;
+  font-weight: 600;
+}
+
+.tracking-bottom-sheet .progress-label.completed {
+  color: #10b981;
+}
+
+/* ===== ETA Card ===== */
+.eta-card-tracking {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+
+.eta-card-tracking .eta-icon {
+  width: 40px;
+  height: 40px;
+  background: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.eta-card-tracking .eta-icon svg {
+  width: 20px;
+  height: 20px;
+  color: #f59e0b;
+}
+
+.eta-card-tracking .eta-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.eta-card-tracking .eta-label {
+  font-size: 12px;
+  color: #92400e;
+}
+
+.eta-card-tracking .eta-time {
+  font-size: 18px;
+  font-weight: 700;
+  color: #78350f;
+}
+
+/* ===== Driver Info Card ===== */
+.tracking-bottom-sheet .driver-info-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #f9fafb;
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+
+.tracking-bottom-sheet .driver-avatar {
+  width: 48px;
+  height: 48px;
+  background: linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.tracking-bottom-sheet .driver-avatar img {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
-.order-ontheway-container .avatar-placeholder {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 24px;
+.tracking-bottom-sheet .driver-avatar svg {
+  width: 24px;
+  height: 24px;
+  color: #6366f1;
 }
 
-.order-ontheway-container .driver-info {
+.tracking-bottom-sheet .driver-details {
   flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
-.order-ontheway-container .driver-name {
-  margin: 0;
+.tracking-bottom-sheet .driver-name {
   font-size: 16px;
   font-weight: 600;
-  color: #1a1a1a;
+  color: #1f2937;
 }
 
-.order-ontheway-container .vehicle-info {
-  margin: 2px 0 0;
+.tracking-bottom-sheet .driver-vehicle {
   font-size: 13px;
-  color: #666;
+  color: #6b7280;
 }
 
-.order-ontheway-container .call-btn {
+.tracking-bottom-sheet .driver-vehicle-number {
+  font-size: 12px;
+  color: #9ca3af;
+  margin-top: 2px;
+}
+
+.tracking-bottom-sheet .driver-phone {
+  font-size: 12px;
+  color: #6b7280;
+  margin-top: 2px;
+}
+
+/* Copy Phone Button */
+.tracking-bottom-sheet .copy-phone-btn {
   width: 44px;
   height: 44px;
-  border-radius: 50%;
-  background: #4CAF50;
+  background: #10b981;
   border: none;
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
 }
 
-.order-ontheway-container .call-btn:hover {
-  background: #43A047;
+.tracking-bottom-sheet .copy-phone-btn:hover {
+  background: #059669;
   transform: scale(1.05);
 }
 
-.order-ontheway-container .call-btn svg {
+.tracking-bottom-sheet .copy-phone-btn svg {
   width: 20px;
   height: 20px;
   color: white;
 }
 
-/* Delivery Details */
-.delivery-details {
+/* ===== Delivery Address Card ===== */
+.delivery-address-card {
   display: flex;
-  flex-direction: column;
+  align-items: flex-start;
   gap: 12px;
-  margin-bottom: 20px;
+  background: #f0fdf4;
+  border-radius: 12px;
+  padding: 14px 16px;
+  border: 1px solid #bbf7d0;
 }
 
-.detail-row {
+.delivery-address-card .address-icon {
+  width: 36px;
+  height: 36px;
+  background: #10b981;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.delivery-address-card .address-icon svg {
+  width: 18px;
+  height: 18px;
+  color: white;
+}
+
+.delivery-address-card .address-content {
+  flex: 1;
+}
+
+.delivery-address-card .address-label {
+  font-size: 12px;
+  color: #059669;
+  font-weight: 500;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.delivery-address-card .address-text {
+  font-size: 14px;
+  color: #1f2937;
+  line-height: 1.4;
+}
+
+/* ===== Sheet Handle ===== */
+.sheet-handle {
+  width: 40px;
+  height: 4px;
+  background: #e0e0e0;
+  border-radius: 2px;
+  margin: 0 auto 16px;
+}
+
+/* ===== Tracking Status Badge ===== */
+.tracking-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #ecfdf5;
+  border: 1px solid #bbf7d0;
+  border-radius: 20px;
+  padding: 4px 12px;
+  margin-bottom: 8px;
+}
+
+.tracking-status-badge .status-dot {
+  width: 8px;
+  height: 8px;
+  background: #22c55e;
+  border-radius: 50%;
+}
+
+.tracking-status-badge .status-dot.pulsing {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(1.2);
+  }
+}
+
+.tracking-status-badge span:last-child {
+  font-size: 12px;
+  font-weight: 600;
+  color: #16a34a;
+}
+
+/* ===== Tracking Title ===== */
+.tracking-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: #1f2937;
+  margin: 0 0 4px;
+}
+
+.tracking-subtitle {
+  font-size: 14px;
+  color: #6b7280;
+  margin: 0 0 16px;
+}
+
+/* ===== ETA Card Wrapper ===== */
+.eta-icon-wrapper {
+  width: 40px;
+  height: 40px;
+  background: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.eta-icon-wrapper svg {
+  width: 20px;
+  height: 20px;
+  color: #f59e0b;
+}
+
+.eta-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.eta-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: #78350f;
+}
+
+/* ===== Driver Card ===== */
+.driver-card {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 16px;
-  background: #f8f9fa;
+  background: #f9fafb;
   border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
 }
 
-.detail-icon {
-  font-size: 20px;
+.driver-avatar {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
 }
 
-.detail-content {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.detail-label {
-  font-size: 11px;
-  color: #999;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.detail-value {
-  font-size: 14px;
-  color: #1a1a1a;
-  font-weight: 500;
-}
-
-/* Action Button */
-.action-btn {
+.driver-avatar-img {
   width: 100%;
-  padding: 16px;
-  background: #1a1a1a;
-  border: none;
-  border-radius: 12px;
-  color: white;
+  height: 100%;
+  object-fit: cover;
+}
+
+.driver-avatar-default {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.driver-avatar-default svg {
+  width: 28px;
+  height: 28px;
+  color: #6366f1;
+}
+
+.driver-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.driver-info .driver-name {
   font-size: 16px;
   font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
+  color: #1f2937;
+  margin: 0 0 4px;
 }
 
-.action-btn:hover {
-  background: #333;
-  transform: translateY(-2px);
+.driver-info .driver-vehicle-number {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #6b7280;
+  margin-bottom: 2px;
 }
 
-/* Responsive */
-@media (max-width: 480px) {
-  .map-section {
-    min-height: 45vh;
-  }
-  
-  .map-container {
-    min-height: 45vh;
-  }
-  
-  .bottom-sheet {
-    padding: 16px 20px 28px;
-  }
-  
-  .eta-badge {
-    padding: 10px 20px;
-  }
-  
-  .eta-time {
-    font-size: 24px;
+.driver-info .driver-vehicle-number svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.driver-info .driver-phone {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.driver-info .driver-phone svg {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+
+/* ===== Address Info ===== */
+.address-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.address-label {
+  font-size: 12px;
+  color: #059669;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.address-text {
+  font-size: 14px;
+  color: #1f2937;
+  line-height: 1.4;
+}
+
+/* ===== Map Loading Overlay ===== */
+.map-loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.9);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 500;
+  gap: 16px;
+}
+
+.map-loading-spinner {
+  width: 48px;
+  height: 48px;
+  border: 4px solid #e5e7eb;
+  border-top-color: #10b981;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.map-loading-overlay p {
+  font-size: 14px;
+  color: #6b7280;
+  margin: 0;
+}
+
+/* ===== Loading State ===== */
+.loading-screen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: white;
+  gap: 16px;
+}
+
+.loading-screen .loading-spinner {
+  width: 48px;
+  height: 48px;
+  border: 4px solid #e5e7eb;
+  border-top-color: #10b981;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.loading-screen p {
+  font-size: 16px;
+  color: #6b7280;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 
-/* Leaflet popup customization */
-.leaflet-popup-content-wrapper {
-  border-radius: 12px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+/* ===== Custom Leaflet Marker Styles ===== */
+.leaflet-div-icon {
+  background: transparent;
+  border: none;
 }
 
-.leaflet-popup-content {
-  margin: 12px 16px;
-  font-family: inherit;
+/* Route Line Animation */
+@keyframes routePulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+/* Responsive Adjustments */
+@media (max-height: 700px) {
+  .tracking-bottom-sheet {
+    max-height: 60%;
+    padding-bottom: 24px;
+  }
+  
+  .tracking-header {
+    margin-bottom: 12px;
+    padding-bottom: 12px;
+  }
+  
+  .tracking-text h2 {
+    font-size: 16px;
+  }
+}
+
+@media (min-width: 768px) {
+  .tracking-bottom-sheet {
+    max-width: 480px;
+    left: 50%;
+    transform: translateX(-50%);
+    border-radius: 24px 24px 0 0;
+  }
 }

@@ -1,197 +1,256 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
-import "./OrderDelivered.css";
+import "./PlacingOrder.css";
+
+// Progress steps for the order journey - all completed
+const PROGRESS_STEPS = [
+  { key: "placed", label: "Order placed" },
+  { key: "pending", label: "Order received" },
+  { key: "accepted", label: "Driver accepted" },
+  { key: "picked_up", label: "Picked up" },
+  { key: "delivered", label: "Delivered" },
+];
 
 const OrderDelivered = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { orderId } = useParams();
-  
-  const [orderData, setOrderData] = useState(location.state || null);
-  const [order, setOrder] = useState(null);
-  const [loading, setLoading] = useState(!location.state?.order);
-  const [customerName, setCustomerName] = useState("");
+  const { orderId: paramOrderId } = useParams();
 
-  // Fetch order data if not passed via state
-  useEffect(() => {
-    const fetchOrderData = async () => {
-      const id = orderId || orderData?.orderId;
-      if (!id) return;
-      
-      const token = localStorage.getItem("token");
-      const storedName = localStorage.getItem("userName");
-      setCustomerName(storedName || "Customer");
-      
+  // Get order data from navigation state
+  const orderData = location.state || {};
+  const {
+    orderId: stateOrderId,
+    restaurantName = "Restaurant",
+    items = [],
+    totalAmount,
+    address = "Loading...",
+    orderNumber,
+    order,
+  } = orderData;
+
+  const orderId = paramOrderId || stateOrderId;
+  const [showDetails, setShowDetails] = useState(false);
+  const [rating, setRating] = useState(0);
+  const [submitted, setSubmitted] = useState(false);
+
+  // All steps are completed
+  const currentStepIndex = 5;
+
+  // Handle view order details
+  const handleViewDetails = () => {
+    setShowDetails(!showDetails);
+  };
+
+  // Handle rating
+  const handleRating = (value) => {
+    setRating(value);
+  };
+
+  // Handle submit review
+  const handleSubmitReview = async () => {
+    if (rating > 0) {
       try {
-        const response = await fetch(`http://localhost:5000/orders/${id}`, {
-          headers: { Authorization: `Bearer ${token}` },
+        const token = localStorage.getItem("token");
+        await fetch(`http://localhost:5000/orders/${orderId}/rate`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ rating }),
         });
-        
-        if (response.ok) {
-          const data = await response.json();
-          setOrder(data.order);
-          setOrderData({
-            order: data.order,
-            orderId: data.order.id,
-            orderNumber: data.order.order_number,
-            restaurantName: data.order.restaurant_name,
-          });
-        }
+        setSubmitted(true);
       } catch (err) {
-        console.error("Error fetching order:", err);
-      } finally {
-        setLoading(false);
+        console.error("Error submitting rating:", err);
+        setSubmitted(true); // Still show success for UX
       }
-    };
-
-    if (!order) {
-      fetchOrderData();
-    } else {
-      setLoading(false);
-      const storedName = localStorage.getItem("userName");
-      setCustomerName(storedName || "Customer");
     }
-  }, [orderId, orderData, order]);
-
-  const handleBack = () => {
-    navigate("/orders");
   };
 
+  // Navigate to home
   const handleGoHome = () => {
-    navigate("/home");
+    navigate("/customer");
   };
 
-  const formatPrice = (price) => {
-    return `Rs. ${parseFloat(price || 0).toFixed(2)}`;
+  // Navigate to order again
+  const handleOrderAgain = () => {
+    navigate("/customer");
   };
-
-  if (loading) {
-    return (
-      <div className="order-delivered-container">
-        <div className="loading-state">
-          <div className="spinner"></div>
-          <p>Loading receipt...</p>
-        </div>
-      </div>
-    );
-  }
-
-  const orderItems = order?.order_items || orderData?.order?.order_items || [];
-  const totalAmount = order?.total_amount || orderData?.order?.total_amount || 0;
-  const restaurantName = order?.restaurant_name || orderData?.restaurantName || "Restaurant";
 
   return (
-    <div className="order-delivered-container">
-      {/* Header */}
-      <header className="delivered-header">
-        <button className="back-btn" onClick={handleBack}>
-          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-        </button>
-        <h1 className="header-title">Receipt</h1>
-        <div className="header-spacer"></div>
-      </header>
+    <div className="placing-order-screen delivered">
+      {/* ===== Background Image Area ===== */}
+      <div className="background-area delivered-bg">
+        <div className="bg-gradient-overlay success"></div>
 
-      {/* Success Banner */}
-      <div className="success-banner">
-        <div className="banner-content">
-          <div className="success-badge">
-            <svg viewBox="0 0 24 24" fill="none">
-              <circle cx="12" cy="12" r="10" fill="#4CAF50"/>
-              <path d="M8 12l3 3 5-6" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+        {/* Celebration icons */}
+        <div className="floating-icons celebration">
+          <span className="floating-icon">🎉</span>
+          <span className="floating-icon">✨</span>
+          <span className="floating-icon">🍽️</span>
+          <span className="floating-icon">⭐</span>
+          <span className="floating-icon">🎊</span>
+          <span className="floating-icon">👍</span>
+        </div>
+
+        {/* Success animation */}
+        <div className="status-animation-container success">
+          <div className="success-ring"></div>
+          <div className="status-icon-main success">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path d="M20 6L9 17l-5-5" />
             </svg>
           </div>
-          <p className="success-text">Delivery Successfully Completed!</p>
-        </div>
-        
-        <h2 className="thank-you-title">
-          Thanks for ordering, {customerName}
-        </h2>
-        <p className="receipt-subtitle">
-          Here's your receipt for {restaurantName}.
-        </p>
-
-        {/* Illustration */}
-        <div className="illustration">
-          <div className="bag-illustration">
-            <div className="bag-body">
-              <div className="bag-logo">🍜</div>
-            </div>
-            <div className="bowl-icon">
-              <span>🍛</span>
-            </div>
-          </div>
         </div>
       </div>
 
-      {/* Receipt Content */}
-      <div className="receipt-content">
-        {/* Total */}
-        <div className="total-section">
-          <span className="total-label">Total</span>
-          <span className="total-amount">{formatPrice(totalAmount)}</span>
+      {/* ===== Bottom Sheet ===== */}
+      <div className="bottom-sheet-modal delivered">
+        {/* Drag Handle */}
+        <div className="drag-handle-bar"></div>
+
+        {/* Progress Indicator - All Complete */}
+        <div className="progress-indicator">
+          <div className="progress-track">
+            {PROGRESS_STEPS.map((step, index) => {
+              return (
+                <React.Fragment key={step.key}>
+                  <div className={`progress-dot completed`}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                      <path d="M20 6L9 17l-5-5" />
+                    </svg>
+                  </div>
+
+                  {index < PROGRESS_STEPS.length - 1 && (
+                    <div className="progress-line completed" />
+                  )}
+                </React.Fragment>
+              );
+            })}
+          </div>
+
+          <div className="progress-labels">
+            {PROGRESS_STEPS.map((step) => (
+              <span key={step.key} className="progress-label completed">
+                {step.label}
+              </span>
+            ))}
+          </div>
         </div>
 
-        <div className="divider"></div>
+        {/* Status Content */}
+        <div className="status-content">
+          <h1 className="status-title success">Order Delivered!</h1>
+          <p className="status-subtitle">
+            Enjoy your meal! Thank you for ordering with NearMe.
+          </p>
+        </div>
 
-        {/* Order Items */}
-        <div className="items-list">
-          {orderItems.map((item, index) => (
-            <div key={item.id || index} className="item-row">
-              <div className="item-quantity">
-                <span>{item.quantity}</span>
-              </div>
-              <div className="item-name">
-                {item.food_name || item.name}
-                {item.size && item.size !== "regular" && (
-                  <span className="item-size"> ({item.size})</span>
-                )}
-              </div>
-              <div className="item-price">
-                {formatPrice(item.total_price || item.unit_price * item.quantity)}
-              </div>
+        {/* Rating Section */}
+        {!submitted ? (
+          <div className="rating-section">
+            <p className="rating-label">How was your experience?</p>
+            <div className="star-rating">
+              {[1, 2, 3, 4, 5].map((star) => (
+                <button
+                  key={star}
+                  className={`star-btn ${rating >= star ? "active" : ""}`}
+                  onClick={() => handleRating(star)}
+                >
+                  <svg viewBox="0 0 24 24" fill={rating >= star ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2">
+                    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                  </svg>
+                </button>
+              ))}
             </div>
-          ))}
-        </div>
+            {rating > 0 && (
+              <button className="submit-rating-btn" onClick={handleSubmitReview}>
+                Submit Review
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="rating-success">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M20 6L9 17l-5-5" />
+            </svg>
+            <span>Thanks for your feedback!</span>
+          </div>
+        )}
 
-        {/* Order Summary */}
-        <div className="order-summary">
-          <div className="summary-row">
-            <span>Subtotal</span>
-            <span>{formatPrice(order?.subtotal || orderData?.order?.subtotal)}</span>
+        {/* Order Details Button */}
+        <button className="order-details-btn" onClick={handleViewDetails}>
+          <div className="btn-left">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M9 12h6M9 16h6M17 21H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <span>Order details</span>
           </div>
-          <div className="summary-row">
-            <span>Delivery Fee</span>
-            <span>{formatPrice(order?.delivery_fee || orderData?.order?.delivery_fee)}</span>
-          </div>
-          <div className="summary-row">
-            <span>Service Fee</span>
-            <span>{formatPrice(order?.service_fee || orderData?.order?.service_fee)}</span>
-          </div>
-        </div>
-
-        {/* Order Info */}
-        <div className="order-info">
-          <div className="info-row">
-            <span className="info-label">Order Number</span>
-            <span className="info-value">#{order?.order_number || orderData?.orderNumber}</span>
-          </div>
-          <div className="info-row">
-            <span className="info-label">Payment Method</span>
-            <span className="info-value">{order?.payment_method || "Cash on Delivery"}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Bottom Actions */}
-      <div className="bottom-actions">
-        <button className="home-btn" onClick={handleGoHome}>
-          Back to Home
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            className={`chevron-icon ${showDetails ? "expanded" : ""}`}
+          >
+            <path d="M9 5l7 7-7 7" />
+          </svg>
         </button>
-        <button className="reorder-btn" onClick={() => navigate(`/restaurant/${order?.restaurant_id}/foods`)}>
-          Order Again
-        </button>
+
+        {/* Expanded Order Details */}
+        {showDetails && (
+          <div className="order-details-expanded">
+            <div className="detail-row">
+              <span className="detail-label">Restaurant</span>
+              <span className="detail-value">{restaurantName}</span>
+            </div>
+            {orderNumber && (
+              <div className="detail-row">
+                <span className="detail-label">Order #</span>
+                <span className="detail-value">{orderNumber}</span>
+              </div>
+            )}
+            <div className="detail-row">
+              <span className="detail-label">Delivered to</span>
+              <span className="detail-value">{address}</span>
+            </div>
+            {items.length > 0 && (
+              <div className="items-section">
+                <span className="detail-label">Items</span>
+                {items.map((item, idx) => (
+                  <div key={idx} className="item-row">
+                    <span>{item.quantity}× {item.name}</span>
+                    <span>Rs. {(item.price * item.quantity).toFixed(2)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {(order?.total_amount || totalAmount) && (
+              <div className="total-row">
+                <span>Total Paid</span>
+                <span className="total-amount">Rs. {parseFloat(order?.total_amount || totalAmount).toFixed(2)}</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Action Buttons */}
+        <div className="action-buttons">
+          <button className="order-again-btn" onClick={handleOrderAgain}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M1 4v6h6M23 20v-6h-6" />
+              <path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15" />
+            </svg>
+            Order Again
+          </button>
+          <button className="go-home-btn" onClick={handleGoHome}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+              <path d="M9 22V12h6v10" />
+            </svg>
+            Back to Home
+          </button>
+        </div>
       </div>
     </div>
   );
