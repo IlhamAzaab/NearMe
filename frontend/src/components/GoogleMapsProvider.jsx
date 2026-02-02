@@ -5,8 +5,8 @@
 import React from "react";
 import { useJsApiLoader } from "@react-google-maps/api";
 
-// Libraries to load with Google Maps
-const libraries = ["places", "geometry"];
+// Libraries to load with Google Maps - consistent across all pages
+const libraries = ["places", "geometry", "maps"];
 
 // Get API key from environment
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";

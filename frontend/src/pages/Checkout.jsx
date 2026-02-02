@@ -1,72 +1,30 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import {
-  MapContainer,
-  TileLayer,
-  Marker,
-  useMapEvents,
-  useMap,
-} from "react-leaflet";
-import "leaflet/dist/leaflet.css";
-import L from "leaflet";
+import { GoogleMap, Marker, useJsApiLoader } from "@react-google-maps/api";
 
-// Fix Leaflet default marker icon issue
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl:
-    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png",
-  iconUrl:
-    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
-  shadowUrl:
-    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
+// Google Maps API key
+const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
+
+// Google Maps libraries - must be constant to avoid reload warnings
+const GOOGLE_MAPS_LIBRARIES = ["places", "geometry", "maps"];
+
+// Google Maps container style
+const mapContainerStyle = {
+  width: "100%",
+  height: "100%",
+};
+
+// Google Maps options for view mode (non-editable)
+const getMapOptions = (isEditMode) => ({
+  disableDefaultUI: true,
+  zoomControl: isEditMode,
+  streetViewControl: false,
+  mapTypeControl: false,
+  fullscreenControl: false,
+  scrollwheel: isEditMode,
+  draggable: isEditMode,
+  gestureHandling: isEditMode ? "auto" : "none",
 });
-
-// Component to handle map clicks
-function LocationMarker({ position, setPosition, isEditMode }) {
-  useMapEvents({
-    click(e) {
-      if (isEditMode) {
-        setPosition([e.latlng.lat, e.latlng.lng]);
-      }
-    },
-  });
-
-  return position === null ? null : <Marker position={position}></Marker>;
-}
-
-// Component to control map interactions based on edit mode
-function MapInteractionController({ isEditMode }) {
-  const map = useMap();
-
-  useEffect(() => {
-    if (isEditMode) {
-      map.scrollWheelZoom.enable();
-      map.dragging.enable();
-      map.touchZoom.enable();
-      map.doubleClickZoom.enable();
-    } else {
-      map.scrollWheelZoom.disable();
-      map.dragging.disable();
-      map.touchZoom.disable();
-      map.doubleClickZoom.disable();
-    }
-  }, [isEditMode, map]);
-
-  return null;
-}
-
-// Component to handle map centering
-function MapController({ center }) {
-  const map = useMap();
-
-  useEffect(() => {
-    if (center) {
-      map.setView(center, 15);
-    }
-  }, [center, map]);
-
-  return null;
-}
 
 // Function to calculate road distance using OSRM routing API
 async function calculateRouteDistance(lat1, lon1, lat2, lon2) {
@@ -141,6 +99,39 @@ const Checkout = () => {
   // Delivery options
   const [deliveryOption, setDeliveryOption] = useState("standard"); // priority, standard, scheduled
   const [deliveryMethod, setDeliveryMethod] = useState("meet_at_door"); // meet_at_door, leave_at_door
+
+  // Google Maps ref
+  const mapRef = useRef(null);
+
+  // Load Google Maps API
+  const { isLoaded, loadError } = useJsApiLoader({
+    googleMapsApiKey: GOOGLE_MAPS_API_KEY,
+    libraries: GOOGLE_MAPS_LIBRARIES,
+  });
+
+  // Handle map load
+  const onMapLoad = useCallback((map) => {
+    mapRef.current = map;
+  }, []);
+
+  // Handle map click to set position
+  const handleMapClick = useCallback(
+    (e) => {
+      if (isMapEditMode) {
+        const lat = e.latLng.lat();
+        const lng = e.latLng.lng();
+        setPosition([lat, lng]);
+      }
+    },
+    [isMapEditMode],
+  );
+
+  // Update map center when mapCenter changes
+  useEffect(() => {
+    if (mapRef.current && mapCenter) {
+      mapRef.current.panTo({ lat: mapCenter[0], lng: mapCenter[1] });
+    }
+  }, [mapCenter]);
 
   // Minimum order amount
   const MINIMUM_SUBTOTAL = 300;
@@ -331,6 +322,8 @@ const Checkout = () => {
 
   // Calculate totals
   const subtotal = cart ? parseFloat(cart.cart_total) : 0;
+  const adminTotal = cart ? parseFloat(cart.admin_total || 0) : 0;
+  const commissionTotal = cart ? parseFloat(cart.commission_total || 0) : 0;
   const serviceFee = calculateServiceFee(subtotal);
   const deliveryFee = routeInfo
     ? calculateDeliveryFee(routeInfo.distance)
@@ -562,26 +555,42 @@ const Checkout = () => {
           <div
             className={`${isMapEditMode ? "h-64" : "h-40"} bg-gray-100 relative overflow-hidden transition-all duration-300`}
           >
-            <MapContainer
-              center={position || [7.8731, 80.7718]}
-              zoom={16}
-              style={{ height: "100%", width: "100%" }}
-              zoomControl={false}
-              attributionControl={false}
-              scrollWheelZoom={false}
-              dragging={false}
-              touchZoom={false}
-              doubleClickZoom={false}
-            >
-              <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-              <LocationMarker
-                position={position}
-                setPosition={setPosition}
-                isEditMode={isMapEditMode}
-              />
-              <MapController center={mapCenter} />
-              <MapInteractionController isEditMode={isMapEditMode} />
-            </MapContainer>
+            {isLoaded ? (
+              <GoogleMap
+                mapContainerStyle={mapContainerStyle}
+                center={
+                  position
+                    ? { lat: position[0], lng: position[1] }
+                    : { lat: 7.8731, lng: 80.7718 }
+                }
+                zoom={16}
+                options={getMapOptions(isMapEditMode)}
+                onLoad={onMapLoad}
+                onClick={handleMapClick}
+              >
+                {position && (
+                  <Marker
+                    position={{ lat: position[0], lng: position[1] }}
+                    icon={{
+                      path: window.google?.maps?.SymbolPath?.CIRCLE || 0,
+                      scale: 10,
+                      fillColor: "#FF7A00",
+                      fillOpacity: 1,
+                      strokeWeight: 3,
+                      strokeColor: "#ffffff",
+                    }}
+                  />
+                )}
+              </GoogleMap>
+            ) : loadError ? (
+              <div className="h-full w-full flex items-center justify-center">
+                <p className="text-red-500 text-sm">Failed to load map</p>
+              </div>
+            ) : (
+              <div className="h-full w-full flex items-center justify-center">
+                <div className="w-8 h-8 border-3 border-[#FF7A00] border-t-transparent rounded-full animate-spin"></div>
+              </div>
+            )}
 
             {/* Edit Mode Overlay */}
             {isMapEditMode && (

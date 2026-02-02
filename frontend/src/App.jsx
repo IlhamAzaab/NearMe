@@ -14,6 +14,7 @@ import DriverAccepted from "./pages/DriverAccepted";
 import OrderPickedUp from "./pages/OrderPickedUp";
 import OrderOnTheWay from "./pages/OrderOnTheWay";
 import OrderDelivered from "./pages/OrderDelivered";
+import PastOrderDetails from "./pages/PastOrderDetails";
 import CustomerOrders from "./pages/Orders";
 import TrackOrder from "./pages/TrackOrder";
 import ManagerDashboard from "./pages/manager/Dashboard";
@@ -31,6 +32,7 @@ import Products from "./pages/admin/Products";
 import Categories from "./pages/admin/Categories";
 import Orders from "./pages/admin/Orders";
 import Settings from "./pages/admin/Settings";
+import Earnings from "./pages/admin/Earnings";
 import AdminOnboardingStep1 from "./pages/admin/onboarding/Step1";
 import AdminOnboardingStep2 from "./pages/admin/onboarding/Step2";
 import AdminOnboardingStep3 from "./pages/admin/onboarding/Step3";
@@ -202,6 +204,15 @@ function App() {
               </ProtectedRoute>
             }
           />
+          {/* Past Order Details - View details of delivered/cancelled orders */}
+          <Route
+            path="/order-details/:orderId"
+            element={
+              <ProtectedRoute allowedRole="customer" requireAuth={true}>
+                <PastOrderDetails />
+              </ProtectedRoute>
+            }
+          />
           <Route
             path="/orders"
             element={
@@ -363,6 +374,14 @@ function App() {
             element={
               <AdminDashboardRoute>
                 <Orders />
+              </AdminDashboardRoute>
+            }
+          />
+          <Route
+            path="/admin/earnings"
+            element={
+              <AdminDashboardRoute>
+                <Earnings />
               </AdminDashboardRoute>
             }
           />

@@ -452,7 +452,11 @@ export default function Orders() {
                               items
                             </td>
                             <td className="px-4 sm:px-6 py-4 font-semibold text-gray-900 text-sm whitespace-nowrap">
-                              Rs. {order.total_amount ?? order.total ?? 0}
+                              Rs.{" "}
+                              {order.subtotal ??
+                                order.total_amount ??
+                                order.total ??
+                                0}
                             </td>
                             <td className="px-4 sm:px-6 py-4 hidden lg:table-cell">
                               <span
@@ -607,7 +611,7 @@ function OrderDetailsModal({ order, onClose }) {
             <div className="flex justify-between items-center">
               <span className="text-lg font-semibold text-gray-800">Total</span>
               <span className="text-2xl font-bold text-indigo-600">
-                Rs. {order.total_amount ?? order.total ?? 0}
+                Rs. {order.subtotal ?? order.total_amount ?? order.total ?? 0}
               </span>
             </div>
           </div>

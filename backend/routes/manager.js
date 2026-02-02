@@ -155,7 +155,7 @@ router.post("/add-admin", authenticate, async (req, res) => {
     // 4) Send email (non-blocking)
     try {
       console.log(
-        `Sending admin invite → email: ${email}, password: ${tempPassword}`
+        `Sending admin invite → email: ${email}, password: ${tempPassword}`,
       );
       await sendAdminInviteEmail({ to: email, tempPassword, loginUrl });
       console.log(`Admin invite send complete for ${email}`);
@@ -295,7 +295,7 @@ router.post("/add-driver", authenticate, async (req, res) => {
     // Send invite email
     try {
       console.log(
-        `Sending driver invite → email: ${email}, password: ${tempPassword}`
+        `Sending driver invite → email: ${email}, password: ${tempPassword}`,
       );
       await sendDriverInviteEmail({ to: email, tempPassword, loginUrl });
       console.log(`Driver invite send complete for ${email}`);
@@ -331,7 +331,7 @@ router.get("/admins", authenticate, async (req, res) => {
       .from("admins")
       .select(
         `id, email, full_name, phone, admin_status, profile_completed, created_at, verified, restaurant_id,
-         restaurants:restaurant_id (id, restaurant_name, logo_url)`
+         restaurants:restaurant_id (id, restaurant_name, logo_url)`,
       )
       .order("created_at", { ascending: false });
 
@@ -430,7 +430,7 @@ router.get("/drivers", authenticate, async (req, res) => {
     let query = supabaseAdmin
       .from("drivers")
       .select(
-        `id, full_name, email, phone, city, driver_type, driver_status, profile_completed, created_at`
+        `id, full_name, email, phone, city, driver_type, driver_status, profile_completed, created_at`,
       )
       .order("created_at", { ascending: false });
 
@@ -546,7 +546,7 @@ router.get("/restaurants", authenticate, async (req, res) => {
       .select(
         `id, restaurant_name, business_registration_number, address, city, postal_code,
          opening_time, close_time, logo_url, cover_image_url, restaurant_status, created_at, updated_at,
-         admin_id, admins:admin_id (id, email, full_name, phone)`
+         admin_id, admins:admin_id (id, email, full_name, phone)`,
       )
       .order("created_at", { ascending: false });
 
@@ -659,7 +659,7 @@ router.patch(
       console.error("/manager/restaurants/:restaurantId/status error:", e);
       return res.status(500).json({ message: "Server error" });
     }
-  }
+  },
 );
 
 /**
@@ -687,7 +687,7 @@ router.get("/pending-drivers", authenticate, async (req, res) => {
         onboarding_completed,
         onboarding_step,
         created_at
-      `
+      `,
       )
       .eq("onboarding_completed", true)
       .eq("driver_status", "pending")
@@ -984,7 +984,7 @@ router.get(
       const { data: admin } = await supabaseAdmin
         .from("admins")
         .select(
-          "id, email, full_name, phone, home_address, profile_photo_url, nic_front, nic_back"
+          "id, email, full_name, phone, home_address, profile_photo_url, nic_front, nic_back",
         )
         .eq("id", restaurant.admin_id)
         .maybeSingle();
@@ -1000,7 +1000,7 @@ router.get(
       console.error("/manager/restaurant-details error:", e);
       return res.status(500).json({ message: "Server error" });
     }
-  }
+  },
 );
 
 /**
@@ -1104,7 +1104,311 @@ router.post(
       console.error("/manager/verify-restaurant error:", e);
       return res.status(500).json({ message: "Server error" });
     }
-  }
+  },
 );
+
+// ============================================================================
+// MANAGER EARNINGS & FINANCIAL REPORTS
+// ============================================================================
+
+/**
+ * GET /manager/earnings/summary
+ * Get manager earnings summary (daily, weekly, monthly)
+ */
+router.get("/earnings/summary", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "manager") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const { period = "daily", from, to } = req.query;
+
+    // Calculate date range
+    let startDate, endDate;
+    const now = new Date();
+
+    if (from && to) {
+      startDate = new Date(from);
+      endDate = new Date(to);
+    } else if (period === "daily") {
+      startDate = new Date(now);
+      startDate.setHours(0, 0, 0, 0);
+      endDate = new Date(now);
+      endDate.setHours(23, 59, 59, 999);
+    } else if (period === "weekly") {
+      startDate = new Date(now);
+      startDate.setDate(now.getDate() - 7);
+      startDate.setHours(0, 0, 0, 0);
+      endDate = new Date(now);
+    } else if (period === "monthly") {
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+    }
+
+    // Get orders within date range (only delivered orders)
+    const { data: orders, error } = await supabaseAdmin
+      .from("orders")
+      .select(
+        `
+        id,
+        order_number,
+        restaurant_id,
+        restaurant_name,
+        subtotal,
+        admin_subtotal,
+        commission_total,
+        delivery_fee,
+        service_fee,
+        total_amount,
+        status,
+        placed_at,
+        delivered_at
+      `,
+      )
+      .gte("placed_at", startDate.toISOString())
+      .lte("placed_at", endDate.toISOString())
+      .in("status", [
+        "delivered",
+        "accepted",
+        "preparing",
+        "ready",
+        "picked_up",
+        "on_the_way",
+      ]);
+
+    if (error) {
+      console.error("Earnings fetch error:", error);
+      return res.status(500).json({ message: "Failed to fetch earnings" });
+    }
+
+    // Calculate totals
+    const summary = {
+      period,
+      start_date: startDate.toISOString(),
+      end_date: endDate.toISOString(),
+      total_orders: orders?.length || 0,
+      delivered_orders: (orders || []).filter((o) => o.status === "delivered")
+        .length,
+
+      // Customer payments
+      customer_food_total: 0,
+      delivery_fees_collected: 0,
+      service_fees_collected: 0,
+      total_collected: 0,
+
+      // Restaurant payouts
+      admin_total: 0,
+
+      // Manager earnings
+      food_commission: 0,
+      service_fee_earning: 0,
+      total_earning: 0,
+    };
+
+    for (const order of orders || []) {
+      summary.customer_food_total += parseFloat(order.subtotal || 0);
+      summary.delivery_fees_collected += parseFloat(order.delivery_fee || 0);
+      summary.service_fees_collected += parseFloat(order.service_fee || 0);
+      summary.total_collected += parseFloat(order.total_amount || 0);
+      summary.admin_total += parseFloat(order.admin_subtotal || 0);
+      summary.food_commission += parseFloat(order.commission_total || 0);
+    }
+
+    // Service fee goes to manager
+    summary.service_fee_earning = summary.service_fees_collected;
+    summary.total_earning =
+      summary.food_commission + summary.service_fee_earning;
+
+    // Round all values
+    Object.keys(summary).forEach((key) => {
+      if (
+        typeof summary[key] === "number" &&
+        key !== "total_orders" &&
+        key !== "delivered_orders"
+      ) {
+        summary[key] = parseFloat(summary[key].toFixed(2));
+      }
+    });
+
+    return res.json({ summary });
+  } catch (e) {
+    console.error("/manager/earnings/summary error:", e);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
+/**
+ * GET /manager/earnings/orders
+ * Get detailed order list with earnings breakdown
+ */
+router.get("/earnings/orders", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "manager") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const {
+      from,
+      to,
+      restaurant_id,
+      status,
+      limit = 50,
+      offset = 0,
+    } = req.query;
+
+    let query = supabaseAdmin
+      .from("orders")
+      .select(
+        `
+        id,
+        order_number,
+        restaurant_id,
+        restaurant_name,
+        customer_name,
+        subtotal,
+        admin_subtotal,
+        commission_total,
+        delivery_fee,
+        service_fee,
+        total_amount,
+        status,
+        placed_at,
+        delivered_at
+      `,
+      )
+      .order("placed_at", { ascending: false })
+      .range(parseInt(offset), parseInt(offset) + parseInt(limit) - 1);
+
+    if (from) {
+      query = query.gte("placed_at", new Date(from).toISOString());
+    }
+    if (to) {
+      query = query.lte("placed_at", new Date(to).toISOString());
+    }
+    if (restaurant_id) {
+      query = query.eq("restaurant_id", restaurant_id);
+    }
+    if (status) {
+      query = query.eq("status", status);
+    }
+
+    const { data: orders, error } = await query;
+
+    if (error) {
+      console.error("Orders fetch error:", error);
+      return res.status(500).json({ message: "Failed to fetch orders" });
+    }
+
+    // Add calculated earnings to each order
+    const ordersWithEarnings = (orders || []).map((order) => ({
+      ...order,
+      manager_food_earning: parseFloat(order.commission_total || 0),
+      manager_service_earning: parseFloat(order.service_fee || 0),
+      manager_total_earning:
+        parseFloat(order.commission_total || 0) +
+        parseFloat(order.service_fee || 0),
+      restaurant_payout: parseFloat(order.admin_subtotal || 0),
+    }));
+
+    return res.json({ orders: ordersWithEarnings });
+  } catch (e) {
+    console.error("/manager/earnings/orders error:", e);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
+/**
+ * GET /manager/restaurant-payouts
+ * Get pending payouts to restaurants
+ */
+router.get("/restaurant-payouts", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "manager") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const { from, to } = req.query;
+
+    let query = supabaseAdmin
+      .from("orders")
+      .select(
+        `
+        restaurant_id,
+        restaurant_name
+      `,
+      )
+      .eq("status", "delivered");
+
+    if (from) {
+      query = query.gte("delivered_at", new Date(from).toISOString());
+    }
+    if (to) {
+      query = query.lte("delivered_at", new Date(to).toISOString());
+    }
+
+    // Get unique restaurants from delivered orders
+    const { data: orders, error } = await query;
+
+    if (error) {
+      console.error("Restaurant payouts fetch error:", error);
+      return res
+        .status(500)
+        .json({ message: "Failed to fetch restaurant payouts" });
+    }
+
+    // Group by restaurant and calculate totals
+    const restaurantMap = {};
+
+    for (const order of orders || []) {
+      if (!restaurantMap[order.restaurant_id]) {
+        restaurantMap[order.restaurant_id] = {
+          restaurant_id: order.restaurant_id,
+          restaurant_name: order.restaurant_name,
+          total_orders: 0,
+          total_payout: 0,
+        };
+      }
+      restaurantMap[order.restaurant_id].total_orders += 1;
+    }
+
+    // Now get the actual amounts for each restaurant
+    for (const restaurantId of Object.keys(restaurantMap)) {
+      let amountQuery = supabaseAdmin
+        .from("orders")
+        .select("admin_subtotal")
+        .eq("restaurant_id", restaurantId)
+        .eq("status", "delivered");
+
+      if (from) {
+        amountQuery = amountQuery.gte(
+          "delivered_at",
+          new Date(from).toISOString(),
+        );
+      }
+      if (to) {
+        amountQuery = amountQuery.lte(
+          "delivered_at",
+          new Date(to).toISOString(),
+        );
+      }
+
+      const { data: amountData } = await amountQuery;
+
+      restaurantMap[restaurantId].total_payout = (amountData || []).reduce(
+        (sum, o) => sum + parseFloat(o.admin_subtotal || 0),
+        0,
+      );
+    }
+
+    const payouts = Object.values(restaurantMap).sort(
+      (a, b) => b.total_payout - a.total_payout,
+    );
+
+    return res.json({ payouts });
+  } catch (e) {
+    console.error("/manager/restaurant-payouts error:", e);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
 
 export default router;

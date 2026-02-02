@@ -444,3 +444,285 @@
     box-shadow: 0 0 60px rgba(0,0,0,0.1);
   }
 }
+/* ===== Google Map Container ===== */
+.map-container-full {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 52%;
+  background: #e8e6e1;
+  overflow: hidden;
+}
+
+.map-error {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f5f5f5;
+}
+
+.map-error p {
+  color: #666;
+  font-size: 14px;
+}
+
+.map-loading {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #e8e6e1;
+}
+
+.map-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid #e0e0e0;
+  border-top-color: #FF7A00;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+/* Cooking Animation Container - Above Bottom Sheet */
+.cooking-animation-container {
+  position: fixed;
+  bottom: 420px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+}
+
+.cooking-scene {
+  position: relative;
+  width: 100px;
+  height: 80px;
+}
+
+/* Steam/Vapor Animation */
+.steam-container {
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 2px;
+}
+
+.steam {
+  width: 6px;
+  height: 100px;
+  background: linear-gradient(to top, rgba(110, 95, 95, 0.6), transparent);
+  border-radius: 50%;
+  animation: steamRise 2s ease-out infinite;
+}
+
+.steam-1 {
+  animation-delay: 0s;
+  height: 50px;
+}
+
+.steam-2 {
+  animation-delay: 0.4s;
+  height: 60px;
+}
+
+.steam-3 {
+  animation-delay: 0.8s;
+  height: 40px;
+}
+.steam-4 {
+  animation-delay: 1.2s;
+  height: 40px;
+}
+
+@keyframes steamRise {
+  0% {
+    opacity: 0;
+    transform: translateY(10px) scaleX(0.8);
+  }
+  20% {
+    opacity: 0.8;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-35px) scaleX(1.5);
+  }
+}
+
+/* Pan Container */
+.pan-container {
+  position: absolute;
+  bottom: 15px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+}
+
+.pan {
+  width: 50px;
+  height: 20px;
+  background: linear-gradient(180deg, #2a2a2a 0%, #1a1a1a 100%);
+  border-radius: 0 0 25px 25px;
+  position: relative;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+}
+
+.pan-inner {
+  position: absolute;
+  top: 2px;
+  left: 4px;
+  right: 4px;
+  height: 6px;
+  background: linear-gradient(180deg, #333 0%, #222 100%);
+  border-radius: 0 0 20px 20px;
+}
+
+.pan-handle {
+  width: 28px;
+  height: 6px;
+  background: linear-gradient(90deg, #1a1a1a 0%, #333 50%, #1a1a1a 100%);
+  border-radius: 3px;
+  margin-left: -2px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+/* Pepper Shaker */
+.pepper-shaker {
+  position: absolute;
+  top: 5px;
+  right: 18px;
+  animation: pepperShake 1.5s ease-in-out infinite;
+  transform-origin: bottom center;
+}
+
+.pepper-top {
+  width: 10px;
+  height: 5px;
+  background: #666;
+  border-radius: 2px 2px 0 0;
+  margin: 0 auto;
+}
+
+.pepper-body {
+  width: 14px;
+  height: 24px;
+  background: linear-gradient(135deg, #1a1a1a 0%, #333 50%, #1a1a1a 100%);
+  border-radius: 2px 2px 5px 5px;
+  position: relative;
+}
+
+.pepper-dots {
+  position: absolute;
+  top: 3px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: center;
+}
+
+.pepper-dots span {
+  width: 2px;
+  height: 2px;
+  background: #666;
+  border-radius: 50%;
+}
+
+@keyframes pepperShake {
+  0%, 100% {
+    transform: rotate(-25deg);
+  }
+  50% {
+    transform: rotate(-35deg);
+  }
+}
+
+/* Falling Pepper Particles */
+.pepper-particles {
+  position: absolute;
+  top: 30px;
+  right: 40px;
+  width: 25px;
+  height: 30px;
+}
+
+.particle {
+  position: absolute;
+  width: 2px;
+  height: 2px;
+  background: #1a1a1a;
+  border-radius: 50%;
+  animation: particleFall 1.5s ease-in infinite;
+}
+
+.p1 {
+  left: 4px;
+  animation-delay: 0s;
+}
+
+.p2 {
+  left: 10px;
+  animation-delay: 0.2s;
+}
+
+.p3 {
+  left: 7px;
+  animation-delay: 0.4s;
+}
+
+.p4 {
+  left: 12px;
+  animation-delay: 0.6s;
+}
+
+.p5 {
+  left: 8px;
+  animation-delay: 0.8s;
+}
+
+@keyframes particleFall {
+  0% {
+    opacity: 1;
+    transform: translateY(0) translateX(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(28px) translateX(-8px);
+  }
+}
+
+/* Map Placeholder (when no location data) */
+.map-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #e8e6e1 0%, #d4d2cd 100%);
+}
+
+.map-placeholder-content {
+  text-align: center;
+  color: #666;
+}
+
+.map-placeholder-icon {
+  width: 48px;
+  height: 48px;
+  margin-bottom: 12px;
+  color: #999;
+}
+
+.map-placeholder-content p {
+  font-size: 14px;
+  font-weight: 500;
+}

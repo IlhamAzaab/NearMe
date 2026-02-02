@@ -8,8 +8,16 @@ import {
   Polyline,
   InfoWindow,
 } from "@react-google-maps/api";
+import {
+  getOptimizedRestaurantOrderByShortest,
+  getOptimizedCustomerOrderByShortest,
+  calculateRouteStats,
+} from "../../utils/routeOptimization";
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
+
+// Google Maps libraries - must be constant to avoid reload warnings
+const GOOGLE_MAPS_LIBRARIES = ["places", "geometry", "maps"];
 
 // Google Maps container style - mobile optimized
 const mapContainerStyle = {
@@ -94,9 +102,10 @@ export default function AvailableDeliveries() {
   const deliveryListRefEl = useRef(null);
   const abortControllerRef = useRef(null); // For cancelling pending requests
 
-  // Load Google Maps API once at component level
+  // Load Google Maps API once at component level with same libraries as GoogleMapsProvider
   const { isLoaded, loadError } = useJsApiLoader({
     googleMapsApiKey: GOOGLE_MAPS_API_KEY,
+    libraries: GOOGLE_MAPS_LIBRARIES,
   });
 
   useEffect(() => {
@@ -467,14 +476,14 @@ export default function AvailableDeliveries() {
               />
             </svg>
           </button>
-          <div className="flex-1">
-            <h1 className="text-lg font-bold text-gray-900">
+          <div className="flex-1 items-center text-center">
+            <h1 className="text-lg text-center font-bold text-gray-900">
               New Delivery Request
             </h1>
             <p className="text-xs text-gray-500 flex items-center gap-1">
               {deliveries.length} available
               {isRefreshing && (
-                <span className="inline-block w-3 h-3 border-2 border-green-500 border-t-transparent rounded-full animate-spin ml-1"></span>
+                <span className="inline-block w-3 h-3 border-2 border-green-500 border-t-transparent rounded-3xl animate-spin ml-1"></span>
               )}
             </p>
           </div>
@@ -1109,7 +1118,7 @@ function DeliveryCard({
                   </span>
                 </div>
                 <span className="text-[#13ec37] font-bold text-lg">
-                  +Rs.{Number(bonus_amount).toFixed(0)}
+                  +Rs.{Number(bonus_amount).toFixed(2)}
                 </span>
               </div>
             )}
@@ -1165,11 +1174,9 @@ function DeliveryCard({
           <div className="flex items-center justify-between mb-5 pb-5 border-b border-gray-100">
             <div>
               <p className="text-[#13ec37] text-3xl font-bold leading-tight">
-                Rs. {driverEarnings?.toFixed(0) || "0"}
+                Rs. {driverEarnings?.toFixed(2) || "0"}
               </p>
-              <p className="text-gray-500 text-sm font-medium">
-                Estimated Earnings
-              </p>
+              <p className="text-black text-sm font-medium">Earnings</p>
             </div>
             <div className="flex flex-col items-end gap-1.5">
               <div className="flex items-center gap-2 text-black dark:text-black font-bold bg-gray-50 dark:bg-gray-50 px-3 py-1 rounded-full">
@@ -1238,7 +1245,7 @@ function DeliveryCard({
             <div className="flex-1 pb-4">
               <p className="text-[#13ec37] text-xs font-bold uppercase tracking-wide">
                 Pickup:{" "}
-                <span className="text-gray-900 text-[15px] font-bold leading-snug">
+                <span className="text-black font-bold leading-snug">
                   {restaurant.name}
                 </span>
               </p>

@@ -18,7 +18,7 @@ router.get("/me", authenticate, async (req, res) => {
     const { data, error } = await supabaseAdmin
       .from("drivers")
       .select(
-        "id, full_name, user_name, email, phone, nic_number, driver_status, driver_type, city, address, force_password_change, profile_completed, onboarding_completed, onboarding_step"
+        "id, full_name, user_name, email, phone, nic_number, driver_status, driver_type, city, address, force_password_change, profile_completed, onboarding_completed, onboarding_step",
       )
       .eq("id", userId)
       .maybeSingle();
@@ -75,7 +75,7 @@ router.put("/update-profile", authenticate, async (req, res) => {
 
     const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(
       userId,
-      { password: newPassword }
+      { password: newPassword },
     );
 
     if (authError) {
@@ -112,7 +112,333 @@ router.put("/update-profile", authenticate, async (req, res) => {
   }
 });
 
-export default router;
+/**
+ * Helper function to check if current time is within driver's working hours
+ * @param {string} workingTime - 'full_time', 'day', or 'night'
+ * @returns {boolean} - true if within working hours
+ */
+function isWithinWorkingHours(workingTime) {
+  const now = new Date();
+  const currentHour = now.getHours();
+  const currentMinutes = now.getMinutes();
+  const currentTime = currentHour + currentMinutes / 60;
+
+  switch (workingTime) {
+    case "full_time":
+      return true; // Always active
+
+    case "day":
+      // Active from 5:00 AM (5.0) to 7:00 PM (19.0)
+      return currentTime >= 5.0 && currentTime < 19.0;
+
+    case "night":
+      // Active from 6:00 PM (18.0) to 6:00 AM (6.0)
+      // This crosses midnight, so check if >= 18:00 OR < 6:00
+      return currentTime >= 18.0 || currentTime < 6.0;
+
+    default:
+      return false;
+  }
+}
+
+/**
+ * GET /driver/profile
+ * Get driver profile with photo
+ * Inactive drivers can still access their profile
+ */
+router.get("/profile", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "driver") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const userId = req.user.id;
+    const { data, error } = await supabaseAdmin
+      .from("drivers")
+      .select(
+        "id, full_name, user_name, email, phone, nic_number, driver_status, driver_type, city, address, profile_photo_url, working_time, manual_status_override, force_password_change, profile_completed, onboarding_completed, onboarding_step",
+      )
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (error) {
+      console.error("/driver/profile database error:", error);
+      return res
+        .status(500)
+        .json({ message: "Database error", error: error.message });
+    }
+
+    if (!data) {
+      return res.status(404).json({ message: "Driver profile not found" });
+    }
+
+    // Check if driver should be active based on working_time
+    // Default to full_time if working_time is not set
+    const workingTime = data.working_time || "full_time";
+    const withinWorkingHours = isWithinWorkingHours(workingTime);
+    const manualOverride = data.manual_status_override || false;
+    const canBeActive = withinWorkingHours || manualOverride;
+
+    return res.json({
+      driver: {
+        ...data,
+        working_time: workingTime,
+        manual_status_override: manualOverride,
+        profile_picture: data.profile_photo_url,
+        within_working_hours: withinWorkingHours,
+        can_be_active: canBeActive,
+      },
+    });
+  } catch (e) {
+    console.error("/driver/profile error:", e);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
+/**
+ * GET /driver/stats/today
+ * Get today's stats (earnings and deliveries)
+ */
+router.get("/stats/today", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "driver") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const driverId = req.user.id;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Get today's completed deliveries with earnings
+    const { data: deliveries, error } = await supabaseAdmin
+      .from("deliveries")
+      .select(
+        "driver_earnings, tip_amount, base_amount, extra_earnings, bonus_amount",
+      )
+      .eq("driver_id", driverId)
+      .eq("status", "delivered")
+      .gte("delivered_at", today.toISOString());
+
+    if (error) {
+      console.error("Fetch today's stats error:", error);
+      return res.status(500).json({ message: "Failed to fetch stats" });
+    }
+
+    // Calculate total earnings
+    // Use driver_earnings if available, otherwise calculate from components
+    const totalEarnings = (deliveries || []).reduce((sum, d) => {
+      const earnings =
+        parseFloat(d.driver_earnings || 0) ||
+        parseFloat(d.base_amount || 0) +
+          parseFloat(d.extra_earnings || 0) +
+          parseFloat(d.bonus_amount || 0);
+      const tip = parseFloat(d.tip_amount || 0);
+      return sum + earnings + tip;
+    }, 0);
+
+    return res.json({
+      earnings: totalEarnings,
+      deliveries: deliveries?.length || 0,
+    });
+  } catch (e) {
+    console.error("/driver/stats/today error:", e);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
+/**
+ * PATCH /driver/status
+ * Update driver online/offline status with working time validation
+ * Inactive drivers CAN still access dashboard, they just can't get deliveries
+ */
+router.patch("/status", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "driver") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const driverId = req.user.id;
+    const { status, manualOverride } = req.body; // status: 'active' or 'inactive', manualOverride: boolean
+
+    if (!status || !["active", "inactive"].includes(status)) {
+      return res
+        .status(400)
+        .json({ message: "Invalid status. Use 'active' or 'inactive'" });
+    }
+
+    // Get driver's working_time to check if they can go active
+    const { data: driverData, error: fetchError } = await supabaseAdmin
+      .from("drivers")
+      .select("working_time, driver_status")
+      .eq("id", driverId)
+      .single();
+
+    if (fetchError || !driverData) {
+      console.error("Driver fetch error:", fetchError);
+      return res.status(404).json({ message: "Driver not found" });
+    }
+
+    // Default working_time to full_time if not set
+    const workingTime = driverData.working_time || "full_time";
+
+    // Check if driver is trying to go active
+    if (status === "active") {
+      const withinWorkingHours = isWithinWorkingHours(workingTime);
+
+      // If outside working hours and not manually overriding, deny the request
+      if (!withinWorkingHours && !manualOverride) {
+        return res.status(400).json({
+          message: "Cannot go active outside your working hours",
+          working_time: workingTime,
+          within_working_hours: false,
+          hint: "Set manualOverride: true to override working hours restriction",
+        });
+      }
+
+      // Update driver status to active
+      // Only set manual_status_override if the column exists (graceful handling)
+      const updateData = {
+        driver_status: "active",
+      };
+
+      // Try to set manual_status_override if outside working hours
+      if (!withinWorkingHours && manualOverride) {
+        updateData.manual_status_override = true;
+      }
+
+      const { data, error } = await supabaseAdmin
+        .from("drivers")
+        .update(updateData)
+        .eq("id", driverId)
+        .select()
+        .single();
+
+      if (error) {
+        console.error("Update driver status error:", error);
+        // If error is about manual_status_override column, retry without it
+        if (error.message?.includes("manual_status_override")) {
+          const { data: retryData, error: retryError } = await supabaseAdmin
+            .from("drivers")
+            .update({ driver_status: "active" })
+            .eq("id", driverId)
+            .select()
+            .single();
+
+          if (retryError) {
+            return res.status(500).json({ message: "Failed to update status" });
+          }
+
+          return res.json({
+            message: "Status updated to active",
+            status: "active",
+            manual_override: false,
+            within_working_hours: withinWorkingHours,
+          });
+        }
+        return res.status(500).json({ message: "Failed to update status" });
+      }
+
+      return res.json({
+        message: "Status updated to active",
+        status: "active",
+        manual_override: !withinWorkingHours && manualOverride,
+        within_working_hours: withinWorkingHours,
+      });
+    } else {
+      // Setting to inactive - always allowed
+      const { data, error } = await supabaseAdmin
+        .from("drivers")
+        .update({
+          driver_status: "inactive",
+        })
+        .eq("id", driverId)
+        .select()
+        .single();
+
+      if (error) {
+        console.error("Update driver status error:", error);
+        return res.status(500).json({ message: "Failed to update status" });
+      }
+
+      return res.json({
+        message: "Status updated to inactive",
+        status: "inactive",
+        manual_override: false,
+      });
+    }
+  } catch (e) {
+    console.error("/driver/status error:", e);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
+/**
+ * GET /driver/working-hours-status
+ * Check if driver should be active based on current time and working_time
+ */
+router.get("/working-hours-status", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "driver") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const driverId = req.user.id;
+
+    const { data: driverData, error } = await supabaseAdmin
+      .from("drivers")
+      .select("working_time, driver_status, manual_status_override")
+      .eq("id", driverId)
+      .single();
+
+    if (error || !driverData) {
+      console.error("Working hours status error:", error);
+      return res.status(404).json({ message: "Driver not found" });
+    }
+
+    // Default to full_time if working_time is not set
+    const workingTime = driverData.working_time || "full_time";
+    const manualOverride = driverData.manual_status_override || false;
+    const withinWorkingHours = isWithinWorkingHours(workingTime);
+    const shouldBeActive = withinWorkingHours || manualOverride;
+
+    // If driver is active but should not be (outside working hours and no manual override)
+    // Auto-update them to inactive (only if working_time is set and not full_time)
+    if (
+      driverData.driver_status === "active" &&
+      !shouldBeActive &&
+      driverData.working_time &&
+      driverData.working_time !== "full_time"
+    ) {
+      await supabaseAdmin
+        .from("drivers")
+        .update({
+          driver_status: "inactive",
+        })
+        .eq("id", driverId);
+
+      return res.json({
+        working_time: workingTime,
+        within_working_hours: withinWorkingHours,
+        driver_status: "inactive",
+        manual_override: false,
+        auto_updated: true,
+        message: "Status automatically set to inactive (outside working hours)",
+      });
+    }
+
+    return res.json({
+      working_time: workingTime,
+      within_working_hours: withinWorkingHours,
+      driver_status: driverData.driver_status,
+      manual_override: manualOverride,
+      auto_updated: false,
+    });
+  } catch (e) {
+    console.error("/driver/working-hours-status error:", e);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
 /**
  * GET /driver/notifications
  * Fetch driver notifications
@@ -144,3 +470,5 @@ router.get("/notifications", authenticate, async (req, res) => {
     return res.status(500).json({ message: "Server error" });
   }
 });
+
+export default router;

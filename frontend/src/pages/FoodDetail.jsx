@@ -46,7 +46,7 @@ const FoodDetail = () => {
 
       // Fetch restaurant
       const restaurantRes = await fetch(
-        `http://localhost:5000/public/restaurants/${restaurantId}`
+        `http://localhost:5000/public/restaurants/${restaurantId}`,
       );
       const restaurantData = await restaurantRes.json();
 
@@ -58,7 +58,7 @@ const FoodDetail = () => {
 
       // Fetch food
       const foodRes = await fetch(
-        `http://localhost:5000/public/restaurants/${restaurantId}/foods/${foodId}`
+        `http://localhost:5000/public/restaurants/${restaurantId}/foods/${foodId}`,
       );
       const foodData = await foodRes.json();
 
@@ -98,13 +98,20 @@ const FoodDetail = () => {
       const currentToken = localStorage.getItem("token");
       const currentRole = localStorage.getItem("role");
       console.log(" addToCart called");
-      console.log(" localStorage token:", currentToken ? `${currentToken.substring(0, 20)}...` : "NULL");
+      console.log(
+        " localStorage token:",
+        currentToken ? `${currentToken.substring(0, 20)}...` : "NULL",
+      );
       console.log(" localStorage role:", currentRole);
       console.log(" isLoggedIn state:", isLoggedIn);
       console.log("role state:", role);
 
       // Check real-time token instead of state
-      if (!currentToken || currentToken === "null" || currentToken === "undefined") {
+      if (
+        !currentToken ||
+        currentToken === "null" ||
+        currentToken === "undefined"
+      ) {
         alert("Please login to add items to cart");
         navigate("/login");
         return;
@@ -159,7 +166,6 @@ const FoodDetail = () => {
   return (
     <div className="min-h-screen bg-gray-50 font-poppins pb-24 page-slide-up">
       {/* Sticky Header */}
-      
 
       {/* Success/Error Message */}
       {message && (
@@ -171,7 +177,9 @@ const FoodDetail = () => {
                 : "bg-red-500 text-white"
             }`}
           >
-            <span className="text-xl">{message.type === "success" ? "✓" : "✕"}</span>
+            <span className="text-xl">
+              {message.type === "success" ? "✓" : "✕"}
+            </span>
             {message.text}
           </div>
         </div>
@@ -183,13 +191,17 @@ const FoodDetail = () => {
             <div className="w-16 h-16 border-4 border-orange-100 rounded-full"></div>
             <div className="absolute top-0 left-0 w-16 h-16 border-4 border-[#FF7A00] border-t-transparent rounded-full animate-spin"></div>
           </div>
-          <p className="mt-4 text-gray-500 text-sm font-medium">Loading delicious details...</p>
+          <p className="mt-4 text-gray-500 text-sm font-medium">
+            Loading delicious details...
+          </p>
         </div>
       ) : error ? (
         <div className="px-4 py-12 max-w-lg mx-auto">
           <div className="bg-red-50 border border-red-200 text-red-700 p-6 rounded-3xl text-center">
             <span className="text-4xl mb-4 block"></span>
-            <p className="font-semibold text-lg mb-2">Oops! Something went wrong</p>
+            <p className="font-semibold text-lg mb-2">
+              Oops! Something went wrong
+            </p>
             <p className="text-sm mb-4">{error}</p>
             <button
               onClick={() => navigate(-1)}
@@ -228,7 +240,7 @@ const FoodDetail = () => {
               {/* Restaurant Badge */}
               <div className="absolute bottom-3 left-3 bg-white/90 backdrop-blur-sm px-3 py-1.5 rounded-xl shadow-md">
                 <p className="text-[#FF7A00] font-semibold text-xs">
-                   {restaurant?.restaurant_name}
+                  {restaurant?.restaurant_name}
                 </p>
               </div>
             </div>
@@ -250,7 +262,6 @@ const FoodDetail = () => {
           {/* Size Selection Card */}
           <div className="bg-white rounded-2xl shadow-md p-4 mb-4">
             <div className="flex items-center gap-2 mb-3">
-              
               <h3 className="font-bold text-gray-900 text-sm">Choose Size</h3>
             </div>
 
@@ -274,8 +285,16 @@ const FoodDetail = () => {
                       }`}
                     >
                       {selectedSize === "regular" && (
-                        <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/>
+                        <svg
+                          className="w-3 h-3 text-white"
+                          fill="currentColor"
+                          viewBox="0 0 20 20"
+                        >
+                          <path
+                            fillRule="evenodd"
+                            d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                            clipRule="evenodd"
+                          />
                         </svg>
                       )}
                     </div>
@@ -284,7 +303,9 @@ const FoodDetail = () => {
                         {food.regular_size || "Regular"}
                       </span>
                       {food.regular_portion && (
-                        <p className="text-xs text-gray-500">{food.regular_portion}</p>
+                        <p className="text-xs text-gray-500">
+                          {food.regular_portion}
+                        </p>
                       )}
                     </div>
                   </div>
@@ -327,8 +348,16 @@ const FoodDetail = () => {
                         }`}
                       >
                         {selectedSize === "large" && (
-                          <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/>
+                          <svg
+                            className="w-3 h-3 text-white"
+                            fill="currentColor"
+                            viewBox="0 0 20 20"
+                          >
+                            <path
+                              fillRule="evenodd"
+                              d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                              clipRule="evenodd"
+                            />
                           </svg>
                         )}
                       </div>
@@ -337,13 +366,28 @@ const FoodDetail = () => {
                           {food.extra_size || "Large"}
                         </span>
                         {food.extra_portion && (
-                          <p className="text-xs text-gray-500">{food.extra_portion}</p>
+                          <p className="text-xs text-gray-500">
+                            {food.extra_portion}
+                          </p>
                         )}
                       </div>
                     </div>
-                    <span className="text-lg font-bold text-[#FF7A00]">
-                      {formatPrice(food.extra_price)}
-                    </span>
+                    <div className="text-right">
+                      {food.extra_offer_price ? (
+                        <div>
+                          <span className="text-xs text-gray-400 line-through">
+                            {formatPrice(food.extra_price)}
+                          </span>
+                          <div className="text-lg font-bold text-green-600">
+                            {formatPrice(food.extra_offer_price)}
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-lg font-bold text-[#FF7A00]">
+                          {formatPrice(food.extra_price)}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
@@ -356,7 +400,7 @@ const FoodDetail = () => {
               <div className="flex items-center gap-2">
                 <h3 className="font-bold text-gray-900 text-sm">Quantity</h3>
               </div>
-              
+
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => setQuantity(Math.max(1, quantity - 1))}
@@ -389,8 +433,8 @@ const FoodDetail = () => {
                 <span className="text-2xl font-bold text-[#FF7A00]">
                   {formatPrice(
                     (selectedSize === "large" && food.extra_price
-                      ? food.extra_price
-                      : food.offer_price || food.regular_price) * quantity
+                      ? food.extra_offer_price || food.extra_price
+                      : food.offer_price || food.regular_price) * quantity,
                   )}
                 </span>
               </div>
@@ -410,8 +454,18 @@ const FoodDetail = () => {
                   </>
                 ) : (
                   <>
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+                    <svg
+                      className="w-5 h-5"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"
+                      />
                     </svg>
                     Add to Cart
                   </>
@@ -430,8 +484,18 @@ const FoodDetail = () => {
                   </>
                 ) : (
                   <>
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    <svg
+                      className="w-5 h-5"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M13 10V3L4 14h7v7l9-11h-7z"
+                      />
                     </svg>
                     Buy Now
                   </>

@@ -212,6 +212,8 @@ const driverOnly = (req, res, next) => {
 // ============================================================================
 // GET /driver/deliveries/pending - Get all pending deliveries
 // Shows deliveries with delivery_status = 'pending'
+// Only returns deliveries if driver_status is 'active'
+// Inactive drivers can still access dashboard, just get empty deliveries list
 // ============================================================================
 router.get(
   "/deliveries/pending",
@@ -225,6 +227,39 @@ router.get(
         return res.status(500).json({
           message: "Database configuration error",
           error: "SUPABASE_URL not set",
+        });
+      }
+
+      // Check if driver is active before showing pending deliveries
+      const { data: driverData, error: driverError } = await supabaseAdmin
+        .from("drivers")
+        .select("driver_status, working_time")
+        .eq("id", req.user.id)
+        .single();
+
+      if (driverError) {
+        console.error("Driver status check error:", driverError);
+        // Don't block dashboard access, just return empty deliveries
+        return res.json({
+          deliveries: [],
+          message: "Could not verify driver status",
+        });
+      }
+
+      if (!driverData) {
+        return res.json({
+          deliveries: [],
+          message: "Driver not found",
+        });
+      }
+
+      // Only show deliveries if driver_status is 'active'
+      if (driverData.driver_status !== "active") {
+        return res.json({
+          deliveries: [],
+          message: "You must be online (active) to see available deliveries",
+          driver_status: driverData.driver_status,
+          working_time: driverData.working_time || "full_time",
         });
       }
 
@@ -444,6 +479,7 @@ router.get(
 // ============================================================================
 // POST /driver/deliveries/:id/accept - Accept a delivery (ATOMIC)
 // Changes delivery_status from 'pending' to 'accepted'
+// Only allows active drivers to accept deliveries
 // ============================================================================
 
 router.post(
@@ -461,6 +497,31 @@ router.post(
     console.log(`${"=".repeat(80)}`);
 
     try {
+      // Step 0: Check if driver is active
+      console.log(`[ACCEPT DELIVERY] → Step 0: Check if driver is active`);
+      const { data: driverData, error: driverError } = await supabaseAdmin
+        .from("drivers")
+        .select("driver_status, working_time")
+        .eq("id", req.user.id)
+        .single();
+
+      if (driverError || !driverData) {
+        return res.status(404).json({ message: "Driver not found" });
+      }
+
+      if (driverData.driver_status !== "active") {
+        console.log(
+          `[ACCEPT DELIVERY]   ⚠️  Driver is not active (status: ${driverData.driver_status})`,
+        );
+        return res.status(403).json({
+          message: "You must be online (active) to accept deliveries",
+          driver_status: driverData.driver_status,
+          hint: "Go online from the dashboard to accept deliveries",
+        });
+      }
+
+      console.log(`[ACCEPT DELIVERY]   ✓ Driver is active`);
+
       // Step 1: Check if driver is in delivering mode
       console.log(
         `[ACCEPT DELIVERY] → Step 1: Check if driver is in delivering mode`,
@@ -2442,12 +2503,10 @@ router.get(
 
       if (error) {
         console.error(`[EARNINGS BY CUSTOMER] ❌ Error: ${error.message}`);
-        return res
-          .status(500)
-          .json({
-            success: false,
-            message: "Failed to fetch customer earnings",
-          });
+        return res.status(500).json({
+          success: false,
+          message: "Failed to fetch customer earnings",
+        });
       }
 
       // Group by customer

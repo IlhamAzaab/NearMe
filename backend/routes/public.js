@@ -1,5 +1,6 @@
 import express from "express";
 import { supabaseAdmin } from "../supabaseAdmin.js";
+import { addCustomerPricing } from "../utils/commission.js";
 
 const router = express.Router();
 
@@ -20,7 +21,7 @@ router.get("/restaurants", async (req, res) => {
     // Add search filter if provided
     if (search && search.trim()) {
       query = query.or(
-        `restaurant_name.ilike.%${search}%,city.ilike.%${search}%,address.ilike.%${search}%`
+        `restaurant_name.ilike.%${search}%,city.ilike.%${search}%,address.ilike.%${search}%`,
       );
     }
 
@@ -48,7 +49,8 @@ router.get("/foods", async (req, res) => {
 
     let query = supabaseAdmin
       .from("foods")
-      .select(`
+      .select(
+        `
         *,
         restaurants!inner (
           id,
@@ -57,7 +59,8 @@ router.get("/foods", async (req, res) => {
           city,
           restaurant_status
         )
-      `)
+      `,
+      )
       .eq("is_available", true)
       .eq("restaurants.restaurant_status", "active")
       .order("name", { ascending: true });
@@ -74,11 +77,16 @@ router.get("/foods", async (req, res) => {
       return res.status(500).json({ message: "Failed to fetch foods" });
     }
 
-    // Map the data to include price (using regular_price as default)
-    const mappedFoods = (foods || []).map(food => ({
-      ...food,
-      price: food.offer_price || food.regular_price || 0
-    }));
+    // Map the data to include customer prices with commission
+    const mappedFoods = (foods || []).map((food) => {
+      const pricedFood = addCustomerPricing(food);
+      return {
+        ...pricedFood,
+        // Effective price for display (offer price if exists, otherwise regular)
+        price:
+          pricedFood.effective_regular_price || pricedFood.regular_price || 0,
+      };
+    });
 
     return res.json({ foods: mappedFoods });
   } catch (e) {
@@ -154,7 +162,10 @@ router.get("/restaurants/:restaurantId/foods", async (req, res) => {
       return res.status(500).json({ message: "Failed to fetch foods" });
     }
 
-    return res.json({ foods: foods || [] });
+    // Add customer pricing with commission to all foods
+    const pricedFoods = (foods || []).map((food) => addCustomerPricing(food));
+
+    return res.json({ foods: pricedFoods });
   } catch (e) {
     console.error("/public/restaurants/:restaurantId/foods error:", e);
     return res.status(500).json({ message: "Server error", error: e.message });
@@ -195,7 +206,10 @@ router.get("/restaurants/:restaurantId/foods/:foodId", async (req, res) => {
       return res.status(404).json({ message: "Food not found" });
     }
 
-    return res.json({ food });
+    // Add customer pricing with commission
+    const pricedFood = addCustomerPricing(food);
+
+    return res.json({ food: pricedFood });
   } catch (e) {
     console.error("/public/restaurants/:restaurantId/foods/:foodId error:", e);
     return res.status(500).json({ message: "Server error", error: e.message });

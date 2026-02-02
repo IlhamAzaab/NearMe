@@ -240,7 +240,11 @@ router.get("/stats", authenticate, async (req, res) => {
       .from("orders")
       .select("total_amount");
 
-    const totalRevenue = revenueData?.reduce((sum, order) => sum + (parseFloat(order.total_amount) || 0), 0) || 0;
+    const totalRevenue =
+      revenueData?.reduce(
+        (sum, order) => sum + (parseFloat(order.total_amount) || 0),
+        0,
+      ) || 0;
 
     // Today's orders and revenue
     const today = new Date();
@@ -253,7 +257,11 @@ router.get("/stats", authenticate, async (req, res) => {
       .gte("created_at", todayISO);
 
     const todayOrdersCount = todayOrders?.length || 0;
-    const todayRevenue = todayOrders?.reduce((sum, order) => sum + (parseFloat(order.total_amount) || 0), 0) || 0;
+    const todayRevenue =
+      todayOrders?.reduce(
+        (sum, order) => sum + (parseFloat(order.total_amount) || 0),
+        0,
+      ) || 0;
 
     // Foods count (products)
     const { count: foodsCount, error: foodsErr } = await supabaseAdmin
@@ -307,7 +315,8 @@ router.get("/orders", authenticate, async (req, res) => {
 
     const { data: orders, error } = await supabaseAdmin
       .from("orders")
-      .select(`
+      .select(
+        `
         id,
         order_number,
         customer_id,
@@ -324,7 +333,8 @@ router.get("/orders", authenticate, async (req, res) => {
           name,
           logo_url
         )
-      `)
+      `,
+      )
       .order("created_at", { ascending: false })
       .limit(limit);
 
@@ -816,6 +826,265 @@ router.patch("/notifications/:id/read", authenticate, async (req, res) => {
     return res.json({ success: true });
   } catch (e) {
     console.error("/admin/notifications/:id/read error:", e);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
+// ============================================================================
+// ADMIN EARNINGS & FINANCIAL REPORTS
+// ============================================================================
+
+/**
+ * GET /admin/earnings
+ * Get admin earnings summary (restaurant_payment from order_financial_details view)
+ * Query params: period (today, week, month, year, all, custom), startDate, endDate
+ */
+router.get("/earnings", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const adminId = req.user.id;
+    const { period = "all", startDate, endDate } = req.query;
+
+    // Get restaurant ID for this admin
+    const { data: adminData, error: adminError } = await supabaseAdmin
+      .from("admins")
+      .select("restaurant_id")
+      .eq("id", adminId)
+      .maybeSingle();
+
+    if (adminError || !adminData?.restaurant_id) {
+      return res
+        .status(404)
+        .json({ message: "Restaurant not found for admin" });
+    }
+
+    const restaurantId = adminData.restaurant_id;
+
+    // Calculate date ranges
+    const now = new Date();
+    let dateFilter = null;
+
+    switch (period) {
+      case "today":
+        const todayStart = new Date(now);
+        todayStart.setHours(0, 0, 0, 0);
+        dateFilter = { start: todayStart.toISOString() };
+        break;
+      case "week":
+        const weekStart = new Date(now);
+        weekStart.setDate(weekStart.getDate() - 7);
+        dateFilter = { start: weekStart.toISOString() };
+        break;
+      case "month":
+        const monthStart = new Date(now);
+        monthStart.setDate(monthStart.getDate() - 30);
+        dateFilter = { start: monthStart.toISOString() };
+        break;
+      case "year":
+        const yearStart = new Date(now);
+        yearStart.setFullYear(yearStart.getFullYear() - 1);
+        dateFilter = { start: yearStart.toISOString() };
+        break;
+      case "custom":
+        if (startDate)
+          dateFilter = { start: new Date(startDate).toISOString() };
+        if (endDate)
+          dateFilter = { ...dateFilter, end: new Date(endDate).toISOString() };
+        break;
+      default:
+        // all - no filter
+        break;
+    }
+
+    // Use order_financial_details view for consistent financial data
+    // restaurant_payment = admin_subtotal (what admin receives)
+    // Valid order statuses: placed, accepted, rejected, ready, delivered, cancelled
+    let totalQuery = supabaseAdmin
+      .from("order_financial_details")
+      .select("restaurant_payment, placed_at, status")
+      .eq("restaurant_id", restaurantId)
+      .in("status", ["placed", "accepted", "ready", "delivered"]);
+
+    if (dateFilter?.start) {
+      totalQuery = totalQuery.gte("placed_at", dateFilter.start);
+    }
+    if (dateFilter?.end) {
+      totalQuery = totalQuery.lte("placed_at", dateFilter.end);
+    }
+
+    const { data: orders, error: ordersError } = await totalQuery;
+
+    if (ordersError) {
+      console.error("Orders fetch error:", ordersError);
+      return res.status(500).json({ message: "Failed to fetch earnings data" });
+    }
+
+    // Calculate totals using restaurant_payment (what admin receives)
+    const totalRevenue = (orders || []).reduce((sum, order) => {
+      return sum + parseFloat(order.restaurant_payment || 0);
+    }, 0);
+
+    const totalOrders = orders?.length || 0;
+
+    // Get today's sales separately
+    const todayStart = new Date(now);
+    todayStart.setHours(0, 0, 0, 0);
+
+    const { data: todayOrders, error: todayError } = await supabaseAdmin
+      .from("order_financial_details")
+      .select("restaurant_payment")
+      .eq("restaurant_id", restaurantId)
+      .gte("placed_at", todayStart.toISOString())
+      .in("status", ["placed", "accepted", "ready", "delivered"]);
+
+    const todaySales = (todayOrders || []).reduce((sum, order) => {
+      return sum + parseFloat(order.restaurant_payment || 0);
+    }, 0);
+
+    const todayOrderCount = todayOrders?.length || 0;
+
+    // Get last week's revenue for comparison
+    const lastWeekStart = new Date(now);
+    lastWeekStart.setDate(lastWeekStart.getDate() - 14);
+    const lastWeekEnd = new Date(now);
+    lastWeekEnd.setDate(lastWeekEnd.getDate() - 7);
+
+    const { data: lastWeekOrders } = await supabaseAdmin
+      .from("order_financial_details")
+      .select("restaurant_payment")
+      .eq("restaurant_id", restaurantId)
+      .gte("placed_at", lastWeekStart.toISOString())
+      .lt("placed_at", lastWeekEnd.toISOString())
+      .in("status", ["placed", "accepted", "ready", "delivered"]);
+
+    const lastWeekRevenue = (lastWeekOrders || []).reduce((sum, order) => {
+      return sum + parseFloat(order.restaurant_payment || 0);
+    }, 0);
+
+    // Calculate this week's revenue
+    const thisWeekStart = new Date(now);
+    thisWeekStart.setDate(thisWeekStart.getDate() - 7);
+
+    const { data: thisWeekOrders } = await supabaseAdmin
+      .from("order_financial_details")
+      .select("restaurant_payment")
+      .eq("restaurant_id", restaurantId)
+      .gte("placed_at", thisWeekStart.toISOString())
+      .in("status", ["placed", "accepted", "ready", "delivered"]);
+
+    const thisWeekRevenue = (thisWeekOrders || []).reduce((sum, order) => {
+      return sum + parseFloat(order.restaurant_payment || 0);
+    }, 0);
+
+    // Calculate percentage change
+    let percentageChange = 0;
+    if (lastWeekRevenue > 0) {
+      percentageChange =
+        ((thisWeekRevenue - lastWeekRevenue) / lastWeekRevenue) * 100;
+    }
+
+    // Get daily earnings for chart (last 30 days)
+    const thirtyDaysAgo = new Date(now);
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const { data: chartOrders } = await supabaseAdmin
+      .from("order_financial_details")
+      .select("restaurant_payment, placed_at")
+      .eq("restaurant_id", restaurantId)
+      .gte("placed_at", thirtyDaysAgo.toISOString())
+      .in("status", ["placed", "accepted", "ready", "delivered"])
+      .order("placed_at", { ascending: true });
+
+    // Group by date for chart
+    const dailyEarnings = {};
+    (chartOrders || []).forEach((order) => {
+      const date = new Date(order.placed_at).toISOString().split("T")[0];
+      if (!dailyEarnings[date]) {
+        dailyEarnings[date] = 0;
+      }
+      dailyEarnings[date] += parseFloat(order.restaurant_payment || 0);
+    });
+
+    // Convert to array for chart
+    const chartData = Object.entries(dailyEarnings).map(([date, amount]) => ({
+      date,
+      amount: Math.round(amount),
+    }));
+
+    return res.json({
+      earnings: {
+        totalRevenue: Math.round(totalRevenue),
+        totalOrders,
+        todaySales: Math.round(todaySales),
+        todayOrderCount,
+        thisWeekRevenue: Math.round(thisWeekRevenue),
+        lastWeekRevenue: Math.round(lastWeekRevenue),
+        percentageChange: Math.round(percentageChange * 10) / 10,
+        chartData,
+        period,
+      },
+    });
+  } catch (e) {
+    console.error("/admin/earnings error:", e);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
+/**
+ * GET /admin/payouts
+ * Get admin payout history using order_financial_details view
+ * Returns completed orders with restaurant_payment as the payout amount
+ */
+router.get("/payouts", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const adminId = req.user.id;
+    const limit = parseInt(req.query.limit) || 10;
+
+    // Get restaurant ID
+    const { data: adminData } = await supabaseAdmin
+      .from("admins")
+      .select("restaurant_id")
+      .eq("id", adminId)
+      .maybeSingle();
+
+    if (!adminData?.restaurant_id) {
+      return res.status(404).json({ message: "Restaurant not found" });
+    }
+
+    // Get delivered orders as payouts using the view
+    const { data: payouts, error } = await supabaseAdmin
+      .from("order_financial_details")
+      .select("order_id, order_number, restaurant_payment, placed_at, status")
+      .eq("restaurant_id", adminData.restaurant_id)
+      .eq("status", "delivered")
+      .order("placed_at", { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      console.error("Payouts fetch error:", error);
+      return res.status(500).json({ message: "Failed to fetch payouts" });
+    }
+
+    // Format as payout records - restaurant_payment is what admin receives
+    const formattedPayouts = (payouts || []).map((order) => ({
+      id: order.order_id,
+      order_number: order.order_number,
+      amount: parseFloat(order.restaurant_payment || 0),
+      date: order.placed_at,
+      status: "processed", // Since delivered orders are considered paid
+      type: "order_payment",
+    }));
+
+    return res.json({ payouts: formattedPayouts });
+  } catch (e) {
+    console.error("/admin/payouts error:", e);
     return res.status(500).json({ message: "Server error" });
   }
 });

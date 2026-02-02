@@ -17,6 +17,10 @@ import express from "express";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "../supabaseAdmin.js";
 import { authenticate } from "../middleware/authenticate.js";
+import {
+  getCartItemPrices,
+  calculateCustomerPrice,
+} from "../utils/commission.js";
 
 const router = express.Router();
 
@@ -200,7 +204,7 @@ router.post("/place", authenticate, async (req, res) => {
     }
 
     // ========================================================================
-    // STEP 2: Fetch cart items with food details
+    // STEP 2: Fetch cart items with food details and commission info
     // ========================================================================
     const { data: cartItems, error: itemsError } = await supabaseAdmin
       .from("cart_items")
@@ -213,7 +217,17 @@ router.post("/place", authenticate, async (req, res) => {
         size,
         quantity,
         unit_price,
-        total_price
+        total_price,
+        admin_unit_price,
+        admin_total_price,
+        commission_per_item,
+        foods (
+          id,
+          regular_price,
+          offer_price,
+          extra_price,
+          extra_offer_price
+        )
       `,
       )
       .eq("cart_id", cartId);
@@ -273,7 +287,12 @@ router.post("/place", authenticate, async (req, res) => {
         delivery_latitude = parseFloat(customer.latitude);
         delivery_longitude = parseFloat(customer.longitude);
       } else {
-        return res.status(400).json({ message: "Delivery location is required. Please set your location in profile." });
+        return res
+          .status(400)
+          .json({
+            message:
+              "Delivery location is required. Please set your location in profile.",
+          });
       }
     }
 
@@ -282,19 +301,26 @@ router.post("/place", authenticate, async (req, res) => {
         delivery_address = customer.address;
         delivery_city = customer.city || "";
       } else {
-        return res.status(400).json({ message: "Delivery address is required" });
+        return res
+          .status(400)
+          .json({ message: "Delivery address is required" });
       }
     }
 
     // ========================================================================
     // STEP 4.6: Calculate distance and duration if not provided
     // ========================================================================
-    if (!distance_km || !estimated_duration_min || distance_km <= 0 || estimated_duration_min <= 0) {
+    if (
+      !distance_km ||
+      !estimated_duration_min ||
+      distance_km <= 0 ||
+      estimated_duration_min <= 0
+    ) {
       const routeResult = await calculateRouteDistance(
         delivery_latitude,
         delivery_longitude,
         parseFloat(restaurant.latitude),
-        parseFloat(restaurant.longitude)
+        parseFloat(restaurant.longitude),
       );
 
       if (routeResult.success) {
@@ -303,24 +329,70 @@ router.post("/place", authenticate, async (req, res) => {
       } else {
         // Fallback: calculate straight-line distance
         const R = 6371; // Earth's radius in km
-        const dLat = (parseFloat(restaurant.latitude) - delivery_latitude) * Math.PI / 180;
-        const dLon = (parseFloat(restaurant.longitude) - delivery_longitude) * Math.PI / 180;
-        const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                  Math.cos(delivery_latitude * Math.PI / 180) * Math.cos(parseFloat(restaurant.latitude) * Math.PI / 180) *
-                  Math.sin(dLon/2) * Math.sin(dLon/2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        const dLat =
+          ((parseFloat(restaurant.latitude) - delivery_latitude) * Math.PI) /
+          180;
+        const dLon =
+          ((parseFloat(restaurant.longitude) - delivery_longitude) * Math.PI) /
+          180;
+        const a =
+          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos((delivery_latitude * Math.PI) / 180) *
+            Math.cos((parseFloat(restaurant.latitude) * Math.PI) / 180) *
+            Math.sin(dLon / 2) *
+            Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         distance_km = R * c * 1.3; // Add 30% for road distance approximation
         estimated_duration_min = distance_km * 3; // Rough estimate: 3 min per km
       }
     }
 
     // ========================================================================
-    // STEP 5: Calculate pricing (server-side validation)
+    // STEP 5: Calculate pricing with commission (server-side validation)
     // ========================================================================
-    const subtotal = cartItems.reduce(
-      (sum, item) => sum + parseFloat(item.total_price),
-      0,
-    );
+
+    // Recalculate prices with commission from current food prices
+    let customerSubtotal = 0;
+    let adminSubtotal = 0;
+    let commissionTotal = 0;
+
+    const processedItems = cartItems.map((item) => {
+      const food = item.foods;
+      let adminPrice, customerPrice, commission;
+
+      if (food) {
+        // Recalculate from current food prices
+        const prices = getCartItemPrices(food, item.size);
+        adminPrice = prices.adminPrice;
+        customerPrice = prices.customerPrice;
+        commission = prices.commission;
+      } else {
+        // Fallback to stored values
+        adminPrice = parseFloat(item.admin_unit_price || item.unit_price);
+        customerPrice = parseFloat(item.unit_price);
+        commission = parseFloat(item.commission_per_item || 0);
+      }
+
+      const adminTotal = adminPrice * item.quantity;
+      const customerTotal = customerPrice * item.quantity;
+      const itemCommission = commission * item.quantity;
+
+      adminSubtotal += adminTotal;
+      customerSubtotal += customerTotal;
+      commissionTotal += itemCommission;
+
+      return {
+        ...item,
+        admin_unit_price: adminPrice,
+        admin_total_price: adminTotal,
+        customer_unit_price: customerPrice,
+        customer_total_price: customerTotal,
+        commission_per_item: commission,
+        total_commission: itemCommission,
+      };
+    });
+
+    const subtotal = customerSubtotal; // Customer subtotal includes commission
 
     // Validate minimum order
     if (subtotal < 300) {
@@ -361,6 +433,8 @@ router.post("/place", authenticate, async (req, res) => {
         delivery_latitude: delivery_latitude,
         delivery_longitude: delivery_longitude,
         subtotal: subtotal.toFixed(2),
+        admin_subtotal: adminSubtotal.toFixed(2),
+        commission_total: commissionTotal.toFixed(2),
         delivery_fee: deliveryFee.toFixed(2),
         service_fee: serviceFee.toFixed(2),
         total_amount: totalAmount.toFixed(2),
@@ -380,17 +454,20 @@ router.post("/place", authenticate, async (req, res) => {
     }
 
     // ========================================================================
-    // STEP 8: Insert order items (snapshot from cart)
+    // STEP 8: Insert order items with commission data (snapshot from cart)
     // ========================================================================
-    const orderItems = cartItems.map((item) => ({
+    const orderItems = processedItems.map((item) => ({
       order_id: order.id,
       food_id: item.food_id,
       food_name: item.food_name,
       food_image_url: item.food_image_url,
       size: item.size || "regular",
       quantity: item.quantity,
-      unit_price: item.unit_price,
-      total_price: item.total_price,
+      unit_price: item.customer_unit_price,
+      total_price: item.customer_total_price,
+      admin_unit_price: item.admin_unit_price,
+      admin_total_price: item.admin_total_price,
+      commission_per_item: item.commission_per_item,
     }));
 
     const { error: itemsInsertError } = await supabaseAdmin
@@ -641,6 +718,24 @@ router.get("/:id", authenticate, async (req, res) => {
       if (!admin || admin.restaurant_id !== order.restaurant_id) {
         return res.status(403).json({ message: "Access denied" });
       }
+
+      // Transform order for admin view - show admin prices (without commission)
+      const adminItems = (order.order_items || []).map((item) => ({
+        ...item,
+        // Override with admin prices for admin view
+        unit_price: item.admin_unit_price || item.unit_price,
+        total_price: item.admin_total_price || item.total_price,
+      }));
+
+      const adminOrder = {
+        ...order,
+        order_items: adminItems,
+        // Show admin_subtotal as the subtotal (what admin will receive)
+        subtotal: order.admin_subtotal || order.subtotal,
+        admin_total: parseFloat(order.admin_subtotal || order.subtotal),
+      };
+
+      return res.json({ order: adminOrder });
     }
 
     return res.json({ order });
@@ -687,7 +782,7 @@ router.get("/:id/delivery-status", authenticate, async (req, res) => {
         restaurants (
           logo_url
         )
-      `
+      `,
       )
       .eq("id", orderId)
       .single();
@@ -704,7 +799,7 @@ router.get("/:id/delivery-status", authenticate, async (req, res) => {
     // Get delivery status
     const delivery = order.deliveries?.[0] || order.deliveries;
     const deliveryStatus = delivery?.status || "placed";
-    
+
     // Fetch restaurant logo if not included in the join
     let restaurantLogo = order.restaurants?.logo_url || null;
     if (!restaurantLogo && order.restaurant_id) {
@@ -713,10 +808,10 @@ router.get("/:id/delivery-status", authenticate, async (req, res) => {
         .select("logo_url")
         .eq("id", order.restaurant_id)
         .single();
-      
+
       restaurantLogo = restaurant?.logo_url || null;
     }
-    
+
     // Fetch driver info if driver is assigned
     let driverInfo = null;
     if (delivery?.driver_id) {
@@ -726,7 +821,7 @@ router.get("/:id/delivery-status", authenticate, async (req, res) => {
         .select("id, full_name, phone, driver_type, profile_photo_url")
         .eq("id", delivery.driver_id)
         .single();
-      
+
       if (driver) {
         // Get vehicle info
         const { data: vehicle } = await supabaseAdmin
@@ -734,7 +829,7 @@ router.get("/:id/delivery-status", authenticate, async (req, res) => {
           .select("vehicle_number, vehicle_type, vehicle_model")
           .eq("driver_id", delivery.driver_id)
           .single();
-        
+
         driverInfo = {
           id: driver.id,
           full_name: driver.full_name,
@@ -757,14 +852,21 @@ router.get("/:id/delivery-status", authenticate, async (req, res) => {
       deliveredAt: delivery?.delivered_at || null,
       driver: driverInfo,
       // Location data for live tracking
-      driverLocation: delivery?.current_latitude && delivery?.current_longitude ? {
-        latitude: parseFloat(delivery.current_latitude),
-        longitude: parseFloat(delivery.current_longitude),
-        lastUpdate: delivery.last_location_update,
-      } : null,
+      driverLocation:
+        delivery?.current_latitude && delivery?.current_longitude
+          ? {
+              latitude: parseFloat(delivery.current_latitude),
+              longitude: parseFloat(delivery.current_longitude),
+              lastUpdate: delivery.last_location_update,
+            }
+          : null,
       customerLocation: {
-        latitude: order.delivery_latitude ? parseFloat(order.delivery_latitude) : null,
-        longitude: order.delivery_longitude ? parseFloat(order.delivery_longitude) : null,
+        latitude: order.delivery_latitude
+          ? parseFloat(order.delivery_latitude)
+          : null,
+        longitude: order.delivery_longitude
+          ? parseFloat(order.delivery_longitude)
+          : null,
         address: order.delivery_address,
       },
       restaurantName: order.restaurant_name,
@@ -817,6 +919,7 @@ router.get("/restaurant/orders", authenticate, async (req, res) => {
         delivery_latitude,
         delivery_longitude,
         subtotal,
+        admin_subtotal,
         delivery_fee,
         service_fee,
         total_amount,
@@ -837,7 +940,9 @@ router.get("/restaurant/orders", authenticate, async (req, res) => {
           size,
           quantity,
           unit_price,
-          total_price
+          total_price,
+          admin_unit_price,
+          admin_total_price
         ),
         deliveries (
           id,
@@ -862,6 +967,33 @@ router.get("/restaurant/orders", authenticate, async (req, res) => {
     }
 
     const { data: orders, error } = await query;
+
+    if (error) {
+      console.error("Fetch restaurant orders error:", error);
+      return res.status(500).json({ message: "Failed to fetch orders" });
+    }
+
+    // Transform orders for admin view - show admin prices (without commission)
+    const adminOrders = (orders || []).map((order) => {
+      // Transform order items to show admin prices
+      const adminItems = (order.order_items || []).map((item) => ({
+        ...item,
+        // Override unit_price and total_price with admin prices for admin view
+        unit_price: item.admin_unit_price || item.unit_price,
+        total_price: item.admin_total_price || item.total_price,
+      }));
+
+      return {
+        ...order,
+        order_items: adminItems,
+        // Show admin_subtotal as the subtotal for admin (what they will receive)
+        subtotal: order.admin_subtotal || order.subtotal,
+        // Calculate admin's total (admin_subtotal only, no fees)
+        admin_total: parseFloat(order.admin_subtotal || order.subtotal),
+        // Original customer total for reference (hidden from admin UI)
+        customer_total: order.total_amount,
+      };
+    });
 
     if (error) {
       console.error("Fetch restaurant orders error:", error);
@@ -893,7 +1025,7 @@ router.get("/restaurant/orders", authenticate, async (req, res) => {
     };
 
     return res.json({
-      orders: orders || [],
+      orders: adminOrders,
       counts,
       restaurant_id: admin.restaurant_id,
     });

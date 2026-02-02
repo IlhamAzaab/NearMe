@@ -15,12 +15,17 @@ import {
   formatDistance,
   formatDuration,
 } from "../../utils/routeCalculations";
+import {
+  getOptimizedRestaurantOrderByShortest,
+  getOptimizedCustomerOrderByShortest,
+} from "../../utils/routeOptimization";
 
 function DriverMapPageContent() {
   const { deliveryId } = useParams();
   const navigate = useNavigate();
   const locationUpdateInterval = useRef(null);
   const recenterFnRef = useRef(null);
+  const fetchInProgressRef = useRef(false); // Prevent duplicate fetches
 
   const [mode, setMode] = useState("pickup"); // "pickup" or "delivery"
   const [pickups, setPickups] = useState([]);
@@ -128,9 +133,12 @@ function DriverMapPageContent() {
 
   // Update location on backend
   const updateLocationOnBackend = async (delivId, location) => {
+    // Silently fail if delivery ID is invalid or backend is down
+    if (!delivId) return;
+
     try {
       const token = localStorage.getItem("token");
-      await fetch(
+      const response = await fetch(
         `http://localhost:5000/driver/deliveries/${delivId}/location`,
         {
           method: "PATCH",
@@ -144,23 +152,66 @@ function DriverMapPageContent() {
           }),
         },
       );
+
+      // Only log error if it's not a 404 (delivery might be completed)
+      if (!response.ok && response.status !== 404) {
+        console.warn("📍 [MAP PAGE] Location update failed:", response.status);
+      }
     } catch (e) {
-      console.error("Location update error:", e);
+      // Silently handle network errors - don't crash the app
+      console.warn(
+        "📍 [MAP PAGE] Location update error (network issue):",
+        e.message,
+      );
     }
   };
 
-  // Fetch pickups and deliveries
+  // Fetch pickups and deliveries with smart route optimization (only when driver location is available)
   const fetchPickupsAndDeliveries = useCallback(async () => {
-    if (!driverLocation) return;
+    if (!driverLocation) {
+      console.log("📍 [MAP PAGE] Waiting for driver location...");
+      return;
+    }
+
+    // Prevent duplicate simultaneous fetches
+    if (fetchInProgressRef.current) {
+      console.log("📍 [MAP PAGE] Fetch already in progress, skipping...");
+      return;
+    }
+
+    fetchInProgressRef.current = true;
 
     try {
       const token = localStorage.getItem("token");
+
+      console.log(
+        "📍 [MAP PAGE] Fetching pickups and deliveries with location:",
+        driverLocation,
+      );
 
       // Fetch pickups (accepted status)
       const pickupsUrl = `http://localhost:5000/driver/deliveries/pickups?driver_latitude=${driverLocation.lat}&driver_longitude=${driverLocation.lng}`;
       const pickupsRes = await fetch(pickupsUrl, {
         headers: { Authorization: `Bearer ${token}` },
       });
+
+      // Handle backend errors gracefully
+      if (!pickupsRes.ok) {
+        console.error(
+          "📍 [MAP PAGE] Pickups fetch failed:",
+          pickupsRes.status,
+          pickupsRes.statusText,
+        );
+        if (pickupsRes.status === 500) {
+          console.warn(
+            "📍 [MAP PAGE] Backend error fetching pickups. Will retry on next location update.",
+          );
+          setLoading(false);
+          fetchInProgressRef.current = false;
+          return;
+        }
+      }
+
       const pickupsData = await pickupsRes.json();
 
       // Fetch deliveries (picked_up, on_the_way, at_customer)
@@ -168,65 +219,130 @@ function DriverMapPageContent() {
       const deliveriesRes = await fetch(deliveriesUrl, {
         headers: { Authorization: `Bearer ${token}` },
       });
+
+      // Handle backend errors gracefully
+      if (!deliveriesRes.ok) {
+        console.error(
+          "📍 [MAP PAGE] Deliveries fetch failed:",
+          deliveriesRes.status,
+          deliveriesRes.statusText,
+        );
+        if (deliveriesRes.status === 500) {
+          console.warn(
+            "📍 [MAP PAGE] Backend error fetching deliveries. Will retry on next location update.",
+          );
+          setLoading(false);
+          fetchInProgressRef.current = false;
+          return;
+        }
+      }
+
       const deliveriesData = await deliveriesRes.json();
 
       if (pickupsRes.ok) {
-        setPickups(pickupsData.pickups || []);
-        if (pickupsData.pickups && pickupsData.pickups.length > 0) {
+        let fetchedPickups = pickupsData.pickups || [];
+
+        // Apply smart route optimization
+        if (fetchedPickups.length > 0) {
+          console.log(
+            "📍 [MAP PAGE] Applying smart route optimization to pickups...",
+          );
+          fetchedPickups = getOptimizedRestaurantOrderByShortest(
+            fetchedPickups,
+            { latitude: driverLocation.lat, longitude: driverLocation.lng },
+          );
+          console.log(
+            "📍 [MAP PAGE] Optimized pickup order:",
+            fetchedPickups.map((p) => p.restaurant.name),
+          );
+        }
+
+        setPickups(fetchedPickups);
+        if (fetchedPickups.length > 0) {
           setMode("pickup");
-          setCurrentTarget(pickupsData.pickups[0]);
+          setCurrentTarget(fetchedPickups[0]);
         }
       }
 
       if (deliveriesRes.ok) {
-        setDeliveries(deliveriesData.deliveries || []);
+        let fetchedDeliveries = deliveriesData.deliveries || [];
+
+        // Apply smart route optimization for deliveries
+        if (fetchedDeliveries.length > 0) {
+          console.log(
+            "📍 [MAP PAGE] Applying smart route optimization to deliveries...",
+          );
+          fetchedDeliveries =
+            getOptimizedCustomerOrderByShortest(fetchedDeliveries);
+          console.log(
+            "📍 [MAP PAGE] Optimized delivery order:",
+            fetchedDeliveries.map((d) => d.customer?.name || "Unknown"),
+          );
+        }
+
+        setDeliveries(fetchedDeliveries);
         // If no pickups, switch to delivery mode
         if (
           (!pickupsData.pickups || pickupsData.pickups.length === 0) &&
-          deliveriesData.deliveries &&
-          deliveriesData.deliveries.length > 0
+          fetchedDeliveries.length > 0
         ) {
           setMode("delivery");
-          setCurrentTarget(deliveriesData.deliveries[0]);
+          setCurrentTarget(fetchedDeliveries[0]);
         }
       }
     } catch (e) {
-      console.error("Fetch error:", e);
+      console.error("📍 [MAP PAGE] Fetch error:", e);
+      // Don't crash the app - just log and continue
     } finally {
       setLoading(false);
+      fetchInProgressRef.current = false;
     }
   }, [driverLocation]);
 
-  // Calculate route using Google Directions API
+  // Calculate route using Google Directions API with WALKING mode for shortest distance
   const calculateRoute = useCallback(async () => {
     if (!driverLocation || !currentTarget) return;
 
     try {
+      console.log(
+        "📍 [MAP PAGE] Calculating route in WALKING mode (shortest distance)...",
+      );
+
+      const directionsService = new window.google.maps.DirectionsService();
       let result;
 
       if (mode === "pickup" && currentTarget.restaurant) {
-        result = await calculateOptimizedRoute(
-          driverLocation,
-          [],
-          {
-            lat: currentTarget.restaurant.latitude,
-            lng: currentTarget.restaurant.longitude,
-          },
-          false,
-        );
+        result = await directionsService.route({
+          origin: new window.google.maps.LatLng(
+            driverLocation.lat,
+            driverLocation.lng,
+          ),
+          destination: new window.google.maps.LatLng(
+            currentTarget.restaurant.latitude,
+            currentTarget.restaurant.longitude,
+          ),
+          travelMode: window.google.maps.TravelMode.WALKING, // Use WALKING for shortest distance
+          optimizeWaypoints: true,
+        });
       } else if (mode === "delivery" && currentTarget.customer) {
-        result = await calculateOptimizedRoute(
-          driverLocation,
-          [],
-          {
-            lat: currentTarget.customer.latitude,
-            lng: currentTarget.customer.longitude,
-          },
-          false,
-        );
+        result = await directionsService.route({
+          origin: new window.google.maps.LatLng(
+            driverLocation.lat,
+            driverLocation.lng,
+          ),
+          destination: new window.google.maps.LatLng(
+            currentTarget.customer.latitude,
+            currentTarget.customer.longitude,
+          ),
+          travelMode: window.google.maps.TravelMode.WALKING, // Use WALKING for shortest distance
+          optimizeWaypoints: true,
+        });
       }
 
-      if (result) {
+      if (result && result.routes && result.routes.length > 0) {
+        console.log(
+          "📍 [MAP PAGE] Route calculated successfully (WALKING mode)",
+        );
         setDirectionsResult(result);
         setRouteInfo({
           distanceKm: getTotalDistanceKm(result),
@@ -236,7 +352,7 @@ function DriverMapPageContent() {
     } catch (error) {
       console.error("Route calculation error:", error);
     }
-  }, [driverLocation, currentTarget, mode, calculateOptimizedRoute]);
+  }, [driverLocation, currentTarget, mode]);
 
   // Initialize
   useEffect(() => {
@@ -253,12 +369,21 @@ function DriverMapPageContent() {
     };
   }, [navigate, startLocationTracking, stopLocationTracking]);
 
-  // Fetch data when location is available
+  // Fetch data when driver location becomes available (debounced to prevent excessive calls)
   useEffect(() => {
     if (driverLocation) {
-      fetchPickupsAndDeliveries();
+      console.log(
+        "📍 [MAP PAGE] Driver location available, scheduling fetch...",
+      );
+
+      // Debounce to prevent excessive calls (wait for location to stabilize)
+      const timeoutId = setTimeout(() => {
+        fetchPickupsAndDeliveries();
+      }, 800); // Wait 800ms before fetching
+
+      return () => clearTimeout(timeoutId);
     }
-  }, [driverLocation, fetchPickupsAndDeliveries]);
+  }, [driverLocation?.lat, driverLocation?.lng]); // Only trigger when coordinates actually change
 
   // Calculate route when target changes
   useEffect(() => {
@@ -297,9 +422,50 @@ function DriverMapPageContent() {
         setPickups(updatedPickups);
 
         if (updatedPickups.length > 0) {
+          // More pickups available, move to next pickup
           setCurrentTarget(updatedPickups[0]);
         } else {
-          await fetchPickupsAndDeliveries();
+          // No more pickups, check for deliveries
+          // Refresh data to get any available deliveries
+          setLoading(true);
+          try {
+            const token = localStorage.getItem("token");
+            const deliveriesUrl = `http://localhost:5000/driver/deliveries/deliveries-route?driver_latitude=${driverLocation.lat}&driver_longitude=${driverLocation.lng}`;
+            const deliveriesRes = await fetch(deliveriesUrl, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+
+            if (deliveriesRes.ok) {
+              const deliveriesData = await deliveriesRes.json();
+              let fetchedDeliveries = deliveriesData.deliveries || [];
+
+              // Apply smart route optimization for deliveries
+              if (fetchedDeliveries.length > 0) {
+                fetchedDeliveries =
+                  getOptimizedCustomerOrderByShortest(fetchedDeliveries);
+                setDeliveries(fetchedDeliveries);
+                // Only switch to delivery mode if we have valid deliveries
+                if (fetchedDeliveries.length > 0) {
+                  setMode("delivery");
+                  setCurrentTarget(fetchedDeliveries[0]);
+                }
+              } else {
+                console.warn("⚠️ [MAP PAGE] No valid deliveries found");
+                setDeliveries([]);
+              }
+            } else {
+              console.error(
+                "Failed to fetch deliveries:",
+                deliveriesRes.status,
+              );
+              setDeliveries([]);
+            }
+          } catch (err) {
+            console.error("Error fetching deliveries:", err);
+            setDeliveries([]);
+          } finally {
+            setLoading(false);
+          }
         }
       } else {
         const data = await res.json();
@@ -413,12 +579,78 @@ function DriverMapPageContent() {
     }
   };
 
-  // Loading state
+  // Loading state with skeleton
   if (loading) {
     return (
       <DriverLayout>
-        <div className="flex items-center justify-center h-screen">
-          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-green-600"></div>
+        <div className="h-screen flex flex-col bg-gray-50">
+          {/* Map Skeleton */}
+          <div className="flex-1 relative bg-gray-200 overflow-hidden">
+            <div
+              className="absolute inset-0"
+              style={{
+                background:
+                  "linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%)",
+                backgroundSize: "200% 100%",
+                animation: "shimmer 1.5s infinite",
+              }}
+            ></div>
+            {/* Mode Badge Skeleton */}
+            <div className="absolute top-4 left-4 w-32 h-10 bg-gray-300 rounded-full shadow-lg z-10 animate-pulse"></div>
+            {/* Status Badge Skeleton */}
+            <div className="absolute top-4 right-4 w-48 h-10 bg-gray-300 rounded-full shadow-lg z-10 animate-pulse"></div>
+          </div>
+
+          {/* Bottom Section Skeleton */}
+          <div className="bg-white border-t border-gray-200 max-h-[45vh] overflow-y-auto">
+            <div className="p-4 space-y-6">
+              {/* Order Info Skeleton */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-2 flex-1">
+                    <div className="w-32 h-4 bg-gray-200 rounded animate-pulse"></div>
+                    <div className="w-48 h-6 bg-gray-300 rounded animate-pulse"></div>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="w-24 h-4 bg-gray-200 rounded animate-pulse"></div>
+                    <div className="w-24 h-4 bg-gray-200 rounded animate-pulse"></div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Address Info Skeleton */}
+              <div className="space-y-2">
+                <div className="w-full h-4 bg-gray-200 rounded animate-pulse"></div>
+                <div className="w-2/3 h-4 bg-gray-200 rounded animate-pulse"></div>
+              </div>
+
+              {/* Button Skeleton */}
+              <div className="w-full h-14 bg-gray-300 rounded-xl animate-pulse"></div>
+
+              {/* Upcoming List Skeleton */}
+              <div className="mt-6 space-y-3">
+                <div className="w-40 h-5 bg-gray-200 rounded animate-pulse"></div>
+                {[1, 2].map((i) => (
+                  <div key={i} className="p-3 bg-gray-50 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 bg-gray-300 rounded-full animate-pulse"></div>
+                      <div className="flex-1 space-y-2">
+                        <div className="w-32 h-4 bg-gray-200 rounded animate-pulse"></div>
+                        <div className="w-24 h-3 bg-gray-200 rounded animate-pulse"></div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <style>{`
+            @keyframes shimmer {
+              0% { background-position: 200% 0; }
+              100% { background-position: -200% 0; }
+            }
+          `}</style>
         </div>
       </DriverLayout>
     );

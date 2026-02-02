@@ -1,6 +1,10 @@
 import express from "express";
 import { supabaseAdmin } from "../supabaseAdmin.js";
 import { authenticate } from "../middleware/authenticate.js";
+import {
+  getCartItemPrices,
+  calculateCustomerPrice,
+} from "../utils/commission.js";
 
 const router = express.Router();
 
@@ -42,7 +46,7 @@ router.post("/add", authenticate, async (req, res) => {
     const { data: food, error: foodError } = await supabaseAdmin
       .from("foods")
       .select(
-        "id, name, image_url, regular_price, extra_price, offer_price, regular_size, extra_size"
+        "id, name, image_url, regular_price, extra_price, offer_price, extra_offer_price, regular_size, extra_size",
       )
       .eq("id", food_id)
       .eq("restaurant_id", restaurant_id)
@@ -55,34 +59,32 @@ router.post("/add", authenticate, async (req, res) => {
       });
     }
 
-    // Determine size and price
+    // Determine size and get prices with commission
     let actualSize = size;
-    let unit_price;
-
     if (!actualSize) {
-      // Default to regular if no size specified
       actualSize = "regular";
-      // Use offer_price if available, otherwise regular_price
-      unit_price =
-        food.offer_price && parseFloat(food.offer_price) > 0
-          ? food.offer_price
-          : food.regular_price;
     } else if (actualSize === "large") {
       if (!food.extra_price) {
         return res.status(400).json({
           message: "Large size not available for this food",
         });
       }
-      unit_price = food.extra_price;
-    } else {
-      // Regular size - use offer_price if available
-      unit_price =
-        food.offer_price && parseFloat(food.offer_price) > 0
-          ? food.offer_price
-          : food.regular_price;
     }
 
+    // Get prices with commission calculation
+    const { adminPrice, customerPrice, commission } = getCartItemPrices(
+      food,
+      actualSize,
+    );
+
+    // unit_price is the customer price (with commission)
+    const unit_price = customerPrice;
+    const admin_unit_price = adminPrice;
     const total_price = (parseFloat(unit_price) * quantity).toFixed(2);
+    const admin_total_price = (parseFloat(admin_unit_price) * quantity).toFixed(
+      2,
+      now i want to develop the 
+    );
 
     // STEP 2: Check for existing active cart for this customer + restaurant
     const { data: existingCart, error: cartCheckError } = await supabaseAdmin
@@ -143,6 +145,9 @@ router.post("/add", authenticate, async (req, res) => {
       // Update quantity of existing item
       const newQuantity = existingItem.quantity + quantity;
       const newTotalPrice = (parseFloat(unit_price) * newQuantity).toFixed(2);
+      const newAdminTotalPrice = (
+        parseFloat(admin_unit_price) * newQuantity
+      ).toFixed(2);
 
       const { data: updatedItem, error: updateError } = await supabaseAdmin
         .from("cart_items")
@@ -150,6 +155,9 @@ router.post("/add", authenticate, async (req, res) => {
           quantity: newQuantity,
           unit_price: unit_price,
           total_price: newTotalPrice,
+          admin_unit_price: admin_unit_price,
+          admin_total_price: newAdminTotalPrice,
+          commission_per_item: commission,
         })
         .eq("id", existingItem.id)
         .select()
@@ -174,6 +182,9 @@ router.post("/add", authenticate, async (req, res) => {
           quantity,
           unit_price: unit_price,
           total_price: total_price,
+          admin_unit_price: admin_unit_price,
+          admin_total_price: admin_total_price,
+          commission_per_item: commission,
         })
         .select()
         .single();
@@ -232,7 +243,7 @@ router.get("/", authenticate, async (req, res) => {
           latitude,
           longitude
         )
-      `
+      `,
       )
       .eq("customer_id", customer_id)
       .eq("status", "active")
@@ -262,6 +273,9 @@ router.get("/", authenticate, async (req, res) => {
             quantity,
             unit_price,
             total_price,
+            admin_unit_price,
+            admin_total_price,
+            commission_per_item,
             created_at,
             foods (
               id,
@@ -269,9 +283,11 @@ router.get("/", authenticate, async (req, res) => {
               image_url,
               regular_price,
               extra_price,
+              offer_price,
+              extra_offer_price,
               is_available
             )
-          `
+          `,
           )
           .eq("cart_id", cart.id)
           .order("created_at", { ascending: true });
@@ -281,21 +297,33 @@ router.get("/", authenticate, async (req, res) => {
           return { ...cart, items: [], cart_total: 0 };
         }
 
-        // Calculate total using CURRENT prices from foods table
+        // Calculate total using CURRENT prices from foods table with commission
         const itemsWithCurrentPrice = items.map((item) => {
           const food = item.foods;
           let current_unit_price = item.unit_price;
+          let current_admin_unit_price =
+            item.admin_unit_price || item.unit_price;
+          let current_commission = item.commission_per_item || 0;
 
-          // Get current price from food if available
+          // Get current price from food if available (with commission)
           if (food && food.is_available) {
-            current_unit_price =
-              item.size === "large"
-                ? food.extra_price || food.regular_price
-                : food.regular_price;
+            const { adminPrice, customerPrice, commission } = getCartItemPrices(
+              food,
+              item.size,
+            );
+            current_unit_price = customerPrice;
+            current_admin_unit_price = adminPrice;
+            current_commission = commission;
           }
 
           const current_total_price = (
             parseFloat(current_unit_price) * item.quantity
+          ).toFixed(2);
+          const current_admin_total_price = (
+            parseFloat(current_admin_unit_price) * item.quantity
+          ).toFixed(2);
+          const current_total_commission = (
+            parseFloat(current_commission) * item.quantity
           ).toFixed(2);
 
           return {
@@ -307,6 +335,10 @@ router.get("/", authenticate, async (req, res) => {
             quantity: item.quantity,
             unit_price: parseFloat(current_unit_price),
             total_price: parseFloat(current_total_price),
+            admin_unit_price: parseFloat(current_admin_unit_price),
+            admin_total_price: parseFloat(current_admin_total_price),
+            commission_per_item: parseFloat(current_commission),
+            total_commission: parseFloat(current_total_commission),
             is_available: food?.is_available || false,
             created_at: item.created_at,
           };
@@ -314,7 +346,15 @@ router.get("/", authenticate, async (req, res) => {
 
         const cart_total = itemsWithCurrentPrice.reduce(
           (sum, item) => sum + item.total_price,
-          0
+          0,
+        );
+        const admin_total = itemsWithCurrentPrice.reduce(
+          (sum, item) => sum + item.admin_total_price,
+          0,
+        );
+        const commission_total = itemsWithCurrentPrice.reduce(
+          (sum, item) => sum + item.total_commission,
+          0,
         );
 
         return {
@@ -326,13 +366,15 @@ router.get("/", authenticate, async (req, res) => {
           item_count: items.length,
           total_items: itemsWithCurrentPrice.reduce(
             (sum, item) => sum + item.quantity,
-            0
+            0,
           ),
           cart_total: parseFloat(cart_total.toFixed(2)),
+          admin_total: parseFloat(admin_total.toFixed(2)),
+          commission_total: parseFloat(commission_total.toFixed(2)),
           created_at: cart.created_at,
           updated_at: cart.updated_at,
         };
-      })
+      }),
     );
 
     return res.json({ carts: cartsWithItems });
@@ -378,7 +420,7 @@ router.put("/item/:itemId", authenticate, async (req, res) => {
           customer_id,
           status
         )
-      `
+      `,
       )
       .eq("id", itemId)
       .single();
@@ -395,10 +437,10 @@ router.put("/item/:itemId", authenticate, async (req, res) => {
       return res.status(400).json({ message: "Cannot update completed cart" });
     }
 
-    // Get current food price
+    // Get current food price with commission
     const { data: food, error: foodError } = await supabaseAdmin
       .from("foods")
-      .select("regular_price, extra_price")
+      .select("regular_price, extra_price, offer_price, extra_offer_price")
       .eq("id", item.food_id)
       .single();
 
@@ -406,12 +448,18 @@ router.put("/item/:itemId", authenticate, async (req, res) => {
       return res.status(404).json({ message: "Food not found" });
     }
 
-    const unit_price =
-      item.size === "large"
-        ? food.extra_price || food.regular_price
-        : food.regular_price;
+    // Get prices with commission
+    const { adminPrice, customerPrice, commission } = getCartItemPrices(
+      food,
+      item.size,
+    );
 
+    const unit_price = customerPrice;
+    const admin_unit_price = adminPrice;
     const total_price = (parseFloat(unit_price) * quantity).toFixed(2);
+    const admin_total_price = (parseFloat(admin_unit_price) * quantity).toFixed(
+      2,
+    );
 
     // Update item
     const { data: updatedItem, error: updateError } = await supabaseAdmin
@@ -420,6 +468,9 @@ router.put("/item/:itemId", authenticate, async (req, res) => {
         quantity,
         unit_price: unit_price,
         total_price: total_price,
+        admin_unit_price: admin_unit_price,
+        admin_total_price: admin_total_price,
+        commission_per_item: commission,
       })
       .eq("id", itemId)
       .select()
@@ -468,7 +519,7 @@ router.delete("/item/:itemId", authenticate, async (req, res) => {
         carts!inner (
           customer_id
         )
-      `
+      `,
       )
       .eq("id", itemId)
       .single();

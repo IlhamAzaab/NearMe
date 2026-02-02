@@ -182,7 +182,7 @@ export default function DriverEarnings() {
 
       <div className="flex-1 overflow-y-auto pb-24 hide-scrollbar">
         <div className="p-4">
-          <div className="relative overflow-hidden rounded-xl bg-[#13ec37] p-6 shadow-lg shadow-[#13ec37]/20">
+          <div className="relative overflow-hidden rounded-xl bg-[#18db9d] p-6 shadow-lg shadow-[#13ec37]/20">
             <div className="relative z-10">
               <p className="text-[#102213] text-sm font-medium opacity-80 uppercase tracking-wider">
                 {periodLabel}

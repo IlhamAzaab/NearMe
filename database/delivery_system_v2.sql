@@ -77,6 +77,29 @@ CREATE TABLE IF NOT EXISTS deliveries (
   updated_at TIMESTAMPTZ DEFAULT now()
 );
 
+ALTER TABLE public.deliveries
+ADD COLUMN IF NOT EXISTS delivery_sequence INTEGER DEFAULT 1,           -- 1st, 2nd, 3rd delivery in trip
+ADD COLUMN IF NOT EXISTS base_amount NUMERIC(10, 2) DEFAULT 0,          -- For 1st delivery: distance × Rs.40
+ADD COLUMN IF NOT EXISTS extra_earnings NUMERIC(10, 2) DEFAULT 0,       -- For 2nd+ delivery: extra_distance × Rs.40
+ADD COLUMN IF NOT EXISTS bonus_amount NUMERIC(10, 2) DEFAULT 0,         -- Rs.25 for 2nd, Rs.30 for 3rd+
+ADD COLUMN IF NOT EXISTS r0_distance_km NUMERIC(10, 3) DEFAULT NULL,    -- Route before this delivery
+ADD COLUMN IF NOT EXISTS r1_distance_km NUMERIC(10, 3) DEFAULT NULL,    -- Route with this delivery
+ADD COLUMN IF NOT EXISTS extra_distance_km NUMERIC(10, 3) DEFAULT 0,    -- R1 - R0
+ADD COLUMN IF NOT EXISTS total_distance_km NUMERIC(10, 3) DEFAULT 0;    -- Total distance for this delivery
+
+-- Update driver_earnings to be computed: base_amount + extra_earnings + bonus_amount + tip_amount
+-- This is already in your table, we'll just populate it correctly
+
+-- Add index for earnings queries
+CREATE INDEX IF NOT EXISTS idx_deliveries_driver_earnings 
+ON public.deliveries (driver_id, delivered_at DESC) 
+WHERE status = 'delivered';
+
+-- Add index for trip grouping (deliveries accepted within same time window)
+CREATE INDEX IF NOT EXISTS idx_deliveries_driver_accepted 
+ON public.deliveries (driver_id, accepted_at) 
+WHERE driver_id IS NOT NULL;
+
 CREATE INDEX IF NOT EXISTS idx_deliveries_order_id ON deliveries(order_id);
 CREATE INDEX IF NOT EXISTS idx_deliveries_driver_id ON deliveries(driver_id);
 CREATE INDEX IF NOT EXISTS idx_deliveries_status ON deliveries(status);

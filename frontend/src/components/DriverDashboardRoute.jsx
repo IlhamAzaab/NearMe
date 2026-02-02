@@ -32,15 +32,26 @@ export default function DriverDashboardRoute({ children }) {
           else if (!data.driver.onboarding_completed) {
             setAllowed(false);
             setRedirectTo(
-              `/driver/onboarding/step-${data.driver.onboarding_step || 1}`
+              `/driver/onboarding/step-${data.driver.onboarding_step || 1}`,
             );
           }
-          // Check driver status
-          else if (data.driver.driver_status !== "active") {
+          // Check if driver is pending approval (not yet approved by admin)
+          // Only redirect to pending page if status is 'pending' (awaiting admin approval)
+          // 'inactive' and 'active' drivers can access dashboard
+          else if (data.driver.driver_status === "pending") {
             setAllowed(false);
             setRedirectTo("/driver/pending");
           }
-          // All checks passed
+          // Check if driver is suspended or rejected
+          else if (
+            data.driver.driver_status === "suspended" ||
+            data.driver.driver_status === "rejected"
+          ) {
+            setAllowed(false);
+            setRedirectTo("/driver/pending");
+          }
+          // All checks passed - allow active AND inactive drivers to access dashboard
+          // Inactive drivers can view dashboard but can't accept deliveries
           else {
             setAllowed(true);
           }

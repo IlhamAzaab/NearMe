@@ -12,6 +12,9 @@ import {
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
 
+// Google Maps libraries - must be constant to avoid reload warnings
+const GOOGLE_MAPS_LIBRARIES = ["places", "geometry", "maps"];
+
 // Cache keys for instant loading
 const CACHE_KEY_ACTIVE = "active_deliveries_cache";
 const CACHE_EXPIRY = 30000; // 30 seconds cache for active deliveries (needs fresher data)
@@ -79,9 +82,10 @@ export default function ActiveDeliveries() {
     cachedData?.fullRouteData || null,
   ); // Store full route for developer view
 
-  // Load Google Maps API once at component level
+  // Load Google Maps API once at component level with same libraries as GoogleMapsProvider
   const { isLoaded, loadError } = useJsApiLoader({
     googleMapsApiKey: GOOGLE_MAPS_API_KEY,
+    libraries: GOOGLE_MAPS_LIBRARIES,
   });
 
   useEffect(() => {
@@ -323,17 +327,7 @@ export default function ActiveDeliveries() {
         alert("No deliveries available");
         return;
       }
-      // Ensure status is set to on-the-way before navigating
-      const token = localStorage.getItem("token");
-      const firstId = deliveries[0].delivery_id;
-      fetch(`http://localhost:5000/driver/deliveries/${firstId}/status`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ status: "on_the_way" }),
-      }).catch((err) => console.error("Set on-the-way error:", err));
+      // For deliveries, just navigate - don't update status as they're already in progress
       navigate(`/driver/delivery/active/${deliveries[0].delivery_id}/map`);
     }
   };
@@ -411,7 +405,7 @@ export default function ActiveDeliveries() {
             </div>
           ) : (
             <>
-              {/* Full Route Overview Map (Developer View) - Shows before pickup starts */}
+              {/* Full Route Overview Map - Shows ordered stops */}
               {mode === "pickup" && pickups.length > 0 && fullRouteData && (
                 <FullRouteMap
                   driverLocation={driverLocation}
@@ -419,38 +413,6 @@ export default function ActiveDeliveries() {
                   fullRouteData={fullRouteData}
                   isLoaded={isLoaded}
                 />
-              )}
-
-              {/* List */}
-              {mode === "pickup" ? (
-                <div className="space-y-4 mb-6">
-                  {pickups.map((pickup, index) => (
-                    <PickupCard
-                      key={pickup.delivery_id}
-                      pickup={pickup}
-                      index={index}
-                      isFirst={index === 0}
-                      driverLocation={driverLocation}
-                      showMap={index === 0}
-                      showCustomer={false}
-                      isLoaded={isLoaded}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div className="space-y-4 mb-6">
-                  {deliveries.map((delivery, index) => (
-                    <DeliveryCard
-                      key={delivery.delivery_id}
-                      delivery={delivery}
-                      index={index}
-                      isFirst={index === 0}
-                      driverLocation={driverLocation}
-                      showMap={index === 0}
-                      isLoaded={isLoaded}
-                    />
-                  ))}
-                </div>
               )}
             </>
           )}
@@ -679,7 +641,7 @@ function PickupCard({
     >
       {/* Interactive Map (only for active item) */}
       {showMap && (
-        <div className="h-64 relative">
+        <div className="relative w-full h-[40vh] min-h-[220px]">
           {restaurant && isLoaded ? (
             <GoogleMap
               mapContainerStyle={mapContainerStyle}
@@ -697,7 +659,7 @@ function PickupCard({
                   icon={{
                     path: window.google?.maps?.SymbolPath?.CIRCLE || 0,
                     scale: 10,
-                    fillColor: "#10b981",
+                    fillColor: "#13ec37",
                     fillOpacity: 1,
                     strokeWeight: 3,
                     strokeColor: "#ffffff",
@@ -714,9 +676,8 @@ function PickupCard({
                   }}
                   onCloseClick={() => setSelectedMarker(null)}
                 >
-                  <div className="text-center p-2">
-                    <p className="font-bold text-green-600">📍 Your Location</p>
-                    <p className="text-xs text-gray-600">Driver Position</p>
+                  <div className="text-center p-1">
+                    <p className="font-bold text-green-600 text-sm">📍 You</p>
                   </div>
                 </InfoWindow>
               )}
@@ -730,7 +691,7 @@ function PickupCard({
                 icon={{
                   path: window.google?.maps?.SymbolPath?.CIRCLE || 0,
                   scale: 10,
-                  fillColor: "#ef4444",
+                  fillColor: "#13ec37",
                   fillOpacity: 1,
                   strokeWeight: 3,
                   strokeColor: "#ffffff",
@@ -746,18 +707,14 @@ function PickupCard({
                   }}
                   onCloseClick={() => setSelectedMarker(null)}
                 >
-                  <div className="min-w-[200px] p-2">
-                    <p className="font-bold text-red-600">🍽️ Restaurant</p>
-                    <p className="font-semibold mt-1">{restaurant.name}</p>
-                    <p className="text-xs text-gray-600 mt-1">
-                      {restaurant.address}
-                    </p>
+                  <div className="p-1">
+                    <p className="font-bold text-sm">🍽️ {restaurant.name}</p>
                   </div>
                 </InfoWindow>
               )}
 
-              {/* Customer Marker (hidden in pickup mode) */}
-              {showCustomer && customer && (
+              {/* Customer Marker (shown for reference) */}
+              {customer && (
                 <Marker
                   position={{
                     lat: customer.latitude,
@@ -766,7 +723,7 @@ function PickupCard({
                   icon={{
                     path: window.google?.maps?.SymbolPath?.CIRCLE || 0,
                     scale: 10,
-                    fillColor: "#3b82f6",
+                    fillColor: "#111812",
                     fillOpacity: 1,
                     strokeWeight: 3,
                     strokeColor: "#ffffff",
@@ -775,7 +732,7 @@ function PickupCard({
                 />
               )}
 
-              {showCustomer && selectedMarker === "customer" && customer && (
+              {selectedMarker === "customer" && customer && (
                 <InfoWindow
                   position={{
                     lat: customer.latitude,
@@ -783,210 +740,162 @@ function PickupCard({
                   }}
                   onCloseClick={() => setSelectedMarker(null)}
                 >
-                  <div className="min-w-[200px] p-2">
-                    <p className="font-bold text-blue-600">👤 Customer</p>
-                    <p className="font-semibold mt-1">{customer.name}</p>
-                    <p className="text-xs text-gray-600 mt-1">
-                      {customer.address}
-                    </p>
+                  <div className="p-1">
+                    <p className="font-bold text-sm">📍 {customer.name}</p>
                   </div>
                 </InfoWindow>
               )}
 
-              {/* Route from Driver to Restaurant - Green */}
+              {/* Route Polylines */}
               {driverToRestaurantPath.length > 0 && (
                 <Polyline
                   path={driverToRestaurantPath}
                   options={{
-                    strokeColor: "#86efac",
+                    strokeColor: "#13ec37",
                     strokeOpacity: 0.9,
-                    strokeWeight: 6,
+                    strokeWeight: 5,
                   }}
                 />
               )}
 
-              {/* Route from Restaurant to Customer - Grey (hidden in pickup mode) */}
-              {showCustomer && restaurantToCustomerPath.length > 0 && (
+              {restaurantToCustomerPath.length > 0 && (
                 <Polyline
                   path={restaurantToCustomerPath}
                   options={{
-                    strokeColor: "#9ca3af",
-                    strokeOpacity: 0.9,
-                    strokeWeight: 6,
+                    strokeColor: "#13ec37",
+                    strokeOpacity: 0.6,
+                    strokeWeight: 4,
                   }}
                 />
               )}
             </GoogleMap>
           ) : (
-            <div className="h-full w-full bg-gray-200 flex items-center justify-center">
-              <p className="text-gray-500">
-                {!isLoaded ? "Loading map..." : "Map data unavailable"}
-              </p>
+            <div className="h-full w-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
+              <div className="text-center">
+                <div className="w-10 h-10 border-3 border-green-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+                <p className="text-gray-500 text-sm">Loading map...</p>
+              </div>
             </div>
           )}
-
-          {/* Order Number Badge */}
-          <div className="absolute top-3 right-3 bg-gradient-to-r from-green-600 to-green-700 px-4 py-2 rounded-full shadow-lg">
-            <p className="text-xs font-semibold text-white">
-              Order #{order_number}
-            </p>
-          </div>
         </div>
       )}
 
-      {/* Details Section */}
-      <div className="p-6 space-y-4">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div
-              className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-lg ${
-                isFirst
-                  ? "bg-green-600 text-white"
-                  : "bg-gray-200 text-gray-600"
-              }`}
-            >
-              {index + 1}
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 uppercase font-semibold">
-                Order #{order_number}
-              </p>
-              {isFirst && (
-                <p className="text-xs text-green-600 font-bold mt-1">
-                  NEXT PICKUP
-                </p>
-              )}
-            </div>
+      {/* Content Card - Slides over map */}
+      <div className="bg-white rounded-t-[28px] -mt-7 relative z-10 px-5 pt-6 pb-5">
+        {/* Order Badge */}
+        {isFirst && (
+          <div className="absolute -top-3 right-5 bg-green-600 px-4 py-1 rounded-full shadow-lg">
+            <p className="text-xs font-bold text-white">NEXT PICKUP</p>
           </div>
+        )}
 
-          {/* Distance and Time */}
-          <div className="flex items-center gap-4 text-sm">
-            <div className="flex items-center gap-1 text-gray-600">
-              <svg
-                className="w-5 h-5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"
-                />
-              </svg>
-              <span className="font-semibold">{distance_km} km (OSRM)</span>
-            </div>
-            <div className="flex items-center gap-1 text-gray-600">
-              <svg
-                className="w-5 h-5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-              <span className="font-semibold">
-                {estimated_time_minutes} min
-              </span>
-            </div>
+        {/* Order Number */}
+        <div className="mb-4">
+          <p className="text-sm text-blue-600 font-medium">
+            Order #{order_number}
+          </p>
+        </div>
+
+        {/* Distance and Time Stats */}
+        <div className="flex items-center gap-4 mb-4 pb-4 border-b border-gray-200">
+          <div className="flex items-center gap-2">
+            <svg
+              className="w-5 h-5 text-green-600"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"
+              />
+            </svg>
+            <span className="font-semibold text-gray-700">
+              {distance_km} km
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <svg
+              className="w-5 h-5 text-green-600"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
+            </svg>
+            <span className="font-semibold text-gray-700">
+              {estimated_time_minutes} min
+            </span>
           </div>
         </div>
 
         {/* Restaurant Info */}
-        <div className="flex items-start gap-3">
-          <div className="flex-shrink-0 w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
-            <svg
-              className="w-6 h-6 text-red-600"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
+        <div className="mb-4">
+          <p className="text-xs text-gray-500 uppercase font-semibold mb-2">
+            🍽️ Pickup Location
+          </p>
+          <p className="font-bold text-gray-800 text-lg">{restaurant.name}</p>
+          <p className="text-sm text-gray-600 mt-1">{restaurant.address}</p>
+          {restaurant.phone && (
+            <a
+              href={`tel:${restaurant.phone}`}
+              className="inline-flex items-center gap-2 mt-2 text-green-600 hover:text-green-700 font-semibold text-sm"
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
-              />
-            </svg>
-          </div>
-          <div className="flex-1">
-            <p className="font-bold text-gray-800 text-lg">{restaurant.name}</p>
-            <p className="text-sm text-gray-600 mt-1">{restaurant.address}</p>
-            {restaurant.phone && (
-              <a
-                href={`tel:${restaurant.phone}`}
-                className="inline-flex items-center gap-2 mt-2 text-blue-600 hover:text-blue-700 font-semibold text-sm"
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
               >
-                <svg
-                  className="w-4 h-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
-                  />
-                </svg>
-                <span>{restaurant.phone}</span>
-              </a>
-            )}
-          </div>
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
+                />
+              </svg>
+              <span>{restaurant.phone}</span>
+            </a>
+          )}
         </div>
 
         {/* Customer Info */}
-        <div className="flex items-start gap-3 pt-2 border-t border-gray-200">
-          <div className="flex-shrink-0 w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
-            <svg
-              className="w-6 h-6 text-blue-600"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
+        <div className="pt-4 border-t border-gray-200">
+          <p className="text-xs text-gray-500 uppercase font-semibold mb-2">
+            👤 Deliver To
+          </p>
+          <p className="font-bold text-gray-800 text-lg">
+            {customer?.name || "Customer"}
+          </p>
+          <p className="text-sm text-gray-600 mt-1">{customer?.address}</p>
+          {customer?.phone && (
+            <a
+              href={`tel:${customer.phone}`}
+              className="inline-flex items-center gap-2 mt-2 text-green-600 hover:text-green-700 font-semibold text-sm"
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-              />
-            </svg>
-          </div>
-          <div className="flex-1">
-            <p className="font-bold text-gray-800 text-lg">
-              {customer?.name || "Customer"}
-            </p>
-            <p className="text-sm text-gray-600 mt-1">{customer?.address}</p>
-            {customer?.phone && (
-              <a
-                href={`tel:${customer.phone}`}
-                className="inline-flex items-center gap-2 mt-2 text-blue-600 hover:text-blue-700 font-semibold text-sm"
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
               >
-                <svg
-                  className="w-4 h-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
-                  />
-                </svg>
-                <span>{customer.phone}</span>
-              </a>
-            )}
-          </div>
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
+                />
+              </svg>
+              <span>{customer.phone}</span>
+            </a>
+          )}
         </div>
       </div>
     </div>
@@ -1051,7 +960,119 @@ function FullRouteMap({
     return R * c; // Distance in meters
   };
 
-  // Optimize restaurant pickup order: nearest to driver first, then nearest to previous
+  // Optimize restaurant pickup order: based on nearest customer distance
+  // Pickup from restaurant whose customer is farthest first, ending with nearest customer
+  const getOptimizedRestaurantOrderByShortest = (pickupsList, driverLoc) => {
+    if (pickupsList.length <= 1) return pickupsList;
+
+    console.log(
+      `📍 [SMART ROUTE] Analyzing ${pickupsList.length} deliveries for shortest total distance...`,
+    );
+
+    // For each restaurant, find which customer is nearest to it
+    const restaurantCustomerMap = pickupsList.map((pickup) => {
+      const distToCustomer = haversineDistance(
+        pickup.restaurant.latitude,
+        pickup.restaurant.longitude,
+        pickup.customer.latitude,
+        pickup.customer.longitude,
+      );
+
+      return {
+        ...pickup,
+        distToOwnCustomer: distToCustomer,
+      };
+    });
+
+    // Calculate distance from driver to each restaurant
+    const withDriverDist = restaurantCustomerMap.map((item) => {
+      const distFromDriver = haversineDistance(
+        driverLoc.latitude,
+        driverLoc.longitude,
+        item.restaurant.latitude,
+        item.restaurant.longitude,
+      );
+      return {
+        ...item,
+        distFromDriver,
+      };
+    });
+
+    // Sort by: restaurant whose customer is farthest from driver should be picked first
+    // This way we save distance by picking up from restaurants with far customers first
+    const sorted = [...withDriverDist].sort((a, b) => {
+      // Calculate total distance for each option
+      // For a: driver -> restaurant_a -> customer_a
+      const totalA = a.distFromDriver + a.distToOwnCustomer;
+      // For b: driver -> restaurant_b -> customer_b
+      const totalB = b.distFromDriver + b.distToOwnCustomer;
+
+      // Pick the one with larger total distance first (do far customers first)
+      return totalB - totalA;
+    });
+
+    console.log(
+      `📍 [SMART ROUTE] Pickup order (by nearest customer distance):`,
+    );
+    sorted.forEach((item, idx) => {
+      console.log(
+        `📍 [SMART ROUTE]   ${idx + 1}. ${item.restaurant.name} → ${item.customer.name} (${(item.distToOwnCustomer / 1000).toFixed(2)} km to customer)`,
+      );
+    });
+
+    return sorted;
+  };
+
+  // Optimize customer delivery order based on proximity to current location after all pickups
+  const getOptimizedCustomerOrderByShortest = (pickupsList) => {
+    if (pickupsList.length <= 1) return pickupsList;
+
+    // After all pickups, driver is at the last restaurant
+    const lastRestaurant = pickupsList[pickupsList.length - 1].restaurant;
+
+    // Find the order to visit all customers with shortest total distance
+    const remaining = [...pickupsList];
+    const ordered = [];
+    let currentLat = lastRestaurant.latitude;
+    let currentLng = lastRestaurant.longitude;
+
+    console.log(
+      `📍 [SMART ROUTE] Delivery order (starting from last restaurant: ${lastRestaurant.name}):`,
+    );
+
+    while (remaining.length > 0) {
+      let nearestIdx = 0;
+      let nearestDist = Infinity;
+
+      remaining.forEach((pickup, idx) => {
+        const dist = haversineDistance(
+          currentLat,
+          currentLng,
+          pickup.customer.latitude,
+          pickup.customer.longitude,
+        );
+        if (dist < nearestDist) {
+          nearestDist = dist;
+          nearestIdx = idx;
+        }
+      });
+
+      const nearest = remaining[nearestIdx];
+      ordered.push(nearest);
+
+      console.log(
+        `📍 [SMART ROUTE]   C${ordered.length}. ${nearest.customer.name} (${(nearestDist / 1000).toFixed(2)} km from current location)`,
+      );
+
+      currentLat = nearest.customer.latitude;
+      currentLng = nearest.customer.longitude;
+      remaining.splice(nearestIdx, 1);
+    }
+
+    return ordered;
+  };
+
+  // Old restaurant order function (kept for reference)
   const getOptimizedRestaurantOrder = (pickupsList, driverLoc) => {
     if (pickupsList.length <= 1) return pickupsList;
 
@@ -1100,7 +1121,7 @@ function FullRouteMap({
     return ordered;
   };
 
-  // Optimize customer delivery order: nearest to last restaurant first, then nearest to previous
+  // Old customer order function (kept for reference)
   const getOptimizedCustomerOrder = (pickupsList, lastRestaurant) => {
     if (pickupsList.length <= 1) return pickupsList;
 
@@ -1157,31 +1178,25 @@ function FullRouteMap({
 
     const directionsService = new window.google.maps.DirectionsService();
 
-    // STEP 1: Optimize restaurant pickup order (nearest to driver first)
-    const optimizedRestaurants = getOptimizedRestaurantOrder(
+    // STEP 1: Use SMART ROUTING - Optimize based on nearest customer distance
+    const optimizedRestaurants = getOptimizedRestaurantOrderByShortest(
       pickups,
       driverLocation,
     );
     setOptimizedRestaurantOrder(optimizedRestaurants);
 
-    // Get the last restaurant in optimized order (where driver will be after all pickups)
-    const lastRestaurant =
-      optimizedRestaurants[optimizedRestaurants.length - 1].restaurant;
-
     // STEP 2: Optimize customer delivery order (nearest to last restaurant first)
-    const optimizedCustomers = getOptimizedCustomerOrder(
-      optimizedRestaurants,
-      lastRestaurant,
-    );
+    const optimizedCustomers =
+      getOptimizedCustomerOrderByShortest(optimizedRestaurants);
     setOptimizedCustomerOrder(optimizedCustomers);
 
     console.log(`📍 [FULL ROUTE] ═══════════════════════════════════════════`);
-    console.log(`📍 [FULL ROUTE] OPTIMIZED ROUTE ORDER:`);
+    console.log(`📍 [FULL ROUTE] SMART ROUTE OPTIMIZED ORDER:`);
     console.log(
-      `📍 [FULL ROUTE]   Restaurants (nearest first): ${optimizedRestaurants.map((p) => p.restaurant.name).join(" → ")}`,
+      `📍 [FULL ROUTE]   Restaurants: ${optimizedRestaurants.map((p) => p.restaurant.name).join(" → ")}`,
     );
     console.log(
-      `📍 [FULL ROUTE]   Customers (nearest to last restaurant): ${optimizedCustomers.map((p) => p.customer.name).join(" → ")}`,
+      `📍 [FULL ROUTE]   Customers: ${optimizedCustomers.map((p) => p.customer.name).join(" → ")}`,
     );
     console.log(`📍 [FULL ROUTE] ═══════════════════════════════════════════`);
 
@@ -1339,105 +1354,7 @@ function FullRouteMap({
   };
 
   return (
-    <div className="bg-white rounded-xl shadow-lg border-2 border-purple-300 overflow-hidden mb-6">
-      {/* Header */}
-      <div className="bg-gradient-to-r from-purple-500 to-purple-600 px-4 py-3">
-        <h3 className="text-white font-bold text-lg flex items-center gap-2">
-          🗺️ Optimized Route Overview
-        </h3>
-        <p className="text-purple-100 text-sm mt-1">
-          Driver → {pickups.length} Restaurant{pickups.length > 1 ? "s" : ""} →{" "}
-          {pickups.length} Customer{pickups.length > 1 ? "s" : ""} (Optimized by
-          distance)
-        </p>
-      </div>
-
-      {/* Route Info Summary */}
-      {routeInfo && (
-        <div className="bg-purple-50 p-4 border-b border-purple-200">
-          <div className="grid grid-cols-3 gap-4 text-center mb-3">
-            <div>
-              <p className="text-2xl font-bold text-purple-700">
-                {routeInfo.totalDistance} km
-              </p>
-              <p className="text-xs text-purple-600 font-semibold">
-                Total Distance
-              </p>
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-purple-700">
-                {routeInfo.totalDuration} min
-              </p>
-              <p className="text-xs text-purple-600 font-semibold">
-                Estimated Time
-              </p>
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-purple-700">
-                {pickups.length * 2}
-              </p>
-              <p className="text-xs text-purple-600 font-semibold">
-                Total Stops
-              </p>
-            </div>
-          </div>
-          {routeInfo.selectedMode && (
-            <p className="text-xs text-center text-purple-500">
-              Route Mode: {routeInfo.selectedMode} (shortest path selected)
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* Optimized Order Flow */}
-      {routeInfo && routeInfo.optimizedRestaurants && (
-        <div className="bg-green-50 px-4 py-3 border-b border-green-200">
-          <p className="font-semibold text-green-700 text-sm mb-2">
-            📋 Optimized Order Flow:
-          </p>
-
-          {/* Pickup Order */}
-          <div className="mb-2">
-            <p className="text-xs font-semibold text-red-600 mb-1">
-              🍽️ PICKUP ORDER (nearest to driver first):
-            </p>
-            <div className="flex flex-wrap items-center gap-1 text-xs">
-              <span className="bg-green-500 text-white px-2 py-1 rounded font-semibold">
-                Driver
-              </span>
-              {routeInfo.optimizedRestaurants.map((p, i) => (
-                <React.Fragment key={`r-flow-${i}`}>
-                  <span className="text-green-600">→</span>
-                  <span className="bg-red-500 text-white px-2 py-1 rounded">
-                    R{i + 1}: {p.restaurant.name}
-                  </span>
-                </React.Fragment>
-              ))}
-            </div>
-          </div>
-
-          {/* Delivery Order */}
-          <div>
-            <p className="text-xs font-semibold text-blue-600 mb-1">
-              👤 DELIVERY ORDER (nearest to last restaurant first):
-            </p>
-            <div className="flex flex-wrap items-center gap-1 text-xs">
-              <span className="bg-red-500 text-white px-2 py-1 rounded font-semibold">
-                R{routeInfo.optimizedRestaurants.length}
-              </span>
-              {routeInfo.optimizedCustomers.map((p, i) => (
-                <React.Fragment key={`c-flow-${i}`}>
-                  <span className="text-blue-600">→</span>
-                  <span className="bg-blue-500 text-white px-2 py-1 rounded">
-                    C{i + 1}: {p.customer.name}
-                  </span>
-                </React.Fragment>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
+    <div className="bg-white rounded-xl shadow-lg border-2 border-green-500 overflow-hidden mb-6">
       {/* Map */}
       <div className="h-96 relative">
         {isLoaded ? (
@@ -1637,6 +1554,92 @@ function FullRouteMap({
         )}
       </div>
 
+      {/* Ordered Stops List */}
+      {routeInfo &&
+        routeInfo.optimizedRestaurants &&
+        routeInfo.optimizedCustomers && (
+          <div className="px-4 py-4 border-t bg-white">
+            <h4 className="font-bold text-gray-800 mb-3 flex items-center gap-2">
+              <svg
+                className="w-5 h-5 text-green-600"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+                />
+              </svg>
+              Ordered Stops
+            </h4>
+            <div className="space-y-2">
+              {/* Driver Starting Point */}
+              <div className="flex items-center gap-3 p-3 bg-green-50 rounded-lg border border-green-200">
+                <div className="w-8 h-8 rounded-full bg-green-500 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
+                  D
+                </div>
+                <div className="flex-1">
+                  <p className="font-semibold text-gray-800 text-sm">
+                    Your Location (Starting Point)
+                  </p>
+                  <p className="text-xs text-gray-600 mt-0.5">
+                    Driver Position
+                  </p>
+                </div>
+              </div>
+
+              {/* Restaurant Pickups */}
+              {routeInfo.optimizedRestaurants.map((pickup, idx) => (
+                <div
+                  key={`stop-r-${idx}`}
+                  className="flex items-center gap-3 p-3 bg-red-50 rounded-lg border border-red-200"
+                >
+                  <div className="w-8 h-8 rounded-full bg-red-500 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
+                    R{idx + 1}
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-semibold text-gray-800 text-sm">
+                      🍽️ {pickup.restaurant.name}
+                    </p>
+                    <p className="text-xs text-gray-600 mt-0.5">
+                      {pickup.restaurant.address}
+                    </p>
+                    <p className="text-xs text-blue-600 mt-1">
+                      Order #{pickup.order_number}
+                    </p>
+                  </div>
+                </div>
+              ))}
+
+              {/* Customer Deliveries */}
+              {routeInfo.optimizedCustomers.map((pickup, idx) => (
+                <div
+                  key={`stop-c-${idx}`}
+                  className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg border border-blue-200"
+                >
+                  <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
+                    C{idx + 1}
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-semibold text-gray-800 text-sm">
+                      👤 {pickup.customer.name}
+                    </p>
+                    <p className="text-xs text-gray-600 mt-0.5">
+                      {pickup.customer.address}
+                    </p>
+                    <p className="text-xs text-blue-600 mt-1">
+                      Order #{pickup.order_number}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
       {/* Route Legend */}
       <div className="bg-gray-50 px-4 py-3 border-t">
         <div className="flex flex-wrap items-center justify-center gap-4 text-sm">
@@ -1658,104 +1661,6 @@ function FullRouteMap({
           </div>
         </div>
       </div>
-
-      {/* Leg Details - Distance between each stop */}
-      {routeInfo && routeInfo.legs && (
-        <div className="px-4 py-3 border-t bg-white">
-          <p className="font-semibold text-gray-700 mb-2 text-sm">
-            📏 Distance Between Each Stop:
-          </p>
-          <div className="space-y-2">
-            {routeInfo.legs.map((leg, idx) => {
-              // Determine segment type with optimized orders
-              let segmentLabel = "";
-              let fromIcon = "";
-              let toIcon = "";
-              const totalRestaurants = pickups.length;
-              const optRestaurants =
-                routeInfo.optimizedRestaurants ||
-                optimizedRestaurantOrder ||
-                pickups;
-              const optCustomers =
-                routeInfo.optimizedCustomers ||
-                optimizedCustomerOrder ||
-                pickups;
-
-              if (idx === 0) {
-                // Driver to first restaurant (optimized)
-                fromIcon = "🚗";
-                toIcon = "🍽️";
-                segmentLabel = `Driver → R1 (${optRestaurants[0]?.restaurant?.name || "Restaurant"})`;
-              } else if (idx < totalRestaurants) {
-                // Restaurant to restaurant (optimized order)
-                fromIcon = "🍽️";
-                toIcon = "🍽️";
-                segmentLabel = `R${idx} (${optRestaurants[idx - 1]?.restaurant?.name}) → R${idx + 1} (${optRestaurants[idx]?.restaurant?.name})`;
-              } else if (idx === totalRestaurants) {
-                // Last restaurant to first customer (optimized)
-                fromIcon = "🍽️";
-                toIcon = "👤";
-                const lastRestName =
-                  optRestaurants[totalRestaurants - 1]?.restaurant?.name ||
-                  "Restaurant";
-                const firstCustName =
-                  optCustomers[0]?.customer?.name || "Customer";
-                segmentLabel = `R${totalRestaurants} (${lastRestName}) → C1 (${firstCustName})`;
-              } else {
-                // Customer to customer (optimized order)
-                fromIcon = "👤";
-                toIcon = "👤";
-                const customerIdx = idx - totalRestaurants;
-                const prevCustName =
-                  optCustomers[customerIdx - 1]?.customer?.name || "Customer";
-                const currCustName =
-                  optCustomers[customerIdx]?.customer?.name || "Customer";
-                segmentLabel = `C${customerIdx} (${prevCustName}) → C${customerIdx + 1} (${currCustName})`;
-              }
-
-              return (
-                <div
-                  key={idx}
-                  className="flex items-center justify-between text-sm bg-gray-50 px-3 py-2 rounded"
-                >
-                  <div className="flex items-center gap-2">
-                    <span>{fromIcon}</span>
-                    <span className="text-gray-600 text-xs">
-                      {segmentLabel}
-                    </span>
-                    <span>{toIcon}</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="font-bold text-purple-600">
-                      {(leg.distance.value / 1000).toFixed(2)} km
-                    </span>
-                    <span className="text-gray-500 text-xs">
-                      ({Math.ceil(leg.duration.value / 60)} min)
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Total Summary */}
-          <div className="mt-3 p-3 bg-purple-100 rounded-lg border border-purple-300">
-            <div className="flex justify-between items-center">
-              <span className="font-semibold text-purple-700">
-                📊 TOTAL ROUTE:
-              </span>
-              <div className="text-right">
-                <span className="font-bold text-purple-700 text-lg">
-                  {routeInfo.totalDistance} km
-                </span>
-                <span className="text-purple-600 ml-2">
-                  ({routeInfo.totalDuration} min)
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -1836,7 +1741,7 @@ function DeliveryCard({
     >
       {/* Interactive Map (only for active item) */}
       {showMap && (
-        <div className="h-64 relative">
+        <div className="relative w-full h-[40vh] min-h-[220px]">
           {customer && isLoaded ? (
             <GoogleMap
               mapContainerStyle={mapContainerStyle}
@@ -1854,7 +1759,7 @@ function DeliveryCard({
                   icon={{
                     path: window.google?.maps?.SymbolPath?.CIRCLE || 0,
                     scale: 10,
-                    fillColor: "#10b981",
+                    fillColor: "#13ec37",
                     fillOpacity: 1,
                     strokeWeight: 3,
                     strokeColor: "#ffffff",
@@ -1871,9 +1776,8 @@ function DeliveryCard({
                   }}
                   onCloseClick={() => setSelectedMarker(null)}
                 >
-                  <div className="text-center p-2">
-                    <p className="font-bold text-green-600">📍 Your Location</p>
-                    <p className="text-xs text-gray-600">Driver Position</p>
+                  <div className="text-center p-1">
+                    <p className="font-bold text-green-600 text-sm">📍 You</p>
                   </div>
                 </InfoWindow>
               )}
@@ -1887,7 +1791,7 @@ function DeliveryCard({
                 icon={{
                   path: window.google?.maps?.SymbolPath?.CIRCLE || 0,
                   scale: 10,
-                  fillColor: "#3b82f6",
+                  fillColor: "#111812",
                   fillOpacity: 1,
                   strokeWeight: 3,
                   strokeColor: "#ffffff",
@@ -1903,12 +1807,8 @@ function DeliveryCard({
                   }}
                   onCloseClick={() => setSelectedMarker(null)}
                 >
-                  <div className="min-w-[200px] p-2">
-                    <p className="font-bold text-blue-600">👤 Customer</p>
-                    <p className="font-semibold mt-1">{customer.name}</p>
-                    <p className="text-xs text-gray-600 mt-1">
-                      {customer.address}
-                    </p>
+                  <div className="p-1">
+                    <p className="font-bold text-sm">📍 {customer.name}</p>
                   </div>
                 </InfoWindow>
               )}
@@ -1918,98 +1818,45 @@ function DeliveryCard({
                 <Polyline
                   path={routePath}
                   options={{
-                    strokeColor: "#86efac",
+                    strokeColor: "#13ec37",
                     strokeOpacity: 0.9,
-                    strokeWeight: 6,
+                    strokeWeight: 5,
                   }}
                 />
               )}
             </GoogleMap>
           ) : (
-            <div className="h-full w-full bg-gray-200 flex items-center justify-center">
-              <p className="text-gray-500">Loading map...</p>
+            <div className="h-full w-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
+              <div className="text-center">
+                <div className="w-10 h-10 border-3 border-green-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+                <p className="text-gray-500 text-sm">Loading map...</p>
+              </div>
             </div>
           )}
-
-          {/* Order Number Badge */}
-          <div className="absolute top-3 right-3 bg-gradient-to-r from-green-600 to-green-700 px-4 py-2 rounded-full shadow-lg">
-            <p className="text-xs font-semibold text-white">
-              Order #{order_number}
-            </p>
-          </div>
         </div>
       )}
 
-      {/* Details Section */}
-      <div className="p-6 space-y-4">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div
-              className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-lg ${
-                isFirst
-                  ? "bg-green-600 text-white"
-                  : "bg-gray-200 text-gray-600"
-              }`}
-            >
-              {index + 1}
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 uppercase font-semibold">
-                Order #{order_number}
-              </p>
-              {isFirst && (
-                <p className="text-xs text-green-600 font-bold mt-1">
-                  NEXT DELIVERY
-                </p>
-              )}
-            </div>
+      {/* Content Card - Slides over map */}
+      <div className="bg-white rounded-t-[28px] -mt-7 relative z-10 px-5 pt-6 pb-5">
+        {/* Order Badge */}
+        {isFirst && (
+          <div className="absolute -top-3 right-5 bg-green-600 px-4 py-1 rounded-full shadow-lg">
+            <p className="text-xs font-bold text-white">NEXT DELIVERY</p>
           </div>
+        )}
 
-          {/* Distance and Time */}
-          <div className="flex items-center gap-4 text-sm">
-            <div className="flex items-center gap-1 text-gray-600">
-              <svg
-                className="w-5 h-5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"
-                />
-              </svg>
-              <span className="font-semibold">{distance_km} km (OSRM)</span>
-            </div>
-            <div className="flex items-center gap-1 text-gray-600">
-              <svg
-                className="w-5 h-5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-              <span className="font-semibold">
-                {estimated_time_minutes} min
-              </span>
-            </div>
-          </div>
+        {/* Order Number */}
+        <div className="mb-4">
+          <p className="text-sm text-blue-600 font-medium">
+            Order #{order_number}
+          </p>
         </div>
 
-        {/* Customer Info */}
-        <div className="flex items-start gap-3 pt-2">
-          <div className="flex-shrink-0 w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+        {/* Distance and Time Stats */}
+        <div className="flex items-center gap-4 mb-4 pb-4 border-b border-gray-200">
+          <div className="flex items-center gap-2">
             <svg
-              className="w-6 h-6 text-blue-600"
+              className="w-5 h-5 text-green-600"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -2018,37 +1865,63 @@ function DeliveryCard({
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 strokeWidth={2}
-                d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"
               />
             </svg>
+            <span className="font-semibold text-gray-700">
+              {distance_km} km
+            </span>
           </div>
-          <div className="flex-1">
-            <p className="font-bold text-gray-800 text-lg">
-              {customer?.name || "Customer"}
-            </p>
-            <p className="text-sm text-gray-600 mt-1">{customer?.address}</p>
-            {customer?.phone && (
-              <a
-                href={`tel:${customer.phone}`}
-                className="inline-flex items-center gap-2 mt-2 text-blue-600 hover:text-blue-700 font-semibold text-sm"
+          <div className="flex items-center gap-2">
+            <svg
+              className="w-5 h-5 text-green-600"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
+            </svg>
+            <span className="font-semibold text-gray-700">
+              {estimated_time_minutes} min
+            </span>
+          </div>
+        </div>
+
+        {/* Customer Info */}
+        <div>
+          <p className="text-xs text-gray-500 uppercase font-semibold mb-2">
+            👤 Customer
+          </p>
+          <p className="font-bold text-gray-800 text-lg">
+            {customer?.name || "Customer"}
+          </p>
+          <p className="text-sm text-gray-600 mt-1">{customer?.address}</p>
+          {customer?.phone && (
+            <a
+              href={`tel:${customer.phone}`}
+              className="inline-flex items-center gap-2 mt-2 text-green-600 hover:text-green-700 font-semibold text-sm"
+            >
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
               >
-                <svg
-                  className="w-4 h-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
-                  />
-                </svg>
-                <span>{customer.phone}</span>
-              </a>
-            )}
-          </div>
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
+                />
+              </svg>
+              <span>{customer.phone}</span>
+            </a>
+          )}
         </div>
       </div>
     </div>
