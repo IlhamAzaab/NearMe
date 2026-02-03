@@ -1,57 +1,29 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
-import {
-  MapContainer,
-  TileLayer,
-  Marker,
-  Polyline,
-  useMap,
-} from "react-leaflet";
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
+import { GoogleMap, Marker, useJsApiLoader } from "@react-google-maps/api";
 import { PROGRESS_STEPS } from "../config/orderStatusConfig";
 import "./OrderReceived.css";
 
-// Fix Leaflet default marker icons
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl:
-    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png",
-  iconUrl:
-    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
-  shadowUrl:
-    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
-});
+// Google Maps API key
+const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
 
-// Custom SVG icons for Leaflet
-const createSvgIcon = (svgPath, size = 36) => {
-  return L.divIcon({
-    className: "custom-svg-marker",
-    html: `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="#1a1a1a">${svgPath}</svg>`,
-    iconSize: [size, size],
-    iconAnchor: [size / 2, size],
-  });
-};
-
-// Restaurant (home) icon
-const restaurantIcon = createSvgIcon(
-  '<path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/>',
-);
-
-// Customer (location pin) icon
-const customerIcon = createSvgIcon(
-  '<path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>',
-);
-
-// OpenStreetMap tile URL
-const TILE_URL = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
-const TILE_ATTRIBUTION =
-  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+// Google Maps libraries
+const GOOGLE_MAPS_LIBRARIES = ["places", "geometry", "maps"];
 
 // Map container style
 const mapContainerStyle = {
   width: "100%",
   height: "100%",
+};
+
+// Map options - enable dragging for user interaction
+const mapOptions = {
+  disableDefaultUI: true,
+  zoomControl: true,
+  streetViewControl: false,
+  mapTypeControl: false,
+  fullscreenControl: false,
+  gestureHandling: "greedy",
 };
 
 const OrderReceived = () => {
@@ -133,9 +105,11 @@ const OrderReceived = () => {
   const hasValidLocations =
     restaurantLocation !== null && customerLocation !== null;
 
-  // Leaflet is always loaded (no API key needed)
-  const isLoaded = true;
-  const loadError = null;
+  // Load Google Maps API
+  const { isLoaded, loadError } = useJsApiLoader({
+    googleMapsApiKey: GOOGLE_MAPS_API_KEY,
+    libraries: GOOGLE_MAPS_LIBRARIES,
+  });
 
   // Default center (Sri Lanka)
   const defaultCenter = { lat: 7.8731, lng: 80.7718 };
@@ -207,30 +181,106 @@ const OrderReceived = () => {
         2 * oneMinusT * t * controlPoint.lng +
         t * t * end.lng;
 
-      points.push([lat, lng]); // Leaflet format [lat, lng]
+      points.push({ lat, lng });
     }
 
     return points;
   }, []);
 
-  // Get curved path for the polyline
-  const curvedPath = hasValidLocations
-    ? generateCurvedPath(customerLocation, restaurantLocation)
-    : [];
+  // Draw animated curved line on map
+  const drawAnimatedCurve = useCallback(() => {
+    if (!mapRef.current || !hasValidLocations || !window.google) return;
 
-  // Component to fit map bounds
-  function FitBoundsComponent({ locations }) {
-    const map = useMap();
-    useEffect(() => {
-      if (locations && locations.length >= 2) {
-        const bounds = L.latLngBounds(
-          locations.map((loc) => [loc.lat, loc.lng]),
-        );
-        map.fitBounds(bounds, { padding: [50, 50] });
+    // Clear existing curve
+    if (curveRef.current) {
+      curveRef.current.setMap(null);
+    }
+    if (animationRef.current) {
+      cancelAnimationFrame(animationRef.current);
+    }
+
+    const curvedPath = generateCurvedPath(customerLocation, restaurantLocation);
+    if (curvedPath.length === 0) return;
+
+    // Create the curved polyline
+    const curve = new window.google.maps.Polyline({
+      path: curvedPath,
+      geodesic: false,
+      strokeColor: "#1a1a1a",
+      strokeOpacity: 0,
+      strokeWeight: 3,
+      icons: [
+        {
+          icon: {
+            path: "M 0,-1 0,1",
+            strokeOpacity: 1,
+            strokeColor: "#1a1a1a",
+            scale: 3,
+          },
+          offset: "0",
+          repeat: "15px",
+        },
+      ],
+      map: mapRef.current,
+    });
+
+    curveRef.current = curve;
+
+    // Animate the dashed line
+    let offset = 0;
+    const animate = () => {
+      offset = (offset + 0.5) % 200;
+      const icons = curve.get("icons");
+      icons[0].offset = offset / 10 + "%";
+      curve.set("icons", icons);
+      animationRef.current = requestAnimationFrame(animate);
+    };
+
+    animate();
+  }, [
+    hasValidLocations,
+    restaurantLocation,
+    customerLocation,
+    generateCurvedPath,
+  ]);
+
+  // Handle map load
+  const onMapLoad = useCallback(
+    (map) => {
+      mapRef.current = map;
+
+      // Fit bounds to show both markers only if we have valid locations
+      if (hasValidLocations) {
+        const bounds = new window.google.maps.LatLngBounds();
+        bounds.extend(restaurantLocation);
+        bounds.extend(customerLocation);
+        map.fitBounds(bounds, { top: 50, bottom: 200, left: 50, right: 50 });
+
+        // Draw the animated curve after a short delay
+        setTimeout(() => {
+          drawAnimatedCurve();
+        }, 500);
       }
-    }, [locations, map]);
-    return null;
-  }
+    },
+    [
+      hasValidLocations,
+      restaurantLocation,
+      customerLocation,
+      drawAnimatedCurve,
+    ],
+  );
+
+  // Cleanup animation on unmount
+  useEffect(() => {
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+      if (curveRef.current) {
+        curveRef.current.setMap(null);
+      }
+    };
+  }, []);
 
   // Fetch order data with coordinates if not available from state
   useEffect(() => {
@@ -385,26 +435,31 @@ const OrderReceived = () => {
 
   return (
     <div className="order-received-screen">
-      {/* ===== Leaflet Map Background ===== */}
+      {/* ===== Google Map Background ===== */}
       <div className="map-container-full">
         {isLoaded && hasValidLocations ? (
-          <MapContainer
-            center={[getMapCenter().lat, getMapCenter().lng]}
+          <GoogleMap
+            mapContainerStyle={mapContainerStyle}
+            center={getMapCenter()}
             zoom={getZoomLevel()}
-            style={mapContainerStyle}
-            zoomControl={true}
-            attributionControl={false}
+            options={mapOptions}
+            onLoad={onMapLoad}
           >
-            <TileLayer url={TILE_URL} attribution={TILE_ATTRIBUTION} />
-            <FitBoundsComponent
-              locations={[restaurantLocation, customerLocation]}
-            />
-
             {/* Restaurant Marker - Home Icon */}
             {restaurantLocation && (
               <Marker
-                position={[restaurantLocation.lat, restaurantLocation.lng]}
-                icon={restaurantIcon}
+                position={restaurantLocation}
+                icon={{
+                  url:
+                    "data:image/svg+xml;charset=UTF-8," +
+                    encodeURIComponent(`
+                    <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0in the orders page for customers 0 24 24" fill="#1a1a1a">
+                      <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/>
+                    </svg>
+                  `),
+                  scaledSize: new window.google.maps.Size(36, 36),
+                  anchor: new window.google.maps.Point(18, 36),
+                }}
                 title={restaurantName}
               />
             )}
@@ -412,25 +467,22 @@ const OrderReceived = () => {
             {/* Customer Marker - Location Pin Icon */}
             {customerLocation && (
               <Marker
-                position={[customerLocation.lat, customerLocation.lng]}
-                icon={customerIcon}
+                position={customerLocation}
+                icon={{
+                  url:
+                    "data:image/svg+xml;charset=UTF-8," +
+                    encodeURIComponent(`
+                    <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="#1a1a1a">
+                      <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
+                    </svg>
+                  `),
+                  scaledSize: new window.google.maps.Size(36, 36),
+                  anchor: new window.google.maps.Point(18, 36),
+                }}
                 title="Your Location"
               />
             )}
-
-            {/* Curved dashed line between locations */}
-            {curvedPath.length > 0 && (
-              <Polyline
-                positions={curvedPath}
-                pathOptions={{
-                  color: "#1a1a1a",
-                  weight: 3,
-                  dashArray: "10, 10",
-                  opacity: 0.8,
-                }}
-              />
-            )}
-          </MapContainer>
+          </GoogleMap>
         ) : loadError ? (
           <div className="map-error">
             <p>Failed to load map</p>

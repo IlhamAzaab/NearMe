@@ -1,54 +1,38 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import DriverRealtimeNotificationListener from "../../components/DriverRealtimeNotificationListener";
-import { useSocket } from "../../context/SocketContext";
 import {
-  MapContainer,
-  TileLayer,
+  GoogleMap,
+  useJsApiLoader,
   Marker,
   Polyline,
-  Popup,
-} from "react-leaflet";
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
+  InfoWindow,
+} from "@react-google-maps/api";
+import {
+  getOptimizedRestaurantOrderByShortest,
+  getOptimizedCustomerOrderByShortest,
+  calculateRouteStats,
+} from "../../utils/routeOptimization";
 
-// Fix Leaflet default marker icons
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl:
-    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png",
-  iconUrl:
-    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
-  shadowUrl:
-    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
-});
+const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
 
-// Custom marker icons for Leaflet
-const createCircleIcon = (color, borderColor = "#ffffff") => {
-  return L.divIcon({
-    className: "custom-marker",
-    html: `<div style="
-      width: 20px;
-      height: 20px;
-      background-color: ${color};
-      border: 3px solid ${borderColor};
-      border-radius: 50%;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-    "></div>`,
-    iconSize: [20, 20],
-    iconAnchor: [10, 10],
-    popupAnchor: [0, -10],
-  });
-};
+// Google Maps libraries - must be constant to avoid reload warnings
+const GOOGLE_MAPS_LIBRARIES = ["places", "geometry", "maps"];
 
-const driverIcon = createCircleIcon("#13ec37");
-const restaurantIcon = createCircleIcon("#13ec37");
-const customerIcon = createCircleIcon("#111812");
-
-// Leaflet container style - mobile optimized
+// Google Maps container style - mobile optimized
 const mapContainerStyle = {
   width: "100%",
   height: "100%",
+};
+
+// Google Maps options - mobile optimized
+const mapOptions = {
+  disableDefaultUI: true,
+  zoomControl: false,
+  streetViewControl: false,
+  mapTypeControl: false,
+  fullscreenControl: false,
+  gestureHandling: "greedy",
 };
 
 // Default driver location (Kinniya, Sri Lanka)
@@ -60,11 +44,6 @@ const DEFAULT_DRIVER_LOCATION = {
 // Cache key for localStorage
 const CACHE_KEY = "available_deliveries_cache";
 const CACHE_EXPIRY = 60000; // 1 minute cache
-
-// OpenStreetMap tile URL
-const TILE_URL = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
-const TILE_ATTRIBUTION =
-  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
 
 // Load cached data
 const loadCachedData = () => {
@@ -100,17 +79,6 @@ const saveCacheData = (data) => {
 export default function AvailableDeliveries() {
   const navigate = useNavigate();
 
-  // Socket connection for real-time notifications
-  const {
-    connectAsDriver,
-    disconnect,
-    isConnected,
-    newDeliveryAlert,
-    clearNewDeliveryAlert,
-    takenDeliveries,
-    clearAllTakenDeliveries,
-  } = useSocket();
-
   // Initialize with cached data for instant display
   const cachedData = loadCachedData();
   const [deliveries, setDeliveries] = useState(cachedData?.deliveries || []);
@@ -131,71 +99,14 @@ export default function AvailableDeliveries() {
   const [deliveryListRef, setDeliveryListRef] = useState(null);
   const [toast, setToast] = useState(null);
   const [fetchError, setFetchError] = useState(null); // Network error state
-  const [showNewDeliveryBanner, setShowNewDeliveryBanner] = useState(false); // Real-time alert banner
   const deliveryListRefEl = useRef(null);
   const abortControllerRef = useRef(null); // For cancelling pending requests
 
-  // Leaflet is always loaded (no API key needed)
-  const isLoaded = true;
-
-  // Connect to WebSocket when component mounts
-  useEffect(() => {
-    const driverId = localStorage.getItem("userId");
-    const role = localStorage.getItem("role");
-
-    if (role === "driver" && driverId) {
-      console.log(
-        "[AvailableDeliveries] Connecting to WebSocket as driver:",
-        driverId,
-      );
-      connectAsDriver(driverId);
-    }
-
-    // No cleanup - let socket persist for other pages
-    // The socket will be cleaned up when the app unmounts
-  }, []); // Empty deps - connect only once on mount
-
-  // Handle real-time new delivery alerts
-  useEffect(() => {
-    if (newDeliveryAlert) {
-      console.log(
-        "[AvailableDeliveries] 🚨 New delivery alert received!",
-        newDeliveryAlert,
-      );
-
-      // Show the banner
-      setShowNewDeliveryBanner(true);
-
-      // Play notification sound (optional)
-      try {
-        const audio = new Audio("/notification.mp3");
-        audio.volume = 0.5;
-        audio.play().catch(() => {}); // Ignore errors if audio can't play
-      } catch (e) {}
-
-      // Auto-refresh to get the new delivery
-      if (driverLocation) {
-        fetchPendingDeliveriesWithLocation(driverLocation, true);
-      }
-
-      // Hide banner after 5 seconds
-      setTimeout(() => {
-        setShowNewDeliveryBanner(false);
-        clearNewDeliveryAlert();
-      }, 5000);
-    }
-  }, [newDeliveryAlert, driverLocation, clearNewDeliveryAlert]);
-
-  // Handle deliveries taken by other drivers (remove from list)
-  useEffect(() => {
-    if (takenDeliveries.size > 0) {
-      setDeliveries((prev) =>
-        prev.filter((d) => !takenDeliveries.has(d.delivery_id)),
-      );
-      // Clear after processing
-      clearAllTakenDeliveries();
-    }
-  }, [takenDeliveries, clearAllTakenDeliveries]);
+  // Load Google Maps API once at component level with same libraries as GoogleMapsProvider
+  const { isLoaded, loadError } = useJsApiLoader({
+    googleMapsApiKey: GOOGLE_MAPS_API_KEY,
+    libraries: GOOGLE_MAPS_LIBRARIES,
+  });
 
   useEffect(() => {
     const role = localStorage.getItem("role");
@@ -496,72 +407,6 @@ export default function AvailableDeliveries() {
           }
         }}
       />
-
-      {/* 🚨 REAL-TIME NEW DELIVERY ALERT BANNER */}
-      {showNewDeliveryBanner && newDeliveryAlert && (
-        <div className="fixed top-0 left-0 right-0 z-50 bg-gradient-to-r from-green-500 to-emerald-600 text-white px-4 py-3 shadow-lg animate-pulse">
-          <div className="max-w-4xl mx-auto flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
-                <svg
-                  className="w-6 h-6"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
-                  />
-                </svg>
-              </div>
-              <div>
-                <p className="font-bold text-sm">🚨 New Delivery Available!</p>
-                <p className="text-xs opacity-90">
-                  {newDeliveryAlert.restaurant?.name || "Restaurant"} → Order #
-                  {newDeliveryAlert.order_number}
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={() => setShowNewDeliveryBanner(false)}
-              className="text-white/80 hover:text-white"
-            >
-              <svg
-                className="w-5 h-5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M6 18L18 6M6 6l12 12"
-                />
-              </svg>
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* WebSocket Connection Status Indicator */}
-      <div
-        className={`fixed bottom-20 right-4 z-40 px-3 py-1.5 rounded-full text-xs font-medium shadow-lg transition-all duration-300 ${
-          isConnected
-            ? "bg-green-100 text-green-700 border border-green-200"
-            : "bg-red-100 text-red-700 border border-red-200"
-        }`}
-      >
-        <div className="flex items-center gap-1.5">
-          <div
-            className={`w-2 h-2 rounded-full ${isConnected ? "bg-green-500 animate-pulse" : "bg-red-500"}`}
-          ></div>
-          {isConnected ? "Live" : "Offline"}
-        </div>
-      </div>
 
       {/* Toast Notification */}
       {toast && (
@@ -973,19 +818,12 @@ function DeliveryCard({
   const {
     extra_distance_km = 0,
     extra_time_minutes = 0,
-    base_amount = 0, // First: Driver-to-Restaurant earnings | Subsequent: R0 × Rs.40
-    extra_earnings = 0, // First: Restaurant-to-Customer earnings | Subsequent: Extra × Rs.40
+    base_amount = 0, // 1st order's earnings (R0 × Rs.40)
+    extra_earnings = 0, // Extra distance × Rs.40
     bonus_amount = 0, // Rs.25 for 2nd, Rs.30 for 3rd+
-    total_trip_earnings = 0, // Total earnings
+    total_trip_earnings = 0, // Base + Extra + Bonus
     r0_distance_km = 0,
     r1_distance_km = 0,
-    // First delivery specific fields
-    is_first_delivery = false,
-    driver_to_restaurant_km = 0,
-    paid_driver_to_restaurant_km = 0,
-    restaurant_to_customer_km = 0,
-    driver_to_restaurant_earnings = 0,
-    restaurant_to_customer_earnings = 0,
   } = route_impact || {};
 
   // Calculate total items
@@ -1020,13 +858,6 @@ function DeliveryCard({
     pricing: pricing,
     total_delivery_distance_km,
     currentRoute: hasActiveDeliveries ? "HAS ACTIVE" : "FIRST DELIVERY",
-    // First delivery specific
-    is_first_delivery,
-    driver_to_restaurant_km,
-    paid_driver_to_restaurant_km,
-    restaurant_to_customer_km,
-    driver_to_restaurant_earnings,
-    restaurant_to_customer_earnings,
   });
 
   // Safety check for pricing - use total_trip_earnings for first delivery
@@ -1093,9 +924,8 @@ function DeliveryCard({
   // State for info windows
   const [selectedMarker, setSelectedMarker] = useState(null);
 
-  // 🆕 Show routes for ALL deliveries when driver has no active deliveries
-  // When driver accepts first delivery, routes will be hidden for remaining available deliveries
-  const showRoutes = !hasActiveDeliveries;
+  // 🆕 Only show routes for first delivery when no active deliveries
+  const showRoutes = isFirstDelivery && !hasActiveDeliveries;
 
   // Is this a stacked delivery (2nd or more)?
   const isStackedDelivery = hasActiveDeliveries;
@@ -1107,93 +937,132 @@ function DeliveryCard({
       {/* Map Section - Full Width */}
       <div className="relative w-full h-[40vh] min-h-[220px]">
         {restaurant && customer && isLoaded ? (
-          <MapContainer
-            center={[mapCenter.lat, mapCenter.lng]}
+          <GoogleMap
+            mapContainerStyle={mapContainerStyle}
+            center={mapCenter}
             zoom={13}
-            style={mapContainerStyle}
-            zoomControl={false}
-            attributionControl={false}
+            options={mapOptions}
           >
-            <TileLayer url={TILE_URL} attribution={TILE_ATTRIBUTION} />
-
             {/* Driver Marker */}
             {driverLocation && (
               <Marker
-                position={[driverLocation.latitude, driverLocation.longitude]}
-                icon={createCircleIcon("#13ec37")}
-                eventHandlers={{
-                  click: () => setSelectedMarker("driver"),
+                position={{
+                  lat: driverLocation.latitude,
+                  lng: driverLocation.longitude,
                 }}
+                icon={{
+                  path: window.google?.maps?.SymbolPath?.CIRCLE || 0,
+                  scale: 10,
+                  fillColor: "#13ec37",
+                  fillOpacity: 1,
+                  strokeWeight: 3,
+                  strokeColor: "#ffffff",
+                }}
+                onClick={() => setSelectedMarker("driver")}
+              />
+            )}
+
+            {selectedMarker === "driver" && driverLocation && (
+              <InfoWindow
+                position={{
+                  lat: driverLocation.latitude,
+                  lng: driverLocation.longitude,
+                }}
+                onCloseClick={() => setSelectedMarker(null)}
               >
-                {selectedMarker === "driver" && (
-                  <Popup onClose={() => setSelectedMarker(null)}>
-                    <div className="text-center p-1">
-                      <p className="font-bold text-green-600 text-sm">📍 You</p>
-                    </div>
-                  </Popup>
-                )}
-              </Marker>
+                <div className="text-center p-1">
+                  <p className="font-bold text-green-600 text-sm">📍 You</p>
+                </div>
+              </InfoWindow>
             )}
 
             {/* Restaurant Marker */}
             <Marker
-              position={[restaurant.latitude, restaurant.longitude]}
-              icon={createCircleIcon("#13ec37")}
-              eventHandlers={{
-                click: () => setSelectedMarker("restaurant"),
+              position={{
+                lat: restaurant.latitude,
+                lng: restaurant.longitude,
               }}
-            >
-              {selectedMarker === "restaurant" && (
-                <Popup onClose={() => setSelectedMarker(null)}>
-                  <div className="p-1">
-                    <p className="font-bold text-sm">🍽️ {restaurant.name}</p>
-                  </div>
-                </Popup>
-              )}
-            </Marker>
+              icon={{
+                path: window.google?.maps?.SymbolPath?.CIRCLE || 0,
+                scale: 10,
+                fillColor: "#13ec37",
+                fillOpacity: 1,
+                strokeWeight: 3,
+                strokeColor: "#ffffff",
+              }}
+              onClick={() => setSelectedMarker("restaurant")}
+            />
+
+            {selectedMarker === "restaurant" && (
+              <InfoWindow
+                position={{
+                  lat: restaurant.latitude,
+                  lng: restaurant.longitude,
+                }}
+                onCloseClick={() => setSelectedMarker(null)}
+              >
+                <div className="p-1">
+                  <p className="font-bold text-sm">🍽️ {restaurant.name}</p>
+                </div>
+              </InfoWindow>
+            )}
 
             {/* Customer Marker */}
             <Marker
-              position={[customer?.latitude || 0, customer?.longitude || 0]}
-              icon={createCircleIcon("#111812")}
-              eventHandlers={{
-                click: () => setSelectedMarker("customer"),
+              position={{
+                lat: customer?.latitude || 0,
+                lng: customer?.longitude || 0,
               }}
-            >
-              {selectedMarker === "customer" && (
-                <Popup onClose={() => setSelectedMarker(null)}>
-                  <div className="p-1">
-                    <p className="font-bold text-sm">
-                      📍 {customer?.name || "Customer"}
-                    </p>
-                  </div>
-                </Popup>
-              )}
-            </Marker>
+              icon={{
+                path: window.google?.maps?.SymbolPath?.CIRCLE || 0,
+                scale: 10,
+                fillColor: "#111812",
+                fillOpacity: 1,
+                strokeWeight: 3,
+                strokeColor: "#ffffff",
+              }}
+              onClick={() => setSelectedMarker("customer")}
+            />
+
+            {selectedMarker === "customer" && customer && (
+              <InfoWindow
+                position={{
+                  lat: customer.latitude,
+                  lng: customer.longitude,
+                }}
+                onCloseClick={() => setSelectedMarker(null)}
+              >
+                <div className="p-1">
+                  <p className="font-bold text-sm">
+                    📍 {customer?.name || "Customer"}
+                  </p>
+                </div>
+              </InfoWindow>
+            )}
 
             {/* Route Polylines */}
             {showRoutes && driverToRestaurantPath.length > 0 && (
               <Polyline
-                positions={driverToRestaurantPath.map((p) => [p.lat, p.lng])}
-                pathOptions={{
-                  color: "#13ec37",
-                  opacity: 0.9,
-                  weight: 5,
+                path={driverToRestaurantPath}
+                options={{
+                  strokeColor: "#13ec37",
+                  strokeOpacity: 0.9,
+                  strokeWeight: 5,
                 }}
               />
             )}
 
             {showRoutes && restaurantToCustomerPath.length > 0 && (
               <Polyline
-                positions={restaurantToCustomerPath.map((p) => [p.lat, p.lng])}
-                pathOptions={{
-                  color: "#13ec37",
-                  opacity: 0.6,
-                  weight: 4,
+                path={restaurantToCustomerPath}
+                options={{
+                  strokeColor: "#13ec37",
+                  strokeOpacity: 0.6,
+                  strokeWeight: 4,
                 }}
               />
             )}
-          </MapContainer>
+          </GoogleMap>
         ) : (
           <div className="h-full w-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
             <div className="text-center">
@@ -1301,58 +1170,49 @@ function DeliveryCard({
             </div>
           </>
         ) : (
-          /* For FIRST delivery - Show earnings with detailed breakdown */
-          <>
-            {/* Distance & Time Stats */}
-            <div className="flex items-center justify-between mb-5 pb-5 my-4 border-b border-gray-100">
-              <div>
-                <p className="text-[#13ec37] text-3xl font-bold leading-tight">
-                  Rs.{" "}
-                  {Number(total_trip_earnings || driverEarnings || 0).toFixed(
-                    2,
-                  )}
-                </p>
-                <p className="text-black text-sm font-medium">Total Earnings</p>
+          /* For FIRST delivery - Show earnings prominently */
+          <div className="flex items-center justify-between mb-5 pb-5 border-b border-gray-100">
+            <div>
+              <p className="text-[#13ec37] text-3xl font-bold leading-tight">
+                Rs. {driverEarnings?.toFixed(2) || "0"}
+              </p>
+              <p className="text-black text-sm font-medium">Earnings</p>
+            </div>
+            <div className="flex flex-col items-end gap-1.5">
+              <div className="flex items-center gap-2 text-black dark:text-black font-bold bg-gray-50 dark:bg-gray-50 px-3 py-1 rounded-full">
+                <svg
+                  className="w-4 h-4 text-green-400 font-bold"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"
+                  />
+                </svg>
+                {Number(total_delivery_distance_km || 0).toFixed(1)} km
               </div>
-              <div className="flex flex-col items-end gap-1.5">
-                <div className="flex items-center gap-2 text-black dark:text-black font-bold bg-gray-50 dark:bg-gray-50 px-3 py-1 rounded-full">
-                  <svg
-                    className="w-4 h-4 text-green-400 font-bold"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"
-                    />
-                  </svg>
-                  {Number(
-                    total_delivery_distance_km || r1_distance_km || 0,
-                  ).toFixed(1)}{" "}
-                  km
-                </div>
-                <div className="flex items-center gap-2 text-black dark:text-black font-bold bg-gray-50 dark:bg-gray-50 px-3 py-1 rounded-full">
-                  <svg
-                    className="w-4 h-4 text-green-400 font-bold"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                    />
-                  </svg>
-                  {estimated_time_minutes || 0} mins
-                </div>
+              <div className="flex items-center gap-2 text-black dark:text-black font-bold bg-gray-50 dark:bg-gray-50 px-3 py-1 rounded-full">
+                <svg
+                  className="w-4 h-4 text-green-400 font-bold"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
+                {estimated_time_minutes || 0} mins
               </div>
             </div>
-          </>
+          </div>
         )}
 
         {/* Route Details Header */}

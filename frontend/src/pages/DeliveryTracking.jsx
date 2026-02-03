@@ -201,7 +201,8 @@ export default function DriverDeliveryTracking() {
 
   const fetchRoute = async (from, to) => {
     try {
-      const url = `https://router.project-osrm.org/route/v1/driving/${from.longitude},${from.latitude};${to.longitude},${to.latitude}?overview=full&geometries=geojson`;
+      // Use FOOT profile for shortest distance (motorcycles can use walking paths in town)
+      const url = `https://router.project-osrm.org/route/v1/foot/${from.longitude},${from.latitude};${to.longitude},${to.latitude}?overview=full&geometries=geojson`;
       const response = await fetch(url);
       const data = await response.json();
 

@@ -1,0 +1,293 @@
+/**
+ * ============================================================================
+ * OSRM Routing Service (Backend)
+ * ============================================================================
+ *
+ * Replaces Google Maps Directions API with OSRM (Open Source Routing Machine)
+ * Uses public OSRM server: https://router.project-osrm.org
+ *
+ * IMPORTANT: This service maintains the EXACT same interface as googleMapsService.js
+ * - Same function signatures
+ * - Same return format
+ * - Same logic for selecting shortest route
+ *
+ * Travel modes:
+ * - driving → OSRM 'driving' profile (car/motorcycle)
+ * - walking → OSRM 'foot' profile (pedestrians)
+ * ============================================================================
+ */
+
+// Public OSRM server URL (free, no API key required)
+const OSRM_BASE_URL = process.env.OSRM_URL || "https://router.project-osrm.org";
+
+/**
+ * Fetch route for a specific travel mode from OSRM
+ * @param {Array} waypoints - Array of {lat, lng} waypoints
+ * @param {string} profile - OSRM profile: 'driving', 'foot', 'bike'
+ * @returns {Promise} Route data or null if failed
+ */
+async function fetchRouteForProfile(waypoints, profile) {
+  try {
+    // OSRM uses format: lng,lat;lng,lat (opposite of Google Maps)
+    const coordinates = waypoints.map((wp) => `${wp.lng},${wp.lat}`).join(";");
+
+    const url = `${OSRM_BASE_URL}/route/v1/${profile}/${coordinates}?overview=full&geometries=geojson&steps=true&alternatives=true`;
+
+    const response = await fetch(url);
+
+    if (!response.ok) return null;
+
+    const data = await response.json();
+
+    if (data.code !== "Ok" || !data.routes || data.routes.length === 0) {
+      return null;
+    }
+
+    // Find shortest route among alternatives
+    let shortestRoute = data.routes[0];
+    let shortestDistance = data.routes[0].distance;
+
+    for (const route of data.routes) {
+      if (route.distance < shortestDistance) {
+        shortestDistance = route.distance;
+        shortestRoute = route;
+      }
+    }
+
+    return {
+      route: shortestRoute,
+      distance: shortestDistance,
+      profile: profile,
+      alternativesCount: data.routes.length,
+    };
+  } catch (err) {
+    console.log(`[OSRM] ⚠️ ${profile} profile failed: ${err.message}`);
+    return null;
+  }
+}
+
+/**
+ * Get route using OSRM - uses FOOT (walking) profile for shortest distance
+ * Same interface as getGoogleRoute() for drop-in replacement
+ *
+ * @param {Array} waypoints - Array of {lat, lng, label} objects
+ * @param {string} context - Optional context for logging
+ * @param {Object} options - Additional options (useSingleMode, optimize)
+ * @returns {Promise} Route data with distance, duration, geometry, and road segments
+ */
+export async function getOSRMRoute(waypoints, context = "", options = {}) {
+  // Use FOOT (walking) profile by default (shortest distance)
+  const useSingleMode = options.useSingleMode !== false;
+  const optimize = options.optimize !== false;
+
+  console.log(
+    `\n[OSRM] 🗺️ Getting route for ${waypoints.length} waypoints${context ? ` (${context})` : ""}`,
+  );
+  console.log(
+    `[OSRM] 🔍 Mode: ${useSingleMode ? "FOOT (shortest distance)" : "Multiple profiles"}, Optimize waypoints: ${optimize}`,
+  );
+
+  if (!waypoints || waypoints.length < 2) {
+    throw new Error("Need at least 2 waypoints for routing");
+  }
+
+  waypoints.forEach((wp, idx) => {
+    const label = wp.label || `Point ${idx}`;
+    console.log(
+      `[OSRM]   ${idx}: ${label} (${wp.lat.toFixed(6)}, ${wp.lng.toFixed(6)})`,
+    );
+  });
+
+  // For optimization with waypoints, we need to use OSRM's trip service
+  // For now, we'll use the simple route service
+  let orderedWaypoints = [...waypoints];
+
+  // Try multiple travel profiles to find the shortest route
+  // FOOT profile gives shortest distance (suitable for motorcycles too in narrow streets)
+  // Single mode: Just use FOOT (optimized for shortest distance)
+  const profilesToTry = useSingleMode ? ["foot"] : ["driving", "foot"];
+
+  console.log(`[OSRM] → Trying profiles: ${profilesToTry.join(", ")}...`);
+
+  // Fetch routes for all profiles in parallel
+  const routePromises = profilesToTry.map((profile) =>
+    fetchRouteForProfile(orderedWaypoints, profile),
+  );
+
+  const routeResults = await Promise.all(routePromises);
+
+  // Filter out failed attempts and find the shortest route
+  const validRoutes = routeResults.filter((r) => r !== null);
+
+  if (validRoutes.length === 0) {
+    console.error("[OSRM] ❌ All travel profiles failed");
+    throw new Error("OSRM: No valid routes found");
+  }
+
+  // Log all route distances for comparison
+  console.log(`[OSRM] 📊 Route comparison:`);
+  validRoutes.forEach((r) => {
+    console.log(
+      `[OSRM]   ${r.profile.toUpperCase()}: ${(r.distance / 1000).toFixed(3)} km (${r.alternativesCount} alternatives)`,
+    );
+  });
+
+  // Select the shortest route across all profiles
+  const shortest = validRoutes.reduce((best, current) =>
+    current.distance < best.distance ? current : best,
+  );
+
+  console.log(
+    `[OSRM] ✅ Selected: ${shortest.profile.toUpperCase()} profile with ${(shortest.distance / 1000).toFixed(3)} km`,
+  );
+
+  const route = shortest.route;
+
+  // OSRM returns distance in meters and duration in seconds
+  const totalDistance = route.distance; // meters
+  const totalDuration = route.duration; // seconds
+
+  console.log(`[OSRM] ✓ Distance: ${(totalDistance / 1000).toFixed(3)} km`);
+  console.log(`[OSRM] ✓ Duration: ${Math.ceil(totalDuration / 60)} mins`);
+
+  // Extract road segments from steps for overlap calculation
+  // OSRM structure: route.legs[].steps[]
+  const roadSegments = [];
+  if (route.legs) {
+    route.legs.forEach((leg, legIdx) => {
+      if (leg.steps) {
+        leg.steps.forEach((step, stepIdx) => {
+          if (step.geometry && step.geometry.coordinates) {
+            roadSegments.push({
+              legIdx,
+              stepIdx,
+              name: step.name || "unnamed",
+              distance: step.distance,
+              duration: step.duration,
+              coordinates: step.geometry.coordinates, // Already in [lng, lat] format
+            });
+          }
+        });
+      }
+    });
+  }
+
+  console.log(`[OSRM] ✓ Road segments (steps): ${roadSegments.length}`);
+
+  // Extract full route geometry (GeoJSON format from OSRM)
+  // OSRM returns geometry in GeoJSON format when geometries=geojson
+  const geometry = route.geometry; // { type: "LineString", coordinates: [[lng, lat], ...] }
+
+  // Create encoded polyline for compatibility (if needed)
+  // OSRM can return polyline format with geometries=polyline
+  const polyline = encodePolyline(geometry.coordinates);
+
+  return {
+    distance: totalDistance,
+    duration: totalDuration,
+    geometry: geometry, // GeoJSON LineString: { type: "LineString", coordinates: [[lng, lat], ...] }
+    roadSegments: roadSegments,
+    polyline: polyline, // Encoded polyline string for compatibility
+    legs: route.legs || [],
+  };
+}
+
+/**
+ * Encode coordinates array to polyline string
+ * (For compatibility with code expecting Google-style polyline)
+ * @param {Array} coordinates - Array of [lng, lat] coordinates
+ * @returns {string} Encoded polyline string
+ */
+function encodePolyline(coordinates) {
+  if (!coordinates || coordinates.length === 0) return "";
+
+  let encoded = "";
+  let prevLat = 0;
+  let prevLng = 0;
+
+  for (const coord of coordinates) {
+    const lat = Math.round(coord[1] * 1e5); // coord is [lng, lat]
+    const lng = Math.round(coord[0] * 1e5);
+
+    encoded += encodeNumber(lat - prevLat);
+    encoded += encodeNumber(lng - prevLng);
+
+    prevLat = lat;
+    prevLng = lng;
+  }
+
+  return encoded;
+}
+
+/**
+ * Encode a single number for polyline
+ * @param {number} num - Number to encode
+ * @returns {string} Encoded string
+ */
+function encodeNumber(num) {
+  let value = num < 0 ? ~(num << 1) : num << 1;
+  let encoded = "";
+
+  while (value >= 0x20) {
+    encoded += String.fromCharCode((0x20 | (value & 0x1f)) + 63);
+    value >>= 5;
+  }
+  encoded += String.fromCharCode(value + 63);
+
+  return encoded;
+}
+
+/**
+ * Decode polyline to array of coordinates
+ * (For compatibility with existing code)
+ * @param {string} encoded - Encoded polyline string
+ * @returns {Array} Array of {lat, lng} coordinates
+ */
+export function decodePolyline(encoded) {
+  if (!encoded) return [];
+
+  const poly = [];
+  let index = 0;
+  const len = encoded.length;
+  let lat = 0;
+  let lng = 0;
+
+  while (index < len) {
+    let b;
+    let shift = 0;
+    let result = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    const dlat = result & 1 ? ~(result >> 1) : result >> 1;
+    lat += dlat;
+
+    shift = 0;
+    result = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    const dlng = result & 1 ? ~(result >> 1) : result >> 1;
+    lng += dlng;
+
+    poly.push({ lat: lat / 1e5, lng: lng / 1e5 });
+  }
+
+  return poly;
+}
+
+/**
+ * Alias for backward compatibility with googleMapsService.js
+ * Code that imports getGoogleRoute can switch to this
+ */
+export const getGoogleRoute = getOSRMRoute;
+
+export default {
+  getOSRMRoute,
+  getGoogleRoute: getOSRMRoute,
+  decodePolyline,
+};

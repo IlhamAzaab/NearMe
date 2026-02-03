@@ -1,60 +1,36 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import {
-  MapContainer,
-  TileLayer,
-  Marker,
-  useMapEvents,
-  useMap,
-} from "react-leaflet";
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
+import { GoogleMap, Marker, useJsApiLoader } from "@react-google-maps/api";
 
-// Fix Leaflet default marker icons
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl:
-    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png",
-  iconUrl:
-    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
-  shadowUrl:
-    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
-});
+// Google Maps API key
+const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
 
-// Custom circle marker icon
-const createCircleIcon = (color) => {
-  return L.divIcon({
-    className: "custom-marker",
-    html: `<div style="
-      width: 20px;
-      height: 20px;
-      background-color: ${color};
-      border: 3px solid #ffffff;
-      border-radius: 50%;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-    "></div>`,
-    iconSize: [20, 20],
-    iconAnchor: [10, 10],
-  });
-};
+// Google Maps libraries - must be constant to avoid reload warnings
+const GOOGLE_MAPS_LIBRARIES = ["places", "geometry", "maps"];
 
-// OpenStreetMap tile URL
-const TILE_URL = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
-const TILE_ATTRIBUTION =
-  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
-
-// Leaflet container style
+// Google Maps container style
 const mapContainerStyle = {
   width: "100%",
   height: "100%",
 };
 
+// Google Maps options for view mode (non-editable)
+const getMapOptions = (isEditMode) => ({
+  disableDefaultUI: true,
+  zoomControl: isEditMode,
+  streetViewControl: false,
+  mapTypeControl: false,
+  fullscreenControl: false,
+  scrollwheel: isEditMode,
+  draggable: isEditMode,
+  gestureHandling: isEditMode ? "auto" : "none",
+});
+
 // Function to calculate road distance using OSRM routing API
 async function calculateRouteDistance(lat1, lon1, lat2, lon2) {
   try {
     // OSRM expects coordinates in lon,lat format
-    // Use FOOT profile for shortest distance (motorcycles can use walking paths in town)
-    const url = `https://router.project-osrm.org/route/v1/foot/${lon1},${lat1};${lon2},${lat2}?overview=false`;
+    const url = `https://router.project-osrm.org/route/v1/driving/${lon1},${lat1};${lon2},${lat2}?overview=false`;
 
     const response = await fetch(url);
     const data = await response.json();
@@ -124,35 +100,38 @@ const Checkout = () => {
   const [deliveryOption, setDeliveryOption] = useState("standard"); // priority, standard, scheduled
   const [deliveryMethod, setDeliveryMethod] = useState("meet_at_door"); // meet_at_door, leave_at_door
 
-  // Leaflet map ref
+  // Google Maps ref
   const mapRef = useRef(null);
 
-  // Leaflet is always loaded (no API key needed)
-  const isLoaded = true;
-  const loadError = null;
+  // Load Google Maps API
+  const { isLoaded, loadError } = useJsApiLoader({
+    googleMapsApiKey: GOOGLE_MAPS_API_KEY,
+    libraries: GOOGLE_MAPS_LIBRARIES,
+  });
 
-  // Map click handler component for Leaflet
-  function MapClickHandler({ isEditMode, onMapClick }) {
-    useMapEvents({
-      click: (e) => {
-        if (isEditMode) {
-          onMapClick([e.latlng.lat, e.latlng.lng]);
-        }
-      },
-    });
-    return null;
-  }
+  // Handle map load
+  const onMapLoad = useCallback((map) => {
+    mapRef.current = map;
+  }, []);
 
-  // Component to control map programmatically
-  function MapController({ center }) {
-    const map = useMap();
-    useEffect(() => {
-      if (center) {
-        map.setView([center[0], center[1]], map.getZoom());
+  // Handle map click to set position
+  const handleMapClick = useCallback(
+    (e) => {
+      if (isMapEditMode) {
+        const lat = e.latLng.lat();
+        const lng = e.latLng.lng();
+        setPosition([lat, lng]);
       }
-    }, [center, map]);
-    return null;
-  }
+    },
+    [isMapEditMode],
+  );
+
+  // Update map center when mapCenter changes
+  useEffect(() => {
+    if (mapRef.current && mapCenter) {
+      mapRef.current.panTo({ lat: mapCenter[0], lng: mapCenter[1] });
+    }
+  }, [mapCenter]);
 
   // Minimum order amount
   const MINIMUM_SUBTOTAL = 300;
@@ -577,30 +556,32 @@ const Checkout = () => {
             className={`${isMapEditMode ? "h-64" : "h-40"} bg-gray-100 relative overflow-hidden transition-all duration-300`}
           >
             {isLoaded ? (
-              <MapContainer
+              <GoogleMap
+                mapContainerStyle={mapContainerStyle}
                 center={
-                  position ? [position[0], position[1]] : [7.8731, 80.7718]
+                  position
+                    ? { lat: position[0], lng: position[1] }
+                    : { lat: 7.8731, lng: 80.7718 }
                 }
                 zoom={16}
-                style={mapContainerStyle}
-                zoomControl={isMapEditMode}
-                scrollWheelZoom={isMapEditMode}
-                dragging={isMapEditMode}
-                attributionControl={false}
+                options={getMapOptions(isMapEditMode)}
+                onLoad={onMapLoad}
+                onClick={handleMapClick}
               >
-                <TileLayer url={TILE_URL} attribution={TILE_ATTRIBUTION} />
-                <MapClickHandler
-                  isEditMode={isMapEditMode}
-                  onMapClick={setPosition}
-                />
-                <MapController center={mapCenter} />
                 {position && (
                   <Marker
-                    position={[position[0], position[1]]}
-                    icon={createCircleIcon("#FF7A00")}
+                    position={{ lat: position[0], lng: position[1] }}
+                    icon={{
+                      path: window.google?.maps?.SymbolPath?.CIRCLE || 0,
+                      scale: 10,
+                      fillColor: "#FF7A00",
+                      fillOpacity: 1,
+                      strokeWeight: 3,
+                      strokeColor: "#ffffff",
+                    }}
                   />
                 )}
-              </MapContainer>
+              </GoogleMap>
             ) : loadError ? (
               <div className="h-full w-full flex items-center justify-center">
                 <p className="text-red-500 text-sm">Failed to load map</p>

@@ -1,75 +1,19 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import DriverLayout from "../../components/DriverLayout";
 import {
-  MapContainer,
-  TileLayer,
+  GoogleMap,
+  useJsApiLoader,
   Marker,
   Polyline,
-  Popup,
-} from "react-leaflet";
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
+  InfoWindow,
+  DirectionsRenderer,
+} from "@react-google-maps/api";
 
-// Fix Leaflet default marker icons
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl:
-    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png",
-  iconUrl:
-    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
-  shadowUrl:
-    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
-});
+const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
 
-// Custom marker icons for Leaflet
-const createCircleIcon = (color, borderColor = "#ffffff", scale = 10) => {
-  const size = scale * 2;
-  return L.divIcon({
-    className: "custom-marker",
-    html: `<div style="
-      width: ${size}px;
-      height: ${size}px;
-      background-color: ${color};
-      border: 3px solid ${borderColor};
-      border-radius: 50%;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-    "></div>`,
-    iconSize: [size, size],
-    iconAnchor: [size / 2, size / 2],
-    popupAnchor: [0, -size / 2],
-  });
-};
-
-// Labeled marker icons for multi-stop routes
-const createLabeledIcon = (color, label, scale = 15) => {
-  const size = scale * 2;
-  return L.divIcon({
-    className: "custom-marker",
-    html: `<div style="
-      width: ${size}px;
-      height: ${size}px;
-      background-color: ${color};
-      border: 3px solid #ffffff;
-      border-radius: 50%;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: #ffffff;
-      font-weight: bold;
-      font-size: 12px;
-    ">${label}</div>`,
-    iconSize: [size, size],
-    iconAnchor: [size / 2, size / 2],
-    popupAnchor: [0, -size / 2],
-  });
-};
-
-// OpenStreetMap tile URL
-const TILE_URL = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
-const TILE_ATTRIBUTION =
-  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+// Google Maps libraries - must be constant to avoid reload warnings
+const GOOGLE_MAPS_LIBRARIES = ["places", "geometry", "maps"];
 
 // Cache keys for instant loading
 const CACHE_KEY_ACTIVE = "active_deliveries_cache";
@@ -106,10 +50,19 @@ const saveCacheData = (data) => {
   }
 };
 
-// Leaflet container style
+// Google Maps container style
 const mapContainerStyle = {
   width: "100%",
   height: "100%",
+};
+
+// Google Maps options
+const mapOptions = {
+  disableDefaultUI: false,
+  zoomControl: true,
+  streetViewControl: false,
+  mapTypeControl: false,
+  fullscreenControl: true,
 };
 
 export default function ActiveDeliveries() {
@@ -120,9 +73,6 @@ export default function ActiveDeliveries() {
   const [pickups, setPickups] = useState(cachedData?.pickups || []);
   const [initialLoading, setInitialLoading] = useState(!cachedData); // Only skeleton on first load
   const [isRefreshing, setIsRefreshing] = useState(false); // Background refresh indicator
-  const [fetchError, setFetchError] = useState(null); // Track fetch errors
-  const [hasFetchedSuccessfully, setHasFetchedSuccessfully] =
-    useState(!!cachedData); // Track if we've had a successful fetch
   const [driverLocation, setDriverLocation] = useState(
     cachedData?.driverLocation || null,
   );
@@ -132,11 +82,20 @@ export default function ActiveDeliveries() {
     cachedData?.fullRouteData || null,
   ); // Store full route for developer view
 
-  // Leaflet is always loaded (no API key needed)
-  const isLoaded = true;
+  // Load Google Maps API once at component level with same libraries as GoogleMapsProvider
+  const { isLoaded, loadError } = useJsApiLoader({
+    googleMapsApiKey: GOOGLE_MAPS_API_KEY,
+    libraries: GOOGLE_MAPS_LIBRARIES,
+  });
 
-  // Function to fetch with geolocation (used for initial load and retry)
-  const fetchWithLocation = () => {
+  useEffect(() => {
+    const role = localStorage.getItem("role");
+    if (role !== "driver") {
+      navigate("/login");
+      return;
+    }
+
+    // Get driver's current location
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
@@ -156,17 +115,6 @@ export default function ActiveDeliveries() {
     } else {
       fetchPickups(null);
     }
-  };
-
-  useEffect(() => {
-    const role = localStorage.getItem("role");
-    if (role !== "driver") {
-      navigate("/login");
-      return;
-    }
-
-    // Initial fetch with location
-    fetchWithLocation();
 
     // Update location every 10 seconds (background refresh)
     const locationInterval = setInterval(() => {
@@ -208,11 +156,6 @@ export default function ActiveDeliveries() {
         setIsRefreshing(true);
       }
 
-      // Clear previous error on new fetch attempt
-      if (!isBackgroundRefresh) {
-        setFetchError(null);
-      }
-
       const url = `http://localhost:5000/driver/deliveries/pickups?driver_latitude=${location.latitude}&driver_longitude=${location.longitude}`;
 
       const res = await fetch(url, {
@@ -222,8 +165,6 @@ export default function ActiveDeliveries() {
       const data = await res.json();
 
       if (res.ok) {
-        setHasFetchedSuccessfully(true);
-        setFetchError(null);
         const list = data.pickups || [];
         setPickups(list);
 
@@ -249,21 +190,9 @@ export default function ActiveDeliveries() {
         }
       } else {
         console.error("Failed to fetch pickups:", data.message);
-        // Only set error if not a background refresh and no cached data
-        if (!isBackgroundRefresh && !hasFetchedSuccessfully) {
-          setFetchError(
-            `Failed to load pickups: ${data.message || "Server error"}`,
-          );
-        }
       }
     } catch (e) {
       console.error("Fetch pickups error:", e);
-      // Only set error if not a background refresh and no cached data
-      if (!isBackgroundRefresh && !hasFetchedSuccessfully) {
-        setFetchError(
-          `Network error: ${e.message || "Unable to connect to server"}`,
-        );
-      }
     } finally {
       setInitialLoading(false);
       setIsRefreshing(false);
@@ -338,8 +267,6 @@ export default function ActiveDeliveries() {
       });
       const data = await res.json();
       if (res.ok) {
-        setHasFetchedSuccessfully(true);
-        setFetchError(null);
         const list = data.deliveries || [];
         setDeliveries(list);
         setMode("deliver");
@@ -380,21 +307,9 @@ export default function ActiveDeliveries() {
         }
       } else {
         console.error("Failed to fetch deliveries route:", data.message);
-        // Only set error if not a background refresh and no cached data
-        if (!isBackgroundRefresh && !hasFetchedSuccessfully) {
-          setFetchError(
-            `Failed to load deliveries: ${data.message || "Server error"}`,
-          );
-        }
       }
     } catch (e) {
       console.error("Fetch deliveries route error:", e);
-      // Only set error if not a background refresh and no cached data
-      if (!isBackgroundRefresh && !hasFetchedSuccessfully) {
-        setFetchError(
-          `Network error: ${e.message || "Unable to connect to server"}`,
-        );
-      }
     }
   };
 
@@ -453,53 +368,6 @@ export default function ActiveDeliveries() {
               {[1, 2].map((i) => (
                 <ActiveDeliverySkeletonCard key={i} />
               ))}
-            </div>
-          ) : fetchError ? (
-            /* Error State - Network or Server Error */
-            <div className="bg-white rounded-xl shadow-md p-12 text-center">
-              <svg
-                className="mx-auto h-24 w-24 text-red-400"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                />
-              </svg>
-              <h3 className="mt-4 text-xl font-semibold text-red-600">
-                Connection Error
-              </h3>
-              <p className="mt-2 text-gray-500">{fetchError}</p>
-              <p className="mt-2 text-sm text-gray-400">
-                Please check your internet connection and try again
-              </p>
-              <button
-                onClick={() => {
-                  setFetchError(null);
-                  setInitialLoading(true);
-                  fetchWithLocation();
-                }}
-                className="mt-6 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold flex items-center justify-center gap-2 mx-auto"
-              >
-                <svg
-                  className="w-5 h-5"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                  />
-                </svg>
-                Retry
-              </button>
             </div>
           ) : (
               mode === "pickup" ? pickups.length === 0 : deliveries.length === 0
@@ -775,98 +643,132 @@ function PickupCard({
       {showMap && (
         <div className="relative w-full h-[40vh] min-h-[220px]">
           {restaurant && isLoaded ? (
-            <MapContainer
-              center={[mapCenter.lat, mapCenter.lng]}
+            <GoogleMap
+              mapContainerStyle={mapContainerStyle}
+              center={mapCenter}
               zoom={13}
-              style={mapContainerStyle}
-              zoomControl={false}
-              attributionControl={false}
+              options={mapOptions}
             >
-              <TileLayer url={TILE_URL} attribution={TILE_ATTRIBUTION} />
-
               {/* Driver Marker */}
               {driverLocation && (
                 <Marker
-                  position={[driverLocation.latitude, driverLocation.longitude]}
-                  icon={createCircleIcon("#13ec37")}
-                  eventHandlers={{
-                    click: () => setSelectedMarker("driver"),
+                  position={{
+                    lat: driverLocation.latitude,
+                    lng: driverLocation.longitude,
                   }}
+                  icon={{
+                    path: window.google?.maps?.SymbolPath?.CIRCLE || 0,
+                    scale: 10,
+                    fillColor: "#13ec37",
+                    fillOpacity: 1,
+                    strokeWeight: 3,
+                    strokeColor: "#ffffff",
+                  }}
+                  onClick={() => setSelectedMarker("driver")}
+                />
+              )}
+
+              {selectedMarker === "driver" && driverLocation && (
+                <InfoWindow
+                  position={{
+                    lat: driverLocation.latitude,
+                    lng: driverLocation.longitude,
+                  }}
+                  onCloseClick={() => setSelectedMarker(null)}
                 >
-                  {selectedMarker === "driver" && (
-                    <Popup onClose={() => setSelectedMarker(null)}>
-                      <div className="text-center p-1">
-                        <p className="font-bold text-green-600 text-sm">
-                          📍 You
-                        </p>
-                      </div>
-                    </Popup>
-                  )}
-                </Marker>
+                  <div className="text-center p-1">
+                    <p className="font-bold text-green-600 text-sm">📍 You</p>
+                  </div>
+                </InfoWindow>
               )}
 
               {/* Restaurant Marker */}
               <Marker
-                position={[restaurant.latitude, restaurant.longitude]}
-                icon={createCircleIcon("#13ec37")}
-                eventHandlers={{
-                  click: () => setSelectedMarker("restaurant"),
+                position={{
+                  lat: restaurant.latitude,
+                  lng: restaurant.longitude,
                 }}
-              >
-                {selectedMarker === "restaurant" && (
-                  <Popup onClose={() => setSelectedMarker(null)}>
-                    <div className="p-1">
-                      <p className="font-bold text-sm">🍽️ {restaurant.name}</p>
-                    </div>
-                  </Popup>
-                )}
-              </Marker>
+                icon={{
+                  path: window.google?.maps?.SymbolPath?.CIRCLE || 0,
+                  scale: 10,
+                  fillColor: "#13ec37",
+                  fillOpacity: 1,
+                  strokeWeight: 3,
+                  strokeColor: "#ffffff",
+                }}
+                onClick={() => setSelectedMarker("restaurant")}
+              />
+
+              {selectedMarker === "restaurant" && (
+                <InfoWindow
+                  position={{
+                    lat: restaurant.latitude,
+                    lng: restaurant.longitude,
+                  }}
+                  onCloseClick={() => setSelectedMarker(null)}
+                >
+                  <div className="p-1">
+                    <p className="font-bold text-sm">🍽️ {restaurant.name}</p>
+                  </div>
+                </InfoWindow>
+              )}
 
               {/* Customer Marker (shown for reference) */}
               {customer && (
                 <Marker
-                  position={[customer.latitude, customer.longitude]}
-                  icon={createCircleIcon("#111812")}
-                  eventHandlers={{
-                    click: () => setSelectedMarker("customer"),
+                  position={{
+                    lat: customer.latitude,
+                    lng: customer.longitude,
                   }}
+                  icon={{
+                    path: window.google?.maps?.SymbolPath?.CIRCLE || 0,
+                    scale: 10,
+                    fillColor: "#111812",
+                    fillOpacity: 1,
+                    strokeWeight: 3,
+                    strokeColor: "#ffffff",
+                  }}
+                  onClick={() => setSelectedMarker("customer")}
+                />
+              )}
+
+              {selectedMarker === "customer" && customer && (
+                <InfoWindow
+                  position={{
+                    lat: customer.latitude,
+                    lng: customer.longitude,
+                  }}
+                  onCloseClick={() => setSelectedMarker(null)}
                 >
-                  {selectedMarker === "customer" && (
-                    <Popup onClose={() => setSelectedMarker(null)}>
-                      <div className="p-1">
-                        <p className="font-bold text-sm">📍 {customer.name}</p>
-                      </div>
-                    </Popup>
-                  )}
-                </Marker>
+                  <div className="p-1">
+                    <p className="font-bold text-sm">📍 {customer.name}</p>
+                  </div>
+                </InfoWindow>
               )}
 
               {/* Route Polylines */}
               {driverToRestaurantPath.length > 0 && (
                 <Polyline
-                  positions={driverToRestaurantPath.map((p) => [p.lat, p.lng])}
-                  pathOptions={{
-                    color: "#13ec37",
-                    opacity: 0.9,
-                    weight: 5,
+                  path={driverToRestaurantPath}
+                  options={{
+                    strokeColor: "#13ec37",
+                    strokeOpacity: 0.9,
+                    strokeWeight: 5,
                   }}
                 />
               )}
 
               {restaurantToCustomerPath.length > 0 && (
                 <Polyline
-                  positions={restaurantToCustomerPath.map((p) => [
-                    p.lat,
-                    p.lng,
-                  ])}
-                  pathOptions={{
-                    color: "#13ec37",
-                    opacity: 0.6,
-                    weight: 4,
+                  path={restaurantToCustomerPath}
+                  options={{
+                    strokeColor: "#13ec37",
+                    strokeOpacity: 0.6,
+                    strokeWeight: 4,
                   }}
                 />
               )}
-            </MapContainer>
+            </GoogleMap>
           ) : (
             <div className="h-full w-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
               <div className="text-center">
@@ -1012,7 +914,6 @@ function FullRouteMap({
   const [routeInfo, setRouteInfo] = useState(null);
   const [mapRef, setMapRef] = useState(null);
   const [optimizedCustomerOrder, setOptimizedCustomerOrder] = useState([]);
-  const hasFetchedDirections = useRef(false);
 
   // Calculate map center (average of all points)
   const calculateCenter = () => {
@@ -1271,13 +1172,11 @@ function FullRouteMap({
   // State for optimized orders
   const [optimizedRestaurantOrder, setOptimizedRestaurantOrder] = useState([]);
 
-  // Fetch directions when map loads - uses OSRM for route calculation
+  // Fetch directions when map loads - tries multiple modes for shortest route
   const fetchDirections = useCallback(async () => {
-    // Prevent duplicate fetches
-    if (hasFetchedDirections.current) return;
-    if (!driverLocation || pickups.length === 0) return;
+    if (!window.google || !driverLocation || pickups.length === 0) return;
 
-    hasFetchedDirections.current = true;
+    const directionsService = new window.google.maps.DirectionsService();
 
     // STEP 1: Use SMART ROUTING - Optimize based on nearest customer distance
     const optimizedRestaurants = getOptimizedRestaurantOrderByShortest(
@@ -1301,124 +1200,151 @@ function FullRouteMap({
     );
     console.log(`📍 [FULL ROUTE] ═══════════════════════════════════════════`);
 
-    // Build waypoints for OSRM
-    const waypoints = [
-      { lat: driverLocation.latitude, lng: driverLocation.longitude },
-      ...optimizedRestaurants.map((p) => ({
-        lat: p.restaurant.latitude,
-        lng: p.restaurant.longitude,
-      })),
-      ...optimizedCustomers.map((p) => ({
-        lat: p.customer.latitude,
-        lng: p.customer.longitude,
-      })),
+    // Build waypoints for Google Directions API
+    const restaurantWaypoints = optimizedRestaurants.map((p) => ({
+      location: { lat: p.restaurant.latitude, lng: p.restaurant.longitude },
+      stopover: true,
+    }));
+
+    const customerWaypoints = optimizedCustomers.map((p) => ({
+      location: { lat: p.customer.latitude, lng: p.customer.longitude },
+      stopover: true,
+    }));
+
+    // All waypoints: Driver → Optimized Restaurants → Optimized Customers (except last which is destination)
+    const allWaypoints = [
+      ...restaurantWaypoints,
+      ...customerWaypoints.slice(0, -1),
     ];
 
+    const origin = {
+      lat: driverLocation.latitude,
+      lng: driverLocation.longitude,
+    };
+
+    // Destination is the last customer in optimized order
+    const destination =
+      customerWaypoints.length > 0
+        ? customerWaypoints[customerWaypoints.length - 1].location
+        : restaurantWaypoints[restaurantWaypoints.length - 1]?.location;
+
+    // Prefer WALKING mode for shortest distance (suitable for motorcycles too)
+    // Use route alternatives and pick the shortest distance route
+    const preferredMode = window.google.maps.TravelMode.WALKING;
+    const fallbackMode = window.google.maps.TravelMode.DRIVING;
+
+    const getShortestRouteFromResult = (result) => {
+      if (!result?.routes || result.routes.length === 0) return null;
+
+      let bestRoute = result.routes[0];
+      let bestDistance = 0;
+
+      result.routes[0].legs.forEach((leg) => {
+        bestDistance += leg.distance.value;
+      });
+
+      result.routes.forEach((route) => {
+        let distance = 0;
+        route.legs.forEach((leg) => {
+          distance += leg.distance.value;
+        });
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          bestRoute = route;
+        }
+      });
+
+      return { route: bestRoute, distance: bestDistance };
+    };
+
+    let selectedRoute = null;
+    let selectedMode = preferredMode;
+    let selectedResult = null;
+
     try {
-      // Build OSRM URL for route with all waypoints
-      const coordinates = waypoints.map((w) => `${w.lng},${w.lat}`).join(";");
-      const osrmUrl = `https://router.project-osrm.org/route/v1/foot/${coordinates}?overview=full&geometries=geojson&steps=true`;
+      const result = await directionsService.route({
+        origin,
+        destination,
+        waypoints: allWaypoints,
+        optimizeWaypoints: false, // Keep the order: all restaurants first, then all customers
+        travelMode: preferredMode,
+        provideRouteAlternatives: true,
+      });
 
-      // Add timeout to prevent hanging requests
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-
-      try {
-        const response = await fetch(osrmUrl, { signal: controller.signal });
-        clearTimeout(timeoutId);
-        const data = await response.json();
-
-        if (data.code !== "Ok" || !data.routes || data.routes.length === 0) {
-          console.error("OSRM failed to calculate route");
-          return;
-        }
-
-        const route = data.routes[0];
-        const totalDistance = route.distance; // in meters
-        const totalDuration = route.duration; // in seconds
-
-        // Convert OSRM GeoJSON coordinates to Leaflet format
-        const routePath = route.geometry.coordinates.map((coord) => ({
-          lat: coord[1],
-          lng: coord[0],
-        }));
-
-        // Create a directions-like object for compatibility
-        setDirections({
-          routes: [
-            {
-              overview_path: routePath,
-              legs:
-                route.legs?.map((leg) => ({
-                  distance: {
-                    value: leg.distance,
-                    text: `${(leg.distance / 1000).toFixed(2)} km`,
-                  },
-                  duration: {
-                    value: leg.duration,
-                    text: `${Math.ceil(leg.duration / 60)} min`,
-                  },
-                  steps:
-                    leg.steps?.map((step) => ({
-                      path:
-                        step.geometry?.coordinates?.map((c) => ({
-                          lat: c[1],
-                          lng: c[0],
-                        })) || [],
-                    })) || [],
-                })) || [],
-            },
-          ],
-        });
-
-        setRouteInfo({
-          totalDistance: (totalDistance / 1000).toFixed(2),
-          totalDuration: Math.ceil(totalDuration / 60),
-          legs: route.legs || [],
-          optimizedRestaurants: optimizedRestaurants,
-          optimizedCustomers: optimizedCustomers,
-          selectedMode: "OSRM_FOOT",
-        });
-
-        console.log("📍 [FULL ROUTE] Route calculated:", {
-          totalDistance: (totalDistance / 1000).toFixed(2) + " km",
-          totalDuration: Math.ceil(totalDuration / 60) + " min",
-          waypoints: waypoints.length,
-          selectedMode: "OSRM_FOOT",
-          restaurantOrder: optimizedRestaurants.map((p) => p.restaurant.name),
-          customerOrder: optimizedCustomers.map((p) => p.customer.name),
-        });
-      } catch (osrmError) {
-        // Handle OSRM-specific errors (timeout, network, etc.)
-        if (osrmError.name === "AbortError") {
-          console.warn(
-            "📍 [FULL ROUTE] OSRM request timed out, route will show without directions",
-          );
-        } else {
-          console.error("📍 [FULL ROUTE] OSRM error:", osrmError.message);
-        }
+      selectedRoute = getShortestRouteFromResult(result);
+      selectedResult = result;
+      if (selectedRoute) {
+        console.log(
+          `📍 [FULL ROUTE] WALKING alternatives: ${result.routes.length} routes`,
+        );
       }
     } catch (error) {
-      console.error("Failed to fetch OSRM directions:", error);
+      console.log(`📍 [FULL ROUTE] WALKING mode failed:`, error.message);
     }
+
+    if (!selectedRoute) {
+      try {
+        const fallbackResult = await directionsService.route({
+          origin,
+          destination,
+          waypoints: allWaypoints,
+          optimizeWaypoints: false,
+          travelMode: fallbackMode,
+          provideRouteAlternatives: true,
+        });
+        selectedRoute = getShortestRouteFromResult(fallbackResult);
+        selectedResult = fallbackResult;
+        selectedMode = fallbackMode;
+        if (selectedRoute) {
+          console.log(
+            `📍 [FULL ROUTE] DRIVING alternatives: ${fallbackResult.routes.length} routes`,
+          );
+        }
+      } catch (error) {
+        console.log(`📍 [FULL ROUTE] DRIVING mode failed:`, error.message);
+      }
+    }
+
+    if (!selectedRoute) {
+      console.error("Failed to fetch directions: No valid routes found");
+      return;
+    }
+
+    console.log(
+      `📍 [FULL ROUTE] ✅ Selected ${selectedMode}: ${(selectedRoute.distance / 1000).toFixed(2)} km (shortest distance)`,
+    );
+
+    if (selectedResult) {
+      selectedResult.routes = [selectedRoute.route];
+      setDirections(selectedResult);
+    }
+
+    // Calculate total distance and time from selected route
+    let totalDistance = 0;
+    let totalDuration = 0;
+    selectedRoute.route.legs.forEach((leg) => {
+      totalDistance += leg.distance.value;
+      totalDuration += leg.duration.value;
+    });
+
+    setRouteInfo({
+      totalDistance: (totalDistance / 1000).toFixed(2),
+      totalDuration: Math.ceil(totalDuration / 60),
+      legs: selectedRoute.route.legs,
+      optimizedRestaurants: optimizedRestaurants,
+      optimizedCustomers: optimizedCustomers,
+      selectedMode: selectedMode,
+    });
+
+    console.log("📍 [FULL ROUTE] Route calculated:", {
+      totalDistance: (totalDistance / 1000).toFixed(2) + " km",
+      totalDuration: Math.ceil(totalDuration / 60) + " min",
+      waypoints: allWaypoints.length,
+      selectedMode: selectedMode,
+      restaurantOrder: optimizedRestaurants.map((p) => p.restaurant.name),
+      customerOrder: optimizedCustomers.map((p) => p.customer.name),
+    });
   }, [driverLocation, pickups]);
-
-  // Reset hasFetchedDirections when pickups change
-  useEffect(() => {
-    hasFetchedDirections.current = false;
-  }, [pickups.length]);
-
-  // Trigger fetchDirections when map is ready and data is available
-  useEffect(() => {
-    if (
-      mapRef &&
-      driverLocation &&
-      pickups.length > 0 &&
-      !hasFetchedDirections.current
-    ) {
-      fetchDirections();
-    }
-  }, [mapRef, driverLocation, pickups, fetchDirections]);
 
   // Marker colors
   const markerColors = {
@@ -1432,40 +1358,53 @@ function FullRouteMap({
       {/* Map */}
       <div className="h-96 relative">
         {isLoaded ? (
-          <MapContainer
-            center={[mapCenter.lat, mapCenter.lng]}
+          <GoogleMap
+            mapContainerStyle={mapContainerStyle}
+            center={mapCenter}
             zoom={12}
-            style={mapContainerStyle}
-            zoomControl={true}
-            attributionControl={false}
-            ref={(map) => {
-              if (map && !mapRef) {
-                setMapRef(map);
-              }
+            options={mapOptions}
+            onLoad={(map) => {
+              setMapRef(map);
+              fetchDirections();
             }}
           >
-            <TileLayer url={TILE_URL} attribution={TILE_ATTRIBUTION} />
-
             {/* Driver Marker */}
             {driverLocation && (
               <Marker
-                position={[driverLocation.latitude, driverLocation.longitude]}
-                icon={createLabeledIcon(markerColors.driver, "D")}
-                eventHandlers={{
-                  click: () => setSelectedMarker("driver"),
+                position={{
+                  lat: driverLocation.latitude,
+                  lng: driverLocation.longitude,
                 }}
+                label={{
+                  text: "D",
+                  color: "#ffffff",
+                  fontWeight: "bold",
+                }}
+                icon={{
+                  path: window.google?.maps?.SymbolPath?.CIRCLE || 0,
+                  scale: 15,
+                  fillColor: markerColors.driver,
+                  fillOpacity: 1,
+                  strokeWeight: 3,
+                  strokeColor: "#ffffff",
+                }}
+                onClick={() => setSelectedMarker("driver")}
+              />
+            )}
+
+            {selectedMarker === "driver" && driverLocation && (
+              <InfoWindow
+                position={{
+                  lat: driverLocation.latitude,
+                  lng: driverLocation.longitude,
+                }}
+                onCloseClick={() => setSelectedMarker(null)}
               >
-                {selectedMarker === "driver" && (
-                  <Popup onClose={() => setSelectedMarker(null)}>
-                    <div className="p-2">
-                      <p className="font-bold text-green-600">
-                        📍 Driver Location
-                      </p>
-                      <p className="text-xs text-gray-600">Starting Point</p>
-                    </div>
-                  </Popup>
-                )}
-              </Marker>
+                <div className="p-2">
+                  <p className="font-bold text-green-600">📍 Driver Location</p>
+                  <p className="text-xs text-gray-600">Starting Point</p>
+                </div>
+              </InfoWindow>
             )}
 
             {/* Restaurant Markers - Use optimized order */}
@@ -1473,19 +1412,36 @@ function FullRouteMap({
               ? optimizedRestaurantOrder
               : pickups
             ).map((pickup, idx) => (
-              <Marker
-                key={`restaurant-${pickup.delivery_id}`}
-                position={[
-                  pickup.restaurant.latitude,
-                  pickup.restaurant.longitude,
-                ]}
-                icon={createLabeledIcon(markerColors.restaurant, `R${idx + 1}`)}
-                eventHandlers={{
-                  click: () => setSelectedMarker(`restaurant-${idx}`),
-                }}
-              >
+              <React.Fragment key={`restaurant-${pickup.delivery_id}`}>
+                <Marker
+                  position={{
+                    lat: pickup.restaurant.latitude,
+                    lng: pickup.restaurant.longitude,
+                  }}
+                  label={{
+                    text: `R${idx + 1}`,
+                    color: "#ffffff",
+                    fontWeight: "bold",
+                    fontSize: "12px",
+                  }}
+                  icon={{
+                    path: window.google?.maps?.SymbolPath?.CIRCLE || 0,
+                    scale: 15,
+                    fillColor: markerColors.restaurant,
+                    fillOpacity: 1,
+                    strokeWeight: 3,
+                    strokeColor: "#ffffff",
+                  }}
+                  onClick={() => setSelectedMarker(`restaurant-${idx}`)}
+                />
                 {selectedMarker === `restaurant-${idx}` && (
-                  <Popup onClose={() => setSelectedMarker(null)}>
+                  <InfoWindow
+                    position={{
+                      lat: pickup.restaurant.latitude,
+                      lng: pickup.restaurant.longitude,
+                    }}
+                    onCloseClick={() => setSelectedMarker(null)}
+                  >
                     <div className="p-2 min-w-[200px]">
                       <p className="font-bold text-red-600">
                         🍽️ Restaurant #{idx + 1}
@@ -1500,9 +1456,9 @@ function FullRouteMap({
                         Order #{pickup.order_number}
                       </p>
                     </div>
-                  </Popup>
+                  </InfoWindow>
                 )}
-              </Marker>
+              </React.Fragment>
             ))}
 
             {/* Customer Markers - Use optimized order for numbering */}
@@ -1510,16 +1466,36 @@ function FullRouteMap({
               ? optimizedCustomerOrder
               : pickups
             ).map((pickup, idx) => (
-              <Marker
-                key={`customer-${pickup.delivery_id}`}
-                position={[pickup.customer.latitude, pickup.customer.longitude]}
-                icon={createLabeledIcon(markerColors.customer, `C${idx + 1}`)}
-                eventHandlers={{
-                  click: () => setSelectedMarker(`customer-${idx}`),
-                }}
-              >
+              <React.Fragment key={`customer-${pickup.delivery_id}`}>
+                <Marker
+                  position={{
+                    lat: pickup.customer.latitude,
+                    lng: pickup.customer.longitude,
+                  }}
+                  label={{
+                    text: `C${idx + 1}`,
+                    color: "#ffffff",
+                    fontWeight: "bold",
+                    fontSize: "12px",
+                  }}
+                  icon={{
+                    path: window.google?.maps?.SymbolPath?.CIRCLE || 0,
+                    scale: 15,
+                    fillColor: markerColors.customer,
+                    fillOpacity: 1,
+                    strokeWeight: 3,
+                    strokeColor: "#ffffff",
+                  }}
+                  onClick={() => setSelectedMarker(`customer-${idx}`)}
+                />
                 {selectedMarker === `customer-${idx}` && (
-                  <Popup onClose={() => setSelectedMarker(null)}>
+                  <InfoWindow
+                    position={{
+                      lat: pickup.customer.latitude,
+                      lng: pickup.customer.longitude,
+                    }}
+                    onCloseClick={() => setSelectedMarker(null)}
+                  >
                     <div className="p-2 min-w-[200px]">
                       <p className="font-bold text-blue-600">
                         👤 Customer #{idx + 1}{" "}
@@ -1535,59 +1511,42 @@ function FullRouteMap({
                         Order #{pickup.order_number}
                       </p>
                     </div>
-                  </Popup>
+                  </InfoWindow>
                 )}
-              </Marker>
+              </React.Fragment>
             ))}
 
-            {/* Route Polyline - Shows the full route */}
-            {directions && directions.routes && directions.routes[0] && (
+            {/* Directions Renderer - Shows the full route with prominent polyline */}
+            {directions && (
               <>
-                {/* Shadow layer for better road visibility */}
-                <Polyline
-                  positions={
-                    directions.routes[0].overview_path?.map((p) => [
-                      p.lat,
-                      p.lng,
-                    ]) ||
-                    directions.routes[0].legs?.flatMap(
-                      (leg) =>
-                        leg.steps?.flatMap(
-                          (step) => step.path?.map((p) => [p.lat, p.lng]) || [],
-                        ) || [],
-                    ) ||
-                    []
-                  }
-                  pathOptions={{
-                    color: "#ffffff",
-                    opacity: 0.4,
-                    weight: 8,
+                <DirectionsRenderer
+                  directions={directions}
+                  options={{
+                    suppressMarkers: true, // We use custom markers
+                    polylineOptions: {
+                      strokeColor: "#8b5cf6", // Purple color for full route
+                      strokeOpacity: 0.9,
+                      strokeWeight: 6, // Thicker line for better visibility
+                      geodesic: true,
+                    },
                   }}
                 />
-                {/* Main route polyline */}
-                <Polyline
-                  positions={
-                    directions.routes[0].overview_path?.map((p) => [
-                      p.lat,
-                      p.lng,
-                    ]) ||
-                    directions.routes[0].legs?.flatMap(
-                      (leg) =>
-                        leg.steps?.flatMap(
-                          (step) => step.path?.map((p) => [p.lat, p.lng]) || [],
-                        ) || [],
-                    ) ||
-                    []
-                  }
-                  pathOptions={{
-                    color: "#8b5cf6",
-                    opacity: 0.9,
-                    weight: 6,
+                {/* Shadow layer for better road visibility */}
+                <DirectionsRenderer
+                  directions={directions}
+                  options={{
+                    suppressMarkers: true,
+                    polylineOptions: {
+                      strokeColor: "#ffffff", // White shadow
+                      strokeOpacity: 0.4,
+                      strokeWeight: 8, // Slightly thicker for shadow effect
+                      geodesic: true,
+                    },
                   }}
                 />
               </>
             )}
-          </MapContainer>
+          </GoogleMap>
         ) : (
           <div className="h-full w-full bg-gray-200 flex items-center justify-center">
             <p className="text-gray-500">Loading map...</p>
@@ -1784,65 +1743,88 @@ function DeliveryCard({
       {showMap && (
         <div className="relative w-full h-[40vh] min-h-[220px]">
           {customer && isLoaded ? (
-            <MapContainer
-              center={[mapCenter.lat, mapCenter.lng]}
+            <GoogleMap
+              mapContainerStyle={mapContainerStyle}
+              center={mapCenter}
               zoom={13}
-              style={mapContainerStyle}
-              zoomControl={false}
-              attributionControl={false}
+              options={mapOptions}
             >
-              <TileLayer url={TILE_URL} attribution={TILE_ATTRIBUTION} />
-
               {/* Driver Marker */}
               {driverLocation && (
                 <Marker
-                  position={[driverLocation.latitude, driverLocation.longitude]}
-                  icon={createCircleIcon("#13ec37")}
-                  eventHandlers={{
-                    click: () => setSelectedMarker("driver"),
+                  position={{
+                    lat: driverLocation.latitude,
+                    lng: driverLocation.longitude,
                   }}
+                  icon={{
+                    path: window.google?.maps?.SymbolPath?.CIRCLE || 0,
+                    scale: 10,
+                    fillColor: "#13ec37",
+                    fillOpacity: 1,
+                    strokeWeight: 3,
+                    strokeColor: "#ffffff",
+                  }}
+                  onClick={() => setSelectedMarker("driver")}
+                />
+              )}
+
+              {selectedMarker === "driver" && driverLocation && (
+                <InfoWindow
+                  position={{
+                    lat: driverLocation.latitude,
+                    lng: driverLocation.longitude,
+                  }}
+                  onCloseClick={() => setSelectedMarker(null)}
                 >
-                  {selectedMarker === "driver" && (
-                    <Popup onClose={() => setSelectedMarker(null)}>
-                      <div className="text-center p-1">
-                        <p className="font-bold text-green-600 text-sm">
-                          📍 You
-                        </p>
-                      </div>
-                    </Popup>
-                  )}
-                </Marker>
+                  <div className="text-center p-1">
+                    <p className="font-bold text-green-600 text-sm">📍 You</p>
+                  </div>
+                </InfoWindow>
               )}
 
               {/* Customer Marker */}
               <Marker
-                position={[customer.latitude, customer.longitude]}
-                icon={createCircleIcon("#111812")}
-                eventHandlers={{
-                  click: () => setSelectedMarker("customer"),
+                position={{
+                  lat: customer.latitude,
+                  lng: customer.longitude,
                 }}
-              >
-                {selectedMarker === "customer" && (
-                  <Popup onClose={() => setSelectedMarker(null)}>
-                    <div className="p-1">
-                      <p className="font-bold text-sm">📍 {customer.name}</p>
-                    </div>
-                  </Popup>
-                )}
-              </Marker>
+                icon={{
+                  path: window.google?.maps?.SymbolPath?.CIRCLE || 0,
+                  scale: 10,
+                  fillColor: "#111812",
+                  fillOpacity: 1,
+                  strokeWeight: 3,
+                  strokeColor: "#ffffff",
+                }}
+                onClick={() => setSelectedMarker("customer")}
+              />
+
+              {selectedMarker === "customer" && (
+                <InfoWindow
+                  position={{
+                    lat: customer.latitude,
+                    lng: customer.longitude,
+                  }}
+                  onCloseClick={() => setSelectedMarker(null)}
+                >
+                  <div className="p-1">
+                    <p className="font-bold text-sm">📍 {customer.name}</p>
+                  </div>
+                </InfoWindow>
+              )}
 
               {/* Route from Driver to Customer */}
               {routePath.length > 0 && (
                 <Polyline
-                  positions={routePath.map((p) => [p.lat, p.lng])}
-                  pathOptions={{
-                    color: "#13ec37",
-                    opacity: 0.9,
-                    weight: 5,
+                  path={routePath}
+                  options={{
+                    strokeColor: "#13ec37",
+                    strokeOpacity: 0.9,
+                    strokeWeight: 5,
                   }}
                 />
               )}
-            </MapContainer>
+            </GoogleMap>
           ) : (
             <div className="h-full w-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
               <div className="text-center">

@@ -1,7 +1,9 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import { createServer } from "http";
 import { supabaseAdmin } from "./supabaseAdmin.js";
+import { initializeSocket } from "./utils/socketManager.js";
 
 // Load .env file only if NODE_ENV is not production and .env exists
 if (process.env.NODE_ENV !== "production") {
@@ -13,7 +15,7 @@ console.log("\n🔍 Checking Supabase configuration...");
 console.log("SUPABASE_URL:", process.env.SUPABASE_URL ? "✓ Set" : "✗ Missing");
 console.log(
   "SUPABASE_SERVICE_ROLE_KEY:",
-  process.env.SUPABASE_SERVICE_ROLE_KEY ? "✓ Set (hidden)" : "✗ Missing"
+  process.env.SUPABASE_SERVICE_ROLE_KEY ? "✓ Set (hidden)" : "✗ Missing",
 );
 
 // Test Supabase connection
@@ -95,8 +97,17 @@ app.use((err, req, res, next) => {
 
 // Server
 const PORT = process.env.PORT || 5000;
-const server = app.listen(PORT, () => {
+
+// Create HTTP server and initialize Socket.io
+const httpServer = createServer(app);
+const io = initializeSocket(httpServer);
+
+// Make io available to routes
+app.set("io", io);
+
+const server = httpServer.listen(PORT, () => {
   console.log(`Backend running on port ${PORT}`);
+  console.log(`🔌 WebSocket server ready for real-time notifications`);
 });
 
 // Handle server errors

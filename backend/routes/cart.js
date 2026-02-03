@@ -82,8 +82,7 @@ router.post("/add", authenticate, async (req, res) => {
     const admin_unit_price = adminPrice;
     const total_price = (parseFloat(unit_price) * quantity).toFixed(2);
     const admin_total_price = (parseFloat(admin_unit_price) * quantity).toFixed(
-      2,
-      now i want to develop the 
+      2
     );
 
     // STEP 2: Check for existing active cart for this customer + restaurant

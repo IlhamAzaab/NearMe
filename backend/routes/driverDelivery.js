@@ -24,6 +24,7 @@ import {
   removeDeliveryStops,
 } from "../utils/driverRouteContext.js";
 import { getAvailableDeliveriesForDriver } from "../utils/availableDeliveriesLogic.js";
+import { broadcastDeliveryTaken } from "../utils/socketManager.js";
 
 const router = express.Router();
 
@@ -129,7 +130,8 @@ async function getRouteDistance(
       return cached;
     }
 
-    const url = `https://router.project-osrm.org/route/v1/driving/${startLng},${startLat};${endLng},${endLat}?overview=${overview}${
+    // Use FOOT profile for shortest distance (motorcycles can use walking paths in town)
+    const url = `https://router.project-osrm.org/route/v1/foot/${startLng},${startLat};${endLng},${endLat}?overview=${overview}${
       overview === "full" ? "&geometries=geojson" : ""
     }`;
 
@@ -546,28 +548,38 @@ router.post(
 
       console.log(`[ACCEPT DELIVERY]   ✓ Driver can accept deliveries`);
 
-      // Step 2: Atomically assign the delivery with earnings data
+      // Step 2: Atomically assign the delivery with earnings metadata (NOT actual earnings yet)
       console.log(
-        `[ACCEPT DELIVERY] → Step 2: Update delivery status to 'accepted' with earnings`,
+        `[ACCEPT DELIVERY] → Step 2: Update delivery status to 'accepted' (earnings stored on delivery)`,
       );
 
-      // Prepare earnings fields
+      // Prepare earnings metadata fields - store calculation data but NOT actual earnings
+      // Actual earnings (base_amount, extra_earnings, bonus_amount, driver_earnings) will be
+      // calculated and stored when delivery status changes to 'delivered'
       const earningsFields = earnings_data
         ? {
             delivery_sequence: earnings_data.delivery_sequence || 1,
-            base_amount: earnings_data.base_amount || 0,
-            extra_earnings: earnings_data.extra_earnings || 0,
-            bonus_amount: earnings_data.bonus_amount || 0,
+            // Store metadata for distance calculations
             r0_distance_km: earnings_data.r0_distance_km || null,
             r1_distance_km: earnings_data.r1_distance_km || null,
             extra_distance_km: earnings_data.extra_distance_km || 0,
             total_distance_km: earnings_data.total_distance_km || 0,
-            // Calculate total driver_earnings
-            driver_earnings:
-              earnings_data.delivery_sequence === 1
-                ? earnings_data.base_amount || 0
-                : (earnings_data.extra_earnings || 0) +
-                  (earnings_data.bonus_amount || 0),
+            // Store pending earnings data as JSON for later use (when delivered)
+            pending_earnings: JSON.stringify({
+              base_amount: earnings_data.base_amount || 0,
+              extra_earnings: earnings_data.extra_earnings || 0,
+              bonus_amount: earnings_data.bonus_amount || 0,
+              driver_earnings:
+                earnings_data.delivery_sequence === 1
+                  ? earnings_data.base_amount || 0
+                  : (earnings_data.extra_earnings || 0) +
+                    (earnings_data.bonus_amount || 0),
+            }),
+            // Set actual earnings to 0 until delivered
+            base_amount: 0,
+            extra_earnings: 0,
+            bonus_amount: 0,
+            driver_earnings: 0,
           }
         : {};
 
@@ -576,8 +588,7 @@ router.post(
         .update({
           driver_id: req.user.id,
           status: "accepted",
-          assigned_at: new Date().toISOString(),
-          accepted_at: new Date().toISOString(),
+          accepted_at: new Date().toISOString(), // Driver acceptance timestamp
           current_latitude: driver_latitude || null,
           current_longitude: driver_longitude || null,
           last_location_update: new Date().toISOString(),
@@ -587,7 +598,7 @@ router.post(
         .is("driver_id", null)
         .eq("status", "pending")
         .select(
-          `id, order_id, status, assigned_at, delivery_sequence, base_amount, extra_earnings, bonus_amount, driver_earnings, total_distance_km, orders (
+          `id, order_id, status, accepted_at, delivery_sequence, base_amount, extra_earnings, bonus_amount, driver_earnings, total_distance_km, orders (
           id,
           order_number,
           restaurant_name,
@@ -626,7 +637,7 @@ router.post(
         `[ACCEPT DELIVERY]   ✓ Delivery status updated to 'accepted'`,
       );
       console.log(
-        `[ACCEPT DELIVERY]   💰 Earnings stored: Rs.${updated.driver_earnings} (base: ${updated.base_amount}, extra: ${updated.extra_earnings}, bonus: ${updated.bonus_amount})`,
+        `[ACCEPT DELIVERY]   💰 Earnings pending (will be stored on delivery completion)`,
       );
 
       // Step 3: Insert delivery stops into driver's route
@@ -711,6 +722,13 @@ router.post(
 
       console.log(`[ACCEPT DELIVERY]   ✓ Notifications sent`);
 
+      // ======================================================================
+      // 📡 BROADCAST: Notify all other drivers that this delivery is taken
+      // This allows real-time removal from their available deliveries list
+      // ======================================================================
+      broadcastDeliveryTaken(updated.id, req.user.id);
+      console.log(`[ACCEPT DELIVERY]   📡 Broadcast sent: delivery taken`);
+
       console.log(`[ACCEPT DELIVERY] ✅ Delivery accepted successfully`);
       console.log(`${"=".repeat(80)}\n`);
 
@@ -794,6 +812,8 @@ router.get(
           order_id,
           status,
           accepted_at,
+          pending_earnings,
+          delivery_sequence,
           orders (
             id,
             order_number,
@@ -872,10 +892,24 @@ router.get(
 
           const [route, customerRoute] = await Promise.all(routePromises);
 
+          // Parse pending earnings for display (driver can see what they'll earn)
+          let pendingEarningsData = null;
+          if (d.pending_earnings) {
+            try {
+              pendingEarningsData =
+                typeof d.pending_earnings === "string"
+                  ? JSON.parse(d.pending_earnings)
+                  : d.pending_earnings;
+            } catch (e) {
+              console.error("Error parsing pending_earnings:", e);
+            }
+          }
+
           return {
             delivery_id: d.id,
             order_id: d.order_id,
             order_number: d.orders.order_number,
+            delivery_sequence: d.delivery_sequence,
             restaurant: {
               id: d.orders.restaurant_id,
               name: d.orders.restaurant_name,
@@ -901,6 +935,8 @@ router.get(
             route_geometry: route.geometry,
             customer_route_geometry: customerRoute?.geometry,
             accepted_at: d.accepted_at,
+            // Include pending earnings so driver can see expected earnings
+            pending_earnings: pendingEarningsData,
           };
         }),
       );
@@ -973,6 +1009,8 @@ router.get(
           order_id,
           status,
           picked_up_at,
+          pending_earnings,
+          delivery_sequence,
           orders (
             id,
             order_number,
@@ -1029,11 +1067,25 @@ router.get(
             "full",
           );
 
+          // Parse pending earnings for display
+          let pendingEarningsData = null;
+          if (d.pending_earnings) {
+            try {
+              pendingEarningsData =
+                typeof d.pending_earnings === "string"
+                  ? JSON.parse(d.pending_earnings)
+                  : d.pending_earnings;
+            } catch (e) {
+              console.error("Error parsing pending_earnings:", e);
+            }
+          }
+
           return {
             delivery_id: d.id,
             order_id: d.order_id,
             order_number: d.orders.order_number,
             status: d.status,
+            delivery_sequence: d.delivery_sequence,
             customer: {
               id: d.orders.customer_id,
               name: d.orders.customer_name,
@@ -1058,6 +1110,8 @@ router.get(
             estimated_time_seconds: route.duration || 0,
             route_geometry: route.geometry,
             picked_up_at: d.picked_up_at,
+            // Include pending earnings so driver can see expected earnings
+            pending_earnings: pendingEarningsData,
           };
         }),
       );
@@ -1436,6 +1490,59 @@ router.patch(
           .from("orders")
           .update({ status: "delivered", delivered_at: timestamp })
           .eq("id", delivery.order_id);
+
+        // NOW store the actual driver earnings from pending_earnings
+        console.log(
+          `[DELIVERED] 💰 Storing driver earnings for delivery ${deliveryId}`,
+        );
+
+        // Fetch the pending earnings data
+        const { data: deliveryWithPending } = await supabaseAdmin
+          .from("deliveries")
+          .select("pending_earnings, delivery_sequence")
+          .eq("id", deliveryId)
+          .single();
+
+        if (deliveryWithPending?.pending_earnings) {
+          try {
+            const pendingEarnings =
+              typeof deliveryWithPending.pending_earnings === "string"
+                ? JSON.parse(deliveryWithPending.pending_earnings)
+                : deliveryWithPending.pending_earnings;
+
+            // Update with actual earnings
+            const { error: earningsError } = await supabaseAdmin
+              .from("deliveries")
+              .update({
+                base_amount: pendingEarnings.base_amount || 0,
+                extra_earnings: pendingEarnings.extra_earnings || 0,
+                bonus_amount: pendingEarnings.bonus_amount || 0,
+                driver_earnings: pendingEarnings.driver_earnings || 0,
+                pending_earnings: null, // Clear pending data
+              })
+              .eq("id", deliveryId);
+
+            if (earningsError) {
+              console.error(
+                `[DELIVERED] ❌ Error storing earnings:`,
+                earningsError,
+              );
+            } else {
+              console.log(
+                `[DELIVERED] ✅ Earnings stored: Rs.${pendingEarnings.driver_earnings} (base: ${pendingEarnings.base_amount}, extra: ${pendingEarnings.extra_earnings}, bonus: ${pendingEarnings.bonus_amount})`,
+              );
+            }
+          } catch (parseError) {
+            console.error(
+              `[DELIVERED] ❌ Error parsing pending_earnings:`,
+              parseError,
+            );
+          }
+        } else {
+          console.log(
+            `[DELIVERED] ⚠️ No pending_earnings found for delivery ${deliveryId}`,
+          );
+        }
       }
 
       // Send notifications for status changes
@@ -1688,7 +1795,7 @@ router.get("/deliveries/active", authenticate, driverOnly, async (req, res) => {
         id,
         order_id,
         status,
-        assigned_at,
+        accepted_at,
         picked_up_at,
         current_latitude,
         current_longitude,
@@ -1723,7 +1830,7 @@ router.get("/deliveries/active", authenticate, driverOnly, async (req, res) => {
       )
       .eq("driver_id", req.user.id)
       .not("status", "in", "(delivered,failed,cancelled)")
-      .order("assigned_at", { ascending: false });
+      .order("accepted_at", { ascending: false });
 
     if (error && error.code !== "PGRST116") {
       console.error("Fetch active deliveries error:", error);
@@ -1800,7 +1907,7 @@ router.get("/deliveries/active", authenticate, driverOnly, async (req, res) => {
             latitude: d.current_latitude,
             longitude: d.current_longitude,
           },
-          assigned_at: d.assigned_at,
+          accepted_at: d.accepted_at,
           picked_up_at: d.picked_up_at,
           total_distance: totalDistance, // in meters
           order: {
@@ -1936,7 +2043,7 @@ router.get(
         id,
         order_id,
         status,
-        assigned_at,
+        accepted_at,
         picked_up_at,
         delivered_at,
         orders (

@@ -108,6 +108,11 @@ export async function getDriverRouteContext(
           id,
           order_id,
           status,
+          delivery_sequence,
+          driver_earnings,
+          base_amount,
+          extra_earnings,
+          bonus_amount,
           orders (
             order_number,
             restaurant_name,
@@ -365,7 +370,8 @@ export async function getFormattedActiveDeliveries(
         const coordinates = waypoints
           .map((wp) => `${wp.lng},${wp.lat}`)
           .join(";");
-        const url = `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson`;
+        // Use FOOT profile for shortest distance (motorcycles can use walking paths)
+        const url = `https://router.project-osrm.org/route/v1/foot/${coordinates}?overview=full&geometries=geojson`;
 
         const response = await fetch(url);
         if (response.ok) {

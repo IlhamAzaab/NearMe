@@ -195,8 +195,8 @@ export default function DeliveryMap() {
     // Fetch and draw routes using OSRM
     const drawRoutes = async () => {
       try {
-        // Driver to Restaurant route (GREEN)
-        const driverToRestaurantUrl = `https://router.project-osrm.org/route/v1/driving/${driverLng},${driverLat};${restaurantLng},${restaurantLat}?geometries=geojson&overview=full`;
+        // Driver to Restaurant route (GREEN) - Use FOOT profile for shortest distance
+        const driverToRestaurantUrl = `https://router.project-osrm.org/route/v1/foot/${driverLng},${driverLat};${restaurantLng},${restaurantLat}?geometries=geojson&overview=full`;
         const driverRestaurantRes = await fetch(driverToRestaurantUrl);
         const driverRestaurantData = await driverRestaurantRes.json();
 
@@ -218,8 +218,8 @@ export default function DeliveryMap() {
           }).addTo(map);
         }
 
-        // Restaurant to Customer route (GREY)
-        const restaurantToCustomerUrl = `https://router.project-osrm.org/route/v1/driving/${restaurantLng},${restaurantLat};${customerLng},${customerLat}?geometries=geojson&overview=full`;
+        // Restaurant to Customer route (GREY) - Use FOOT profile for shortest distance
+        const restaurantToCustomerUrl = `https://router.project-osrm.org/route/v1/foot/${restaurantLng},${restaurantLat};${customerLng},${customerLat}?geometries=geojson&overview=full`;
         const restaurantCustomerRes = await fetch(restaurantToCustomerUrl);
         const restaurantCustomerData = await restaurantCustomerRes.json();
 

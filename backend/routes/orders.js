@@ -21,6 +21,10 @@ import {
   getCartItemPrices,
   calculateCustomerPrice,
 } from "../utils/commission.js";
+import {
+  broadcastNewDelivery,
+  broadcastDeliveryTaken,
+} from "../utils/socketManager.js";
 
 const router = express.Router();
 
@@ -111,7 +115,8 @@ async function generateOrderNumber() {
  */
 async function calculateRouteDistance(lat1, lon1, lat2, lon2) {
   try {
-    const url = `https://router.project-osrm.org/route/v1/driving/${lon1},${lat1};${lon2},${lat2}?overview=false`;
+    // Use FOOT profile for shortest distance (motorcycles can use walking paths in town)
+    const url = `https://router.project-osrm.org/route/v1/foot/${lon1},${lat1};${lon2},${lat2}?overview=false`;
     const response = await fetch(url);
     const data = await response.json();
 
@@ -287,12 +292,10 @@ router.post("/place", authenticate, async (req, res) => {
         delivery_latitude = parseFloat(customer.latitude);
         delivery_longitude = parseFloat(customer.longitude);
       } else {
-        return res
-          .status(400)
-          .json({
-            message:
-              "Delivery location is required. Please set your location in profile.",
-          });
+        return res.status(400).json({
+          message:
+            "Delivery location is required. Please set your location in profile.",
+        });
       }
     }
 
@@ -1206,6 +1209,7 @@ router.patch(
                 .insert({
                   order_id: orderId,
                   status: "pending",
+                  res_accepted_at: new Date().toISOString(), // Restaurant acceptance timestamp
                 })
                 .select("id")
                 .single();
@@ -1227,7 +1231,7 @@ router.patch(
               .update({
                 status: "pending",
                 driver_id: null,
-                assigned_at: null,
+                res_accepted_at: new Date().toISOString(), // Restaurant acceptance timestamp
                 accepted_at: null,
                 rejected_at: null,
                 picked_up_at: null,
@@ -1289,6 +1293,35 @@ router.patch(
               `✅ Notified ${successCount} drivers successfully${
                 failCount > 0 ? `, ${failCount} failed` : ""
               }`,
+            );
+
+            // ================================================================
+            // 🚀 REAL-TIME WEBSOCKET BROADCAST - Fair Instant Notification
+            // All online drivers receive this at EXACTLY the same time
+            // ================================================================
+            const broadcastResult = broadcastNewDelivery({
+              delivery_id: delivery.id,
+              order_id: orderId,
+              order_number: order.order_number,
+              restaurant: {
+                id: admin.restaurant_id,
+                name: order.restaurant_name,
+                address: order.restaurant_address,
+                latitude: order.restaurant_latitude,
+                longitude: order.restaurant_longitude,
+              },
+              customer: {
+                latitude: order.delivery_latitude,
+                longitude: order.delivery_longitude,
+                address: order.delivery_address,
+                city: order.delivery_city,
+              },
+              total_amount: parseFloat(order.total_amount || 0),
+              created_at: new Date().toISOString(),
+            });
+
+            console.log(
+              `📡 WebSocket broadcast result: ${broadcastResult.driversNotified} drivers notified instantly`,
             );
           } else {
             console.log("⚠️ No active drivers found");
