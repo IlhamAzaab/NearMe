@@ -313,6 +313,17 @@ router.get("/orders", authenticate, async (req, res) => {
 
     const limit = parseInt(req.query.limit) || 10;
 
+    // Get admin's restaurant_id
+    const { data: admin } = await supabaseAdmin
+      .from("admins")
+      .select("restaurant_id")
+      .eq("id", req.user.id)
+      .maybeSingle();
+
+    if (!admin?.restaurant_id) {
+      return res.json({ orders: [] });
+    }
+
     const { data: orders, error } = await supabaseAdmin
       .from("orders")
       .select(
@@ -320,27 +331,46 @@ router.get("/orders", authenticate, async (req, res) => {
         id,
         order_number,
         customer_id,
+        customer_name,
         restaurant_id,
         total_amount,
         status,
         created_at,
         updated_at,
-        users:customer_id (
-          full_name,
-          email
-        ),
-        restaurants:restaurant_id (
-          name,
-          logo_url
+        order_items (
+          food_name,
+          quantity
         )
       `,
       )
+      .eq("restaurant_id", admin.restaurant_id)
       .order("created_at", { ascending: false })
       .limit(limit);
 
     if (error) throw error;
 
-    return res.json({ orders: orders || [] });
+    // Transform orders for dashboard display
+    const transformed = (orders || []).map((o) => ({
+      id: o.id,
+      order_number: o.order_number,
+      customer: o.customer_name || "Unknown",
+      items:
+        (o.order_items || [])
+          .map((item) => `${item.quantity}x ${item.food_name}`)
+          .join(", ") || "No items",
+      amount: parseFloat(o.total_amount || 0),
+      status: o.status,
+      time: new Date(o.created_at).toLocaleString("en-US", {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+      }),
+      created_at: o.created_at,
+    }));
+
+    return res.json({ orders: transformed });
   } catch (e) {
     console.error("/admin/orders error:", e);
     return res.status(500).json({ message: "Failed to load orders" });
@@ -899,14 +929,50 @@ router.get("/earnings", authenticate, async (req, res) => {
         break;
     }
 
+    // Admin (restaurant) earns when driver picks up the order
+    // First get order IDs where delivery status is picked_up or later
+    const { data: qualifyingDeliveries, error: qualDelError } =
+      await supabaseAdmin
+        .from("deliveries")
+        .select("order_id")
+        .in("status", ["picked_up", "on_the_way", "at_customer", "delivered"]);
+
+    if (qualDelError) {
+      console.error("Qualifying deliveries fetch error:", qualDelError);
+      return res.status(500).json({ message: "Failed to fetch earnings data" });
+    }
+
+    const qualifyingOrderIds = (qualifyingDeliveries || []).map(
+      (d) => d.order_id,
+    );
+
     // Use order_financial_details view for consistent financial data
     // restaurant_payment = admin_subtotal (what admin receives)
-    // Valid order statuses: placed, accepted, rejected, ready, delivered, cancelled
+    // Only count orders where driver has picked up (delivery status >= picked_up)
     let totalQuery = supabaseAdmin
       .from("order_financial_details")
       .select("restaurant_payment, placed_at, status")
-      .eq("restaurant_id", restaurantId)
-      .in("status", ["placed", "accepted", "ready", "delivered"]);
+      .eq("restaurant_id", restaurantId);
+
+    // Only include orders with qualifying deliveries
+    if (qualifyingOrderIds.length > 0) {
+      totalQuery = totalQuery.in("order_id", qualifyingOrderIds);
+    } else {
+      // No qualifying orders, return empty earnings
+      return res.json({
+        earnings: {
+          totalRevenue: 0,
+          totalOrders: 0,
+          todaySales: 0,
+          todayOrderCount: 0,
+          thisWeekRevenue: 0,
+          lastWeekRevenue: 0,
+          percentageChange: 0,
+          chartData: [],
+          period,
+        },
+      });
+    }
 
     if (dateFilter?.start) {
       totalQuery = totalQuery.gte("placed_at", dateFilter.start);
@@ -933,12 +999,17 @@ router.get("/earnings", authenticate, async (req, res) => {
     const todayStart = new Date(now);
     todayStart.setHours(0, 0, 0, 0);
 
-    const { data: todayOrders, error: todayError } = await supabaseAdmin
+    let todayQuery = supabaseAdmin
       .from("order_financial_details")
       .select("restaurant_payment")
       .eq("restaurant_id", restaurantId)
-      .gte("placed_at", todayStart.toISOString())
-      .in("status", ["placed", "accepted", "ready", "delivered"]);
+      .gte("placed_at", todayStart.toISOString());
+
+    if (qualifyingOrderIds.length > 0) {
+      todayQuery = todayQuery.in("id", qualifyingOrderIds);
+    }
+
+    const { data: todayOrders, error: todayError } = await todayQuery;
 
     const todaySales = (todayOrders || []).reduce((sum, order) => {
       return sum + parseFloat(order.restaurant_payment || 0);
@@ -952,13 +1023,18 @@ router.get("/earnings", authenticate, async (req, res) => {
     const lastWeekEnd = new Date(now);
     lastWeekEnd.setDate(lastWeekEnd.getDate() - 7);
 
-    const { data: lastWeekOrders } = await supabaseAdmin
+    let lastWeekQuery = supabaseAdmin
       .from("order_financial_details")
       .select("restaurant_payment")
       .eq("restaurant_id", restaurantId)
       .gte("placed_at", lastWeekStart.toISOString())
-      .lt("placed_at", lastWeekEnd.toISOString())
-      .in("status", ["placed", "accepted", "ready", "delivered"]);
+      .lt("placed_at", lastWeekEnd.toISOString());
+
+    if (qualifyingOrderIds.length > 0) {
+      lastWeekQuery = lastWeekQuery.in("id", qualifyingOrderIds);
+    }
+
+    const { data: lastWeekOrders } = await lastWeekQuery;
 
     const lastWeekRevenue = (lastWeekOrders || []).reduce((sum, order) => {
       return sum + parseFloat(order.restaurant_payment || 0);
@@ -968,12 +1044,17 @@ router.get("/earnings", authenticate, async (req, res) => {
     const thisWeekStart = new Date(now);
     thisWeekStart.setDate(thisWeekStart.getDate() - 7);
 
-    const { data: thisWeekOrders } = await supabaseAdmin
+    let thisWeekQuery = supabaseAdmin
       .from("order_financial_details")
       .select("restaurant_payment")
       .eq("restaurant_id", restaurantId)
-      .gte("placed_at", thisWeekStart.toISOString())
-      .in("status", ["placed", "accepted", "ready", "delivered"]);
+      .gte("placed_at", thisWeekStart.toISOString());
+
+    if (qualifyingOrderIds.length > 0) {
+      thisWeekQuery = thisWeekQuery.in("id", qualifyingOrderIds);
+    }
+
+    const { data: thisWeekOrders } = await thisWeekQuery;
 
     const thisWeekRevenue = (thisWeekOrders || []).reduce((sum, order) => {
       return sum + parseFloat(order.restaurant_payment || 0);
@@ -990,13 +1071,18 @@ router.get("/earnings", authenticate, async (req, res) => {
     const thirtyDaysAgo = new Date(now);
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    const { data: chartOrders } = await supabaseAdmin
+    let chartQuery = supabaseAdmin
       .from("order_financial_details")
       .select("restaurant_payment, placed_at")
       .eq("restaurant_id", restaurantId)
       .gte("placed_at", thirtyDaysAgo.toISOString())
-      .in("status", ["placed", "accepted", "ready", "delivered"])
       .order("placed_at", { ascending: true });
+
+    if (qualifyingOrderIds.length > 0) {
+      chartQuery = chartQuery.in("id", qualifyingOrderIds);
+    }
+
+    const { data: chartOrders } = await chartQuery;
 
     // Group by date for chart
     const dailyEarnings = {};

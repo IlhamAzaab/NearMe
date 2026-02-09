@@ -12,6 +12,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import supabaseClient from "../supabaseClient";
+import AnimatedAlert, { useAlert } from "../components/AnimatedAlert";
 import {
   MapContainer,
   TileLayer,
@@ -81,6 +82,7 @@ export default function DriverDeliveryTracking() {
   const [routeToRestaurant, setRouteToRestaurant] = useState(null);
   const [routeToCustomer, setRouteToCustomer] = useState(null);
   const [routeInfo, setRouteInfo] = useState(null);
+  const { alert: alertState, visible: alertVisible, showError } = useAlert();
 
   // Location update interval
   const locationIntervalRef = useRef(null);
@@ -306,11 +308,11 @@ export default function DriverDeliveryTracking() {
           setTimeout(() => navigate("/driver/dashboard"), 2000);
         }
       } else {
-        alert(data.message || "Failed to update status");
+        showError(data.message || "Failed to update status");
       }
     } catch (err) {
       console.error("Update status error:", err);
-      alert("Failed to update status");
+      showError("Failed to update status");
     } finally {
       setUpdating(false);
     }
@@ -363,6 +365,7 @@ export default function DriverDeliveryTracking() {
 
   return (
     <div className="h-screen flex flex-col bg-gray-900">
+      <AnimatedAlert alert={alertState} visible={alertVisible} />
       {/* Map Container */}
       <div className="flex-1 relative">
         <MapContainer

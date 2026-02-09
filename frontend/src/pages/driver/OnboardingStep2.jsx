@@ -1,11 +1,17 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import SiteHeader from "../../components/SiteHeader";
+import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
 
 export default function OnboardingStep2() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [error, setRawError] = useState(null);
+  const { alert: alertState, visible: alertVisible, showError } = useAlert();
+  const setError = (msg) => {
+    setRawError(msg);
+    if (msg) showError(msg);
+  };
   const [formData, setFormData] = useState({
     vehicleNumber: "",
     vehicleType: "",
@@ -17,8 +23,7 @@ export default function OnboardingStep2() {
   });
 
   const userEmail = localStorage.getItem("userEmail");
-  const userName =
-    localStorage.getItem("userName") || "Driver";
+  const userName = localStorage.getItem("userName") || "Driver";
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -225,11 +230,7 @@ export default function OnboardingStep2() {
               </div>
             </div>
 
-            {error && (
-              <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
-                {error}
-              </div>
-            )}
+            <AnimatedAlert alert={alertState} visible={alertVisible} />
 
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
               <p className="text-sm text-yellow-800">

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import BottomNavbar from "../components/BottomNavbar";
+import AnimatedAlert, { useAlert } from "../components/AnimatedAlert";
 
 const FoodDetail = () => {
   const { restaurantId, foodId } = useParams();
@@ -20,7 +21,7 @@ const FoodDetail = () => {
   const [selectedSize, setSelectedSize] = useState("regular");
   const [quantity, setQuantity] = useState(1);
   const [addingToCart, setAddingToCart] = useState(false);
-  const [message, setMessage] = useState(null);
+  const { alert, visible, showSuccess, showError } = useAlert();
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -112,13 +113,13 @@ const FoodDetail = () => {
         currentToken === "null" ||
         currentToken === "undefined"
       ) {
-        alert("Please login to add items to cart");
+        showError("Please login to add items to cart");
         navigate("/login");
         return;
       }
 
       if (currentRole !== "customer") {
-        alert("Only customers can add items to cart");
+        showError("Only customers can add items to cart");
         return;
       }
 
@@ -146,18 +147,19 @@ const FoodDetail = () => {
       }
 
       if (goToCheckout) {
-        navigate("/cart");
+        // Navigate to cart with restaurantId to auto-select this restaurant's cart
+        navigate(`/cart?restaurantId=${restaurantId}`);
         return;
       }
 
-      setMessage({ type: "success", text: "Item added to cart successfully!" });
+      showSuccess("Item added to cart successfully!");
 
       setTimeout(() => {
         navigate(`/restaurant/${restaurantId}/foods`);
       }, 2000);
     } catch (error) {
       console.error("Add to cart error:", error);
-      setMessage({ type: "error", text: error.message });
+      showError(error.message);
     } finally {
       setAddingToCart(false);
     }
@@ -167,23 +169,7 @@ const FoodDetail = () => {
     <div className="min-h-screen bg-gray-50 font-poppins pb-24 page-slide-up">
       {/* Sticky Header */}
 
-      {/* Success/Error Message */}
-      {message && (
-        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 animate-fade-in">
-          <div
-            className={`px-6 py-3 rounded-2xl shadow-xl flex items-center gap-2 ${
-              message.type === "success"
-                ? "bg-green-500 text-white"
-                : "bg-red-500 text-white"
-            }`}
-          >
-            <span className="text-xl">
-              {message.type === "success" ? "✓" : "✕"}
-            </span>
-            {message.text}
-          </div>
-        </div>
-      )}
+      <AnimatedAlert alert={alert} visible={visible} />
 
       {loading ? (
         <div className="flex flex-col items-center justify-center py-32">

@@ -6,6 +6,9 @@
 -- STEP 1: Drop existing enum types (this will fail if columns are using them)
 -- We need to convert columns to text first, then drop enums, then recreate
 
+--i want to correct the after placed orders pages.
+--pages should be displayed based on the deliveries.status. when status== placed display the placingOrder page. when status changed to pending it should changed to orderRecieved page. then changed to DriverAccepted page when status==accepted. then chagne to OrderPickedUp page when status==picked_up. then chagned to OnTheWay page when status==on_the_way. then changed to OrderDelivered page. all pages changes happen with the animation like we  did it for the customer side. page should come from bottom to top with accelation like did earlier.
+
 -- Convert orders.status to text temporarily
 ALTER TABLE orders 
 ALTER COLUMN status TYPE TEXT;

@@ -112,7 +112,7 @@ export async function getDriverRouteContext(
           driver_earnings,
           base_amount,
           extra_earnings,
-          bonus_amount,
+          pending_earnings,
           orders (
             order_number,
             restaurant_name,

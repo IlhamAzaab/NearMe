@@ -69,12 +69,12 @@ const OrderDelivered = () => {
 
   // Navigate to home
   const handleGoHome = () => {
-    navigate("/customer");
+    navigate("/");
   };
 
   // Navigate to order again
   const handleOrderAgain = () => {
-    navigate("/customer");
+    navigate("/");
   };
 
   return (

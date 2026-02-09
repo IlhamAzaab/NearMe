@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import SiteHeader from "../../components/SiteHeader";
+import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
 
 export default function AdminProfile() {
   const navigate = useNavigate();
@@ -11,8 +12,22 @@ export default function AdminProfile() {
   const [phone, setPhone] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [error, setError] = useState(null);
-  const [message, setMessage] = useState(null);
+  const [error, setRawError] = useState(null);
+  const [message, setRawMessage] = useState(null);
+  const {
+    alert: alertState,
+    visible: alertVisible,
+    showSuccess,
+    showError,
+  } = useAlert();
+  const setError = (msg) => {
+    setRawError(msg);
+    if (msg) showError(msg);
+  };
+  const setMessage = (msg) => {
+    setRawMessage(msg);
+    if (msg) showSuccess(msg);
+  };
 
   const userEmail = localStorage.getItem("userEmail");
   const userName = userEmail?.split("@")[0] || "";
@@ -118,6 +133,7 @@ export default function AdminProfile() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <AnimatedAlert alert={alertState} visible={alertVisible} />
       <SiteHeader
         isLoggedIn={true}
         role="admin"
@@ -205,17 +221,6 @@ export default function AdminProfile() {
             />
           </div>
 
-          {error && (
-            <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
-              {error}
-            </div>
-          )}
-          {message && (
-            <div className="p-3 bg-green-50 border border-green-200 text-green-700 rounded-lg text-sm">
-              {message}
-            </div>
-          )}
-
           <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
             <p className="text-sm text-yellow-800">
               ⚠️ <strong>Warning:</strong> Once submitted, you cannot change
@@ -235,4 +240,3 @@ export default function AdminProfile() {
     </div>
   );
 }
-

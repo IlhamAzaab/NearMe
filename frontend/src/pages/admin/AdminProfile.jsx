@@ -1,11 +1,22 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
 
 export default function AdminProfile() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [error, setRawError] = useState(null);
   const [success, setSuccess] = useState(false);
+  const {
+    alert: alertState,
+    visible: alertVisible,
+    showSuccess,
+    showError,
+  } = useAlert();
+  const setError = (msg) => {
+    setRawError(msg);
+    if (msg) showError(msg);
+  };
   const [forcePasswordChange, setForcePasswordChange] = useState(false);
   const [formData, setFormData] = useState({
     username: "",
@@ -16,8 +27,8 @@ export default function AdminProfile() {
   // Animation for floating elements
   useEffect(() => {
     const interval = setInterval(() => {
-      const elements = document.querySelectorAll('.floating');
-      elements.forEach(el => {
+      const elements = document.querySelectorAll(".floating");
+      elements.forEach((el) => {
         const time = Date.now() / 300;
         const offset = Array.from(elements).indexOf(el);
         el.style.transform = `translateY(${Math.sin(time + offset) * 15}px) scale(${1 + Math.sin(time + offset) * 0.05})`;
@@ -46,7 +57,7 @@ export default function AdminProfile() {
             navigate(
               `/admin/restaurant/onboarding/step-${
                 data.admin.onboarding_step || 1
-              }`
+              }`,
             );
           }
           // If everything complete, go to dashboard
@@ -111,6 +122,7 @@ export default function AdminProfile() {
 
       if (res.ok) {
         setSuccess(true);
+        showSuccess("Password changed successfully! Redirecting...");
         setTimeout(() => {
           navigate("/admin/restaurant/onboarding/step-1");
         }, 1500);
@@ -126,6 +138,7 @@ export default function AdminProfile() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-500 via-green-600 to-green-700 p-4 overflow-hidden relative">
+      <AnimatedAlert alert={alertState} visible={alertVisible} />
       {/* Animated background elements */}
       <div className="absolute inset-0 overflow-hidden">
         {/* Floating circles */}
@@ -133,7 +146,7 @@ export default function AdminProfile() {
         <div className="absolute bottom-1/4 right-1/4 w-72 h-72 rounded-full bg-gradient-to-r from-green-300/25 to-green-400/25 floating animate-pulse-slower"></div>
         <div className="absolute top-1/3 right-1/3 w-48 h-48 rounded-full bg-gradient-to-r from-green-200/20 to-green-300/20 floating animate-pulse-slow"></div>
         <div className="absolute top-1/2 left-1/2 w-40 h-40 rounded-full bg-gradient-to-r from-lime-300/25 to-green-300/25 animate-ping-slow"></div>
-        
+
         {/* Vertical animated bars */}
         <div className="absolute inset-0">
           {[...Array(8)].map((_, i) => (
@@ -142,7 +155,7 @@ export default function AdminProfile() {
               className="absolute w-1 bg-gradient-to-b from-transparent via-white/20 to-transparent animate-slide-down"
               style={{
                 left: `${i * 12.5}%`,
-                height: '100%',
+                height: "100%",
                 animationDelay: `${i * 0.3}s`,
                 animationDuration: `${3 + i * 0.2}s`,
               }}
@@ -249,39 +262,6 @@ export default function AdminProfile() {
             </div>
           </div>
 
-          {error && (
-            <div className="p-4 bg-red-50 border-l-4 border-red-500 text-red-700 rounded-lg">
-              <div className="flex items-center gap-2">
-                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                  <path
-                    fillRule="evenodd"
-                    d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-                <span className="font-medium">{error}</span>
-              </div>
-            </div>
-          )}
-
-          {success && (
-            <div className="p-4 bg-green-50 border-l-4 border-green-500 text-green-700 rounded-lg">
-              <div className="flex items-center gap-2">
-                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                  <path
-                    fillRule="evenodd"
-                    d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-                <span className="font-medium">
-                  ✓ Password changed successfully! Redirecting to restaurant
-                  onboarding...
-                </span>
-              </div>
-            </div>
-          )}
-
           <button
             type="submit"
             disabled={loading || success}
@@ -303,25 +283,27 @@ export default function AdminProfile() {
         </form>
       </div>
 
-      <style jsx>{`
+      <style>{`
         @keyframes pulse-slow {
-          0%, 100% {
+          0%,
+          100% {
             opacity: 0.3;
           }
           50% {
             opacity: 0.5;
           }
         }
-        
+
         @keyframes pulse-slower {
-          0%, 100% {
+          0%,
+          100% {
             opacity: 0.2;
           }
           50% {
             opacity: 0.4;
           }
         }
-        
+
         @keyframes border-rotation {
           0% {
             background-position: 0% 50%;
@@ -333,7 +315,7 @@ export default function AdminProfile() {
             background-position: 0% 50%;
           }
         }
-        
+
         @keyframes slide-down {
           0% {
             transform: translateY(-100%);
@@ -347,7 +329,7 @@ export default function AdminProfile() {
             opacity: 0;
           }
         }
-        
+
         @keyframes ping-slow {
           0% {
             transform: scale(1);
@@ -362,24 +344,24 @@ export default function AdminProfile() {
             opacity: 0.3;
           }
         }
-        
+
         .animate-pulse-slow {
           animation: pulse-slow 4s ease-in-out infinite;
         }
-        
+
         .animate-pulse-slower {
           animation: pulse-slower 6s ease-in-out infinite;
         }
-        
+
         .animate-ping-slow {
           animation: ping-slow 3s ease-in-out infinite;
         }
-        
+
         .animate-border-rotation {
           background-size: 200% 200%;
           animation: border-rotation 3s linear infinite;
         }
-        
+
         .animate-slide-down {
           animation: slide-down linear infinite;
         }
@@ -387,4 +369,3 @@ export default function AdminProfile() {
     </div>
   );
 }
-

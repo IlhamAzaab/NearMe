@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import ManagerLayout from "../../../components/ManagerLayout";
+import AnimatedAlert, { useAlert } from "../../../components/AnimatedAlert";
 
 const statusColors = {
   active: "bg-green-100 text-green-700",
@@ -14,7 +15,12 @@ export default function RestaurantManagement() {
   const navigate = useNavigate();
   const [restaurants, setRestaurants] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setRawError] = useState(null);
+  const { alert: alertState, visible: alertVisible, showError } = useAlert();
+  const setError = (msg) => {
+    setRawError(msg);
+    if (msg) showError(msg);
+  };
   const [statusFilter, setStatusFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [actionLoading, setActionLoading] = useState("");
@@ -55,7 +61,7 @@ export default function RestaurantManagement() {
         {
           headers: { Authorization: `Bearer ${token}` },
           signal,
-        }
+        },
       );
       const data = await res.json();
 
@@ -92,7 +98,7 @@ export default function RestaurantManagement() {
             Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({ status: nextStatus }),
-        }
+        },
       );
 
       const data = await res.json();
@@ -103,8 +109,8 @@ export default function RestaurantManagement() {
           prev.map((restaurant) =>
             restaurant.id === restaurantId
               ? { ...restaurant, restaurant_status: nextStatus }
-              : restaurant
-          )
+              : restaurant,
+          ),
         );
         if (selectedRestaurant?.id === restaurantId) {
           setSelectedRestaurant({
@@ -141,6 +147,7 @@ export default function RestaurantManagement() {
 
   return (
     <ManagerLayout>
+      <AnimatedAlert alert={alertState} visible={alertVisible} />
       <div className="max-w-7xl mx-auto space-y-6">
         <div>
           <h1 className="text-3xl font-bold text-gray-800">
@@ -183,12 +190,6 @@ export default function RestaurantManagement() {
               </button>
             </div>
           </div>
-
-          {error && (
-            <div className="mb-3 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
-              {error}
-            </div>
-          )}
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Restaurant Cards */}

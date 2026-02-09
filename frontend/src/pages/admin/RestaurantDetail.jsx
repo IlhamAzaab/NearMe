@@ -10,6 +10,7 @@ import {
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import AdminLayout from "../../components/AdminLayout";
+import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
 
 // Component to handle map clicks for location selection
 function LocationMarker({ position, setPosition, isEditing }) {
@@ -62,7 +63,12 @@ L.Icon.Default.mergeOptions({
 export default function RestaurantDetail() {
   const [restaurant, setRestaurant] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setRawError] = useState(null);
+  const { alert: alertState, visible: alertVisible, showError } = useAlert();
+  const setError = (msg) => {
+    setRawError(msg);
+    if (msg) showError(msg);
+  };
   const [editing, setEditing] = useState(false);
   const [uploading, setUploading] = useState(null); // 'logo' | 'cover' | null
   const [formData, setFormData] = useState({
@@ -181,7 +187,7 @@ export default function RestaurantDetail() {
                 Authorization: `Bearer ${token}`,
               },
               body: JSON.stringify({ imageData: base64String }),
-            }
+            },
           );
 
           const data = await response.json();
@@ -252,10 +258,29 @@ export default function RestaurantDetail() {
   if (loading) {
     return (
       <AdminLayout>
-        <div className="flex items-center justify-center h-64">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-10 sm:h-12 w-10 sm:w-12 border-b-4 border-green-600 mx-auto"></div>
-            <p className="text-gray-600 mt-4 text-sm sm:text-base">Loading restaurant details...</p>
+        <div className="max-w-4xl mx-auto space-y-6 animate-pulse">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="h-6 w-48 bg-gray-200 rounded" />
+              <div className="h-4 w-64 bg-gray-200 rounded mt-2" />
+            </div>
+            <div className="h-10 w-28 bg-gray-200 rounded-xl" />
+          </div>
+          <div className="h-40 w-full bg-gray-200 rounded-xl" />
+          <div className="flex items-center gap-4">
+            <div className="w-20 h-20 bg-gray-200 rounded-full" />
+            <div className="space-y-2 flex-1">
+              <div className="h-4 w-32 bg-gray-200 rounded" />
+              <div className="h-3 w-48 bg-gray-200 rounded" />
+            </div>
+          </div>
+          <div className="space-y-4">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="space-y-2">
+                <div className="h-3 w-24 bg-gray-200 rounded" />
+                <div className="h-10 w-full bg-gray-200 rounded-xl" />
+              </div>
+            ))}
           </div>
         </div>
       </AdminLayout>
@@ -276,6 +301,7 @@ export default function RestaurantDetail() {
 
   return (
     <AdminLayout>
+      <AnimatedAlert alert={alertState} visible={alertVisible} />
       <div className="max-w-4xl mx-auto space-y-4 sm:space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
@@ -336,12 +362,6 @@ export default function RestaurantDetail() {
             </div>
           )}
         </div>
-
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg">
-            {error}
-          </div>
-        )}
 
         {restaurant && (
           <div className="bg-white rounded-lg shadow border border-green-100 p-4 sm:p-6 space-y-4 sm:space-y-6">
@@ -573,11 +593,11 @@ export default function RestaurantDetail() {
                     (err) => {
                       console.error("Geolocation error:", err);
                       setError(
-                        "Unable to get your location. Please select manually on the map."
+                        "Unable to get your location. Please select manually on the map.",
                       );
                       setLocating(false);
                     },
-                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
                   );
                 }}
                 disabled={locating}
@@ -653,4 +673,3 @@ export default function RestaurantDetail() {
     </AdminLayout>
   );
 }
-

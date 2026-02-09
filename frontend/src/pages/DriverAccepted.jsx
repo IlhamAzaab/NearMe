@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
 import OrderMapLayout from "../components/OrderMapLayout";
+import AnimatedAlert, { useAlert } from "../components/AnimatedAlert";
 import "./DriverAccepted.css";
 
 const DriverAccepted = () => {
@@ -18,6 +19,7 @@ const DriverAccepted = () => {
   const orderId = paramOrderId || stateOrderId;
   const [deliveryStatus, setDeliveryStatus] = useState("accepted");
   const [driverInfo, setDriverInfo] = useState(driver || null);
+  const { alert, visible, showSuccess } = useAlert();
 
   // Poll for status updates
   useEffect(() => {
@@ -83,7 +85,7 @@ const DriverAccepted = () => {
 
   // Handle back navigation
   const handleBack = () => {
-    navigate("/home");
+    navigate("/");
   };
 
   // Handle copy phone number to clipboard
@@ -91,7 +93,7 @@ const DriverAccepted = () => {
     if (driverInfo?.phone) {
       try {
         await navigator.clipboard.writeText(driverInfo.phone);
-        alert('Phone number copied to clipboard!');
+        showSuccess('Phone number copied to clipboard!');
       } catch (err) {
         console.error('Failed to copy:', err);
       }
@@ -119,6 +121,7 @@ const DriverAccepted = () => {
       actionButtons={[]}
       onBack={handleBack}
     >
+      <AnimatedAlert alert={alert} visible={visible} />
       {/* ===== Driver Profile Card ===== */}
       <div className="driver-card">
         {/* Driver Avatar */}

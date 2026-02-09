@@ -9,6 +9,7 @@ import {
 } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
+import AnimatedAlert, { useAlert } from "../../../components/AnimatedAlert";
 
 // Fix Leaflet default marker icon issue
 delete L.Icon.Default.prototype._getIconUrl;
@@ -71,12 +72,16 @@ function StepProgress({ currentStep, totalSteps }) {
                 i + 1 < currentStep
                   ? "bg-green-500 text-white"
                   : i + 1 === currentStep
-                  ? "bg-green-600 text-white ring-4 ring-green-200"
-                  : "bg-gray-300 text-gray-600"
+                    ? "bg-green-600 text-white ring-4 ring-green-200"
+                    : "bg-gray-300 text-gray-600"
               }`}
             >
               {i + 1 < currentStep ? (
-                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                <svg
+                  className="w-5 h-5"
+                  fill="currentColor"
+                  viewBox="0 0 20 20"
+                >
                   <path
                     fillRule="evenodd"
                     d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
@@ -104,8 +109,8 @@ export default function AdminOnboardingStep2() {
   // Animation for floating elements
   useEffect(() => {
     const interval = setInterval(() => {
-      const elements = document.querySelectorAll('.floating');
-      elements.forEach(el => {
+      const elements = document.querySelectorAll(".floating");
+      elements.forEach((el) => {
         el.style.transform = `translateY(${Math.sin(Date.now() / 1000 + Array.from(elements).indexOf(el)) * 5}px)`;
       });
     }, 50);
@@ -129,7 +134,12 @@ export default function AdminOnboardingStep2() {
   });
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState({});
-  const [error, setError] = useState(null);
+  const [error, setRawError] = useState(null);
+  const { alert: alertState, visible: alertVisible, showError } = useAlert();
+  const setError = (msg) => {
+    setRawError(msg);
+    if (msg) showError(msg);
+  };
   const [locating, setLocating] = useState(false);
 
   // Set default position (Sri Lanka center)
@@ -159,7 +169,7 @@ export default function AdminOnboardingStep2() {
       (err) => {
         console.error("Geolocation error:", err);
         setError(
-          "Unable to get your location. Please select manually on the map."
+          "Unable to get your location. Please select manually on the map.",
         );
         setLocating(false);
       },
@@ -167,7 +177,7 @@ export default function AdminOnboardingStep2() {
         enableHighAccuracy: true,
         timeout: 10000,
         maximumAge: 0,
-      }
+      },
     );
   };
 
@@ -203,7 +213,7 @@ export default function AdminOnboardingStep2() {
             Authorization: `Bearer ${token}`,
           },
           body: formData,
-        }
+        },
       );
 
       if (!response.ok) {
@@ -261,7 +271,7 @@ export default function AdminOnboardingStep2() {
             const url = await uploadToCloudinary(files.logo, "logo");
             setUploading((prev) => ({ ...prev, logo: false }));
             return url;
-          })()
+          })(),
         );
       } else {
         uploadPromises.push(Promise.resolve(null));
@@ -273,12 +283,11 @@ export default function AdminOnboardingStep2() {
           const url = await uploadToCloudinary(files.coverImage, "cover_image");
           setUploading((prev) => ({ ...prev, coverImage: false }));
           return url;
-        })()
+        })(),
       );
 
-      const [uploadedLogoUrl, coverImageUrl] = await Promise.all(
-        uploadPromises
-      );
+      const [uploadedLogoUrl, coverImageUrl] =
+        await Promise.all(uploadPromises);
       logoUrl = uploadedLogoUrl;
 
       // Submit to backend with URLs and position coordinates
@@ -297,7 +306,7 @@ export default function AdminOnboardingStep2() {
             logoUrl,
             coverImageUrl,
           }),
-        }
+        },
       );
 
       const data = await res.json();
@@ -316,6 +325,7 @@ export default function AdminOnboardingStep2() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-500 via-green-600 to-green-700 p-4 overflow-hidden relative">
+      <AnimatedAlert alert={alertState} visible={alertVisible} />
       {/* Animated background elements */}
       <div className="absolute inset-0 overflow-hidden">
         {/* Floating circles */}
@@ -323,7 +333,7 @@ export default function AdminOnboardingStep2() {
         <div className="absolute bottom-1/4 right-1/4 w-72 h-72 rounded-full bg-gradient-to-r from-green-300/25 to-green-400/25 floating animate-pulse-slower"></div>
         <div className="absolute top-1/3 right-1/3 w-48 h-48 rounded-full bg-gradient-to-r from-green-200/20 to-green-300/20 floating animate-pulse-slow"></div>
         <div className="absolute top-1/2 left-1/2 w-40 h-40 rounded-full bg-gradient-to-r from-lime-300/25 to-green-300/25 animate-ping-slow"></div>
-        
+
         {/* Vertical animated bars */}
         <div className="absolute inset-0">
           {[...Array(10)].map((_, i) => (
@@ -332,14 +342,14 @@ export default function AdminOnboardingStep2() {
               className="absolute w-1 bg-gradient-to-b from-transparent via-white/25 to-transparent animate-slide-down"
               style={{
                 left: `${i * 10}%`,
-                height: '100%',
+                height: "100%",
                 animationDelay: `${i * 0.3}s`,
                 animationDuration: `${3 + i * 0.2}s`,
               }}
             ></div>
           ))}
         </div>
-        
+
         {/* Diagonal lines */}
         <div className="absolute inset-0">
           {[...Array(5)].map((_, i) => (
@@ -348,13 +358,13 @@ export default function AdminOnboardingStep2() {
               className="absolute h-px bg-gradient-to-r from-transparent via-lime-400/20 to-transparent animate-slide-diagonal"
               style={{
                 top: `${i * 20}%`,
-                width: '200%',
+                width: "200%",
                 animationDelay: `${i * 0.5}s`,
               }}
             ></div>
           ))}
         </div>
-        
+
         {/* Speed lines animation */}
         <div className="absolute inset-0">
           {[...Array(8)].map((_, i) => (
@@ -363,7 +373,7 @@ export default function AdminOnboardingStep2() {
               className="absolute h-1 bg-gradient-to-r from-transparent via-white/30 to-transparent"
               style={{
                 top: `${i * 12.5}%`,
-                width: '200%',
+                width: "200%",
                 animation: `speedLine ${2 + i * 0.3}s linear infinite`,
                 animationDelay: `${i * 0.2}s`,
                 transform: `translateX(-100%)`,
@@ -378,8 +388,12 @@ export default function AdminOnboardingStep2() {
         <div className="flex justify-center mb-6">
           <div className="relative">
             <div className="text-6xl animate-bounce text-red-600">
-              <svg className="w-16 h-16 mx-auto" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M8.1 13.34l2.83-2.83L3.91 3.5c-1.56 1.56-1.56 4.09 0 5.66l4.19 4.18zm6.78-1.81c1.53.71 3.68.21 5.27-1.38 1.91-1.91 2.28-4.65.81-6.12-1.46-1.46-4.2-1.1-6.12.81-1.59 1.59-2.09 3.74-1.38 5.27L3.7 19.87l1.41 1.41L12 14.41l6.88 6.88 1.41-1.41L13.41 13l1.47-1.47z"/>
+              <svg
+                className="w-16 h-16 mx-auto"
+                fill="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path d="M8.1 13.34l2.83-2.83L3.91 3.5c-1.56 1.56-1.56 4.09 0 5.66l4.19 4.18zm6.78-1.81c1.53.71 3.68.21 5.27-1.38 1.91-1.91 2.28-4.65.81-6.12-1.46-1.46-4.2-1.1-6.12.81-1.59 1.59-2.09 3.74-1.38 5.27L3.7 19.87l1.41 1.41L12 14.41l6.88 6.88 1.41-1.41L13.41 13l1.47-1.47z" />
               </svg>
             </div>
             <div className="absolute -top-2 -right-2 w-4 h-4 bg-lime-500 rounded-full animate-ping"></div>
@@ -392,10 +406,10 @@ export default function AdminOnboardingStep2() {
         <p className="text-center text-gray-600 mb-6">
           Provide restaurant identity and location details.
         </p>
-        
+
         {/* Progress Bar */}
         <StepProgress currentStep={2} totalSteps={5} />
-        
+
         <form
           className="grid grid-cols-1 md:grid-cols-2 gap-4"
           onSubmit={handleSubmit}
@@ -429,7 +443,9 @@ export default function AdminOnboardingStep2() {
                 className="relative w-full px-4 py-3 bg-transparent rounded-xl focus:outline-none z-10"
                 placeholder="Enter registration number"
                 value={form.registrationNumber}
-                onChange={(e) => updateField("registrationNumber", e.target.value)}
+                onChange={(e) =>
+                  updateField("registrationNumber", e.target.value)
+                }
                 required
               />
             </div>
@@ -530,45 +546,89 @@ export default function AdminOnboardingStep2() {
               <div className="relative grid grid-cols-2 gap-3 px-4 py-3 bg-transparent rounded-xl z-10">
                 <div className="relative group">
                   <select
-                    value={form.openingTime ? form.openingTime.split(':')[0] : ''}
+                    value={
+                      form.openingTime ? form.openingTime.split(":")[0] : ""
+                    }
                     onChange={(e) => {
                       const hour = e.target.value;
-                      const minute = form.openingTime ? form.openingTime.split(':')[1] : '00';
-                      updateField('openingTime', `${hour}:${minute}`);
+                      const minute = form.openingTime
+                        ? form.openingTime.split(":")[1]
+                        : "00";
+                      updateField("openingTime", `${hour}:${minute}`);
                     }}
                     className="w-full bg-gradient-to-br from-white to-green-50 border-2 border-green-100 rounded-xl px-4 py-3 text-center font-semibold text-gray-800 focus:outline-none focus:border-green-500 focus:ring-4 focus:ring-green-200 cursor-pointer appearance-none transition-all duration-300 hover:shadow-lg hover:scale-105 hover:border-green-300"
                     required
                   >
-                    <option value="" className="text-gray-400">Hour</option>
-                    {Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0')).map((hour) => (
-                      <option key={hour} value={hour} className="text-gray-800 font-medium">{hour}</option>
+                    <option value="" className="text-gray-400">
+                      Hour
+                    </option>
+                    {Array.from({ length: 24 }, (_, i) =>
+                      String(i).padStart(2, "0"),
+                    ).map((hour) => (
+                      <option
+                        key={hour}
+                        value={hour}
+                        className="text-gray-800 font-medium"
+                      >
+                        {hour}
+                      </option>
                     ))}
                   </select>
                   <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-                    <svg className="w-5 h-5 text-green-600 transition-transform duration-300 group-hover:scale-110" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+                    <svg
+                      className="w-5 h-5 text-green-600 transition-transform duration-300 group-hover:scale-110"
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z"
+                        clipRule="evenodd"
+                      />
                     </svg>
                   </div>
                 </div>
                 <div className="relative group">
                   <select
-                    value={form.openingTime ? form.openingTime.split(':')[1] : ''}
+                    value={
+                      form.openingTime ? form.openingTime.split(":")[1] : ""
+                    }
                     onChange={(e) => {
                       const minute = e.target.value;
-                      const hour = form.openingTime ? form.openingTime.split(':')[0] : '00';
-                      updateField('openingTime', `${hour}:${minute}`);
+                      const hour = form.openingTime
+                        ? form.openingTime.split(":")[0]
+                        : "00";
+                      updateField("openingTime", `${hour}:${minute}`);
                     }}
                     className="w-full bg-gradient-to-br from-white to-green-50 border-2 border-green-100 rounded-xl px-4 py-3 text-center font-semibold text-gray-800 focus:outline-none focus:border-green-500 focus:ring-4 focus:ring-green-200 cursor-pointer appearance-none transition-all duration-300 hover:shadow-lg hover:scale-105 hover:border-green-300"
                     required
                   >
-                    <option value="" className="text-gray-400">Min</option>
-                    {Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0')).map((min) => (
-                      <option key={min} value={min} className="text-gray-800 font-medium">{min}</option>
+                    <option value="" className="text-gray-400">
+                      Min
+                    </option>
+                    {Array.from({ length: 60 }, (_, i) =>
+                      String(i).padStart(2, "0"),
+                    ).map((min) => (
+                      <option
+                        key={min}
+                        value={min}
+                        className="text-gray-800 font-medium"
+                      >
+                        {min}
+                      </option>
                     ))}
                   </select>
                   <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-                    <svg className="w-5 h-5 text-green-600 transition-transform duration-300 group-hover:scale-110" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+                    <svg
+                      className="w-5 h-5 text-green-600 transition-transform duration-300 group-hover:scale-110"
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z"
+                        clipRule="evenodd"
+                      />
                     </svg>
                   </div>
                 </div>
@@ -586,45 +646,85 @@ export default function AdminOnboardingStep2() {
               <div className="relative grid grid-cols-2 gap-3 px-4 py-3 bg-transparent rounded-xl z-10">
                 <div className="relative group">
                   <select
-                    value={form.closeTime ? form.closeTime.split(':')[0] : ''}
+                    value={form.closeTime ? form.closeTime.split(":")[0] : ""}
                     onChange={(e) => {
                       const hour = e.target.value;
-                      const minute = form.closeTime ? form.closeTime.split(':')[1] : '00';
-                      updateField('closeTime', `${hour}:${minute}`);
+                      const minute = form.closeTime
+                        ? form.closeTime.split(":")[1]
+                        : "00";
+                      updateField("closeTime", `${hour}:${minute}`);
                     }}
                     className="w-full bg-gradient-to-br from-white to-green-50 border-2 border-green-100 rounded-xl px-4 py-3 text-center font-semibold text-gray-800 focus:outline-none focus:border-green-500 focus:ring-4 focus:ring-green-200 cursor-pointer appearance-none transition-all duration-300 hover:shadow-lg hover:scale-105 hover:border-green-300"
                     required
                   >
-                    <option value="" className="text-gray-400">Hour</option>
-                    {Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0')).map((hour) => (
-                      <option key={hour} value={hour} className="text-gray-800 font-medium">{hour}</option>
+                    <option value="" className="text-gray-400">
+                      Hour
+                    </option>
+                    {Array.from({ length: 24 }, (_, i) =>
+                      String(i).padStart(2, "0"),
+                    ).map((hour) => (
+                      <option
+                        key={hour}
+                        value={hour}
+                        className="text-gray-800 font-medium"
+                      >
+                        {hour}
+                      </option>
                     ))}
                   </select>
                   <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-                    <svg className="w-5 h-5 text-green-600 transition-transform duration-300 group-hover:scale-110" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+                    <svg
+                      className="w-5 h-5 text-green-600 transition-transform duration-300 group-hover:scale-110"
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z"
+                        clipRule="evenodd"
+                      />
                     </svg>
                   </div>
                 </div>
                 <div className="relative group">
                   <select
-                    value={form.closeTime ? form.closeTime.split(':')[1] : ''}
+                    value={form.closeTime ? form.closeTime.split(":")[1] : ""}
                     onChange={(e) => {
                       const minute = e.target.value;
-                      const hour = form.closeTime ? form.closeTime.split(':')[0] : '00';
-                      updateField('closeTime', `${hour}:${minute}`);
+                      const hour = form.closeTime
+                        ? form.closeTime.split(":")[0]
+                        : "00";
+                      updateField("closeTime", `${hour}:${minute}`);
                     }}
                     className="w-full bg-gradient-to-br from-white to-green-50 border-2 border-green-100 rounded-xl px-4 py-3 text-center font-semibold text-gray-800 focus:outline-none focus:border-green-500 focus:ring-4 focus:ring-green-200 cursor-pointer appearance-none transition-all duration-300 hover:shadow-lg hover:scale-105 hover:border-green-300"
                     required
                   >
-                    <option value="" className="text-gray-400">Min</option>
-                    {Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0')).map((min) => (
-                      <option key={min} value={min} className="text-gray-800 font-medium">{min}</option>
+                    <option value="" className="text-gray-400">
+                      Min
+                    </option>
+                    {Array.from({ length: 60 }, (_, i) =>
+                      String(i).padStart(2, "0"),
+                    ).map((min) => (
+                      <option
+                        key={min}
+                        value={min}
+                        className="text-gray-800 font-medium"
+                      >
+                        {min}
+                      </option>
                     ))}
                   </select>
                   <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-                    <svg className="w-5 h-5 text-green-600 transition-transform duration-300 group-hover:scale-110" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+                    <svg
+                      className="w-5 h-5 text-green-600 transition-transform duration-300 group-hover:scale-110"
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z"
+                        clipRule="evenodd"
+                      />
                     </svg>
                   </div>
                 </div>
@@ -641,7 +741,7 @@ export default function AdminOnboardingStep2() {
               type="file"
               accept="image/jpeg,image/jpg,image/png"
               className="w-full border-2 border-gray-200 rounded-xl p-3 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-gradient-to-r file:from-lime-50 file:to-green-50 file:text-lime-700 hover:file:bg-lime-100 file:cursor-pointer cursor-pointer transition-all"
-              onChange={(e) => handleFileChange('logo', e)}
+              onChange={(e) => handleFileChange("logo", e)}
             />
           </div>
 
@@ -655,7 +755,7 @@ export default function AdminOnboardingStep2() {
                 type="file"
                 accept="image/jpeg,image/jpg,image/png"
                 className="flex-1 border-2 border-gray-200 rounded-xl p-3 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-gradient-to-r file:from-lime-50 file:to-green-50 file:text-lime-700 hover:file:bg-lime-100 file:cursor-pointer cursor-pointer transition-all"
-                onChange={(e) => handleFileChange('coverImage', e)}
+                onChange={(e) => handleFileChange("coverImage", e)}
                 required
               />
               {files.coverImage && (
@@ -669,11 +769,7 @@ export default function AdminOnboardingStep2() {
           </div>
 
           {/* Error Display */}
-          {error && (
-            <div className="md:col-span-2 bg-gradient-to-r from-red-50 to-red-100 border-2 border-red-200 text-red-700 p-4 rounded-xl">
-              {error}
-            </div>
-          )}
+
           <div className="md:col-span-2 flex justify-end gap-3 mt-4">
             <button
               type="button"
@@ -689,8 +785,20 @@ export default function AdminOnboardingStep2() {
             >
               {loading && (
                 <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                    fill="none"
+                  ></circle>
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  ></path>
                 </svg>
               )}
               {loading ? "Uploading..." : "Save & Continue"}
@@ -711,24 +819,35 @@ export default function AdminOnboardingStep2() {
             background-position: 0% 50%;
           }
         }
-        
+
         .animate-border-rotation {
           background-size: 200% 200%;
           animation: border-rotation 3s linear infinite;
         }
-        
+
         @keyframes speedLine {
-          0% { transform: translateX(-100%) translateY(0); }
-          100% { transform: translateX(100%) translateY(0); }
+          0% {
+            transform: translateX(-100%) translateY(0);
+          }
+          100% {
+            transform: translateX(100%) translateY(0);
+          }
         }
-        .animate-spin-slow { animation: spin 3s linear infinite; }
-        .animate-spin-slow-reverse { animation: spin 3s linear infinite reverse; }
+        .animate-spin-slow {
+          animation: spin 3s linear infinite;
+        }
+        .animate-spin-slow-reverse {
+          animation: spin 3s linear infinite reverse;
+        }
         @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
+          from {
+            transform: rotate(0deg);
+          }
+          to {
+            transform: rotate(360deg);
+          }
         }
       `}</style>
     </div>
   );
 }
-

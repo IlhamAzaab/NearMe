@@ -23,7 +23,14 @@ router.get("/me", authenticate, async (req, res) => {
       .eq("id", userId)
       .maybeSingle();
 
-    if (error || !data) {
+    if (error) {
+      console.error("/driver/me database error:", error);
+      return res
+        .status(500)
+        .json({ message: "Database error", error: error.message });
+    }
+
+    if (!data) {
       return res.status(404).json({ message: "Driver profile not found" });
     }
 

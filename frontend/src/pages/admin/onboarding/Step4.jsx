@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import AnimatedAlert, { useAlert } from "../../../components/AnimatedAlert";
 
 const CONTRACT_HTML = `
 <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
@@ -62,12 +63,16 @@ function StepProgress({ currentStep, totalSteps }) {
                 i + 1 < currentStep
                   ? "bg-green-500 text-white"
                   : i + 1 === currentStep
-                  ? "bg-green-600 text-white ring-4 ring-green-200"
-                  : "bg-gray-300 text-gray-600"
+                    ? "bg-green-600 text-white ring-4 ring-green-200"
+                    : "bg-gray-300 text-gray-600"
               }`}
             >
               {i + 1 < currentStep ? (
-                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                <svg
+                  className="w-5 h-5"
+                  fill="currentColor"
+                  viewBox="0 0 20 20"
+                >
                   <path
                     fillRule="evenodd"
                     d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
@@ -93,13 +98,19 @@ export default function AdminOnboardingStep4() {
   const token = localStorage.getItem("token");
   const [accepted, setAccepted] = useState(false);
   const [loading, setLoading] = useState(false);
+  const {
+    alert: alertState,
+    visible: alertVisible,
+    showSuccess,
+    showError,
+  } = useAlert();
   const [ipAddress, setIpAddress] = useState(null);
 
   // Animation for floating elements
   useEffect(() => {
     const interval = setInterval(() => {
-      const elements = document.querySelectorAll('.floating');
-      elements.forEach(el => {
+      const elements = document.querySelectorAll(".floating");
+      elements.forEach((el) => {
         el.style.transform = `translateY(${Math.sin(Date.now() / 1000 + Array.from(elements).indexOf(el)) * 5}px)`;
       });
     }, 50);
@@ -123,7 +134,7 @@ export default function AdminOnboardingStep4() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!accepted) {
-      alert("Please accept the contract to continue");
+      showError("Please accept the contract to continue");
       return;
     }
     setLoading(true);
@@ -143,17 +154,17 @@ export default function AdminOnboardingStep4() {
             userAgent: navigator.userAgent,
             contractHtml: CONTRACT_HTML,
           }),
-        }
+        },
       );
       const data = await res.json();
       if (!res.ok) {
-        alert(data?.message || "Failed to submit contract");
+        showError(data?.message || "Failed to submit contract");
         return;
       }
       navigate("/admin/restaurant/pending");
     } catch (err) {
       console.error("Step4 submit error", err);
-      alert("Something went wrong. Please try again.");
+      showError("Something went wrong. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -161,6 +172,7 @@ export default function AdminOnboardingStep4() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-500 via-green-600 to-green-700 p-4 overflow-hidden relative">
+      <AnimatedAlert alert={alertState} visible={alertVisible} />
       {/* Animated background elements */}
       <div className="absolute inset-0 overflow-hidden">
         {/* Floating circles */}
@@ -168,7 +180,7 @@ export default function AdminOnboardingStep4() {
         <div className="absolute bottom-1/4 right-1/4 w-72 h-72 rounded-full bg-gradient-to-r from-green-300/25 to-green-400/25 floating animate-pulse-slower"></div>
         <div className="absolute top-1/3 right-1/3 w-48 h-48 rounded-full bg-gradient-to-r from-green-200/20 to-green-300/20 floating animate-pulse-slow"></div>
         <div className="absolute top-1/2 left-1/2 w-40 h-40 rounded-full bg-gradient-to-r from-lime-300/25 to-green-300/25 animate-ping-slow"></div>
-        
+
         {/* Vertical animated bars */}
         <div className="absolute inset-0">
           {[...Array(10)].map((_, i) => (
@@ -177,14 +189,14 @@ export default function AdminOnboardingStep4() {
               className="absolute w-1 bg-gradient-to-b from-transparent via-white/25 to-transparent animate-slide-down"
               style={{
                 left: `${i * 10}%`,
-                height: '100%',
+                height: "100%",
                 animationDelay: `${i * 0.3}s`,
                 animationDuration: `${3 + i * 0.2}s`,
               }}
             ></div>
           ))}
         </div>
-        
+
         {/* Diagonal lines */}
         <div className="absolute inset-0">
           {[...Array(5)].map((_, i) => (
@@ -193,13 +205,13 @@ export default function AdminOnboardingStep4() {
               className="absolute h-px bg-gradient-to-r from-transparent via-lime-400/20 to-transparent animate-slide-diagonal"
               style={{
                 top: `${i * 20}%`,
-                width: '200%',
+                width: "200%",
                 animationDelay: `${i * 0.5}s`,
               }}
             ></div>
           ))}
         </div>
-        
+
         {/* Speed lines animation */}
         <div className="absolute inset-0">
           {[...Array(8)].map((_, i) => (
@@ -208,7 +220,7 @@ export default function AdminOnboardingStep4() {
               className="absolute h-1 bg-gradient-to-r from-transparent via-white/30 to-transparent"
               style={{
                 top: `${i * 12.5}%`,
-                width: '200%',
+                width: "200%",
                 animation: `speedLine ${2 + i * 0.3}s linear infinite`,
                 animationDelay: `${i * 0.2}s`,
                 transform: `translateX(-100%)`,
@@ -223,14 +235,17 @@ export default function AdminOnboardingStep4() {
         <div className="flex justify-center mb-6">
           <div className="relative">
             <div className="text-6xl animate-bounce text-red-600">
-              <svg className="w-16 h-16 mx-auto" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M8.1 13.34l2.83-2.83L3.91 3.5c-1.56 1.56-1.56 4.09 0 5.66l4.19 4.18zm6.78-1.81c1.53.71 3.68.21 5.27-1.38 1.91-1.91 2.28-4.65.81-6.12-1.46-1.46-4.2-1.1-6.12.81-1.59 1.59-2.09 3.74-1.38 5.27L3.7 19.87l1.41 1.41L12 14.41l6.88 6.88 1.41-1.41L13.41 13l1.47-1.47z"/>
+              <svg
+                className="w-16 h-16 mx-auto"
+                fill="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path d="M8.1 13.34l2.83-2.83L3.91 3.5c-1.56 1.56-1.56 4.09 0 5.66l4.19 4.18zm6.78-1.81c1.53.71 3.68.21 5.27-1.38 1.91-1.91 2.28-4.65.81-6.12-1.46-1.46-4.2-1.1-6.12.81-1.59 1.59-2.09 3.74-1.38 5.27L3.7 19.87l1.41 1.41L12 14.41l6.88 6.88 1.41-1.41L13.41 13l1.47-1.47z" />
               </svg>
             </div>
             <div className="absolute -top-2 -right-2 w-4 h-4 bg-lime-500 rounded-full animate-ping"></div>
           </div>
         </div>
-
 
         <h1 className="text-3xl font-bold text-center mb-2 bg-gradient-to-r from-lime-600 to-green-600 bg-clip-text text-transparent">
           Step 4: Contract Acceptance
@@ -256,12 +271,15 @@ export default function AdminOnboardingStep4() {
               onChange={(e) => setAccepted(e.target.checked)}
               className="w-5 h-5 text-lime-500 rounded focus:ring-lime-500 cursor-pointer"
             />
-            <span className="font-medium">I have read and accept the terms above.</span>
+            <span className="font-medium">
+              I have read and accept the terms above.
+            </span>
           </label>
 
           {ipAddress && (
             <p className="text-xs text-gray-500 bg-gray-50 p-3 rounded-xl border border-gray-200">
-              Submission will be recorded with IP: <span className="font-mono font-semibold">{ipAddress}</span>
+              Submission will be recorded with IP:{" "}
+              <span className="font-mono font-semibold">{ipAddress}</span>
             </p>
           )}
 
@@ -280,8 +298,20 @@ export default function AdminOnboardingStep4() {
             >
               {loading && (
                 <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                    fill="none"
+                  ></circle>
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  ></path>
                 </svg>
               )}
               {loading ? "Submitting..." : "Accept & Finish"}
@@ -292,17 +322,28 @@ export default function AdminOnboardingStep4() {
 
       <style jsx>{`
         @keyframes speedLine {
-          0% { transform: translateX(-100%) translateY(0); }
-          100% { transform: translateX(100%) translateY(0); }
+          0% {
+            transform: translateX(-100%) translateY(0);
+          }
+          100% {
+            transform: translateX(100%) translateY(0);
+          }
         }
-        .animate-spin-slow { animation: spin 3s linear infinite; }
-        .animate-spin-slow-reverse { animation: spin 3s linear infinite reverse; }
+        .animate-spin-slow {
+          animation: spin 3s linear infinite;
+        }
+        .animate-spin-slow-reverse {
+          animation: spin 3s linear infinite reverse;
+        }
         @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
+          from {
+            transform: rotate(0deg);
+          }
+          to {
+            transform: rotate(360deg);
+          }
         }
       `}</style>
     </div>
   );
 }
-

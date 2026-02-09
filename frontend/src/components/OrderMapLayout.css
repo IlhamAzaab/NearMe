@@ -1,6 +1,18 @@
 /* OrderMapLayout.css - Reusable Order Map Layout Component */
 /* Extracted from OrderReceived.css for consistent UI across all order status pages */
 
+/* ===== Page Entry Animation ===== */
+@keyframes page-fade-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .order-map-layout {
   min-height: 100vh;
   min-height: 100dvh;
@@ -9,6 +21,7 @@
   overflow: hidden;
   font-family: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
   background: #f0f0f0;
+  animation: page-fade-slide-up 0.5s cubic-bezier(0.0, 0.0, 0.2, 1);
 }
 
 /* ===== Realistic Map Background ===== */

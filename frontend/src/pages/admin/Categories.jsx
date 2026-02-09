@@ -34,7 +34,7 @@ export default function Categories() {
           </div>
           <button
             onClick={() => setShowAddModal(true)}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2"
+            className="px-4 py-2 bg-green-600 text-white rounded-xl hover:bg-green-700 flex items-center gap-2 shadow-md transition-all"
           >
             <svg
               className="w-5 h-5"
@@ -55,9 +55,20 @@ export default function Categories() {
 
         <div className="bg-white rounded-xl shadow">
           {loading ? (
-            <div className="text-center py-12">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-indigo-600 mx-auto"></div>
-              <p className="text-gray-600 mt-4">Loading categories...</p>
+            <div className="p-4 space-y-3">
+              {[...Array(4)].map((_, i) => (
+                <div
+                  key={i}
+                  className="flex items-center gap-4 p-3 animate-pulse"
+                >
+                  <div className="w-12 h-12 bg-gray-200 rounded-lg shrink-0" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-4 w-1/3 bg-gray-200 rounded" />
+                    <div className="h-3 w-1/2 bg-gray-200 rounded" />
+                  </div>
+                  <div className="h-8 w-16 bg-gray-200 rounded" />
+                </div>
+              ))}
             </div>
           ) : categories.length === 0 ? (
             <div className="text-center py-12 text-gray-500">
@@ -155,7 +166,7 @@ export default function Categories() {
           onSave={(category) => {
             if (editingCategory) {
               setCategories(
-                categories.map((c) => (c.id === category.id ? category : c))
+                categories.map((c) => (c.id === category.id ? category : c)),
               );
             } else {
               setCategories([...categories, { ...category, id: Date.now() }]);

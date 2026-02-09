@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import BottomNavbar from "../components/BottomNavbar";
+import AnimatedAlert, { useAlert } from "../components/AnimatedAlert";
 
 const Cart = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [role, setRole] = useState("");
@@ -14,13 +16,16 @@ const Cart = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [updatingItem, setUpdatingItem] = useState(null);
-  const [message, setMessage] = useState(null);
   const [selectedCartId, setSelectedCartId] = useState(null);
+  const { alert, visible, showSuccess, showError } = useAlert();
   const selectedCart = carts.find((cart) => cart.id === selectedCartId) || null;
 
   // Calculate total cart count for badge
   const cartCount = carts.reduce((sum, cart) => {
-    return sum + (cart.items || []).reduce((itemSum, item) => itemSum + item.quantity, 0);
+    return (
+      sum +
+      (cart.items || []).reduce((itemSum, item) => itemSum + item.quantity, 0)
+    );
   }, 0);
 
   useEffect(() => {
@@ -59,8 +64,23 @@ const Cart = () => {
       }
 
       setCarts(data.carts || []);
+
+      // Check if restaurantId is passed in URL (from Buy Now button)
+      const restaurantIdParam = searchParams.get("restaurantId");
+      if (restaurantIdParam && data.carts) {
+        const matchingCart = data.carts.find(
+          (cart) => cart.restaurant_id === restaurantIdParam,
+        );
+        if (matchingCart) {
+          setSelectedCartId(matchingCart.id);
+          // Clear the URL param after using it
+          setSearchParams({});
+          return;
+        }
+      }
+
       setSelectedCartId((prev) =>
-        data.carts && data.carts.some((cart) => cart.id === prev) ? prev : null
+        data.carts && data.carts.some((cart) => cart.id === prev) ? prev : null,
       );
     } catch (err) {
       console.error("Fetch cart error:", err);
@@ -90,7 +110,7 @@ const Cart = () => {
             Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({ quantity: newQuantity }),
-        }
+        },
       );
 
       const data = await response.json();
@@ -121,7 +141,7 @@ const Cart = () => {
           headers: {
             Authorization: `Bearer ${token}`,
           },
-        }
+        },
       );
 
       const data = await response.json();
@@ -166,8 +186,8 @@ const Cart = () => {
   };
 
   const showMessage = (text, type) => {
-    setMessage({ text, type });
-    setTimeout(() => setMessage(null), 3000);
+    if (type === "success") showSuccess(text);
+    else showError(text);
   };
 
   const handleCheckout = (cartId) => {
@@ -186,19 +206,33 @@ const Cart = () => {
                 <span className="text-white text-lg font-bold">N</span>
               </div>
               <div>
-                <h1 className="text-xl font-bold text-gray-900">Shopping Cart</h1>
-                <p className="text-xs text-gray-500">Review your items and proceed to checkout</p>
+                <h1 className="text-xl font-bold text-gray-900">
+                  Shopping Cart
+                </h1>
+                <p className="text-xs text-gray-500">
+                  Review your items and proceed to checkout
+                </p>
               </div>
             </div>
-            
+
             {/* Cart Icon with Badge */}
             <div className="relative p-2.5 bg-orange-50 rounded-full">
-              <svg className="w-5 h-5 text-[#FF7A00]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"/>
+              <svg
+                className="w-5 h-5 text-[#FF7A00]"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"
+                />
               </svg>
               {cartCount > 0 && (
                 <span className="absolute -top-0.5 -right-0.5 w-5 h-5 bg-[#FF7A00] text-white text-xs font-bold rounded-full flex items-center justify-center">
-                  {cartCount > 9 ? '9+' : cartCount}
+                  {cartCount > 9 ? "9+" : cartCount}
                 </span>
               )}
             </div>
@@ -206,20 +240,7 @@ const Cart = () => {
         </div>
       </header>
 
-      {/* Success/Error Message */}
-      {message && (
-        <div className="fixed top-20 right-4 z-50 animate-fade-in">
-          <div
-            className={`px-5 py-3 rounded-2xl shadow-lg ${
-              message.type === "success"
-                ? "bg-green-500 text-white"
-                : "bg-red-500 text-white"
-            }`}
-          >
-            {message.text}
-          </div>
-        </div>
-      )}
+      <AnimatedAlert alert={alert} visible={visible} />
 
       {/* Main Content */}
       <main className="px-4 py-5 max-w-6xl mx-auto">
@@ -259,7 +280,9 @@ const Cart = () => {
               <div className="w-16 h-16 border-4 border-orange-100 rounded-full"></div>
               <div className="absolute top-0 left-0 w-16 h-16 border-4 border-[#FF7A00] border-t-transparent rounded-full animate-spin"></div>
             </div>
-            <p className="mt-4 text-gray-500 text-sm font-medium">Loading your cart...</p>
+            <p className="mt-4 text-gray-500 text-sm font-medium">
+              Loading your cart...
+            </p>
           </div>
         ) : error ? (
           <div className="bg-red-50 border border-red-100 text-red-600 px-5 py-4 rounded-2xl max-w-2xl">
@@ -276,43 +299,102 @@ const Cart = () => {
                 {/* Shopping bag with food illustration */}
                 <svg viewBox="0 0 120 120" className="w-32 h-32">
                   {/* Shopping bag */}
-                  <path d="M30 45 L30 95 C30 100 35 105 40 105 L80 105 C85 105 90 100 90 95 L90 45 Z" fill="#FFEDD5" stroke="#FF7A00" strokeWidth="2"/>
-                  
+                  <path
+                    d="M30 45 L30 95 C30 100 35 105 40 105 L80 105 C85 105 90 100 90 95 L90 45 Z"
+                    fill="#FFEDD5"
+                    stroke="#FF7A00"
+                    strokeWidth="2"
+                  />
+
                   {/* Bag handles */}
-                  <path d="M45 45 L45 35 C45 25 55 20 60 20 C65 20 75 25 75 35 L75 45" fill="none" stroke="#FF7A00" strokeWidth="3" strokeLinecap="round"/>
-                  
+                  <path
+                    d="M45 45 L45 35 C45 25 55 20 60 20 C65 20 75 25 75 35 L75 45"
+                    fill="none"
+                    stroke="#FF7A00"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                  />
+
                   {/* Food items peeking out */}
                   {/* Bread/Baguette */}
-                  <ellipse cx="50" cy="50" rx="8" ry="15" fill="#F59E0B" transform="rotate(-15 50 50)"/>
-                  <ellipse cx="50" cy="48" rx="6" ry="12" fill="#FBBF24" transform="rotate(-15 50 50)"/>
-                  
+                  <ellipse
+                    cx="50"
+                    cy="50"
+                    rx="8"
+                    ry="15"
+                    fill="#F59E0B"
+                    transform="rotate(-15 50 50)"
+                  />
+                  <ellipse
+                    cx="50"
+                    cy="48"
+                    rx="6"
+                    ry="12"
+                    fill="#FBBF24"
+                    transform="rotate(-15 50 50)"
+                  />
+
                   {/* Apple */}
-                  <circle cx="70" cy="55" r="10" fill="#EF4444"/>
-                  <circle cx="68" cy="52" r="3" fill="#FCA5A5" opacity="0.6"/>
-                  <path d="M70 45 L72 40" stroke="#22C55E" strokeWidth="2" strokeLinecap="round"/>
-                  <ellipse cx="74" cy="42" rx="3" ry="2" fill="#22C55E"/>
-                  
+                  <circle cx="70" cy="55" r="10" fill="#EF4444" />
+                  <circle cx="68" cy="52" r="3" fill="#FCA5A5" opacity="0.6" />
+                  <path
+                    d="M70 45 L72 40"
+                    stroke="#22C55E"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                  <ellipse cx="74" cy="42" rx="3" ry="2" fill="#22C55E" />
+
                   {/* Carrot */}
-                  <path d="M38 55 L45 75" stroke="#F97316" strokeWidth="6" strokeLinecap="round"/>
-                  <path d="M38 55 L35 48" stroke="#22C55E" strokeWidth="2" strokeLinecap="round"/>
-                  <path d="M38 55 L40 47" stroke="#22C55E" strokeWidth="2" strokeLinecap="round"/>
-                  <path d="M38 55 L37 46" stroke="#22C55E" strokeWidth="2" strokeLinecap="round"/>
-                  
+                  <path
+                    d="M38 55 L45 75"
+                    stroke="#F97316"
+                    strokeWidth="6"
+                    strokeLinecap="round"
+                  />
+                  <path
+                    d="M38 55 L35 48"
+                    stroke="#22C55E"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                  <path
+                    d="M38 55 L40 47"
+                    stroke="#22C55E"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                  <path
+                    d="M38 55 L37 46"
+                    stroke="#22C55E"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+
                   {/* Decorative dots on bag */}
-                  <circle cx="50" cy="85" r="3" fill="#FDBA74"/>
-                  <circle cx="60" cy="88" r="2" fill="#FDBA74"/>
-                  <circle cx="70" cy="85" r="3" fill="#FDBA74"/>
+                  <circle cx="50" cy="85" r="3" fill="#FDBA74" />
+                  <circle cx="60" cy="88" r="2" fill="#FDBA74" />
+                  <circle cx="70" cy="85" r="3" fill="#FDBA74" />
                 </svg>
               </div>
-              
+
               {/* Decorative floating elements */}
-              <div className="absolute -top-2 -right-2 w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center animate-bounce" style={{animationDelay: '0s', animationDuration: '2s'}}>
+              <div
+                className="absolute -top-2 -right-2 w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center animate-bounce"
+                style={{ animationDelay: "0s", animationDuration: "2s" }}
+              >
                 <span className="text-lg">🍕</span>
               </div>
-              <div className="absolute -bottom-1 -left-3 w-7 h-7 bg-orange-100 rounded-full flex items-center justify-center animate-bounce" style={{animationDelay: '0.5s', animationDuration: '2.5s'}}>
+              <div
+                className="absolute -bottom-1 -left-3 w-7 h-7 bg-orange-100 rounded-full flex items-center justify-center animate-bounce"
+                style={{ animationDelay: "0.5s", animationDuration: "2.5s" }}
+              >
                 <span className="text-sm">🍔</span>
               </div>
-              <div className="absolute top-1/2 -right-4 w-6 h-6 bg-orange-100 rounded-full flex items-center justify-center animate-bounce" style={{animationDelay: '1s', animationDuration: '3s'}}>
+              <div
+                className="absolute top-1/2 -right-4 w-6 h-6 bg-orange-100 rounded-full flex items-center justify-center animate-bounce"
+                style={{ animationDelay: "1s", animationDuration: "3s" }}
+              >
                 <span className="text-xs">🌮</span>
               </div>
             </div>
@@ -322,7 +404,8 @@ const Cart = () => {
               Your Cart is Empty
             </h2>
             <p className="text-gray-500 text-center mb-8 max-w-xs">
-              Looks like you haven't added anything yet. Let's find something delicious!
+              Looks like you haven't added anything yet. Let's find something
+              delicious!
             </p>
 
             {/* Primary Action Button */}
@@ -330,8 +413,18 @@ const Cart = () => {
               onClick={() => navigate("/home")}
               className="px-8 py-3.5 bg-[#FF7A00] text-white font-semibold rounded-full hover:bg-orange-600 transition-all shadow-lg shadow-orange-200 flex items-center gap-2 mb-4"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                />
               </svg>
               Browse Restaurants
             </button>
@@ -341,8 +434,18 @@ const Cart = () => {
               onClick={() => navigate("/home")}
               className="text-[#FF7A00] font-medium hover:text-orange-600 transition-colors flex items-center gap-1"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M10 19l-7-7m0 0l7-7m-7 7h18"
+                />
               </svg>
               Go to Home
             </button>
@@ -393,7 +496,8 @@ const Cart = () => {
                       {selectedCart.restaurant.restaurant_name}
                     </h2>
                     <p className="text-white/80 text-sm">
-                      {selectedCart.restaurant.city} • {selectedCart.item_count} item
+                      {selectedCart.restaurant.city} • {selectedCart.item_count}{" "}
+                      item
                       {selectedCart.item_count !== 1 ? "s" : ""}
                     </p>
                   </div>
@@ -441,7 +545,8 @@ const Cart = () => {
                       </h3>
                       <div className="flex items-center gap-2 mt-1">
                         <span className="px-2 py-0.5 bg-orange-100 text-[#FF7A00] text-xs font-medium rounded-lg">
-                          {item.size.charAt(0).toUpperCase() + item.size.slice(1)}
+                          {item.size.charAt(0).toUpperCase() +
+                            item.size.slice(1)}
                         </span>
                         {!item.is_available && (
                           <span className="px-2 py-0.5 bg-red-100 text-red-600 text-xs font-medium rounded-lg">
@@ -457,24 +562,50 @@ const Cart = () => {
                     {/* Quantity Controls */}
                     <div className="flex items-center gap-2 bg-white rounded-full px-2 py-1 border border-gray-200">
                       <button
-                        onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                        disabled={updatingItem === item.id || item.quantity <= 1}
+                        onClick={() =>
+                          updateQuantity(item.id, item.quantity - 1)
+                        }
+                        disabled={
+                          updatingItem === item.id || item.quantity <= 1
+                        }
                         className="w-7 h-7 rounded-full bg-gray-100 hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition"
                       >
-                        <svg className="w-3 h-3 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M20 12H4" />
+                        <svg
+                          className="w-3 h-3 text-gray-700"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2.5}
+                            d="M20 12H4"
+                          />
                         </svg>
                       </button>
                       <span className="text-sm font-bold text-gray-800 min-w-[1.5rem] text-center">
                         {item.quantity}
                       </span>
                       <button
-                        onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                        onClick={() =>
+                          updateQuantity(item.id, item.quantity + 1)
+                        }
                         disabled={updatingItem === item.id}
                         className="w-7 h-7 rounded-full bg-[#FF7A00] hover:bg-orange-600 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition"
                       >
-                        <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
+                        <svg
+                          className="w-3 h-3 text-white"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2.5}
+                            d="M12 4v16m8-8H4"
+                          />
                         </svg>
                       </button>
                     </div>
@@ -484,8 +615,18 @@ const Cart = () => {
                       onClick={() => removeItem(item.id)}
                       className="p-2 text-gray-400 hover:text-red-500 transition-colors"
                     >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      <svg
+                        className="w-5 h-5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={1.5}
+                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                        />
                       </svg>
                     </button>
                   </div>
@@ -510,7 +651,11 @@ const Cart = () => {
 
                 <div className="flex gap-3">
                   <button
-                    onClick={() => navigate(`/restaurant/${selectedCart.restaurant_id}/foods`)}
+                    onClick={() =>
+                      navigate(
+                        `/restaurant/${selectedCart.restaurant_id}/foods`,
+                      )
+                    }
                     className="flex-1 px-5 py-3.5 border-2 border-[#FF7A00] text-[#FF7A00] font-semibold rounded-full hover:bg-orange-50 transition"
                   >
                     Add More Items
@@ -520,8 +665,18 @@ const Cart = () => {
                     className="flex-1 px-5 py-3.5 bg-[#FF7A00] text-white font-semibold rounded-full hover:bg-orange-600 transition shadow-lg shadow-orange-200 flex items-center justify-center gap-2"
                   >
                     Checkout
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    <svg
+                      className="w-4 h-4"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M9 5l7 7-7 7"
+                      />
                     </svg>
                   </button>
                 </div>
@@ -538,7 +693,9 @@ const Cart = () => {
         ) : (
           /* Restaurant Carts List */
           <div className="space-y-5">
-            <h2 className="text-lg font-bold text-gray-900">Active Restaurants</h2>
+            <h2 className="text-lg font-bold text-gray-900">
+              Active Restaurants
+            </h2>
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {carts.map((cart) => (
                 <div
@@ -564,8 +721,16 @@ const Cart = () => {
                           {cart.restaurant.restaurant_name}
                         </p>
                         <span className="w-4 h-4 bg-green-500 rounded-full flex items-center justify-center flex-shrink-0">
-                          <svg className="w-2.5 h-2.5 text-white" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/>
+                          <svg
+                            className="w-2.5 h-2.5 text-white"
+                            fill="currentColor"
+                            viewBox="0 0 20 20"
+                          >
+                            <path
+                              fillRule="evenodd"
+                              d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                              clipRule="evenodd"
+                            />
                           </svg>
                         </span>
                       </div>
@@ -573,7 +738,8 @@ const Cart = () => {
                         {cart.restaurant.city}
                       </p>
                       <p className="text-sm font-semibold text-[#FF7A00]">
-                        {cart.item_count} item{cart.item_count !== 1 ? "s" : ""} • {formatPrice(cart.cart_total)}
+                        {cart.item_count} item{cart.item_count !== 1 ? "s" : ""}{" "}
+                        • {formatPrice(cart.cart_total)}
                       </p>
                     </div>
                   </div>

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import AnimatedAlert, { useAlert } from "../../../components/AnimatedAlert";
 
 // Step Progress Bar Component
 function StepProgress({ currentStep, totalSteps }) {
@@ -27,12 +28,16 @@ function StepProgress({ currentStep, totalSteps }) {
                 i + 1 < currentStep
                   ? "bg-green-500 text-white"
                   : i + 1 === currentStep
-                  ? "bg-green-600 text-white ring-4 ring-green-200"
-                  : "bg-gray-300 text-gray-600"
+                    ? "bg-green-600 text-white ring-4 ring-green-200"
+                    : "bg-gray-300 text-gray-600"
               }`}
             >
               {i + 1 < currentStep ? (
-                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                <svg
+                  className="w-5 h-5"
+                  fill="currentColor"
+                  viewBox="0 0 20 20"
+                >
                   <path
                     fillRule="evenodd"
                     d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
@@ -72,7 +77,12 @@ export default function AdminOnboardingStep1() {
 
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [error, setRawError] = useState(null);
+  const { alert: alertState, visible: alertVisible, showError } = useAlert();
+  const setError = (msg) => {
+    setRawError(msg);
+    if (msg) showError(msg);
+  };
   const [uploading, setUploading] = useState({
     profilePhoto: false,
     nicFront: false,
@@ -109,7 +119,7 @@ export default function AdminOnboardingStep1() {
             headers: {
               Authorization: `Bearer ${token}`,
             },
-          }
+          },
         );
         if (res.ok) {
           const data = await res.json();
@@ -172,7 +182,7 @@ export default function AdminOnboardingStep1() {
             Authorization: `Bearer ${token}`,
           },
           body: formData,
-        }
+        },
       );
 
       const data = await res.json();
@@ -287,7 +297,7 @@ export default function AdminOnboardingStep1() {
             nicFrontUrl: form.nicFrontUrl,
             nicBackUrl: form.nicBackUrl,
           }),
-        }
+        },
       );
 
       const data = await res.json();
@@ -306,6 +316,7 @@ export default function AdminOnboardingStep1() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-500 via-green-600 to-green-700 p-4 overflow-hidden relative">
+      <AnimatedAlert alert={alertState} visible={alertVisible} />
       {/* Animated background elements */}
       <div className="absolute inset-0 overflow-hidden">
         {/* Floating circles */}
@@ -313,7 +324,7 @@ export default function AdminOnboardingStep1() {
         <div className="absolute bottom-1/4 right-1/4 w-72 h-72 rounded-full bg-gradient-to-r from-green-300/25 to-green-400/25 floating animate-pulse-slower"></div>
         <div className="absolute top-1/3 right-1/3 w-48 h-48 rounded-full bg-gradient-to-r from-green-200/20 to-green-300/20 floating animate-pulse-slow"></div>
         <div className="absolute top-1/2 left-1/2 w-40 h-40 rounded-full bg-gradient-to-r from-lime-300/25 to-green-300/25 animate-ping-slow"></div>
-        
+
         {/* Vertical animated bars */}
         <div className="absolute inset-0">
           {[...Array(10)].map((_, i) => (
@@ -322,14 +333,14 @@ export default function AdminOnboardingStep1() {
               className="absolute w-1 bg-gradient-to-b from-transparent via-white/25 to-transparent animate-slide-down"
               style={{
                 left: `${i * 10}%`,
-                height: '100%',
+                height: "100%",
                 animationDelay: `${i * 0.3}s`,
                 animationDuration: `${3 + i * 0.2}s`,
               }}
             ></div>
           ))}
         </div>
-        
+
         {/* Diagonal lines for extra effect */}
         <div className="absolute inset-0">
           {[...Array(5)].map((_, i) => (
@@ -338,7 +349,7 @@ export default function AdminOnboardingStep1() {
               className="absolute h-px bg-gradient-to-r from-transparent via-lime-400/20 to-transparent animate-slide-diagonal"
               style={{
                 top: `${i * 20}%`,
-                width: '200%',
+                width: "200%",
                 animationDelay: `${i * 0.5}s`,
               }}
             ></div>
@@ -367,7 +378,9 @@ export default function AdminOnboardingStep1() {
           <h1 className="text-3xl font-bold text-gray-800 mb-2">
             Admin Onboarding
           </h1>
-          <p className="text-gray-600">Let's get you set up with your restaurant</p>
+          <p className="text-gray-600">
+            Let's get you set up with your restaurant
+          </p>
         </div>
 
         {/* Progress Bar */}
@@ -377,7 +390,9 @@ export default function AdminOnboardingStep1() {
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Step Title */}
           <div className="border-l-4 border-green-500 pl-4 mb-6">
-            <h2 className="text-2xl font-bold text-gray-800">Personal Information</h2>
+            <h2 className="text-2xl font-bold text-gray-800">
+              Personal Information
+            </h2>
             <p className="text-sm text-gray-600 mt-1">
               Basic details about you as the restaurant admin
             </p>
@@ -396,7 +411,11 @@ export default function AdminOnboardingStep1() {
                 className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg bg-gray-50 text-gray-700 cursor-not-allowed focus:outline-none"
               />
               <div className="absolute right-3 top-1/2 transform -translate-y-1/2 flex items-center gap-1 text-green-600">
-                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                <svg
+                  className="w-5 h-5"
+                  fill="currentColor"
+                  viewBox="0 0 20 20"
+                >
                   <path
                     fillRule="evenodd"
                     d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
@@ -428,7 +447,11 @@ export default function AdminOnboardingStep1() {
             </div>
             {errors.fullName && (
               <p className="mt-1 text-sm text-red-600 flex items-center gap-1">
-                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                <svg
+                  className="w-4 h-4"
+                  fill="currentColor"
+                  viewBox="0 0 20 20"
+                >
                   <path
                     fillRule="evenodd"
                     d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
@@ -460,7 +483,11 @@ export default function AdminOnboardingStep1() {
             </div>
             {errors.nicNumber && (
               <p className="mt-1 text-sm text-red-600 flex items-center gap-1">
-                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                <svg
+                  className="w-4 h-4"
+                  fill="currentColor"
+                  viewBox="0 0 20 20"
+                >
                   <path
                     fillRule="evenodd"
                     d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
@@ -492,7 +519,11 @@ export default function AdminOnboardingStep1() {
             </div>
             {errors.mobileNumber && (
               <p className="mt-1 text-sm text-red-600 flex items-center gap-1">
-                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                <svg
+                  className="w-4 h-4"
+                  fill="currentColor"
+                  viewBox="0 0 20 20"
+                >
                   <path
                     fillRule="evenodd"
                     d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
@@ -518,13 +549,17 @@ export default function AdminOnboardingStep1() {
                 value={form.dateOfBirth}
                 onChange={(e) => updateField("dateOfBirth", e.target.value)}
                 className="relative w-full px-4 py-3 bg-transparent rounded-lg focus:outline-none z-10"
-                max={new Date().toISOString().split('T')[0]}
+                max={new Date().toISOString().split("T")[0]}
                 required
               />
             </div>
             {errors.dateOfBirth && (
               <p className="mt-1 text-sm text-red-600 flex items-center gap-1">
-                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                <svg
+                  className="w-4 h-4"
+                  fill="currentColor"
+                  viewBox="0 0 20 20"
+                >
                   <path
                     fillRule="evenodd"
                     d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
@@ -556,7 +591,11 @@ export default function AdminOnboardingStep1() {
             </div>
             {errors.homeAddress && (
               <p className="mt-1 text-sm text-red-600 flex items-center gap-1">
-                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                <svg
+                  className="w-4 h-4"
+                  fill="currentColor"
+                  viewBox="0 0 20 20"
+                >
                   <path
                     fillRule="evenodd"
                     d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
@@ -581,7 +620,9 @@ export default function AdminOnboardingStep1() {
                 <input
                   type="file"
                   accept="image/jpeg,image/jpg,image/png"
-                  onChange={(e) => handleFileUpload("profilePhoto", e.target.files[0])}
+                  onChange={(e) =>
+                    handleFileUpload("profilePhoto", e.target.files[0])
+                  }
                   className="flex-1 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 text-green-700 hover:file:bg-green-100 file:cursor-pointer cursor-pointer"
                   required
                 />
@@ -595,7 +636,11 @@ export default function AdminOnboardingStep1() {
             </div>
             {errors.profilePhotoUrl && (
               <p className="mt-1 text-sm text-red-600 flex items-center gap-1">
-                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                <svg
+                  className="w-4 h-4"
+                  fill="currentColor"
+                  viewBox="0 0 20 20"
+                >
                   <path
                     fillRule="evenodd"
                     d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
@@ -621,7 +666,9 @@ export default function AdminOnboardingStep1() {
                 <input
                   type="file"
                   accept="image/jpeg,image/jpg,image/png"
-                  onChange={(e) => handleFileUpload("nicFront", e.target.files[0])}
+                  onChange={(e) =>
+                    handleFileUpload("nicFront", e.target.files[0])
+                  }
                   className="flex-1 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 text-green-700 hover:file:bg-green-100 file:cursor-pointer cursor-pointer"
                   required
                 />
@@ -635,7 +682,11 @@ export default function AdminOnboardingStep1() {
             </div>
             {errors.nicFrontUrl && (
               <p className="mt-1 text-sm text-red-600 flex items-center gap-1">
-                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                <svg
+                  className="w-4 h-4"
+                  fill="currentColor"
+                  viewBox="0 0 20 20"
+                >
                   <path
                     fillRule="evenodd"
                     d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
@@ -661,7 +712,9 @@ export default function AdminOnboardingStep1() {
                 <input
                   type="file"
                   accept="image/jpeg,image/jpg,image/png"
-                  onChange={(e) => handleFileUpload("nicBack", e.target.files[0])}
+                  onChange={(e) =>
+                    handleFileUpload("nicBack", e.target.files[0])
+                  }
                   className="flex-1 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 text-green-700 hover:file:bg-green-100 file:cursor-pointer cursor-pointer"
                   required
                 />
@@ -675,7 +728,11 @@ export default function AdminOnboardingStep1() {
             </div>
             {errors.nicBackUrl && (
               <p className="mt-1 text-sm text-red-600 flex items-center gap-1">
-                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                <svg
+                  className="w-4 h-4"
+                  fill="currentColor"
+                  viewBox="0 0 20 20"
+                >
                   <path
                     fillRule="evenodd"
                     d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
@@ -687,22 +744,6 @@ export default function AdminOnboardingStep1() {
             )}
             <p className="mt-1 text-xs text-gray-500">Max 5MB</p>
           </div>
-
-          {/* Error Message */}
-          {error && (
-            <div className="p-4 bg-red-50 border-l-4 border-red-500 text-red-700 rounded-lg">
-              <div className="flex items-center gap-2">
-                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                  <path
-                    fillRule="evenodd"
-                    d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-                <span className="font-medium">{error}</span>
-              </div>
-            </div>
-          )}
 
           {/* Action Buttons */}
           <div className="flex justify-end gap-3 pt-4">
@@ -752,14 +793,14 @@ export default function AdminOnboardingStep1() {
           background-size: 12px;
           padding-right: 2rem;
         }
-        
+
         select option {
           padding: 10px;
           background: white;
           color: #374151;
           font-weight: 500;
         }
-        
+
         @keyframes border-rotation {
           0% {
             background-position: 0% 50%;
@@ -771,30 +812,32 @@ export default function AdminOnboardingStep1() {
             background-position: 0% 50%;
           }
         }
-        
+
         .animate-border-rotation {
           background-size: 200% 200%;
           animation: border-rotation 3s linear infinite;
         }
-        
+
         @keyframes pulse-slow {
-          0%, 100% {
+          0%,
+          100% {
             opacity: 0.3;
           }
           50% {
             opacity: 0.5;
           }
         }
-        
+
         @keyframes pulse-slower {
-          0%, 100% {
+          0%,
+          100% {
             opacity: 0.2;
           }
           50% {
             opacity: 0.4;
           }
         }
-        
+
         @keyframes ping-slow {
           0% {
             transform: scale(1);
@@ -809,7 +852,7 @@ export default function AdminOnboardingStep1() {
             opacity: 0.3;
           }
         }
-        
+
         @keyframes slide-down {
           0% {
             transform: translateY(-100%);
@@ -823,7 +866,7 @@ export default function AdminOnboardingStep1() {
             opacity: 0;
           }
         }
-        
+
         @keyframes slide-diagonal {
           0% {
             transform: translateX(-100%) translateY(-50%);
@@ -837,23 +880,23 @@ export default function AdminOnboardingStep1() {
             opacity: 0;
           }
         }
-        
+
         .animate-pulse-slow {
           animation: pulse-slow 4s ease-in-out infinite;
         }
-        
+
         .animate-pulse-slower {
           animation: pulse-slower 6s ease-in-out infinite;
         }
-        
+
         .animate-ping-slow {
           animation: ping-slow 3s ease-in-out infinite;
         }
-        
+
         .animate-slide-down {
           animation: slide-down linear infinite;
         }
-        
+
         .animate-slide-diagonal {
           animation: slide-diagonal 4s linear infinite;
         }
@@ -861,4 +904,3 @@ export default function AdminOnboardingStep1() {
     </div>
   );
 }
-

@@ -27,7 +27,12 @@ const PlacingOrder = () => {
   } = orderData;
 
   // Get logo URL from fetched data, order data, or order object
-  const logoUrl = fetchedRestaurantLogo || restaurantLogo || order?.restaurant?.logo_url || order?.logo_url || null;
+  const logoUrl =
+    fetchedRestaurantLogo ||
+    restaurantLogo ||
+    order?.restaurant?.logo_url ||
+    order?.logo_url ||
+    null;
 
   // Get status configuration
   const statusConfig = getStatusConfig("placed");
@@ -41,41 +46,61 @@ const PlacingOrder = () => {
       try {
         const response = await fetch(
           `http://localhost:5000/orders/${orderId}/delivery-status`,
-          { headers: { Authorization: `Bearer ${token}` } }
+          { headers: { Authorization: `Bearer ${token}` } },
         );
-        
+
         if (response.ok) {
           const data = await response.json();
           const newStatus = data.status;
-          
-          console.log("Delivery status:", newStatus, "Logo:", data.restaurantLogo);
-          
+
+          console.log(
+            "Delivery status:",
+            newStatus,
+            "Logo:",
+            data.restaurantLogo,
+          );
+
           // Update restaurant logo if available from API
           if (data.restaurantLogo && !fetchedRestaurantLogo) {
             setFetchedRestaurantLogo(data.restaurantLogo);
             setImageError(false);
           }
-          
+
           // Navigate to the correct page based on the new status
           if (newStatus && newStatus !== "placed") {
-            const stateData = { 
-              ...orderData, 
-              deliveryStatus: newStatus, 
+            const stateData = {
+              ...orderData,
+              deliveryStatus: newStatus,
               driver: data.driver,
-              restaurantLogo: data.restaurantLogo 
+              restaurantLogo: data.restaurantLogo,
             };
-            
+
             // Route to the dedicated page for each status
             if (newStatus === "pending" || newStatus === "received") {
-              navigate(`/order-received/${orderId}`, { state: stateData, replace: true });
+              navigate(`/order-received/${orderId}`, {
+                state: stateData,
+                replace: true,
+              });
             } else if (newStatus === "accepted") {
-              navigate(`/driver-accepted/${orderId}`, { state: stateData, replace: true });
+              navigate(`/driver-accepted/${orderId}`, {
+                state: stateData,
+                replace: true,
+              });
             } else if (newStatus === "picked_up") {
-              navigate(`/order-picked-up/${orderId}`, { state: stateData, replace: true });
+              navigate(`/order-picked-up/${orderId}`, {
+                state: stateData,
+                replace: true,
+              });
             } else if (newStatus === "on_the_way") {
-              navigate(`/order-on-the-way/${orderId}`, { state: stateData, replace: true });
+              navigate(`/order-on-the-way/${orderId}`, {
+                state: stateData,
+                replace: true,
+              });
             } else if (newStatus === "delivered") {
-              navigate(`/order-delivered/${orderId}`, { state: stateData, replace: true });
+              navigate(`/order-delivered/${orderId}`, {
+                state: stateData,
+                replace: true,
+              });
             }
           }
         }
@@ -106,7 +131,7 @@ const PlacingOrder = () => {
   };
 
   const handleBack = () => {
-    navigate("/home");
+    navigate("/");
   };
 
   return (
@@ -118,14 +143,37 @@ const PlacingOrder = () => {
       showViewOrder={true}
       viewOrderExpanded={viewOrderExpanded}
       onToggleViewOrder={handleToggleViewOrder}
-      orderDetails={{
-        restaurantName,
-        orderNumber,
-        items,
-        totalAmount: order?.total_amount || totalAmount,
-      }}
+      
       onBack={handleBack}
     >
+      {/* Success Animation Banner */}
+      {orderPlaced && (
+        <div className="success-banner">
+          <div className="success-icon-container">
+            <svg className="success-checkmark" viewBox="0 0 52 52">
+              <circle
+                className="checkmark-circle"
+                cx="26"
+                cy="26"
+                r="25"
+                fill="none"
+              />
+              <path
+                className="checkmark-check"
+                fill="none"
+                d="M14.1 27.2l7.1 7.2 16.7-16.8"
+              />
+            </svg>
+          </div>
+          <div className="success-text">
+            <h3>Order Placed Successfully!</h3>
+            <p>
+              Your order #{orderNumber} has been sent to {restaurantName}
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Order Details Section - Only for PlacingOrder page */}
       <div className="order-details-section">
         {/* Restaurant Name */}
@@ -133,15 +181,20 @@ const PlacingOrder = () => {
           <p className="detail-label">Restaurant</p>
           <div className="restaurant-info-row">
             {logoUrl && !imageError ? (
-              <img 
-                src={logoUrl} 
-                alt={restaurantName} 
+              <img
+                src={logoUrl}
+                alt={restaurantName}
                 className="restaurant-thumbnail"
                 onError={handleImageError}
               />
             ) : (
               <div className="restaurant-thumbnail-placeholder">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                >
                   <path d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                 </svg>
               </div>
@@ -169,7 +222,8 @@ const PlacingOrder = () => {
               <div className="food-items-total">
                 <span className="total-label">Total</span>
                 <span className="total-value">
-                  LKR {parseFloat(order?.total_amount || totalAmount).toFixed(2)}
+                  LKR{" "}
+                  {parseFloat(order?.total_amount || totalAmount).toFixed(2)}
                 </span>
               </div>
             </div>
@@ -177,7 +231,6 @@ const PlacingOrder = () => {
         )}
 
         {/* Instruction */}
-       
       </div>
     </OrderMapLayout>
   );

@@ -363,7 +363,7 @@ const OrderReceived = () => {
   }, [orderId, deliveryStatus, navigate, orderData]);
 
   const handleBack = () => {
-    navigate("/home");
+    navigate("/");
   };
 
   const handleToggleViewOrder = () => {

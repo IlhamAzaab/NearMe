@@ -1145,50 +1145,72 @@ router.get("/earnings/summary", authenticate, async (req, res) => {
       endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
     }
 
-    // Get orders within date range (only delivered orders)
-    const { data: orders, error } = await supabaseAdmin
-      .from("orders")
-      .select(
-        `
-        id,
-        order_number,
-        restaurant_id,
-        restaurant_name,
-        subtotal,
-        admin_subtotal,
-        commission_total,
-        delivery_fee,
-        service_fee,
-        total_amount,
-        status,
-        placed_at,
-        delivered_at
-      `,
-      )
-      .gte("placed_at", startDate.toISOString())
-      .lte("placed_at", endDate.toISOString())
-      .in("status", [
-        "delivered",
-        "accepted",
-        "preparing",
-        "ready",
-        "picked_up",
-        "on_the_way",
-      ]);
+    // Manager earnings only count when delivery is completed (delivered)
+    // Money is collected from customer only after driver delivers the food
+    const { data: deliveries, error: delError } = await supabaseAdmin
+      .from("deliveries")
+      .select("order_id, driver_earnings, status, delivered_at")
+      .eq("status", "delivered");
 
-    if (error) {
-      console.error("Earnings fetch error:", error);
-      return res.status(500).json({ message: "Failed to fetch earnings" });
+    if (delError) {
+      console.error("Deliveries fetch error:", delError);
+      return res.status(500).json({ message: "Failed to fetch deliveries" });
     }
 
-    // Calculate totals
+    // Get order IDs from qualifying deliveries
+    const orderIds = (deliveries || []).map((d) => d.order_id);
+
+    // Build deliveries map for driver earnings
+    let deliveriesMap = {};
+    for (const d of deliveries || []) {
+      deliveriesMap[d.order_id] = {
+        driver_earnings: parseFloat(d.driver_earnings || 0),
+        status: d.status,
+      };
+    }
+
+    // Get orders for those deliveries within date range
+    let orders = [];
+    if (orderIds.length > 0) {
+      const { data: ordersData, error: ordersError } = await supabaseAdmin
+        .from("orders")
+        .select(
+          `
+          id,
+          order_number,
+          restaurant_id,
+          restaurant_name,
+          subtotal,
+          admin_subtotal,
+          commission_total,
+          delivery_fee,
+          service_fee,
+          total_amount,
+          status,
+          placed_at,
+          delivered_at
+        `,
+        )
+        .in("id", orderIds)
+        .gte("placed_at", startDate.toISOString())
+        .lte("placed_at", endDate.toISOString());
+
+      if (ordersError) {
+        console.error("Orders fetch error:", ordersError);
+        return res.status(500).json({ message: "Failed to fetch orders" });
+      }
+      orders = ordersData || [];
+    }
+
+    // Calculate totals - only for orders with qualifying deliveries
     const summary = {
       period,
       start_date: startDate.toISOString(),
       end_date: endDate.toISOString(),
-      total_orders: orders?.length || 0,
-      delivered_orders: (orders || []).filter((o) => o.status === "delivered")
-        .length,
+      total_orders: orders.length,
+      delivered_orders: orders.filter(
+        (o) => deliveriesMap[o.id]?.status === "delivered",
+      ).length,
 
       // Customer payments
       customer_food_total: 0,
@@ -1202,22 +1224,28 @@ router.get("/earnings/summary", authenticate, async (req, res) => {
       // Manager earnings
       food_commission: 0,
       service_fee_earning: 0,
+      total_driver_earnings: 0,
       total_earning: 0,
     };
 
-    for (const order of orders || []) {
+    for (const order of orders) {
       summary.customer_food_total += parseFloat(order.subtotal || 0);
       summary.delivery_fees_collected += parseFloat(order.delivery_fee || 0);
       summary.service_fees_collected += parseFloat(order.service_fee || 0);
       summary.total_collected += parseFloat(order.total_amount || 0);
       summary.admin_total += parseFloat(order.admin_subtotal || 0);
       summary.food_commission += parseFloat(order.commission_total || 0);
+      summary.total_driver_earnings +=
+        deliveriesMap[order.id]?.driver_earnings || 0;
     }
 
     // Service fee goes to manager
     summary.service_fee_earning = summary.service_fees_collected;
+    // Manager earning = total_collected - restaurant_payment - driver_earnings
     summary.total_earning =
-      summary.food_commission + summary.service_fee_earning;
+      summary.total_collected -
+      summary.admin_total -
+      summary.total_driver_earnings;
 
     // Round all values
     Object.keys(summary).forEach((key) => {
@@ -1288,9 +1316,8 @@ router.get("/earnings/orders", authenticate, async (req, res) => {
     if (restaurant_id) {
       query = query.eq("restaurant_id", restaurant_id);
     }
-    if (status) {
-      query = query.eq("status", status);
-    }
+    // Note: We don't filter by orders.status. Delivery status filtering
+    // is handled by the deliveries join below (only delivered deliveries count).
 
     const { data: orders, error } = await query;
 
@@ -1299,16 +1326,51 @@ router.get("/earnings/orders", authenticate, async (req, res) => {
       return res.status(500).json({ message: "Failed to fetch orders" });
     }
 
+    // Fetch driver earnings from deliveries for these orders
+    // Only include delivered orders for manager earnings
+    const orderIds = (orders || []).map((o) => o.id);
+    let deliveriesMap = {};
+    if (orderIds.length > 0) {
+      const { data: deliveries, error: delError } = await supabaseAdmin
+        .from("deliveries")
+        .select(
+          "order_id, driver_earnings, status, driver_id, drivers(full_name, phone)",
+        )
+        .in("order_id", orderIds)
+        .eq("status", "delivered");
+
+      if (!delError && deliveries) {
+        for (const d of deliveries) {
+          deliveriesMap[d.order_id] = {
+            driver_earning: parseFloat(d.driver_earnings || 0),
+            driver_name: d.drivers?.full_name || null,
+            driver_phone: d.drivers?.phone || null,
+            delivery_status: d.status,
+          };
+        }
+      }
+    }
+
     // Add calculated earnings to each order
-    const ordersWithEarnings = (orders || []).map((order) => ({
-      ...order,
-      manager_food_earning: parseFloat(order.commission_total || 0),
-      manager_service_earning: parseFloat(order.service_fee || 0),
-      manager_total_earning:
-        parseFloat(order.commission_total || 0) +
-        parseFloat(order.service_fee || 0),
-      restaurant_payout: parseFloat(order.admin_subtotal || 0),
-    }));
+    const ordersWithEarnings = (orders || []).map((order) => {
+      const deliveryInfo = deliveriesMap[order.id] || {};
+      const driverEarning = deliveryInfo.driver_earning || 0;
+      const totalCollected = parseFloat(order.total_amount || 0);
+      const restaurantPayout = parseFloat(order.admin_subtotal || 0);
+      const managerEarning = totalCollected - restaurantPayout - driverEarning;
+
+      return {
+        ...order,
+        // Override status with delivery status
+        status: deliveryInfo.delivery_status || order.status,
+        total_collected: totalCollected,
+        restaurant_payout: restaurantPayout,
+        driver_earning: driverEarning,
+        driver_name: deliveryInfo.driver_name || null,
+        driver_phone: deliveryInfo.driver_phone || null,
+        manager_earning: parseFloat(managerEarning.toFixed(2)),
+      };
+    });
 
     return res.json({ orders: ordersWithEarnings });
   } catch (e) {
@@ -1330,24 +1392,28 @@ router.get("/restaurant-payouts", authenticate, async (req, res) => {
     const { from, to } = req.query;
 
     let query = supabaseAdmin
-      .from("orders")
+      .from("deliveries")
       .select(
         `
-        restaurant_id,
-        restaurant_name
+        order_id,
+        status,
+        orders!inner (
+          restaurant_id,
+          restaurant_name
+        )
       `,
       )
       .eq("status", "delivered");
 
     if (from) {
-      query = query.gte("delivered_at", new Date(from).toISOString());
+      query = query.gte("orders.delivered_at", new Date(from).toISOString());
     }
     if (to) {
-      query = query.lte("delivered_at", new Date(to).toISOString());
+      query = query.lte("orders.delivered_at", new Date(to).toISOString());
     }
 
-    // Get unique restaurants from delivered orders
-    const { data: orders, error } = await query;
+    // Get unique restaurants from delivered deliveries
+    const { data: deliveredDeliveries, error } = await query;
 
     if (error) {
       console.error("Restaurant payouts fetch error:", error);
@@ -1359,35 +1425,37 @@ router.get("/restaurant-payouts", authenticate, async (req, res) => {
     // Group by restaurant and calculate totals
     const restaurantMap = {};
 
-    for (const order of orders || []) {
-      if (!restaurantMap[order.restaurant_id]) {
-        restaurantMap[order.restaurant_id] = {
-          restaurant_id: order.restaurant_id,
-          restaurant_name: order.restaurant_name,
+    for (const del of deliveredDeliveries || []) {
+      const restId = del.orders.restaurant_id;
+      const restName = del.orders.restaurant_name;
+      if (!restaurantMap[restId]) {
+        restaurantMap[restId] = {
+          restaurant_id: restId,
+          restaurant_name: restName,
           total_orders: 0,
           total_payout: 0,
         };
       }
-      restaurantMap[order.restaurant_id].total_orders += 1;
+      restaurantMap[restId].total_orders += 1;
     }
 
-    // Now get the actual amounts for each restaurant
+    // Now get the actual amounts for each restaurant (via delivered deliveries)
     for (const restaurantId of Object.keys(restaurantMap)) {
       let amountQuery = supabaseAdmin
-        .from("orders")
-        .select("admin_subtotal")
-        .eq("restaurant_id", restaurantId)
+        .from("deliveries")
+        .select("orders!inner(admin_subtotal, restaurant_id, delivered_at)")
+        .eq("orders.restaurant_id", restaurantId)
         .eq("status", "delivered");
 
       if (from) {
         amountQuery = amountQuery.gte(
-          "delivered_at",
+          "orders.delivered_at",
           new Date(from).toISOString(),
         );
       }
       if (to) {
         amountQuery = amountQuery.lte(
-          "delivered_at",
+          "orders.delivered_at",
           new Date(to).toISOString(),
         );
       }
@@ -1395,7 +1463,7 @@ router.get("/restaurant-payouts", authenticate, async (req, res) => {
       const { data: amountData } = await amountQuery;
 
       restaurantMap[restaurantId].total_payout = (amountData || []).reduce(
-        (sum, o) => sum + parseFloat(o.admin_subtotal || 0),
+        (sum, d) => sum + parseFloat(d.orders?.admin_subtotal || 0),
         0,
       );
     }

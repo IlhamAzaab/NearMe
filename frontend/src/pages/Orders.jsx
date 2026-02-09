@@ -13,6 +13,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import supabaseClient from "../supabaseClient";
+import AnimatedAlert, { useAlert } from "../components/AnimatedAlert";
 
 // Material Symbols CSS injection
 const MaterialSymbolsCSS = () => (
@@ -27,6 +28,7 @@ const supabase = supabaseClient;
 
 export default function Orders() {
   const navigate = useNavigate();
+  const { alert: alertState, visible: alertVisible, showError } = useAlert();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState(null);
@@ -130,7 +132,8 @@ export default function Orders() {
   useEffect(() => {
     if (!customerId) return;
 
-    const channel = supabase
+    // Listen for order updates
+    const ordersChannel = supabase
       .channel(`orders-${customerId}`)
       .on(
         "postgres_changes",
@@ -144,22 +147,16 @@ export default function Orders() {
           console.log("Order status update:", payload);
 
           if (payload.eventType === "UPDATE") {
-            const updatedOrder = payload.new;
-            setOrders((prevOrders) =>
-              prevOrders.map((order) =>
-                order.id === updatedOrder.id
-                  ? { ...order, ...updatedOrder }
-                  : order,
-              ),
-            );
+            // Refetch orders to get proper effective_status
+            fetchOrders();
 
             // Show notification
-            const statusMessage = getStatusMessage(updatedOrder.status);
+            const statusMessage = getStatusMessage(payload.new.status);
             if (statusMessage) {
               const notification = {
                 id: Date.now(),
-                orderNumber: updatedOrder.order_number,
-                status: updatedOrder.status,
+                orderNumber: payload.new.order_number,
+                status: payload.new.status,
                 message: statusMessage,
               };
               setNotifications((prev) => [...prev, notification]);
@@ -177,8 +174,27 @@ export default function Orders() {
       )
       .subscribe();
 
+    // Listen for delivery updates (for status changes like picked_up, on_the_way)
+    const deliveriesChannel = supabase
+      .channel(`deliveries-customer-${customerId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "deliveries",
+        },
+        (payload) => {
+          console.log("Delivery status update:", payload);
+          // Refetch orders to get updated effective_status
+          fetchOrders();
+        },
+      )
+      .subscribe();
+
     return () => {
-      supabase.removeChannel(channel);
+      ordersChannel.unsubscribe();
+      deliveriesChannel.unsubscribe();
     };
   }, [customerId, fetchOrders]);
 
@@ -333,86 +349,60 @@ export default function Orders() {
 
   const navigateToOrderStatus = (order) => {
     const orderId = order.id;
-    const status = order.status;
+    // Use effective_status (combines order + delivery status) for navigation
+    const status = order.effective_status || order.status;
+
+    // Common state data to pass to all pages
+    const commonState = {
+      orderId,
+      order,
+      restaurantName: order.restaurant_name,
+      restaurantLogo: order.restaurant_logo,
+      items: order.order_items,
+      totalAmount: order.total_amount,
+      address: order.delivery_address,
+      orderNumber: order.order_number,
+    };
 
     // Map order status to the appropriate page route
     switch (status) {
       case "placed":
         navigate(`/placing-order`, {
-          state: {
-            orderId,
-            order,
-            restaurantName: order.restaurant_name,
-            items: order.order_items,
-            totalAmount: order.total_amount,
-          },
+          state: commonState,
         });
         break;
 
       case "pending":
+        // Order is pending (waiting for restaurant to accept)
         navigate(`/order-received/${orderId}`, {
-          state: {
-            orderId,
-            order,
-            restaurantName: order.restaurant_name,
-            restaurantLogo: order.restaurant_logo,
-            items: order.order_items,
-            totalAmount: order.total_amount,
-            address: order.delivery_address,
-            orderNumber: order.order_number,
-          },
+          state: commonState,
         });
         break;
 
       case "accepted":
       case "driver_assigned":
+        // Restaurant accepted, driver assigned
         navigate(`/driver-accepted/${orderId}`, {
-          state: {
-            orderId,
-            order,
-            restaurantName: order.restaurant_name,
-            items: order.order_items,
-            totalAmount: order.total_amount,
-            address: order.delivery_address,
-            orderNumber: order.order_number,
-          },
+          state: commonState,
         });
         break;
 
       case "picked_up":
         navigate(`/order-picked-up/${orderId}`, {
-          state: {
-            orderId,
-            order,
-            restaurantName: order.restaurant_name,
-            items: order.order_items,
-            totalAmount: order.total_amount,
-            address: order.delivery_address,
-            orderNumber: order.order_number,
-          },
+          state: commonState,
         });
         break;
 
       case "on_the_way":
+      case "at_customer":
         navigate(`/order-on-the-way/${orderId}`, {
-          state: {
-            orderId,
-            order,
-            restaurantName: order.restaurant_name,
-            items: order.order_items,
-            totalAmount: order.total_amount,
-            address: order.delivery_address,
-            orderNumber: order.order_number,
-          },
+          state: commonState,
         });
         break;
 
       case "delivered":
-        navigate(`/order-details/${orderId}`, {
-          state: {
-            orderId,
-            order,
-          },
+        navigate(`/order-delivered/${orderId}`, {
+          state: commonState,
         });
         break;
 
@@ -432,21 +422,24 @@ export default function Orders() {
     }
   };
 
-  // Filter orders based on active tab
-  const activeOrders = orders.filter(
-    (order) => !["delivered", "cancelled", "rejected"].includes(order.status),
-  );
+  // Filter orders based on active tab - use effective_status for proper categorization
+  const activeOrders = orders.filter((order) => {
+    const status = order.effective_status || order.status;
+    return !["delivered", "cancelled", "rejected"].includes(status);
+  });
 
-  const pastOrders = orders.filter((order) =>
-    ["delivered", "cancelled", "rejected"].includes(order.status),
-  );
+  const pastOrders = orders.filter((order) => {
+    const status = order.effective_status || order.status;
+    return ["delivered", "cancelled", "rejected"].includes(status);
+  });
 
   // Filter past orders based on selected filter
   const filteredPastOrders = pastOrders.filter((order) => {
+    const status = order.effective_status || order.status;
     if (pastFilter === "all") return true;
-    if (pastFilter === "delivered") return order.status === "delivered";
+    if (pastFilter === "delivered") return status === "delivered";
     if (pastFilter === "cancelled")
-      return order.status === "cancelled" || order.status === "rejected";
+      return status === "cancelled" || status === "rejected";
     return true;
   });
 
@@ -479,6 +472,7 @@ export default function Orders() {
 
   return (
     <div className="min-h-screen bg-[#f6f8f6] font-['Work_Sans',sans-serif]">
+      <AnimatedAlert alert={alertState} visible={alertVisible} />
       <MaterialSymbolsCSS />
 
       {/* Main Container */}
@@ -687,7 +681,9 @@ export default function Orders() {
                           />
                         ) : (
                           <span className="text-2xl">
-                            {getStatusIcon(order.status)}
+                            {getStatusIcon(
+                              order.effective_status || order.status,
+                            )}
                           </span>
                         )}
                       </div>
@@ -705,17 +701,23 @@ export default function Orders() {
                             </p>
                           </div>
                           <span
-                            className={`ml-2 px-2.5 py-1 rounded-md text-xs font-bold whitespace-nowrap ${getStatusColor(order.status)}`}
+                            className={`ml-2 px-2.5 py-1 rounded-md text-xs font-bold whitespace-nowrap ${getStatusColor(order.effective_status || order.status)}`}
                           >
-                            {getStatusLabel(order.status)}
+                            {getStatusLabel(
+                              order.effective_status || order.status,
+                            )}
                           </span>
                         </div>
 
                         {/* Estimated Time */}
                         <div className="mt-2">
-                          {getEstimatedTime(order.status) && (
+                          {getEstimatedTime(
+                            order.effective_status || order.status,
+                          ) && (
                             <p className="text-sm font-medium text-gray-900">
-                              {getEstimatedTime(order.status)}
+                              {getEstimatedTime(
+                                order.effective_status || order.status,
+                              )}
                             </p>
                           )}
                         </div>
@@ -741,40 +743,51 @@ export default function Orders() {
 
                     {/* Progress Bar */}
                     <div className="mt-4 pt-4 border-t border-gray-100">
-                      <div className="flex items-center justify-between text-xs text-gray-600 mb-2">
-                        <span>
-                          {order.status === "placed" && "Order placed"}
-                          {order.status === "pending" &&
-                            "Waiting for restaurant"}
-                          {order.status === "accepted" && "Driver assigned"}
-                          {order.status === "driver_assigned" &&
-                            "Driver assigned"}
-                          {order.status === "picked_up" &&
-                            "Your order picked up"}
-                          {order.status === "on_the_way" && "On the way to you"}
-                        </span>
-                      </div>
-                      <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-gradient-to-r from-[#13ec37] to-[#10d632] rounded-full transition-all duration-500"
-                          style={{
-                            width:
-                              order.status === "placed"
-                                ? "15%"
-                                : order.status === "pending"
-                                  ? "35%"
-                                  : order.status === "accepted"
-                                    ? "55%"
-                                    : order.status === "driver_assigned"
-                                      ? "55%"
-                                      : order.status === "picked_up"
-                                        ? "80%"
-                                        : order.status === "on_the_way"
-                                          ? "95%"
-                                          : "100%",
-                          }}
-                        ></div>
-                      </div>
+                      {(() => {
+                        const effectiveStatus =
+                          order.effective_status || order.status;
+                        return (
+                          <>
+                            <div className="flex items-center justify-between text-xs text-gray-600 mb-2">
+                              <span>
+                                {effectiveStatus === "placed" && "Order placed"}
+                                {effectiveStatus === "pending" &&
+                                  "Waiting for restaurant"}
+                                {effectiveStatus === "accepted" &&
+                                  "Driver assigned"}
+                                {effectiveStatus === "driver_assigned" &&
+                                  "Driver assigned"}
+                                {effectiveStatus === "picked_up" &&
+                                  "Your order picked up"}
+                                {effectiveStatus === "on_the_way" &&
+                                  "On the way to you"}
+                              </span>
+                            </div>
+                            <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-gradient-to-r from-[#13ec37] to-[#10d632] rounded-full transition-all duration-500"
+                                style={{
+                                  width:
+                                    effectiveStatus === "placed"
+                                      ? "15%"
+                                      : effectiveStatus === "pending"
+                                        ? "35%"
+                                        : effectiveStatus === "accepted"
+                                          ? "55%"
+                                          : effectiveStatus ===
+                                              "driver_assigned"
+                                            ? "55%"
+                                            : effectiveStatus === "picked_up"
+                                              ? "80%"
+                                              : effectiveStatus === "on_the_way"
+                                                ? "95%"
+                                                : "100%",
+                                }}
+                              ></div>
+                            </div>
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
                 </div>
@@ -814,12 +827,16 @@ export default function Orders() {
                         </p>
                         <span
                           className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
-                            order.status === "delivered"
+                            (order.effective_status ||
+                              order.delivery_status ||
+                              order.status) === "delivered"
                               ? "bg-green-100 text-green-600"
                               : "bg-red-100 text-red-600"
                           }`}
                         >
-                          {order.status === "delivered"
+                          {(order.effective_status ||
+                            order.delivery_status ||
+                            order.status) === "delivered"
                             ? "Delivered"
                             : "Cancelled"}
                         </span>
@@ -960,7 +977,7 @@ export default function Orders() {
       navigate("/cart");
     } catch (error) {
       console.error("Reorder error:", error);
-      alert("Failed to add items to cart");
+      showError("Failed to add items to cart");
     }
   }
 }

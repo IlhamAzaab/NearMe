@@ -1,8 +1,16 @@
 import React, { useState, useEffect } from "react";
-import { MapContainer, TileLayer, Marker, Popup, useMapEvents, useMap } from "react-leaflet";
+import {
+  MapContainer,
+  TileLayer,
+  Marker,
+  Popup,
+  useMapEvents,
+  useMap,
+} from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import AdminLayout from "../../components/AdminLayout";
+import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
 
 // Fix Leaflet default marker icon issue
 delete L.Icon.Default.prototype._getIconUrl;
@@ -68,7 +76,17 @@ export default function Settings() {
   // Restaurant Details State (from RestaurantDetail.jsx)
   const [restaurant, setRestaurant] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setRawError] = useState(null);
+  const {
+    alert: alertState,
+    visible: alertVisible,
+    showSuccess,
+    showError,
+  } = useAlert();
+  const setError = (msg) => {
+    setRawError(msg);
+    if (msg) showError(msg);
+  };
   const [editingRestaurant, setEditingRestaurant] = useState(false);
   const [uploading, setUploading] = useState(null);
   const [restaurantFormData, setRestaurantFormData] = useState({
@@ -190,7 +208,7 @@ export default function Settings() {
                 Authorization: `Bearer ${token}`,
               },
               body: JSON.stringify({ imageData: base64String }),
-            }
+            },
           );
 
           const data = await response.json();
@@ -267,7 +285,7 @@ export default function Settings() {
   const handlePasswordChange = (e) => {
     e.preventDefault();
     if (passwordData.newPassword !== passwordData.confirmPassword) {
-      alert("Passwords do not match!");
+      showError("Passwords do not match!");
       return;
     }
     // TODO: Change password via API
@@ -276,9 +294,12 @@ export default function Settings() {
 
   return (
     <AdminLayout>
+      <AnimatedAlert alert={alertState} visible={alertVisible} />
       <div className="max-w-6xl mx-auto space-y-4 sm:space-y-6 animate-fadeIn">
         <div>
-          <h1 className="text-3xl sm:text-4xl font-bold bg-gradient-to-r from-green-600 via-green-500 to-green-600 bg-clip-text text-transparent">Settings</h1>
+          <h1 className="text-3xl sm:text-4xl font-bold bg-gradient-to-r from-green-600 via-green-500 to-green-600 bg-clip-text text-transparent">
+            Settings
+          </h1>
           <p className="text-gray-700 mt-2 font-medium text-sm sm:text-base">
             Manage your account and restaurant settings.
           </p>
@@ -336,10 +357,29 @@ export default function Settings() {
             {activeTab === "restaurant" && (
               <div className="space-y-6">
                 {loading ? (
-                  <div className="flex items-center justify-center h-64">
-                    <div className="text-center">
-                      <div className="animate-spin rounded-full h-12 sm:h-14 w-12 sm:w-14 border-b-4 border-green-500 mx-auto"></div>
-                      <p className="text-gray-700 mt-4 font-medium text-sm sm:text-base">Loading restaurant details...</p>
+                  <div className="space-y-6 animate-pulse">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="h-6 w-48 bg-gray-200 rounded" />
+                        <div className="h-4 w-64 bg-gray-200 rounded mt-2" />
+                      </div>
+                      <div className="h-10 w-28 bg-gray-200 rounded-xl" />
+                    </div>
+                    <div className="h-40 w-full bg-gray-200 rounded-xl" />
+                    <div className="flex items-center gap-4">
+                      <div className="w-20 h-20 bg-gray-200 rounded-full" />
+                      <div className="space-y-2 flex-1">
+                        <div className="h-4 w-32 bg-gray-200 rounded" />
+                        <div className="h-3 w-48 bg-gray-200 rounded" />
+                      </div>
+                    </div>
+                    <div className="space-y-4">
+                      {[...Array(4)].map((_, i) => (
+                        <div key={i} className="space-y-2">
+                          <div className="h-3 w-24 bg-gray-200 rounded" />
+                          <div className="h-10 w-full bg-gray-200 rounded-xl" />
+                        </div>
+                      ))}
                     </div>
                   </div>
                 ) : error && !restaurant ? (
@@ -350,7 +390,9 @@ export default function Settings() {
                   <>
                     <div className="flex items-center justify-between">
                       <div>
-                        <h2 className="text-xl font-bold text-gray-800">Restaurant Information</h2>
+                        <h2 className="text-xl font-bold text-gray-800">
+                          Restaurant Information
+                        </h2>
                         <p className="text-gray-600 mt-1">
                           Manage your restaurant details and location.
                         </p>
@@ -368,14 +410,16 @@ export default function Settings() {
                             onClick={() => {
                               setEditingRestaurant(false);
                               setRestaurantFormData({
-                                restaurant_name: restaurant.restaurant_name || "",
+                                restaurant_name:
+                                  restaurant.restaurant_name || "",
                                 address: restaurant.address || "",
                                 city: restaurant.city || "",
                                 postal_code: restaurant.postal_code || "",
                                 opening_time: restaurant.opening_time || "",
                                 close_time: restaurant.close_time || "",
                                 logo_url: restaurant.logo_url || "",
-                                cover_image_url: restaurant.cover_image_url || "",
+                                cover_image_url:
+                                  restaurant.cover_image_url || "",
                                 latitude: restaurant.latitude || null,
                                 longitude: restaurant.longitude || null,
                               });
@@ -399,17 +443,13 @@ export default function Settings() {
                                 : "bg-green-600 text-white hover:bg-green-700"
                             }`}
                           >
-                            {uploading !== null ? "Uploading..." : "Save Changes"}
+                            {uploading !== null
+                              ? "Uploading..."
+                              : "Save Changes"}
                           </button>
                         </div>
                       )}
                     </div>
-
-                    {error && (
-                      <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg">
-                        {error}
-                      </div>
-                    )}
 
                     {restaurant && (
                       <div className="bg-gray-50 rounded-lg p-6 space-y-6">
@@ -450,7 +490,9 @@ export default function Settings() {
                                       : "bg-blue-600 text-white hover:bg-blue-700"
                                   }`}
                                 >
-                                  {uploading === "logo" ? "Uploading..." : "Change Logo"}
+                                  {uploading === "logo"
+                                    ? "Uploading..."
+                                    : "Change Logo"}
                                 </label>
                               </div>
                             )}
@@ -481,7 +523,9 @@ export default function Settings() {
                                 <input
                                   type="file"
                                   accept="image/*"
-                                  onChange={(e) => handleImageUpload(e, "cover")}
+                                  onChange={(e) =>
+                                    handleImageUpload(e, "cover")
+                                  }
                                   disabled={uploading !== null}
                                   className="hidden"
                                   id="cover-upload"
@@ -604,7 +648,8 @@ export default function Settings() {
                             <p className="text-sm text-gray-600">
                               <span className="font-medium">Address: </span>
                               {restaurantFormData.address || "N/A"}
-                              {restaurantFormData.city && `, ${restaurantFormData.city}`}
+                              {restaurantFormData.city &&
+                                `, ${restaurantFormData.city}`}
                             </p>
                             {mapPosition && (
                               <p className="text-xs text-gray-500 mt-1">
@@ -620,7 +665,9 @@ export default function Settings() {
                               type="button"
                               onClick={() => {
                                 if (!navigator.geolocation) {
-                                  setError("Geolocation is not supported by your browser");
+                                  setError(
+                                    "Geolocation is not supported by your browser",
+                                  );
                                   return;
                                 }
                                 setLocating(true);
@@ -638,11 +685,15 @@ export default function Settings() {
                                   (err) => {
                                     console.error("Geolocation error:", err);
                                     setError(
-                                      "Unable to get your location. Please select manually on the map."
+                                      "Unable to get your location. Please select manually on the map.",
                                     );
                                     setLocating(false);
                                   },
-                                  { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+                                  {
+                                    enableHighAccuracy: true,
+                                    timeout: 10000,
+                                    maximumAge: 0,
+                                  },
                                 );
                               }}
                               disabled={locating}
@@ -656,7 +707,9 @@ export default function Settings() {
 
                           <div
                             className={`rounded-lg overflow-hidden border ${
-                              editingRestaurant ? "border-indigo-400 border-2" : "border-gray-300"
+                              editingRestaurant
+                                ? "border-indigo-400 border-2"
+                                : "border-gray-300"
                             }`}
                           >
                             <MapContainer

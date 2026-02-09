@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import ManagerLayout from "../../../components/ManagerLayout";
+import AnimatedAlert, { useAlert } from "../../../components/AnimatedAlert";
 
 const statusColors = {
   active: "bg-green-100 text-green-700",
@@ -14,7 +15,12 @@ export default function DriverManagement() {
   const navigate = useNavigate();
   const [drivers, setDrivers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setRawError] = useState(null);
+  const { alert: alertState, visible: alertVisible, showError } = useAlert();
+  const setError = (msg) => {
+    setRawError(msg);
+    if (msg) showError(msg);
+  };
   const [statusFilter, setStatusFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [actionLoading, setActionLoading] = useState("");
@@ -53,7 +59,7 @@ export default function DriverManagement() {
         {
           headers: { Authorization: `Bearer ${token}` },
           signal,
-        }
+        },
       );
       const data = await res.json();
 
@@ -90,7 +96,7 @@ export default function DriverManagement() {
             Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({ status: nextStatus }),
-        }
+        },
       );
 
       const data = await res.json();
@@ -101,8 +107,8 @@ export default function DriverManagement() {
           prev.map((driver) =>
             driver.id === driverId
               ? { ...driver, driver_status: nextStatus }
-              : driver
-          )
+              : driver,
+          ),
         );
       }
     } catch (err) {
@@ -128,6 +134,7 @@ export default function DriverManagement() {
 
   return (
     <ManagerLayout>
+      <AnimatedAlert alert={alertState} visible={alertVisible} />
       <div className="max-w-6xl mx-auto space-y-6">
         <div>
           <h1 className="text-3xl font-bold text-gray-800">
@@ -171,12 +178,6 @@ export default function DriverManagement() {
             </div>
           </div>
 
-          {error && (
-            <div className="mb-3 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
-              {error}
-            </div>
-          )}
-
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
@@ -211,10 +212,10 @@ export default function DriverManagement() {
                       colSpan="7"
                       className="px-4 py-6 text-center text-gray-500"
                     >
-                    <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-teal-400 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading...</p>
-        </div>
+                      <div className="text-center">
+                        <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-teal-400 mx-auto mb-4"></div>
+                        <p className="text-gray-600">Loading...</p>
+                      </div>
                     </td>
                   </tr>
                 ) : drivers.length === 0 ? (

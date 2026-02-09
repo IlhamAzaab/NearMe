@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import DriverLayout from "../../components/DriverLayout";
+import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
 import {
   MapContainer,
   TileLayer,
@@ -114,6 +115,7 @@ const mapContainerStyle = {
 
 export default function ActiveDeliveries() {
   const navigate = useNavigate();
+  const { alert: alertState, visible: alertVisible, showError } = useAlert();
 
   // Initialize with cached data for instant display
   const cachedData = loadCachedData();
@@ -135,8 +137,13 @@ export default function ActiveDeliveries() {
   // Leaflet is always loaded (no API key needed)
   const isLoaded = true;
 
-  // Function to fetch with geolocation (used for initial load and retry)
-  const fetchWithLocation = () => {
+  // Refs for location tracking
+  const locationIntervalRef = useRef(null);
+  const dataFetchIntervalRef = useRef(null);
+  const isFetchingRef = useRef(false);
+
+  // Function to update location only (every 3 seconds for map display)
+  const updateLocation = useCallback(() => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
@@ -144,19 +151,49 @@ export default function ActiveDeliveries() {
             latitude: position.coords.latitude,
             longitude: position.coords.longitude,
           };
+          console.log(
+            `[LOCATION] Updated: (${location.latitude.toFixed(6)}, ${location.longitude.toFixed(6)})`,
+          );
           setDriverLocation(location);
-          fetchPickups(location);
         },
         (error) => {
           console.error("Error getting location:", error);
-          // Try to fetch without location
-          fetchPickups(null);
         },
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 },
       );
-    } else {
-      fetchPickups(null);
     }
-  };
+  }, []);
+
+  // Function to fetch with current location (used for data refresh)
+  const fetchWithLocation = useCallback(
+    (isBackgroundRefresh = false) => {
+      if (isFetchingRef.current && isBackgroundRefresh) return; // Skip if already fetching
+
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const location = {
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+            };
+            setDriverLocation(location);
+            fetchPickups(location, isBackgroundRefresh);
+          },
+          (error) => {
+            console.error("Error getting location:", error);
+            // Try to fetch with last known location or without location
+            if (!isBackgroundRefresh) {
+              fetchPickups(driverLocation);
+            }
+          },
+          { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 },
+        );
+      } else if (!isBackgroundRefresh) {
+        fetchPickups(driverLocation);
+      }
+    },
+    [driverLocation],
+  );
 
   useEffect(() => {
     const role = localStorage.getItem("role");
@@ -166,26 +203,29 @@ export default function ActiveDeliveries() {
     }
 
     // Initial fetch with location
-    fetchWithLocation();
+    fetchWithLocation(false);
 
-    // Update location every 10 seconds (background refresh)
-    const locationInterval = setInterval(() => {
-      if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-          (position) => {
-            const location = {
-              latitude: position.coords.latitude,
-              longitude: position.coords.longitude,
-            };
-            setDriverLocation(location);
-            fetchPickups(location, true); // Background refresh
-          },
-          (error) => console.error("Location update error:", error),
-        );
+    // Update location every 3 seconds for live map display
+    locationIntervalRef.current = setInterval(() => {
+      updateLocation();
+    }, 3000);
+
+    // Fetch data every 5 seconds (active deliveries need fresher data)
+    dataFetchIntervalRef.current = setInterval(() => {
+      console.log("[DATA REFRESH] Fetching active deliveries...");
+      fetchWithLocation(true);
+    }, 5000);
+
+    return () => {
+      if (locationIntervalRef.current) {
+        clearInterval(locationIntervalRef.current);
+        locationIntervalRef.current = null;
       }
-    }, 10000);
-
-    return () => clearInterval(locationInterval);
+      if (dataFetchIntervalRef.current) {
+        clearInterval(dataFetchIntervalRef.current);
+        dataFetchIntervalRef.current = null;
+      }
+    };
   }, [navigate]);
 
   const fetchPickups = async (location, isBackgroundRefresh = false) => {
@@ -193,6 +233,25 @@ export default function ActiveDeliveries() {
       const token = localStorage.getItem("token");
 
       if (!location) {
+        // Even without location, check if there are any active deliveries
+        // using the simpler endpoint that doesn't need coordinates
+        try {
+          const fallbackRes = await fetch(
+            "http://localhost:5000/driver/deliveries/active",
+            { headers: { Authorization: `Bearer ${token}` } },
+          );
+          if (fallbackRes.ok) {
+            const fallbackData = await fallbackRes.json();
+            const activeList = fallbackData.deliveries || [];
+            if (activeList.length > 0) {
+              // Has active deliveries — navigate to map page
+              navigate(`/driver/delivery/active/${activeList[0].id}/map`);
+              return;
+            }
+          }
+        } catch (e) {
+          console.error("Fallback active check error:", e);
+        }
         setInitialLoading(false);
         return;
       }
@@ -227,24 +286,14 @@ export default function ActiveDeliveries() {
         const list = data.pickups || [];
         setPickups(list);
 
-        // Also fetch full route data for developer overview
         if (list.length > 0) {
-          fetchFullRoute(location, list);
-        }
-
-        if (list.length > 0) {
-          setMode("pickup");
-          setDeliveries([]);
-          // Save to cache
-          saveCacheData({
-            pickups: list,
-            deliveries: [],
-            mode: "pickup",
-            driverLocation: location,
-            fullRouteData,
-          });
+          // Has pickups — auto-navigate to DriverMapPage (only on initial load)
+          if (!isBackgroundRefresh) {
+            navigate(`/driver/delivery/active/${list[0].delivery_id}/map`);
+            return;
+          }
         } else {
-          // No pickups left → switch to delivering mode
+          // No pickups left → check for deliveries to deliver
           await fetchDeliveriesRoute(location, isBackgroundRefresh);
         }
       } else {
@@ -345,6 +394,12 @@ export default function ActiveDeliveries() {
         setMode("deliver");
         setPickups([]);
 
+        // Has deliveries to deliver — auto-navigate to DriverMapPage (only on initial load)
+        if (list.length > 0 && !isBackgroundRefresh) {
+          navigate(`/driver/delivery/active/${list[0].delivery_id}/map`);
+          return;
+        }
+
         // Save to cache
         saveCacheData({
           pickups: [],
@@ -401,7 +456,7 @@ export default function ActiveDeliveries() {
   const handlePrimaryAction = () => {
     if (mode === "pickup") {
       if (pickups.length === 0) {
-        alert("No pickups available");
+        showError("No pickups available");
         return;
       }
       navigate(`/driver/delivery/active/${pickups[0].delivery_id}/map`);
@@ -409,7 +464,7 @@ export default function ActiveDeliveries() {
     }
     if (mode === "deliver") {
       if (deliveries.length === 0) {
-        alert("No deliveries available");
+        showError("No deliveries available");
         return;
       }
       // For deliveries, just navigate - don't update status as they're already in progress
@@ -419,6 +474,7 @@ export default function ActiveDeliveries() {
 
   return (
     <DriverLayout>
+      <AnimatedAlert alert={alertState} visible={alertVisible} />
       <div className="min-h-screen bg-gray-50 pb-24">
         <div className="max-w-4xl mx-auto px-4 py-6">
           {/* Header */}
@@ -1315,58 +1371,112 @@ function FullRouteMap({
     ];
 
     try {
-      // Build OSRM URL for route with all waypoints
-      const coordinates = waypoints.map((w) => `${w.lng},${w.lat}`).join(";");
-      const osrmUrl = `https://router.project-osrm.org/route/v1/foot/${coordinates}?overview=full&geometries=geojson&steps=true`;
+      // SEGMENT-BY-SEGMENT ROUTE CALCULATION
+      // Fetch each segment separately: D→R1, R1→R2, R2→C1, C1→C2, etc.
+      console.log(
+        `📍 [SEGMENT ROUTE] Starting segment-by-segment route calculation...`,
+      );
+      console.log(`📍 [SEGMENT ROUTE] Total waypoints: ${waypoints.length}`);
 
-      // Add timeout to prevent hanging requests
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      const allRouteSegments = [];
+      let totalDistance = 0;
+      let totalDuration = 0;
+      const segmentLegs = [];
 
-      try {
-        const response = await fetch(osrmUrl, { signal: controller.signal });
-        clearTimeout(timeoutId);
-        const data = await response.json();
+      // Fetch each segment individually
+      for (let i = 0; i < waypoints.length - 1; i++) {
+        const from = waypoints[i];
+        const to = waypoints[i + 1];
 
-        if (data.code !== "Ok" || !data.routes || data.routes.length === 0) {
-          console.error("OSRM failed to calculate route");
-          return;
+        const segmentUrl = `https://router.project-osrm.org/route/v1/foot/${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson&steps=true`;
+
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+          const response = await fetch(segmentUrl, {
+            signal: controller.signal,
+          });
+          clearTimeout(timeoutId);
+          const data = await response.json();
+
+          if (data.code === "Ok" && data.routes && data.routes.length > 0) {
+            const route = data.routes[0];
+
+            // Add segment path to combined route
+            const segmentPath = route.geometry.coordinates.map((coord) => ({
+              lat: coord[1],
+              lng: coord[0],
+            }));
+
+            // For segments after the first, skip the first point to avoid duplicates
+            if (allRouteSegments.length > 0 && segmentPath.length > 0) {
+              allRouteSegments.push(...segmentPath.slice(1));
+            } else {
+              allRouteSegments.push(...segmentPath);
+            }
+
+            totalDistance += route.distance;
+            totalDuration += route.duration;
+
+            // Store leg info
+            const leg = route.legs?.[0];
+            if (leg) {
+              segmentLegs.push({
+                distance: {
+                  value: leg.distance,
+                  text: `${(leg.distance / 1000).toFixed(2)} km`,
+                },
+                duration: {
+                  value: leg.duration,
+                  text: `${Math.ceil(leg.duration / 60)} min`,
+                },
+                steps:
+                  leg.steps?.map((step) => ({
+                    path:
+                      step.geometry?.coordinates?.map((c) => ({
+                        lat: c[1],
+                        lng: c[0],
+                      })) || [],
+                  })) || [],
+              });
+            }
+
+            console.log(
+              `📍 [SEGMENT ${i + 1}/${waypoints.length - 1}] ✓ ${(route.distance / 1000).toFixed(2)} km, ${Math.ceil(route.duration / 60)} min`,
+            );
+          } else {
+            console.warn(
+              `📍 [SEGMENT ${i + 1}] Failed to get route, using straight line`,
+            );
+            // Fallback: add straight line segment
+            allRouteSegments.push({ lat: from.lat, lng: from.lng });
+            allRouteSegments.push({ lat: to.lat, lng: to.lng });
+          }
+
+          // Small delay between requests to avoid rate limiting
+          if (i < waypoints.length - 2) {
+            await new Promise((resolve) => setTimeout(resolve, 100));
+          }
+        } catch (segmentError) {
+          if (segmentError.name === "AbortError") {
+            console.warn(`📍 [SEGMENT ${i + 1}] Request timed out`);
+          } else {
+            console.error(`📍 [SEGMENT ${i + 1}] Error:`, segmentError.message);
+          }
+          // Add straight line as fallback
+          allRouteSegments.push({ lat: from.lat, lng: from.lng });
+          allRouteSegments.push({ lat: to.lat, lng: to.lng });
         }
+      }
 
-        const route = data.routes[0];
-        const totalDistance = route.distance; // in meters
-        const totalDuration = route.duration; // in seconds
-
-        // Convert OSRM GeoJSON coordinates to Leaflet format
-        const routePath = route.geometry.coordinates.map((coord) => ({
-          lat: coord[1],
-          lng: coord[0],
-        }));
-
-        // Create a directions-like object for compatibility
+      // Create combined directions object
+      if (allRouteSegments.length > 0) {
         setDirections({
           routes: [
             {
-              overview_path: routePath,
-              legs:
-                route.legs?.map((leg) => ({
-                  distance: {
-                    value: leg.distance,
-                    text: `${(leg.distance / 1000).toFixed(2)} km`,
-                  },
-                  duration: {
-                    value: leg.duration,
-                    text: `${Math.ceil(leg.duration / 60)} min`,
-                  },
-                  steps:
-                    leg.steps?.map((step) => ({
-                      path:
-                        step.geometry?.coordinates?.map((c) => ({
-                          lat: c[1],
-                          lng: c[0],
-                        })) || [],
-                    })) || [],
-                })) || [],
+              overview_path: allRouteSegments,
+              legs: segmentLegs,
             },
           ],
         });
@@ -1374,32 +1484,34 @@ function FullRouteMap({
         setRouteInfo({
           totalDistance: (totalDistance / 1000).toFixed(2),
           totalDuration: Math.ceil(totalDuration / 60),
-          legs: route.legs || [],
+          legs: segmentLegs,
           optimizedRestaurants: optimizedRestaurants,
           optimizedCustomers: optimizedCustomers,
-          selectedMode: "OSRM_FOOT",
+          selectedMode: "OSRM_FOOT_SEGMENTS",
         });
 
-        console.log("📍 [FULL ROUTE] Route calculated:", {
-          totalDistance: (totalDistance / 1000).toFixed(2) + " km",
-          totalDuration: Math.ceil(totalDuration / 60) + " min",
-          waypoints: waypoints.length,
-          selectedMode: "OSRM_FOOT",
-          restaurantOrder: optimizedRestaurants.map((p) => p.restaurant.name),
-          customerOrder: optimizedCustomers.map((p) => p.customer.name),
-        });
-      } catch (osrmError) {
-        // Handle OSRM-specific errors (timeout, network, etc.)
-        if (osrmError.name === "AbortError") {
-          console.warn(
-            "📍 [FULL ROUTE] OSRM request timed out, route will show without directions",
-          );
-        } else {
-          console.error("📍 [FULL ROUTE] OSRM error:", osrmError.message);
-        }
+        console.log(
+          "📍 [SEGMENT ROUTE] ═══════════════════════════════════════════",
+        );
+        console.log("📍 [SEGMENT ROUTE] Route calculation complete:");
+        console.log(
+          `📍 [SEGMENT ROUTE]   Total segments: ${waypoints.length - 1}`,
+        );
+        console.log(
+          `📍 [SEGMENT ROUTE]   Total distance: ${(totalDistance / 1000).toFixed(2)} km`,
+        );
+        console.log(
+          `📍 [SEGMENT ROUTE]   Total duration: ${Math.ceil(totalDuration / 60)} min`,
+        );
+        console.log(
+          `📍 [SEGMENT ROUTE]   Path points: ${allRouteSegments.length}`,
+        );
+        console.log(
+          "📍 [SEGMENT ROUTE] ═══════════════════════════════════════════",
+        );
       }
     } catch (error) {
-      console.error("Failed to fetch OSRM directions:", error);
+      console.error("Failed to fetch segment routes:", error);
     }
   }, [driverLocation, pickups]);
 

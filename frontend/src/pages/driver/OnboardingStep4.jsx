@@ -1,11 +1,17 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import SiteHeader from "../../components/SiteHeader";
+import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
 
 export default function OnboardingStep4() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [error, setRawError] = useState(null);
+  const { alert: alertState, visible: alertVisible, showError } = useAlert();
+  const setError = (msg) => {
+    setRawError(msg);
+    if (msg) showError(msg);
+  };
   const [formData, setFormData] = useState({
     accountHolderName: "",
     bankName: "",
@@ -208,11 +214,7 @@ export default function OnboardingStep4() {
               />
             </div>
 
-            {error && (
-              <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
-                {error}
-              </div>
-            )}
+            <AnimatedAlert alert={alertState} visible={alertVisible} />
 
             <div className="bg-green-50 border border-green-200 rounded-lg p-4">
               <p className="text-sm text-green-800 font-semibold mb-2">

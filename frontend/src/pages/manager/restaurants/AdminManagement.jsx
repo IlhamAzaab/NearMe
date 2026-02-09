@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import ManagerLayout from "../../../components/ManagerLayout";
+import AnimatedAlert, { useAlert } from "../../../components/AnimatedAlert";
 
 const statusColors = {
   active: "bg-green-100 text-green-700",
@@ -14,7 +15,12 @@ export default function AdminManagement() {
   const navigate = useNavigate();
   const [admins, setAdmins] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setRawError] = useState(null);
+  const { alert: alertState, visible: alertVisible, showError } = useAlert();
+  const setError = (msg) => {
+    setRawError(msg);
+    if (msg) showError(msg);
+  };
   const [statusFilter, setStatusFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [actionLoading, setActionLoading] = useState("");
@@ -53,7 +59,7 @@ export default function AdminManagement() {
         {
           headers: { Authorization: `Bearer ${token}` },
           signal,
-        }
+        },
       );
       const data = await res.json();
 
@@ -90,7 +96,7 @@ export default function AdminManagement() {
             Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({ status: nextStatus }),
-        }
+        },
       );
 
       const data = await res.json();
@@ -101,8 +107,8 @@ export default function AdminManagement() {
           prev.map((admin) =>
             admin.id === adminId
               ? { ...admin, admin_status: nextStatus }
-              : admin
-          )
+              : admin,
+          ),
         );
       }
     } catch (err) {
@@ -128,6 +134,7 @@ export default function AdminManagement() {
 
   return (
     <ManagerLayout>
+      <AnimatedAlert alert={alertState} visible={alertVisible} />
       <div className="max-w-6xl mx-auto space-y-6">
         <div>
           <h1 className="text-3xl font-bold text-gray-800">Admin Management</h1>
@@ -168,12 +175,6 @@ export default function AdminManagement() {
               </button>
             </div>
           </div>
-
-          {error && (
-            <div className="mb-3 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
-              {error}
-            </div>
-          )}
 
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">

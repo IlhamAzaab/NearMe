@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import ManagerHeader from "../../../components/ManagerHeader";
+import AnimatedAlert, { useAlert } from "../../../components/AnimatedAlert";
 
 export default function DriverVerification() {
   const navigate = useNavigate();
@@ -10,7 +11,17 @@ export default function DriverVerification() {
   const [driverDetails, setDriverDetails] = useState(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [verifyLoading, setVerifyLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [error, setRawError] = useState(null);
+  const {
+    alert: alertState,
+    visible: alertVisible,
+    showSuccess,
+    showError,
+  } = useAlert();
+  const setError = (msg) => {
+    setRawError(msg);
+    if (msg) showError(msg);
+  };
   const [rejectReason, setRejectReason] = useState("");
   const [showRejectModal, setShowRejectModal] = useState(false);
 
@@ -46,7 +57,7 @@ export default function DriverVerification() {
         `http://localhost:5000/manager/driver-details/${driverId}`,
         {
           headers: { Authorization: `Bearer ${token}` },
-        }
+        },
       );
       const data = await res.json();
       if (res.ok) {
@@ -64,7 +75,7 @@ export default function DriverVerification() {
 
   const handleVerifyDriver = async (action) => {
     if (action === "reject" && !rejectReason.trim()) {
-      alert("Please provide a reason for rejection");
+      showError("Please provide a reason for rejection");
       return;
     }
 
@@ -88,12 +99,12 @@ export default function DriverVerification() {
                 ? rejectReason
                 : "Manager approved after verification",
           }),
-        }
+        },
       );
 
       const data = await res.json();
       if (res.ok) {
-        alert(data.message);
+        showSuccess(data.message);
         setSelectedDriver(null);
         setDriverDetails(null);
         setShowRejectModal(false);
@@ -130,6 +141,7 @@ export default function DriverVerification() {
       <ManagerHeader onLogout={handleLogout} />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+        <AnimatedAlert alert={alertState} visible={alertVisible} />
         <div className="mb-6">
           <h1 className="text-3xl font-bold text-gray-800">
             Driver Verification
@@ -138,12 +150,6 @@ export default function DriverVerification() {
             Review and approve pending driver applications
           </p>
         </div>
-
-        {error && (
-          <div className="mb-4 p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg">
-            {error}
-          </div>
-        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Pending Drivers List */}
@@ -193,9 +199,9 @@ export default function DriverVerification() {
               </div>
             ) : detailsLoading ? (
               <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-teal-400 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading...</p>
-        </div>
+                <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-teal-400 mx-auto mb-4"></div>
+                <p className="text-gray-600">Loading...</p>
+              </div>
             ) : driverDetails ? (
               <div className="space-y-6">
                 {/* Header with Actions */}
@@ -243,7 +249,7 @@ export default function DriverVerification() {
                       <p className="font-medium">
                         {driverDetails.driver.date_of_birth
                           ? new Date(
-                              driverDetails.driver.date_of_birth
+                              driverDetails.driver.date_of_birth,
                             ).toLocaleDateString()
                           : "N/A"}
                       </p>
@@ -312,7 +318,7 @@ export default function DriverVerification() {
                         <p className="font-medium">
                           {driverDetails.vehicleLicense.insurance_expiry
                             ? new Date(
-                                driverDetails.vehicleLicense.insurance_expiry
+                                driverDetails.vehicleLicense.insurance_expiry,
                               ).toLocaleDateString()
                             : "N/A"}
                         </p>
@@ -322,7 +328,8 @@ export default function DriverVerification() {
                         <p className="font-medium">
                           {driverDetails.vehicleLicense.license_expiry_date
                             ? new Date(
-                                driverDetails.vehicleLicense.license_expiry_date
+                                driverDetails.vehicleLicense
+                                  .license_expiry_date,
                               ).toLocaleDateString()
                             : "N/A"}
                         </p>
@@ -413,7 +420,7 @@ export default function DriverVerification() {
                         <span className="text-gray-500">Accepted:</span>{" "}
                         <span className="font-medium">
                           {new Date(
-                            driverDetails.contract.accepted_at
+                            driverDetails.contract.accepted_at,
                           ).toLocaleString()}
                         </span>
                       </p>

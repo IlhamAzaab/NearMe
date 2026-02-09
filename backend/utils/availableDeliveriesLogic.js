@@ -67,6 +67,291 @@ function haversineDistance(lat1, lng1, lat2, lng2) {
 }
 
 // ============================================================================
+// MINIMUM DISTANCE ROUTE OPTIMIZATION (for 3+ deliveries)
+// ============================================================================
+
+/**
+ * Find the optimal delivery order that minimizes total route distance.
+ *
+ * Algorithm:
+ * 1. For each customer, calculate how far they are from ALL restaurants
+ * 2. Find the customer that is closest to restaurants overall (first delivery target)
+ * 3. Order restaurants by: visit the restaurant whose customer we're going to first
+ * 4. After first customer, find next nearest customer from current position
+ *
+ * This ensures we pick up food and deliver in an order that minimizes backtracking.
+ *
+ * @param {Object} driverLocation - {lat, lng, label}
+ * @param {Array} deliveries - Array of {restaurant: {lat, lng, label}, customer: {lat, lng, label}}
+ * @returns {Object} {orderedRestaurants: [], orderedCustomers: [], totalEstimatedDistance: number}
+ */
+function getMinimumDistanceDeliveryOrder(driverLocation, deliveries) {
+  if (deliveries.length === 0) {
+    return {
+      orderedRestaurants: [],
+      orderedCustomers: [],
+      totalEstimatedDistance: 0,
+    };
+  }
+
+  if (deliveries.length === 1) {
+    return {
+      orderedRestaurants: [deliveries[0].restaurant],
+      orderedCustomers: [deliveries[0].customer],
+      totalEstimatedDistance: 0,
+    };
+  }
+
+  console.log(
+    `\n[MIN-DISTANCE] 🎯 Finding minimum distance delivery order for ${deliveries.length} deliveries`,
+  );
+
+  // Step 1: Calculate distance from last restaurant position to each customer
+  // The "last restaurant" depends on restaurant order, so we need to try different orderings
+
+  // For simplicity and efficiency, we use a greedy approach:
+  // 1. Order restaurants by nearest to driver (nearest-neighbor)
+  // 2. From last restaurant, find customer with minimum total route to remaining customers
+
+  // However, the user wants to minimize total distance, so let's try:
+  // For each possible first customer, calculate total route and pick the best
+
+  const n = deliveries.length;
+
+  if (n <= 4) {
+    // For small number of deliveries, try all permutations of customer order
+    // and find the one with minimum total distance
+    return findOptimalOrderBruteForce(driverLocation, deliveries);
+  } else {
+    // For larger numbers, use greedy nearest-neighbor
+    return findOptimalOrderGreedy(driverLocation, deliveries);
+  }
+}
+
+/**
+ * Brute force optimal ordering (for small number of deliveries <= 4)
+ * Try all permutations and find minimum distance
+ */
+function findOptimalOrderBruteForce(driverLocation, deliveries) {
+  const n = deliveries.length;
+
+  // Generate all permutations of customer delivery order
+  function permutations(arr) {
+    if (arr.length <= 1) return [arr];
+    const result = [];
+    for (let i = 0; i < arr.length; i++) {
+      const rest = [...arr.slice(0, i), ...arr.slice(i + 1)];
+      const restPerms = permutations(rest);
+      for (const perm of restPerms) {
+        result.push([arr[i], ...perm]);
+      }
+    }
+    return result;
+  }
+
+  const indices = deliveries.map((_, i) => i);
+  const allPerms = permutations(indices);
+
+  let bestOrder = null;
+  let bestDistance = Infinity;
+
+  console.log(`[MIN-DISTANCE]   Testing ${allPerms.length} permutations...`);
+
+  for (const perm of allPerms) {
+    // For this customer order, determine restaurant order
+    // Rule: Pick up from restaurant before we can deliver to its customer
+    // So we need to pick up all restaurants whose customers come first
+
+    // Greedy restaurant order: nearest to driver, then nearest to previous
+    const customerOrder = perm.map((i) => deliveries[i].customer);
+
+    // For restaurant order, we still use nearest-neighbor from driver
+    // because we must pick up ALL restaurants before ANY delivery
+    const restaurants = perm.map((i) => deliveries[i].restaurant);
+    const restaurantOrder = getOptimizedRestaurantOrderStatic(
+      driverLocation,
+      restaurants,
+    );
+
+    // Calculate total estimated distance using haversine
+    let totalDist = 0;
+    let currentLat = driverLocation.lat;
+    let currentLng = driverLocation.lng;
+
+    // Driver → All Restaurants
+    for (const r of restaurantOrder) {
+      totalDist += haversineDistance(currentLat, currentLng, r.lat, r.lng);
+      currentLat = r.lat;
+      currentLng = r.lng;
+    }
+
+    // Last Restaurant → All Customers (in this permutation order)
+    for (const c of customerOrder) {
+      totalDist += haversineDistance(currentLat, currentLng, c.lat, c.lng);
+      currentLat = c.lat;
+      currentLng = c.lng;
+    }
+
+    if (totalDist < bestDistance) {
+      bestDistance = totalDist;
+      bestOrder = {
+        customerIndices: perm,
+        restaurantOrder: restaurantOrder,
+        customerOrder: customerOrder,
+      };
+    }
+  }
+
+  console.log(
+    `[MIN-DISTANCE]   Best estimated distance: ${(bestDistance / 1000).toFixed(3)} km`,
+  );
+  console.log(
+    `[MIN-DISTANCE]   Best customer order: ${bestOrder.customerOrder.map((c) => c.label).join(" → ")}`,
+  );
+  console.log(
+    `[MIN-DISTANCE]   Best restaurant order: ${bestOrder.restaurantOrder.map((r) => r.label).join(" → ")}`,
+  );
+
+  return {
+    orderedRestaurants: bestOrder.restaurantOrder,
+    orderedCustomers: bestOrder.customerOrder,
+    totalEstimatedDistance: bestDistance,
+  };
+}
+
+/**
+ * Static version of getOptimizedRestaurantOrder (doesn't modify original array)
+ */
+function getOptimizedRestaurantOrderStatic(startLocation, restaurants) {
+  if (restaurants.length <= 1) return [...restaurants];
+
+  const optimized = [];
+  const remaining = [...restaurants];
+
+  let currentLat = startLocation.lat;
+  let currentLng = startLocation.lng;
+
+  while (remaining.length > 0) {
+    let nearestIndex = 0;
+    let nearestDistance = haversineDistance(
+      currentLat,
+      currentLng,
+      remaining[0].lat,
+      remaining[0].lng,
+    );
+
+    for (let i = 1; i < remaining.length; i++) {
+      const dist = haversineDistance(
+        currentLat,
+        currentLng,
+        remaining[i].lat,
+        remaining[i].lng,
+      );
+      if (dist < nearestDistance) {
+        nearestDistance = dist;
+        nearestIndex = i;
+      }
+    }
+
+    const nearest = remaining.splice(nearestIndex, 1)[0];
+    optimized.push(nearest);
+    currentLat = nearest.lat;
+    currentLng = nearest.lng;
+  }
+
+  return optimized;
+}
+
+/**
+ * Greedy optimal ordering (for larger number of deliveries > 4)
+ */
+function findOptimalOrderGreedy(driverLocation, deliveries) {
+  // Use standard nearest-neighbor for both restaurants and customers
+  const restaurants = deliveries.map((d) => d.restaurant);
+  const customers = deliveries.map((d) => d.customer);
+
+  const orderedRestaurants = getOptimizedRestaurantOrderStatic(
+    driverLocation,
+    restaurants,
+  );
+  const lastRestaurant = orderedRestaurants[orderedRestaurants.length - 1];
+  const orderedCustomers = getOptimizedCustomerOrderStatic(
+    lastRestaurant,
+    customers,
+  );
+
+  // Calculate estimated total distance
+  let totalDist = 0;
+  let currentLat = driverLocation.lat;
+  let currentLng = driverLocation.lng;
+
+  for (const r of orderedRestaurants) {
+    totalDist += haversineDistance(currentLat, currentLng, r.lat, r.lng);
+    currentLat = r.lat;
+    currentLng = r.lng;
+  }
+
+  for (const c of orderedCustomers) {
+    totalDist += haversineDistance(currentLat, currentLng, c.lat, c.lng);
+    currentLat = c.lat;
+    currentLng = c.lng;
+  }
+
+  console.log(
+    `[MIN-DISTANCE]   Greedy estimated distance: ${(totalDist / 1000).toFixed(3)} km`,
+  );
+
+  return {
+    orderedRestaurants,
+    orderedCustomers,
+    totalEstimatedDistance: totalDist,
+  };
+}
+
+/**
+ * Static version of getOptimizedCustomerOrder
+ */
+function getOptimizedCustomerOrderStatic(startLocation, customers) {
+  if (customers.length <= 1) return [...customers];
+
+  const optimized = [];
+  const remaining = [...customers];
+
+  let currentLat = startLocation.lat;
+  let currentLng = startLocation.lng;
+
+  while (remaining.length > 0) {
+    let nearestIndex = 0;
+    let nearestDistance = haversineDistance(
+      currentLat,
+      currentLng,
+      remaining[0].lat,
+      remaining[0].lng,
+    );
+
+    for (let i = 1; i < remaining.length; i++) {
+      const dist = haversineDistance(
+        currentLat,
+        currentLng,
+        remaining[i].lat,
+        remaining[i].lng,
+      );
+      if (dist < nearestDistance) {
+        nearestDistance = dist;
+        nearestIndex = i;
+      }
+    }
+
+    const nearest = remaining.splice(nearestIndex, 1)[0];
+    optimized.push(nearest);
+    currentLat = nearest.lat;
+    currentLng = nearest.lng;
+  }
+
+  return optimized;
+}
+
+// ============================================================================
 // OPTIMIZED ORDER FUNCTIONS (for nearest-neighbor routing)
 // ============================================================================
 
@@ -168,8 +453,211 @@ function getOptimizedCustomerOrder(lastRestaurant, customers) {
   return optimized;
 }
 
+/**
+ * CORRECT FIRST DELIVERY EARNINGS CALCULATION
+ * ============================================
+ * Makes TWO SEPARATE OSRM requests and sums distances:
+/**
+ * CORRECT FIRST DELIVERY EARNINGS CALCULATION
+ * ============================================
+ * Makes TWO SEPARATE OSRM requests and sums distances:
+ * 1. Driver → Restaurant (OSRM foot profile)
+ * 2. Restaurant → Customer (OSRM foot profile)
+ *
+ * Total Earnings Distance = distance_1 + distance_2
+ *
+ * ❌ NOT a combined route (Driver → Restaurant → Customer)
+ * ✅ Two separate routes summed for FAIR payment calculation
+ */
+async function getFirstDeliveryEarningsDistance(
+  driverLocation,
+  restaurantLocation,
+  customerLocation,
+  context = "",
+) {
+  console.log(
+    `\n[FIRST-DELIVERY-EARNINGS] 🚗 Calculating FAIR earnings distance ${context ? `(${context})` : ""}`,
+  );
+  console.log(
+    `[FIRST-DELIVERY-EARNINGS] ✅ Using TWO SEPARATE OSRM requests (NOT combined route)`,
+  );
+
+  // Step 1: Driver → Restaurant (OSRM foot profile)
+  const driverToRestaurantRoute = await getOSRMRoute(
+    [driverLocation, restaurantLocation],
+    "Driver → Restaurant",
+  );
+  const dtrDistanceKm = driverToRestaurantRoute.distance / 1000;
+  console.log(
+    `[FIRST-DELIVERY-EARNINGS]   📍 Driver → Restaurant: ${dtrDistanceKm.toFixed(3)} km`,
+  );
+
+  // Step 2: Restaurant → Customer (OSRM foot profile) - DIRECT ONLY
+  const restaurantToCustomerRoute = await getOSRMRoute(
+    [restaurantLocation, customerLocation],
+    "Restaurant → Customer",
+  );
+  const rtcDistanceKm = restaurantToCustomerRoute.distance / 1000;
+  console.log(
+    `[FIRST-DELIVERY-EARNINGS]   📍 Restaurant → Customer: ${rtcDistanceKm.toFixed(3)} km`,
+  );
+
+  // Step 3: Sum distances (NOT from combined route)
+  const totalEarningsDistanceKm = dtrDistanceKm + rtcDistanceKm;
+  console.log(
+    `[FIRST-DELIVERY-EARNINGS]   💰 TOTAL EARNINGS DISTANCE: ${totalEarningsDistanceKm.toFixed(3)} km`,
+  );
+  console.log(
+    `[FIRST-DELIVERY-EARNINGS]   ✅ Formula: ${dtrDistanceKm.toFixed(3)} + ${rtcDistanceKm.toFixed(3)} = ${totalEarningsDistanceKm.toFixed(3)} km`,
+  );
+
+  return {
+    driverToRestaurantDistance: driverToRestaurantRoute.distance, // meters
+    restaurantToCustomerDistance: restaurantToCustomerRoute.distance, // meters
+    totalEarningsDistance:
+      driverToRestaurantRoute.distance + restaurantToCustomerRoute.distance, // meters
+    driverToRestaurantKm: dtrDistanceKm,
+    restaurantToCustomerKm: rtcDistanceKm,
+    totalEarningsDistanceKm: totalEarningsDistanceKm,
+    // Route geometries for map display (optional)
+    driverToRestaurantGeometry: driverToRestaurantRoute.geometry,
+    restaurantToCustomerGeometry: restaurantToCustomerRoute.geometry,
+    driverToRestaurantPolyline: driverToRestaurantRoute.polyline,
+    restaurantToCustomerPolyline: restaurantToCustomerRoute.polyline,
+  };
+}
+
 // ============================================================================
-// RETURN-VIA-SAME-PATH ALGORITHM
+// SEGMENT-BY-SEGMENT ROUTE DISTANCE CALCULATION (For Multi-Delivery)
+// ============================================================================
+/**
+ * CORRECT MULTI-DELIVERY ROUTE DISTANCE CALCULATION
+ * ==================================================
+ * Calculates route distance by summing INDIVIDUAL segment OSRM calls.
+ *
+ * For 2nd delivery (1 existing + 1 new):
+ *   R1 = Driver→R1 + R1→R2 + R2→C1 + C1→C2
+ *
+ * For 3rd delivery (2 existing + 1 new):
+ *   R1 = Driver→R1 + R1→R2 + R2→R3 + R3→C1 + C1→C2 + C2→C3
+ *
+ * ORDERING RULES:
+ * - Restaurants: Nearest to driver first, then nearest to previous restaurant
+ * - Customers: Nearest to last restaurant first, then nearest to previous customer
+ *
+ * ❌ NOT a single combined OSRM request
+ * ✅ Sum of individual segment OSRM calls for FAIR calculation
+ */
+async function calculateSegmentBySegmentRouteDistance(
+  driverLocation,
+  restaurants, // Array of {lat, lng, label}
+  customers, // Array of {lat, lng, label}
+  context = "",
+) {
+  if (restaurants.length === 0 || customers.length === 0) {
+    return { totalDistance: 0, totalDuration: 0, segments: [] };
+  }
+
+  console.log(
+    `\n[SEGMENT-ROUTE] 📐 Calculating segment-by-segment distance ${context ? `(${context})` : ""}`,
+  );
+  console.log(
+    `[SEGMENT-ROUTE]   Restaurants: ${restaurants.length}, Customers: ${customers.length}`,
+  );
+
+  // Build deliveries array linking each restaurant to its customer
+  // Assumes restaurants[i] corresponds to customers[i]
+  const deliveries = restaurants.map((restaurant, idx) => ({
+    restaurant,
+    customer: customers[idx],
+  }));
+
+  // Use minimum distance optimization for 2+ deliveries
+  // This tries all permutations for small numbers and picks the shortest total route
+  let optimizedRestaurants, optimizedCustomers;
+
+  if (restaurants.length >= 2) {
+    // Use brute-force/greedy optimization to find minimum total distance
+    const optimized = getMinimumDistanceDeliveryOrder(
+      driverLocation,
+      deliveries,
+    );
+    optimizedRestaurants = optimized.orderedRestaurants;
+    optimizedCustomers = optimized.orderedCustomers;
+    console.log(`[SEGMENT-ROUTE]   🎯 Using MINIMUM DISTANCE optimization`);
+  } else {
+    // For single delivery, just use as-is
+    optimizedRestaurants = restaurants;
+    optimizedCustomers = customers;
+  }
+
+  // Build the complete waypoint sequence
+  const waypoints = [
+    driverLocation,
+    ...optimizedRestaurants,
+    ...optimizedCustomers,
+  ];
+
+  console.log(`[SEGMENT-ROUTE]   Optimized route order:`);
+  waypoints.forEach((wp, i) => {
+    console.log(
+      `[SEGMENT-ROUTE]     ${i}: ${wp.label} (${wp.lat.toFixed(6)}, ${wp.lng.toFixed(6)})`,
+    );
+  });
+
+  // Calculate each segment separately
+  let totalDistance = 0;
+  let totalDuration = 0;
+  const segments = [];
+
+  for (let i = 0; i < waypoints.length - 1; i++) {
+    const from = waypoints[i];
+    const to = waypoints[i + 1];
+
+    const segmentRoute = await getOSRMRoute(
+      [from, to],
+      `${from.label} → ${to.label}`,
+    );
+
+    const segmentDistanceKm = segmentRoute.distance / 1000;
+    totalDistance += segmentRoute.distance;
+    totalDuration += segmentRoute.duration;
+
+    segments.push({
+      from: from.label,
+      to: to.label,
+      distance: segmentRoute.distance,
+      distanceKm: segmentDistanceKm,
+      duration: segmentRoute.duration,
+    });
+
+    console.log(
+      `[SEGMENT-ROUTE]     ${from.label} → ${to.label}: ${segmentDistanceKm.toFixed(3)} km`,
+    );
+  }
+
+  const totalDistanceKm = totalDistance / 1000;
+  console.log(`[SEGMENT-ROUTE]   ═══════════════════════════════════════`);
+  console.log(
+    `[SEGMENT-ROUTE]   💰 TOTAL DISTANCE (sum of segments): ${totalDistanceKm.toFixed(3)} km`,
+  );
+  console.log(
+    `[SEGMENT-ROUTE]   ⏱️  TOTAL DURATION: ${Math.ceil(totalDuration / 60)} mins`,
+  );
+
+  return {
+    totalDistance, // meters
+    totalDuration, // seconds
+    totalDistanceKm,
+    totalDurationMins: Math.ceil(totalDuration / 60),
+    segments,
+    optimizedRestaurants,
+    optimizedCustomers,
+  };
+}
+
+// ============================================================================
+// LEGACY: RETURN-VIA-SAME-PATH ALGORITHM (for map display only, NOT earnings)
 // ============================================================================
 /**
  * Creates complete optimized route: Driver → Restaurant → Customer
@@ -707,7 +1195,7 @@ async function evaluateAvailableDelivery(
     const currentDeliveries = [];
     const processedDeliveryIds = new Set();
     let idx = 1;
-    let firstDeliveryEarnings = 0; // Track first delivery's total earnings for base amount
+    let cumulativePreviousEarnings = 0; // Track cumulative earnings from ALL previous deliveries
 
     for (const stop of routeContext.stops) {
       if (!processedDeliveryIds.has(stop.delivery_id)) {
@@ -724,15 +1212,34 @@ async function evaluateAvailableDelivery(
           // Extract delivery earnings info from the stop's delivery data
           const deliveryData =
             restaurantStop.deliveries || customerStop.deliveries;
-          const deliveryEarnings = parseFloat(
-            deliveryData?.driver_earnings || 0,
-          );
+
+          // For active deliveries, driver_earnings is 0 - read from pending_earnings JSON instead
+          let deliveryEarnings = 0;
+          if (deliveryData?.pending_earnings) {
+            try {
+              const pendingEarnings =
+                typeof deliveryData.pending_earnings === "string"
+                  ? JSON.parse(deliveryData.pending_earnings)
+                  : deliveryData.pending_earnings;
+              deliveryEarnings = parseFloat(
+                pendingEarnings?.driver_earnings || 0,
+              );
+            } catch (e) {
+              console.warn(
+                `[EVALUATE]   ⚠️ Failed to parse pending_earnings:`,
+                e.message,
+              );
+              deliveryEarnings = parseFloat(deliveryData?.driver_earnings || 0);
+            }
+          } else {
+            // Fallback to driver_earnings column (for delivered orders)
+            deliveryEarnings = parseFloat(deliveryData?.driver_earnings || 0);
+          }
+
           const deliverySequence = deliveryData?.delivery_sequence || idx;
 
-          // First delivery (sequence 1) earnings becomes the base for subsequent deliveries
-          if (deliverySequence === 1 && deliveryEarnings > 0) {
-            firstDeliveryEarnings = deliveryEarnings;
-          }
+          // Add ALL previous deliveries' earnings to cumulative total
+          cumulativePreviousEarnings += deliveryEarnings;
 
           currentDeliveries.push({
             id: stop.delivery_id,
@@ -759,7 +1266,7 @@ async function evaluateAvailableDelivery(
             `[EVALUATE]     - Customer C${idx}: (${customerStop.latitude.toFixed(6)}, ${customerStop.longitude.toFixed(6)})`,
           );
           console.log(
-            `[EVALUATE]     - Earnings: Rs. ${deliveryEarnings.toFixed(2)}`,
+            `[EVALUATE]     - Earnings (from pending_earnings): Rs. ${deliveryEarnings.toFixed(2)}`,
           );
           processedDeliveryIds.add(stop.delivery_id);
           idx++;
@@ -769,15 +1276,16 @@ async function evaluateAvailableDelivery(
     console.log(
       `[EVALUATE]   Total current deliveries: ${currentDeliveries.length}`,
     );
-    if (firstDeliveryEarnings > 0) {
+    if (cumulativePreviousEarnings > 0) {
       console.log(
-        `[EVALUATE]   💰 First delivery earnings (base for next): Rs. ${firstDeliveryEarnings.toFixed(2)}`,
+        `[EVALUATE]   💰 Cumulative previous earnings (base for next): Rs. ${cumulativePreviousEarnings.toFixed(2)}`,
       );
     }
 
     // =========================================================================
     // STEP 1: Calculate R0 (current route with existing deliveries ONLY)
     // Route: Driver → All Restaurants (optimized order) → All Customers (optimized order)
+    // Using SEGMENT-BY-SEGMENT calculation for accurate distance
     // =========================================================================
     console.log(`\n${"─".repeat(80)}`);
     console.log(
@@ -792,35 +1300,22 @@ async function evaluateAvailableDelivery(
       const currentRestaurants = currentDeliveries.map((d) => d.restaurant);
       const currentCustomers = currentDeliveries.map((d) => d.customer);
 
-      // Optimize order: nearest restaurant to driver first, nearest customer to last restaurant first
-      const optimizedRestaurants = getOptimizedRestaurantOrder(
+      // Use segment-by-segment calculation for accurate R0 distance
+      const r0SegmentResult = await calculateSegmentBySegmentRouteDistance(
         driverLocation,
         currentRestaurants,
-      );
-      const lastRestaurant =
-        optimizedRestaurants[optimizedRestaurants.length - 1];
-      const optimizedCustomers = getOptimizedCustomerOrder(
-        lastRestaurant,
         currentCustomers,
+        "R0 - Current Route",
       );
 
-      // Build R0 waypoints: Driver → All Restaurants (optimized) → All Customers (optimized)
-      const r0Waypoints = [
-        driverLocation,
-        ...optimizedRestaurants,
-        ...optimizedCustomers,
-      ];
+      r0Route = {
+        distance: r0SegmentResult.totalDistance,
+        duration: r0SegmentResult.totalDuration,
+        segments: r0SegmentResult.segments,
+      };
 
-      console.log(`[EVALUATE] R0 Route waypoints (optimized order):`);
-      r0Waypoints.forEach((wp, i) => {
-        console.log(
-          `[EVALUATE]   ${i}: ${wp.label} (${wp.lat.toFixed(6)}, ${wp.lng.toFixed(6)})`,
-        );
-      });
-
-      r0Route = await getOSRMRoute(r0Waypoints, "R0 - Current Route");
       console.log(
-        `[EVALUATE] ✓ R0 Distance: ${(r0Route.distance / 1000).toFixed(3)} km`,
+        `[EVALUATE] ✓ R0 Distance (segment-by-segment): ${(r0Route.distance / 1000).toFixed(3)} km`,
       );
       console.log(
         `[EVALUATE] ✓ R0 Duration: ${Math.ceil(r0Route.duration / 60)} mins`,
@@ -849,40 +1344,30 @@ async function evaluateAvailableDelivery(
       newCustomer,
     ];
 
-    // Optimize order: nearest restaurant to driver first, nearest customer to last restaurant first
-    const optimizedAllRestaurants = getOptimizedRestaurantOrder(
+    // Use segment-by-segment calculation for accurate R1 distance
+    const r1SegmentResult = await calculateSegmentBySegmentRouteDistance(
       driverLocation,
       allRestaurants,
-    );
-    const lastRestaurantForR1 =
-      optimizedAllRestaurants[optimizedAllRestaurants.length - 1];
-    const optimizedAllCustomers = getOptimizedCustomerOrder(
-      lastRestaurantForR1,
       allCustomers,
+      "R1 - Combined Route with New Delivery",
     );
 
-    // Build R1 waypoints: Driver → All Restaurants (optimized) → All Customers (optimized)
-    const r1Waypoints = [
-      driverLocation,
-      ...optimizedAllRestaurants,
-      ...optimizedAllCustomers,
-    ];
+    const r1Route = {
+      distance: r1SegmentResult.totalDistance,
+      duration: r1SegmentResult.totalDuration,
+      segments: r1SegmentResult.segments,
+      geometry: null, // Will be populated if needed for map display
+      polyline: null,
+    };
 
     console.log(
-      `[EVALUATE] R1 Route waypoints (optimized order with new delivery):`,
-    );
-    r1Waypoints.forEach((wp, i) => {
-      console.log(
-        `[EVALUATE]   ${i}: ${wp.label} (${wp.lat.toFixed(6)}, ${wp.lng.toFixed(6)})`,
-      );
-    });
-
-    const r1Route = await getOSRMRoute(r1Waypoints, "R1 - Combined Route");
-    console.log(
-      `[EVALUATE] ✓ R1 Distance: ${(r1Route.distance / 1000).toFixed(3)} km`,
+      `[EVALUATE] ✓ R1 Distance (segment-by-segment): ${(r1Route.distance / 1000).toFixed(3)} km`,
     );
     console.log(
       `[EVALUATE] ✓ R1 Duration: ${Math.ceil(r1Route.duration / 60)} mins`,
+    );
+    console.log(
+      `[EVALUATE] R1 Optimized order: ${r1SegmentResult.optimizedRestaurants.map((r) => r.label).join(" → ")} → ${r1SegmentResult.optimizedCustomers.map((c) => c.label).join(" → ")}`,
     );
 
     // =========================================================================
@@ -937,23 +1422,23 @@ async function evaluateAvailableDelivery(
     let restaurantToCustomerEarnings = 0;
 
     if (activeDeliveryCount === 0) {
-      // For FIRST DELIVERY: Only calculate driver-to-restaurant + restaurant-to-customer earnings
-      // NO base earnings (delivery_fee + service_fee)
+      // =========================================================================
+      // FIRST DELIVERY - CORRECT FAIR EARNINGS CALCULATION
+      // =========================================================================
+      // Make TWO SEPARATE OSRM requests and SUM distances manually
+      // Total = (Driver → Restaurant) + (Restaurant → Customer)
+      // ❌ NOT using combined/optimized route for earnings
+      // =========================================================================
 
-      // Calculate complete optimized route for first delivery earnings
-      const completeOptimizedRoute = await getCompleteOptimizedRoute(
+      const earningsDistance = await getFirstDeliveryEarningsDistance(
         driverLocation,
         newRestaurant,
         newCustomer,
         "First Delivery Earnings",
       );
 
-      const driverToRestaurantKm =
-        completeOptimizedRoute.driverToRestaurantDistance / 1000;
-      const restaurantToCustomerKm =
-        completeOptimizedRoute.restaurantToCustomerDistance / 1000;
-      const overlapSavingsKm =
-        (completeOptimizedRoute.overlapSavings || 0) / 1000;
+      const driverToRestaurantKm = earningsDistance.driverToRestaurantKm;
+      const restaurantToCustomerKm = earningsDistance.restaurantToCustomerKm;
 
       // Apply maximum 1km limit for driver-to-restaurant earnings
       const paidDriverToRestaurantKm = Math.min(
@@ -963,46 +1448,33 @@ async function evaluateAvailableDelivery(
       driverToRestaurantEarnings =
         paidDriverToRestaurantKm * DRIVER_EARNINGS.RATE_PER_KM;
 
-      // Calculate earnings: Rs. 4 for each 0.1km = Rs. 40 per km
+      // Calculate earnings: Rs. 40 per km
       restaurantToCustomerEarnings =
         restaurantToCustomerKm * DRIVER_EARNINGS.RATE_PER_KM;
 
-      // Total earnings = ONLY driver-to-restaurant + restaurant-to-customer (NO base earnings)
+      // Total earnings = driver-to-restaurant + restaurant-to-customer
       extraEarnings = driverToRestaurantEarnings + restaurantToCustomerEarnings;
 
-      console.log(`\n[EVALUATE] 🚗 FIRST DELIVERY - Complete Optimized Route:`);
       console.log(
-        `[EVALUATE]   Route Type: ${completeOptimizedRoute.isOptimized ? "OPTIMIZED 🎯" : "DIRECT"}`,
+        `\n[EVALUATE] 🚗 FIRST DELIVERY - FAIR EARNINGS (Two Separate Routes):`,
       );
       console.log(
-        `[EVALUATE]   Driver to Restaurant: ${driverToRestaurantKm.toFixed(3)} km`,
+        `[EVALUATE]   📍 Driver → Restaurant: ${driverToRestaurantKm.toFixed(3)} km`,
       );
       console.log(
-        `[EVALUATE]   Paid distance: ${paidDriverToRestaurantKm.toFixed(3)} km (max ${DRIVER_EARNINGS.MAX_DRIVER_TO_RESTAURANT_KM} km)`,
+        `[EVALUATE]   📍 Paid DTR (max 1km): ${paidDriverToRestaurantKm.toFixed(3)} km`,
       );
       console.log(
-        `[EVALUATE]   Driver-to-Restaurant Earnings: ${paidDriverToRestaurantKm.toFixed(3)} × Rs. ${DRIVER_EARNINGS.RATE_PER_KM} = Rs. ${driverToRestaurantEarnings.toFixed(2)}`,
-      );
-
-      console.log(
-        `\n[EVALUATE] 🏪➡️🏠 Restaurant to Customer (${completeOptimizedRoute.selectedOption}):`,
+        `[EVALUATE]   💵 DTR Earnings: ${paidDriverToRestaurantKm.toFixed(3)} × Rs. ${DRIVER_EARNINGS.RATE_PER_KM} = Rs. ${driverToRestaurantEarnings.toFixed(2)}`,
       );
       console.log(
-        `[EVALUATE]   Distance: ${restaurantToCustomerKm.toFixed(3)} km`,
-      );
-      if (overlapSavingsKm > 0) {
-        console.log(
-          `[EVALUATE]   Overlap Savings: ${overlapSavingsKm.toFixed(3)} km 🎯`,
-        );
-        console.log(
-          `[EVALUATE]   ✨ ROUTE OPTIMIZED! Driver uses same path for efficiency`,
-        );
-      }
-      console.log(
-        `[EVALUATE]   Rate: Rs. ${DRIVER_EARNINGS.RATE_PER_KM}/km (Rs. 4 per 0.1km)`,
+        `[EVALUATE]   📍 Restaurant → Customer: ${restaurantToCustomerKm.toFixed(3)} km`,
       );
       console.log(
-        `[EVALUATE]   Restaurant-to-Customer Earnings: ${restaurantToCustomerKm.toFixed(3)} × Rs. ${DRIVER_EARNINGS.RATE_PER_KM} = Rs. ${restaurantToCustomerEarnings.toFixed(2)}`,
+        `[EVALUATE]   💵 RTC Earnings: ${restaurantToCustomerKm.toFixed(3)} × Rs. ${DRIVER_EARNINGS.RATE_PER_KM} = Rs. ${restaurantToCustomerEarnings.toFixed(2)}`,
+      );
+      console.log(
+        `[EVALUATE]   💰 TOTAL EARNINGS: Rs. ${extraEarnings.toFixed(2)}`,
       );
     } else {
       // For subsequent deliveries: Check restaurant proximity and use normal base earnings
@@ -1033,12 +1505,14 @@ async function evaluateAvailableDelivery(
           `[EVALUATE]   Distance to R${i + 1} (${existingRestaurant.lat.toFixed(6)}, ${existingRestaurant.lng.toFixed(6)}): ${distanceKm.toFixed(3)} km`,
         );
 
+        // Always track the closest restaurant distance
+        if (distanceKm < closestRestaurantDistance) {
+          closestRestaurantDistance = distanceKm;
+          closestRestaurantIndex = i + 1;
+        }
+
         if (distanceKm <= DRIVER_EARNINGS.MAX_RESTAURANT_PROXIMITY_KM) {
           isWithinProximity = true;
-          if (distanceKm < closestRestaurantDistance) {
-            closestRestaurantDistance = distanceKm;
-            closestRestaurantIndex = i + 1;
-          }
         }
       }
 
@@ -1181,18 +1655,19 @@ async function evaluateAvailableDelivery(
     let restaurantToCustomerEarningsDisplay = 0; // For first delivery display only
 
     if (activeDeliveryCount === 0) {
-      // FIRST DELIVERY - Calculate using driver-to-restaurant + restaurant-to-customer
-      // Get the complete optimized route for first delivery
-      const completeRoute = await getCompleteOptimizedRoute(
+      // =========================================================================
+      // FIRST DELIVERY - CORRECT FAIR EARNINGS CALCULATION
+      // =========================================================================
+      // Use TWO SEPARATE OSRM routes for fair payment calculation
+      const earningsDistance = await getFirstDeliveryEarningsDistance(
         driverLocation,
         newRestaurant,
         newCustomer,
         "First Delivery Final Calculation",
       );
 
-      driverToRestaurantKm = completeRoute.driverToRestaurantDistance / 1000;
-      restaurantToCustomerKm =
-        completeRoute.restaurantToCustomerDistance / 1000;
+      driverToRestaurantKm = earningsDistance.driverToRestaurantKm;
+      restaurantToCustomerKm = earningsDistance.restaurantToCustomerKm;
 
       // Apply maximum 1km limit for driver-to-restaurant earnings
       paidDriverToRestaurantKm = Math.min(
@@ -1221,21 +1696,21 @@ async function evaluateAvailableDelivery(
       restaurantToCustomerEarningsDisplay = rtcEarnings;
     } else {
       // Subsequent deliveries:
-      // - Base Amount = First delivery's total earnings (not R0 × Rs.40)
+      // - Base Amount = Cumulative earnings from ALL previous deliveries (sum of driver_earnings)
       // - Extra Earnings = (R1 - R0) × Rs. 40/km
       // - Bonus = Rs. 25 for 2nd, Rs. 30 for 3rd+
 
-      // Use first delivery's earnings as base, or fallback to R0 × Rs.40 if not available
-      if (firstDeliveryEarnings > 0) {
-        baseAmount = firstDeliveryEarnings;
+      // Use cumulative previous earnings as base
+      if (cumulativePreviousEarnings > 0) {
+        baseAmount = cumulativePreviousEarnings;
         console.log(
-          `[EVALUATE]   💵 Using first delivery's earnings as base: Rs. ${baseAmount.toFixed(2)}`,
+          `[EVALUATE]   💵 Using cumulative previous earnings as base: Rs. ${baseAmount.toFixed(2)}`,
         );
       } else {
-        // Fallback: calculate from R0 distance if first delivery earnings not available
+        // Fallback: calculate from R0 distance if previous earnings not available
         baseAmount = (r0Route.distance / 1000) * DRIVER_EARNINGS.RATE_PER_KM;
         console.log(
-          `[EVALUATE]   ⚠️ First delivery earnings not available, using R0 distance: Rs. ${baseAmount.toFixed(2)}`,
+          `[EVALUATE]   ⚠️ Previous earnings not available, using R0 distance: Rs. ${baseAmount.toFixed(2)}`,
         );
       }
 
@@ -1290,7 +1765,7 @@ async function evaluateAvailableDelivery(
         `[EVALUATE]   📍 Extra Distance: ${extraDistanceKm.toFixed(2)} km`,
       );
       console.log(
-        `[EVALUATE]   💵 1st Delivery Earnings (stored base): Rs. ${baseAmount.toFixed(2)}`,
+        `[EVALUATE]   💵 Cumulative Previous Earnings (base): Rs. ${baseAmount.toFixed(2)}`,
       );
       console.log(
         `[EVALUATE]   💵 Extra Earnings (Extra × Rs.40): Rs. ${extraDistanceEarnings.toFixed(2)}`,
@@ -1302,7 +1777,7 @@ async function evaluateAvailableDelivery(
         `[EVALUATE]   💰 THIS DELIVERY EARNINGS (extra + bonus): Rs. ${(extraDistanceEarnings + bonusAmount).toFixed(2)}`,
       );
       console.log(
-        `[EVALUATE]   💰 TOTAL TRIP EARNINGS (1st + this): Rs. ${totalTripEarnings.toFixed(2)}`,
+        `[EVALUATE]   💰 TOTAL TRIP EARNINGS (base + this): Rs. ${totalTripEarnings.toFixed(2)}`,
       );
     }
 
@@ -1314,7 +1789,7 @@ async function evaluateAvailableDelivery(
       extra_time_minutes: parseFloat(Math.max(0, extraTimeMinutes).toFixed(1)),
       // Earnings breakdown:
       // For FIRST delivery: base_amount = total earnings (DTR + RTC), extra_earnings = 0, driver_earnings = base_amount
-      // For SUBSEQUENT: base_amount = 1st delivery's total earnings, extra_earnings = (R1-R0) × Rs.40, driver_earnings = extra_earnings + bonus_amount
+      // For SUBSEQUENT: base_amount = cumulative earnings from ALL previous deliveries, extra_earnings = (R1-R0) × Rs.40, driver_earnings = extra_earnings + bonus_amount
       base_amount: parseFloat(baseAmount.toFixed(2)),
       extra_earnings: parseFloat(extraDistanceEarnings.toFixed(2)),
       bonus_amount: parseFloat(bonusAmount.toFixed(2)), // Rs.25 for 2nd, Rs.30 for 3rd+ (0 for first)
@@ -1325,10 +1800,10 @@ async function evaluateAvailableDelivery(
           : (extraDistanceEarnings + bonusAmount).toFixed(2),
       ),
       total_trip_earnings: parseFloat(totalTripEarnings.toFixed(2)), // Cumulative earnings for entire trip
-      // For subsequent deliveries, track the first delivery's earnings used as base
-      first_delivery_earnings:
+      // For subsequent deliveries, track the cumulative previous earnings used as base
+      cumulative_previous_earnings:
         activeDeliveryCount > 0
-          ? parseFloat(firstDeliveryEarnings.toFixed(2))
+          ? parseFloat(cumulativePreviousEarnings.toFixed(2))
           : null,
       // Route distances:
       total_combined_distance_km: parseFloat(
@@ -1475,7 +1950,7 @@ async function evaluateAvailableDeliveryOptimized(
     // Build current deliveries list
     const currentDeliveries = [];
     const processedDeliveryIds = new Set();
-    let firstDeliveryEarnings = 0;
+    let cumulativePreviousEarnings = 0; // Track cumulative earnings from ALL previous deliveries
 
     for (const stop of routeContext.stops) {
       if (!processedDeliveryIds.has(stop.delivery_id)) {
@@ -1491,15 +1966,30 @@ async function evaluateAvailableDeliveryOptimized(
         if (restaurantStop && customerStop) {
           const deliveryData =
             restaurantStop.deliveries || customerStop.deliveries;
-          const deliveryEarnings = parseFloat(
-            deliveryData?.driver_earnings || 0,
-          );
+
+          // For active deliveries, driver_earnings is 0 - read from pending_earnings JSON instead
+          let deliveryEarnings = 0;
+          if (deliveryData?.pending_earnings) {
+            try {
+              const pendingEarnings =
+                typeof deliveryData.pending_earnings === "string"
+                  ? JSON.parse(deliveryData.pending_earnings)
+                  : deliveryData.pending_earnings;
+              deliveryEarnings = parseFloat(
+                pendingEarnings?.driver_earnings || 0,
+              );
+            } catch (e) {
+              deliveryEarnings = parseFloat(deliveryData?.driver_earnings || 0);
+            }
+          } else {
+            deliveryEarnings = parseFloat(deliveryData?.driver_earnings || 0);
+          }
+
           const deliverySequence =
             deliveryData?.delivery_sequence || currentDeliveries.length + 1;
 
-          if (deliverySequence === 1 && deliveryEarnings > 0) {
-            firstDeliveryEarnings = deliveryEarnings;
-          }
+          // Add ALL previous deliveries' earnings to cumulative total
+          cumulativePreviousEarnings += deliveryEarnings;
 
           currentDeliveries.push({
             id: stop.delivery_id,
@@ -1524,7 +2014,12 @@ async function evaluateAvailableDeliveryOptimized(
     // Use pre-calculated R0 or default to 0
     let r0Route = preCalculatedR0 || { distance: 0, duration: 0 };
 
-    // Calculate R1 (COMBINED route WITH new delivery) - ONLY OSRM CALL NEEDED
+    // =========================================================================
+    // Calculate R1 using SEGMENT-BY-SEGMENT (FAIR calculation)
+    // =========================================================================
+    // For 2nd delivery: Driver→R1 + R1→R2 + R2→C1 + C1→C2
+    // For 3rd delivery: Driver→R1 + R1→R2 + R2→R3 + R3→C1 + C1→C2 + C2→C3
+    // =========================================================================
     const allRestaurants = [
       ...currentDeliveries.map((d) => d.restaurant),
       newRestaurant,
@@ -1534,26 +2029,21 @@ async function evaluateAvailableDeliveryOptimized(
       newCustomer,
     ];
 
-    const optimizedAllRestaurants = getOptimizedRestaurantOrder(
+    // Use SEGMENT-BY-SEGMENT calculation for R1 (FAIR calculation)
+    const r1SegmentRoute = await calculateSegmentBySegmentRouteDistance(
       driverLocation,
       allRestaurants,
-    );
-    const lastRestaurantForR1 =
-      optimizedAllRestaurants[optimizedAllRestaurants.length - 1];
-    const optimizedAllCustomers = getOptimizedCustomerOrder(
-      lastRestaurantForR1,
       allCustomers,
+      `R1 - Order ${orderNumber} (Segment-by-Segment)`,
     );
 
-    const r1Waypoints = [
-      driverLocation,
-      ...optimizedAllRestaurants,
-      ...optimizedAllCustomers,
-    ];
-    const r1Route = await getOSRMRoute(
-      r1Waypoints,
-      `R1 - Order ${orderNumber}`,
-    );
+    const r1Route = {
+      distance: r1SegmentRoute.totalDistance,
+      duration: r1SegmentRoute.totalDuration,
+      distanceKm: r1SegmentRoute.totalDistanceKm,
+      segments: r1SegmentRoute.segments,
+      geometry: null, // Not used for earnings
+    };
 
     // Calculate EXTRA distance = R1 - R0
     const extraDistance = r1Route.distance - r0Route.distance;
@@ -1572,35 +2062,71 @@ async function evaluateAvailableDeliveryOptimized(
     let restaurantToCustomerKm = 0;
     let paidDriverToRestaurantKm = 0;
     let driverToRestaurantEarningsDisplay = 0;
+
+    // Route geometry for map display (populated for first delivery)
+    let driverToRestaurantGeometry = null;
+    let restaurantToCustomerGeometry = null;
     let restaurantToCustomerEarningsDisplay = 0;
 
     if (activeDeliveryCount === 0) {
-      // FIRST DELIVERY - Simplified calculation: use R1 distance for earnings
-      // R1 already gives us Driver → Restaurant → Customer total distance
-      const totalDistanceKm = r1Route.distance / 1000;
+      // =========================================================================
+      // FIRST DELIVERY - CORRECT EARNINGS CALCULATION
+      // =========================================================================
+      // Make TWO SEPARATE OSRM requests and SUM distances manually
+      // This is the FAIR way to calculate earnings:
+      // 1. Driver → Restaurant (OSRM foot profile)
+      // 2. Restaurant → Customer (OSRM foot profile)
+      // Total = distance_1 + distance_2
+      // =========================================================================
 
-      // Estimate driver-to-restaurant and restaurant-to-customer using Haversine proportions
-      const dtrHaversine = haversineDistance(
-        driverLat,
-        driverLng,
-        newRestaurantLat,
-        newRestaurantLng,
+      console.log(
+        `[FIRST-DELIVERY] 🚗 Calculating earnings with separate OSRM routes`,
       );
-      const rtcHaversine = haversineDistance(
-        newRestaurantLat,
-        newRestaurantLng,
-        newCustomerLat,
-        newCustomerLng,
+
+      // OSRM Call 1: Driver → Restaurant
+      const dtrRoute = await getOSRMRoute(
+        [driverLocation, newRestaurant],
+        `Driver→Restaurant (${orderNumber})`,
       );
-      const totalHaversine = dtrHaversine + rtcHaversine;
+      driverToRestaurantKm = dtrRoute.distance / 1000;
+      // 🆕 Store route geometry for map display
+      driverToRestaurantGeometry = {
+        coordinates: dtrRoute.geometry?.coordinates || null,
+        encoded_polyline: dtrRoute.polyline || null,
+      };
+      console.log(
+        `[FIRST-DELIVERY]   Driver → Restaurant: ${driverToRestaurantKm.toFixed(3)} km`,
+      );
+      console.log(
+        `[FIRST-DELIVERY]   DTR Geometry coords: ${dtrRoute.geometry?.coordinates?.length || 0} points`,
+      );
 
-      // Proportion-based split of actual OSRM distance
-      driverToRestaurantKm =
-        totalHaversine > 0
-          ? totalDistanceKm * (dtrHaversine / totalHaversine)
-          : totalDistanceKm / 2;
-      restaurantToCustomerKm = totalDistanceKm - driverToRestaurantKm;
+      // OSRM Call 2: Restaurant → Customer
+      const rtcRoute = await getOSRMRoute(
+        [newRestaurant, newCustomer],
+        `Restaurant→Customer (${orderNumber})`,
+      );
+      restaurantToCustomerKm = rtcRoute.distance / 1000;
+      // 🆕 Store route geometry for map display
+      restaurantToCustomerGeometry = {
+        coordinates: rtcRoute.geometry?.coordinates || null,
+        encoded_polyline: rtcRoute.polyline || null,
+      };
+      console.log(
+        `[FIRST-DELIVERY]   Restaurant → Customer: ${restaurantToCustomerKm.toFixed(3)} km`,
+      );
+      console.log(
+        `[FIRST-DELIVERY]   RTC Geometry coords: ${rtcRoute.geometry?.coordinates?.length || 0} points`,
+      );
 
+      // Sum the distances (NOT from combined route)
+      const totalEarningsDistanceKm =
+        driverToRestaurantKm + restaurantToCustomerKm;
+      console.log(
+        `[FIRST-DELIVERY]   Total Earnings Distance: ${totalEarningsDistanceKm.toFixed(3)} km`,
+      );
+
+      // Apply max 1km limit for driver-to-restaurant earnings
       paidDriverToRestaurantKm = Math.min(
         driverToRestaurantKm,
         DRIVER_EARNINGS.MAX_DRIVER_TO_RESTAURANT_KM,
@@ -1614,6 +2140,16 @@ async function evaluateAvailableDeliveryOptimized(
       baseAmount = totalTripEarnings;
       driverToRestaurantEarningsDisplay = dtrEarnings;
       restaurantToCustomerEarningsDisplay = rtcEarnings;
+
+      console.log(
+        `[FIRST-DELIVERY]   💰 DTR Earnings (max 1km): Rs. ${dtrEarnings.toFixed(2)}`,
+      );
+      console.log(
+        `[FIRST-DELIVERY]   💰 RTC Earnings: Rs. ${rtcEarnings.toFixed(2)}`,
+      );
+      console.log(
+        `[FIRST-DELIVERY]   💰 TOTAL: Rs. ${totalTripEarnings.toFixed(2)}`,
+      );
     } else {
       // Subsequent deliveries: Check restaurant proximity using Haversine (FAST - no OSRM call)
       let isWithinProximity = false;
@@ -1621,12 +2157,14 @@ async function evaluateAvailableDeliveryOptimized(
 
       for (const delivery of currentDeliveries) {
         // Use Haversine for quick distance check (no OSRM call needed)
-        const distanceKm = haversineDistance(
+        // haversineDistance returns meters, convert to km
+        const distanceMeters = haversineDistance(
           newRestaurantLat,
           newRestaurantLng,
           delivery.restaurant.lat,
           delivery.restaurant.lng,
         );
+        const distanceKm = distanceMeters / 1000; // Convert meters to km
 
         if (distanceKm <= DRIVER_EARNINGS.MAX_RESTAURANT_PROXIMITY_KM) {
           isWithinProximity = true;
@@ -1645,8 +2183,9 @@ async function evaluateAvailableDeliveryOptimized(
       }
 
       // Calculate earnings for subsequent delivery
-      if (firstDeliveryEarnings > 0) {
-        baseAmount = firstDeliveryEarnings;
+      // Base amount = cumulative earnings from ALL previous deliveries
+      if (cumulativePreviousEarnings > 0) {
+        baseAmount = cumulativePreviousEarnings;
       } else {
         baseAmount = (r0Route.distance / 1000) * DRIVER_EARNINGS.RATE_PER_KM;
       }
@@ -1663,8 +2202,15 @@ async function evaluateAvailableDeliveryOptimized(
       totalTripEarnings = baseAmount + extraDistanceEarnings + bonusAmount;
     }
 
+    // Use segment-by-segment total distance (FAIR calculation)
     const totalCombinedDistanceKm = r1Route.distance / 1000;
     const totalCombinedTimeMinutes = r1Route.duration / 60;
+
+    // For first delivery, use the sum of DTR + RTC as the display distance
+    const displayDistanceKm =
+      activeDeliveryCount === 0
+        ? driverToRestaurantKm + restaurantToCustomerKm
+        : totalCombinedDistanceKm;
 
     // Build return object
     const returnObj = {
@@ -1681,23 +2227,26 @@ async function evaluateAvailableDeliveryOptimized(
           : (extraDistanceEarnings + bonusAmount).toFixed(2),
       ),
       total_trip_earnings: parseFloat(totalTripEarnings.toFixed(2)),
-      first_delivery_earnings:
+      cumulative_previous_earnings:
         activeDeliveryCount > 0
-          ? parseFloat(firstDeliveryEarnings.toFixed(2))
+          ? parseFloat(cumulativePreviousEarnings.toFixed(2))
           : null,
-      total_combined_distance_km: parseFloat(
-        totalCombinedDistanceKm.toFixed(2),
-      ),
+      // Display the SEGMENT-BY-SEGMENT total (FAIR distance)
+      total_combined_distance_km: parseFloat(displayDistanceKm.toFixed(2)),
       estimated_time_minutes: Math.ceil(totalCombinedTimeMinutes),
+      // R0 and R1 now use segment-by-segment calculation
       r0_distance_km: parseFloat((r0Route.distance / 1000).toFixed(2)),
       r1_distance_km: parseFloat((r1Route.distance / 1000).toFixed(2)),
       extra_calculation_method:
-        activeDeliveryCount === 0 ? "FIRST_DELIVERY" : "R1 - R0",
-      driver_to_restaurant_route: {
+        activeDeliveryCount === 0
+          ? "FIRST_DELIVERY (DTR+RTC)"
+          : "R1 - R0 (Segment-by-Segment)",
+      // 🆕 Use actual route geometry for first delivery, segment geometry for subsequent
+      driver_to_restaurant_route: driverToRestaurantGeometry || {
         coordinates: r1Route.geometry?.coordinates || null,
         encoded_polyline: r1Route.polyline || null,
       },
-      restaurant_to_customer_route: {
+      restaurant_to_customer_route: restaurantToCustomerGeometry || {
         coordinates: null,
         encoded_polyline: null,
       },
@@ -1895,26 +2444,21 @@ export async function getAvailableDeliveriesForDriver(
       if (currentDeliveries.length > 0) {
         const currentRestaurants = currentDeliveries.map((d) => d.restaurant);
         const currentCustomers = currentDeliveries.map((d) => d.customer);
-        const optimizedRestaurants = getOptimizedRestaurantOrder(
+
+        // Use SEGMENT-BY-SEGMENT calculation for R0 (FAIR calculation)
+        const r0SegmentRoute = await calculateSegmentBySegmentRouteDistance(
           driverLocation,
           currentRestaurants,
-        );
-        const lastRestaurant =
-          optimizedRestaurants[optimizedRestaurants.length - 1];
-        const optimizedCustomers = getOptimizedCustomerOrder(
-          lastRestaurant,
           currentCustomers,
+          "R0 - Pre-calculated (Segment-by-Segment)",
         );
-        const r0Waypoints = [
-          driverLocation,
-          ...optimizedRestaurants,
-          ...optimizedCustomers,
-        ];
 
-        preCalculatedR0 = await getOSRMRoute(
-          r0Waypoints,
-          "R0 - Pre-calculated",
-        );
+        preCalculatedR0 = {
+          distance: r0SegmentRoute.totalDistance,
+          duration: r0SegmentRoute.totalDuration,
+          distanceKm: r0SegmentRoute.totalDistanceKm,
+          segments: r0SegmentRoute.segments,
+        };
         console.log(
           `[AVAILABLE DELIVERIES]   ✓ R0 pre-calculated: ${(preCalculatedR0.distance / 1000).toFixed(2)} km`,
         );
@@ -2014,6 +2558,16 @@ export async function getAvailableDeliveriesForDriver(
             r0_distance_km: result.r0_distance_km,
             r1_distance_km: result.r1_distance_km,
             calculation_method: result.extra_calculation_method, // "R1 - R0"
+            // 🆕 First delivery specific fields
+            is_first_delivery: result.is_first_delivery || false,
+            driver_to_restaurant_km: result.driver_to_restaurant_km || 0,
+            paid_driver_to_restaurant_km:
+              result.paid_driver_to_restaurant_km || 0,
+            restaurant_to_customer_km: result.restaurant_to_customer_km || 0,
+            driver_to_restaurant_earnings:
+              result.driver_to_restaurant_earnings || 0,
+            restaurant_to_customer_earnings:
+              result.restaurant_to_customer_earnings || 0,
           },
           total_delivery_distance_km: result.total_combined_distance_km, // R1 - Combined route distance
           estimated_time_minutes: result.estimated_time_minutes, // 🆕 Total time for this delivery

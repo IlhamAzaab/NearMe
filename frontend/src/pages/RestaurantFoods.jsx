@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import BottomNavbar from "../components/BottomNavbar";
+import AnimatedAlert, { useAlert } from "../components/AnimatedAlert";
 
 const RestaurantFoods = () => {
   const { restaurantId } = useParams();
@@ -22,7 +23,7 @@ const RestaurantFoods = () => {
 
   // Cart state
   const [addingToCart, setAddingToCart] = useState(null);
-  const [cartMessage, setCartMessage] = useState(null);
+  const { alert, visible, showSuccess, showError } = useAlert();
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -53,7 +54,13 @@ const RestaurantFoods = () => {
       });
       const data = await res.json();
       const totalItems = (data.carts || []).reduce((sum, cart) => {
-        return sum + (cart.items || []).reduce((itemSum, item) => itemSum + item.quantity, 0);
+        return (
+          sum +
+          (cart.items || []).reduce(
+            (itemSum, item) => itemSum + item.quantity,
+            0,
+          )
+        );
       }, 0);
       setCartCount(totalItems);
     } catch (err) {
@@ -68,7 +75,7 @@ const RestaurantFoods = () => {
       setError(null);
 
       const restaurantResponse = await fetch(
-        `http://localhost:5000/public/restaurants/${restaurantId}`
+        `http://localhost:5000/public/restaurants/${restaurantId}`,
       );
       const restaurantData = await restaurantResponse.json();
 
@@ -94,7 +101,7 @@ const RestaurantFoods = () => {
       setFoodsError(null);
 
       const foodsUrl = new URL(
-        `http://localhost:5000/public/restaurants/${restaurantId}/foods`
+        `http://localhost:5000/public/restaurants/${restaurantId}/foods`,
       );
       if (search) {
         foodsUrl.searchParams.append("search", search);
@@ -150,13 +157,13 @@ const RestaurantFoods = () => {
   // Handle Add to Cart button click - QUICK ADD (no modal)
   const quickAddToCart = async (food) => {
     if (!isLoggedIn) {
-      alert("Please login to add items to cart");
+      showError("Please login to add items to cart");
       navigate("/login");
       return;
     }
 
     if (role !== "customer") {
-      alert("Only customers can add items to cart");
+      showError("Only customers can add items to cart");
       return;
     }
 
@@ -184,12 +191,11 @@ const RestaurantFoods = () => {
         throw new Error(data.message || "Failed to add to cart");
       }
 
-      setCartMessage({ type: "success", text: "Added to cart!" });
+      showSuccess("Added to cart!");
       fetchCartCount();
-      setTimeout(() => setCartMessage(null), 3000);
     } catch (error) {
       console.error("Add to cart error:", error);
-      setCartMessage({ type: "error", text: error.message });
+      showError(error.message);
     } finally {
       setAddingToCart(null);
     }
@@ -197,13 +203,13 @@ const RestaurantFoods = () => {
 
   const buyNow = async (food) => {
     if (!isLoggedIn) {
-      alert("Please login to continue");
+      showError("Please login to continue");
       navigate("/login");
       return;
     }
 
     if (role !== "customer") {
-      alert("Only customers can place orders");
+      showError("Only customers can place orders");
       return;
     }
 
@@ -234,7 +240,7 @@ const RestaurantFoods = () => {
       navigate("/cart");
     } catch (error) {
       console.error("Buy now error:", error);
-      setCartMessage({ type: "error", text: error.message });
+      showError(error.message);
     } finally {
       setAddingToCart(null);
     }
@@ -252,8 +258,18 @@ const RestaurantFoods = () => {
                 onClick={() => navigate("/home")}
                 className="p-2 hover:bg-gray-100 rounded-full transition-colors"
               >
-                <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7"/>
+                <svg
+                  className="w-5 h-5 text-gray-700"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M15 19l-7-7 7-7"
+                  />
                 </svg>
               </button>
               <div className="w-10 h-10 bg-[#FF7A00] rounded-xl flex items-center justify-center shadow-lg shadow-orange-200">
@@ -263,21 +279,33 @@ const RestaurantFoods = () => {
                 <h1 className="text-lg font-bold text-gray-900 line-clamp-1">
                   {restaurant?.restaurant_name || "Restaurant"}
                 </h1>
-                <p className="text-xs text-gray-500">{restaurant?.city || "Loading..."}</p>
+                <p className="text-xs text-gray-500">
+                  {restaurant?.city || "Loading..."}
+                </p>
               </div>
             </div>
-            
+
             {/* Cart Icon */}
             <button
               onClick={() => navigate("/cart")}
               className="relative p-2.5 bg-orange-50 rounded-full hover:bg-orange-100 transition-colors"
             >
-              <svg className="w-5 h-5 text-[#FF7A00]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"/>
+              <svg
+                className="w-5 h-5 text-[#FF7A00]"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"
+                />
               </svg>
               {cartCount > 0 && (
                 <span className="absolute -top-0.5 -right-0.5 w-5 h-5 bg-[#FF7A00] text-white text-xs font-bold rounded-full flex items-center justify-center">
-                  {cartCount > 9 ? '9+' : cartCount}
+                  {cartCount > 9 ? "9+" : cartCount}
                 </span>
               )}
             </button>
@@ -285,29 +313,7 @@ const RestaurantFoods = () => {
         </div>
       </header>
 
-      {/* Success/Error Message Toast */}
-      {cartMessage && (
-        <div className="fixed top-20 right-4 z-50 animate-fade-in">
-          <div
-            className={`px-5 py-3 rounded-2xl shadow-lg flex items-center gap-2 ${
-              cartMessage.type === "success"
-                ? "bg-green-500 text-white"
-                : "bg-red-500 text-white"
-            }`}
-          >
-            {cartMessage.type === "success" ? (
-              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/>
-              </svg>
-            ) : (
-              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd"/>
-              </svg>
-            )}
-            <span className="font-medium">{cartMessage.text}</span>
-          </div>
-        </div>
-      )}
+      <AnimatedAlert alert={alert} visible={visible} />
 
       {restaurantLoading ? (
         <div className="flex flex-col items-center justify-center py-20">
@@ -315,14 +321,26 @@ const RestaurantFoods = () => {
             <div className="w-16 h-16 border-4 border-orange-100 rounded-full"></div>
             <div className="absolute top-0 left-0 w-16 h-16 border-4 border-[#FF7A00] border-t-transparent rounded-full animate-spin"></div>
           </div>
-          <p className="mt-4 text-gray-500 text-sm font-medium">Loading restaurant...</p>
+          <p className="mt-4 text-gray-500 text-sm font-medium">
+            Loading restaurant...
+          </p>
         </div>
       ) : error ? (
         <div className="px-4 py-12">
           <div className="bg-red-50 border border-red-100 text-red-700 px-6 py-5 rounded-2xl max-w-md mx-auto text-center">
             <div className="w-12 h-12 mx-auto mb-3 bg-red-100 rounded-full flex items-center justify-center">
-              <svg className="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+              <svg
+                className="w-6 h-6 text-red-500"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                />
               </svg>
             </div>
             <p className="font-semibold text-lg mb-1">Something went wrong</p>
@@ -386,37 +404,72 @@ const RestaurantFoods = () => {
                             <div className="flex flex-wrap items-center gap-3 text-sm text-gray-500">
                               {restaurant.city && (
                                 <span className="flex items-center gap-1">
-                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                  <svg
+                                    className="w-4 h-4"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+                                    />
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+                                    />
                                   </svg>
                                   {restaurant.city}
                                 </span>
                               )}
-                              {(restaurant.opening_time || restaurant.close_time) && (
+                              {(restaurant.opening_time ||
+                                restaurant.close_time) && (
                                 <span className="flex items-center gap-1">
-                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                  <svg
+                                    className="w-4 h-4"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                                    />
                                   </svg>
-                                  {restaurant.opening_time || "N/A"} - {restaurant.close_time || "N/A"}
+                                  {restaurant.opening_time || "N/A"} -{" "}
+                                  {restaurant.close_time || "N/A"}
                                 </span>
                               )}
                             </div>
                           </div>
-                          
+
                           {/* Rating Badge */}
                           {restaurant.rating && (
                             <div className="flex items-center gap-1 px-3 py-1.5 bg-green-600 rounded-lg text-white">
-                              <span className="text-sm font-bold">{restaurant.rating}</span>
-                              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                                <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+                              <span className="text-sm font-bold">
+                                {restaurant.rating}
+                              </span>
+                              <svg
+                                className="w-4 h-4"
+                                fill="currentColor"
+                                viewBox="0 0 20 20"
+                              >
+                                <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
                               </svg>
                             </div>
                           )}
                         </div>
-                        
+
                         {restaurant.address && (
-                          <p className="text-xs text-gray-400 mt-2 line-clamp-1">{restaurant.address}</p>
+                          <p className="text-xs text-gray-400 mt-2 line-clamp-1">
+                            {restaurant.address}
+                          </p>
                         )}
                       </div>
                     </div>
@@ -432,8 +485,18 @@ const RestaurantFoods = () => {
             <div className="mb-6">
               <div className="relative">
                 <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
-                  <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                  <svg
+                    className="w-5 h-5 text-gray-400"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                    />
                   </svg>
                 </div>
                 <input
@@ -449,7 +512,12 @@ const RestaurantFoods = () => {
             {/* Menu Title */}
             <div className="flex items-center justify-between mb-5">
               <h3 className="text-lg font-bold text-gray-900">
-                Menu {searchQuery && <span className="text-gray-400 font-normal text-sm">• {foods.length} results</span>}
+                Menu{" "}
+                {searchQuery && (
+                  <span className="text-gray-400 font-normal text-sm">
+                    • {foods.length} results
+                  </span>
+                )}
               </h3>
             </div>
 
@@ -470,13 +538,27 @@ const RestaurantFoods = () => {
             ) : foods.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16">
                 <div className="w-24 h-24 bg-orange-50 rounded-full flex items-center justify-center mb-4">
-                  <svg className="w-12 h-12 text-[#FF7A00]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
+                  <svg
+                    className="w-12 h-12 text-[#FF7A00]"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={1.5}
+                      d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
+                    />
                   </svg>
                 </div>
-                <h3 className="text-xl font-bold text-gray-800 mb-2">No items found</h3>
+                <h3 className="text-xl font-bold text-gray-800 mb-2">
+                  No items found
+                </h3>
                 <p className="text-gray-500 text-center max-w-xs">
-                  {searchQuery ? "Try a different search term" : "This restaurant hasn't added menu items yet"}
+                  {searchQuery
+                    ? "Try a different search term"
+                    : "This restaurant hasn't added menu items yet"}
                 </p>
               </div>
             ) : (
@@ -496,19 +578,29 @@ const RestaurantFoods = () => {
                         />
                       ) : (
                         <div className="w-full h-full bg-gradient-to-br from-[#FF7A00] to-orange-400 flex items-center justify-center">
-                          <svg className="w-12 h-12 text-white/60" fill="currentColor" viewBox="0 0 24 24">
-                            <path d="M8.1 13.34l2.83-2.83L3.91 3.5a4.008 4.008 0 000 5.66l4.19 4.18zm6.78-1.81c1.53.71 3.68.21 5.27-1.38 1.91-1.91 2.28-4.65.81-6.12-1.46-1.46-4.2-1.1-6.12.81-1.59 1.59-2.09 3.74-1.38 5.27L3.7 19.87l1.41 1.41L12 14.41l6.88 6.88 1.41-1.41L13.41 13l1.47-1.47z"/>
+                          <svg
+                            className="w-12 h-12 text-white/60"
+                            fill="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path d="M8.1 13.34l2.83-2.83L3.91 3.5a4.008 4.008 0 000 5.66l4.19 4.18zm6.78-1.81c1.53.71 3.68.21 5.27-1.38 1.91-1.91 2.28-4.65.81-6.12-1.46-1.46-4.2-1.1-6.12.81-1.59 1.59-2.09 3.74-1.38 5.27L3.7 19.87l1.41 1.41L12 14.41l6.88 6.88 1.41-1.41L13.41 13l1.47-1.47z" />
                           </svg>
                         </div>
                       )}
-                      
+
                       {/* Rating Badge */}
                       {food.stars > 0 && (
                         <div className="absolute top-2 right-2 bg-white/95 backdrop-blur px-2 py-1 rounded-lg shadow-md flex items-center gap-1">
-                          <svg className="w-3.5 h-3.5 text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
-                            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+                          <svg
+                            className="w-3.5 h-3.5 text-yellow-400"
+                            fill="currentColor"
+                            viewBox="0 0 20 20"
+                          >
+                            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
                           </svg>
-                          <span className="text-xs font-bold text-gray-800">{food.stars}</span>
+                          <span className="text-xs font-bold text-gray-800">
+                            {food.stars}
+                          </span>
                         </div>
                       )}
 
@@ -534,8 +626,18 @@ const RestaurantFoods = () => {
                           {addingToCart === food.id ? (
                             <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                           ) : (
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
+                            <svg
+                              className="w-5 h-5"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M12 6v6m0 0v6m0-6h6m-6 0H6"
+                              />
                             </svg>
                           )}
                         </button>
@@ -544,25 +646,30 @@ const RestaurantFoods = () => {
 
                     {/* Food Details */}
                     <div className="p-4">
-                      <h4 className="font-semibold text-gray-900 mb-1 line-clamp-1">{food.name}</h4>
-                      
+                      <h4 className="font-semibold text-gray-900 mb-1 line-clamp-1">
+                        {food.name}
+                      </h4>
+
                       {food.description && (
-                        <p className="text-xs text-gray-500 mb-3 line-clamp-2">{food.description}</p>
+                        <p className="text-xs text-gray-500 mb-3 line-clamp-2">
+                          {food.description}
+                        </p>
                       )}
 
                       {/* Available Time Tags */}
-                      {food.available_time && food.available_time.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mb-3">
-                          {food.available_time.map((time) => (
-                            <span
-                              key={time}
-                              className="px-2 py-0.5 bg-orange-50 text-[#FF7A00] text-[10px] font-medium rounded-full"
-                            >
-                              {time.charAt(0).toUpperCase() + time.slice(1)}
-                            </span>
-                          ))}
-                        </div>
-                      )}
+                      {food.available_time &&
+                        food.available_time.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mb-3">
+                            {food.available_time.map((time) => (
+                              <span
+                                key={time}
+                                className="px-2 py-0.5 bg-orange-50 text-[#FF7A00] text-[10px] font-medium rounded-full"
+                              >
+                                {time.charAt(0).toUpperCase() + time.slice(1)}
+                              </span>
+                            ))}
+                          </div>
+                        )}
 
                       {/* Pricing */}
                       <div className="flex items-center justify-between">
@@ -582,9 +689,13 @@ const RestaurantFoods = () => {
                             </span>
                           )}
                         </div>
-                        
+
                         <button
-                          onClick={() => navigate(`/restaurant/${restaurantId}/food/${food.id}`)}
+                          onClick={() =>
+                            navigate(
+                              `/restaurant/${restaurantId}/food/${food.id}`,
+                            )
+                          }
                           className="text-xs text-[#FF7A00] font-medium hover:underline"
                         >
                           View Details →
@@ -608,12 +719,32 @@ const RestaurantFoods = () => {
           onClick={() => navigate("/cart")}
           className="fixed bottom-24 right-4 bg-[#FF7A00] text-white px-5 py-3 rounded-full shadow-xl shadow-orange-300/40 flex items-center gap-2 hover:bg-orange-600 transition-all z-50 hover:-translate-y-1"
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"/>
+          <svg
+            className="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"
+            />
           </svg>
           <span className="font-semibold">{cartCount} items</span>
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/>
+          <svg
+            className="w-4 h-4"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M9 5l7 7-7 7"
+            />
           </svg>
         </button>
       )}

@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
+import { API_URL } from "../config";
 
 export default function DriverDashboardRoute({ children }) {
   const [loading, setLoading] = useState(true);
   const [allowed, setAllowed] = useState(false);
-  const [redirectTo, setRedirectTo] = useState("/driver/profile");
+  const [redirectTo, setRedirectTo] = useState("/login");
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -18,11 +19,31 @@ export default function DriverDashboardRoute({ children }) {
 
     const checkProfile = async () => {
       try {
-        const res = await fetch("http://localhost:5000/driver/me", {
+        const res = await fetch(`${API_URL}/driver/me`, {
           headers: { Authorization: `Bearer ${token}` },
         });
+
+        // Only redirect to login on clear authentication errors
+        if (res.status === 401 || res.status === 403) {
+          localStorage.removeItem("token");
+          localStorage.removeItem("role");
+          setRedirectTo("/login");
+          setAllowed(false);
+          setLoading(false);
+          return;
+        }
+
+        // For server errors or not-found, allow access anyway
+        // (the driver is authenticated, just a transient DB issue)
+        if (!res.ok) {
+          console.warn("Driver /me returned", res.status, "- allowing access");
+          setAllowed(true);
+          setLoading(false);
+          return;
+        }
+
         const data = await res.json();
-        if (res.ok && data.driver) {
+        if (data.driver) {
           // Check password change
           if (data.driver.force_password_change) {
             setAllowed(false);
@@ -56,11 +77,15 @@ export default function DriverDashboardRoute({ children }) {
             setAllowed(true);
           }
         } else {
-          setAllowed(false);
+          // Response OK but no driver data - still allow (transient issue)
+          console.warn("Driver /me returned OK but no driver data");
+          setAllowed(true);
         }
       } catch (e) {
         console.error("Driver profile check error:", e);
-        setAllowed(false);
+        // Network error - don't clear credentials, just allow access
+        // The dashboard will handle its own error states
+        setAllowed(true);
       } finally {
         setLoading(false);
       }

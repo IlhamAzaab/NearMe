@@ -1,7 +1,10 @@
 import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import AdminLayout from "../../components/AdminLayout";
+import { API_URL } from "../../config";
 
 export default function Earnings() {
+  const navigate = useNavigate();
   const [earnings, setEarnings] = useState(null);
   const [payouts, setPayouts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -20,7 +23,7 @@ export default function Earnings() {
     try {
       // Fetch earnings
       const earningsRes = await fetch(
-        `http://localhost:5000/admin/earnings?period=${period}`,
+        `${API_URL}/admin/earnings?period=${period}`,
         {
           headers: { Authorization: `Bearer ${token}` },
         },
@@ -31,24 +34,18 @@ export default function Earnings() {
       }
 
       // Fetch payouts
-      const payoutsRes = await fetch(
-        "http://localhost:5000/admin/payouts?limit=5",
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
-      );
+      const payoutsRes = await fetch(`${API_URL}/admin/payouts?limit=5`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const payoutsData = await payoutsRes.json();
       if (payoutsRes.ok) {
         setPayouts(payoutsData.payouts || []);
       }
 
       // Fetch restaurant info
-      const restaurantRes = await fetch(
-        "http://localhost:5000/admin/restaurant",
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
-      );
+      const restaurantRes = await fetch(`${API_URL}/admin/restaurant`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const restaurantData = await restaurantRes.json();
       if (restaurantRes.ok) {
         setRestaurant(restaurantData.restaurant);
@@ -132,10 +129,60 @@ export default function Earnings() {
   if (loading) {
     return (
       <AdminLayout>
-        <div className="flex items-center justify-center min-h-[60vh]">
-          <div className="flex flex-col items-center gap-4">
-            <div className="w-12 h-12 border-4 border-green-200 border-t-green-500 rounded-full animate-spin"></div>
-            <p className="text-gray-500 font-medium">Loading earnings...</p>
+        <div className="max-w-4xl mx-auto space-y-6">
+          {/* Header skeleton */}
+          <div className="flex items-center gap-4 animate-pulse">
+            <div className="w-12 h-12 bg-gray-200 rounded-full" />
+            <div className="space-y-2">
+              <div className="h-3 w-32 bg-gray-200 rounded" />
+              <div className="h-5 w-40 bg-gray-200 rounded" />
+            </div>
+          </div>
+          {/* Revenue card skeleton */}
+          <div className="bg-green-100 rounded-2xl p-6 animate-pulse">
+            <div className="h-3 w-28 bg-green-200 rounded mb-3" />
+            <div className="h-10 w-48 bg-green-200 rounded mb-2" />
+            <div className="h-3 w-36 bg-green-200 rounded mb-4" />
+            <div className="flex gap-2">
+              {[...Array(5)].map((_, i) => (
+                <div key={i} className="h-8 w-16 bg-green-200 rounded-lg" />
+              ))}
+            </div>
+          </div>
+          {/* Metric grid skeleton */}
+          <div className="grid grid-cols-2 gap-4 animate-pulse">
+            <div className="bg-white rounded-xl p-5 border border-gray-200">
+              <div className="h-3 w-20 bg-gray-200 rounded mb-2" />
+              <div className="h-7 w-28 bg-gray-200 rounded" />
+            </div>
+            <div className="bg-white rounded-xl p-5 border border-gray-200">
+              <div className="h-3 w-20 bg-gray-200 rounded mb-2" />
+              <div className="h-7 w-28 bg-gray-200 rounded" />
+            </div>
+          </div>
+          {/* Chart skeleton */}
+          <div className="bg-white rounded-2xl p-6 border border-gray-100 animate-pulse">
+            <div className="h-4 w-24 bg-gray-200 rounded mb-2" />
+            <div className="h-8 w-36 bg-gray-200 rounded mb-6" />
+            <div className="h-[180px] bg-gray-100 rounded-lg" />
+          </div>
+          {/* Orders skeleton */}
+          <div className="space-y-3 animate-pulse">
+            {[...Array(3)].map((_, i) => (
+              <div
+                key={i}
+                className="flex items-center justify-between p-4 bg-white rounded-xl border border-gray-100"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 bg-gray-200 rounded-lg" />
+                  <div className="space-y-2">
+                    <div className="h-4 w-28 bg-gray-200 rounded" />
+                    <div className="h-3 w-20 bg-gray-200 rounded" />
+                  </div>
+                </div>
+                <div className="h-5 w-16 bg-gray-200 rounded" />
+              </div>
+            ))}
           </div>
         </div>
       </AdminLayout>
@@ -160,7 +207,7 @@ export default function Earnings() {
               </span>
             )}
           </div>
-          <div>
+          <div className="flex-1">
             <p className="text-sm font-medium text-gray-500">
               {restaurant?.name || "Your Restaurant"}
             </p>
@@ -168,6 +215,25 @@ export default function Earnings() {
               Financial Overview
             </h1>
           </div>
+          <button
+            onClick={() => navigate("/admin/withdrawals")}
+            className="px-4 py-2.5 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-xl font-semibold text-sm shadow-md hover:shadow-lg hover:from-green-600 hover:to-green-700 transition-all flex items-center gap-2"
+          >
+            <svg
+              className="w-4 h-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"
+              />
+            </svg>
+            Withdrawals
+          </button>
         </div>
 
         {/* Main Revenue Card */}

@@ -15,8 +15,19 @@ const ManagerHeader = ({ userEmail, userName }) => {
   };
 
   const handleReports = () => {
-    // Navigate to reports page (to be created)
     navigate("/manager/reports");
+  };
+
+  const handleDeposits = () => {
+    navigate("/manager/deposits");
+  };
+
+  const handleDrivers = () => {
+    navigate("/manager/deposits");
+  };
+
+  const handleAdmin = () => {
+    navigate("/manager/restaurants/admins");
   };
 
   // Fetch manager details for accurate username/email from DB
@@ -59,37 +70,53 @@ const ManagerHeader = ({ userEmail, userName }) => {
             </h1>
           </div>
 
-          {/* Right section - Reports button and User menu */}
-          <div className="flex items-center gap-3 sm:gap-4">
-            {/* Reports Button */}
+          {/* Navigation Buttons */}
+          <nav className="hidden md:flex items-center gap-2">
+            <button
+              onClick={() => navigate("/manager/dashboard")}
+              className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                window.location.pathname === "/manager/dashboard"
+                  ? "bg-blue-600 text-white"
+                  : "text-gray-700 hover:bg-gray-100"
+              }`}
+            >
+              Dashboard
+            </button>
             <button
               onClick={handleReports}
-              className="hidden sm:inline-flex px-3 sm:px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+              className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                window.location.pathname.startsWith("/manager/reports")
+                  ? "bg-blue-600 text-white"
+                  : "text-gray-700 hover:bg-gray-100"
+              }`}
             >
               Reports
             </button>
-
-            {/* Mobile Reports Icon Button */}
             <button
-              onClick={handleReports}
-              className="sm:hidden p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-              title="Reports"
+              onClick={handleDrivers}
+              className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                window.location.pathname.startsWith("/manager/drivers") ||
+                window.location.pathname === "/manager/deposits"
+                  ? "bg-blue-600 text-white"
+                  : "text-gray-700 hover:bg-gray-100"
+              }`}
             >
-              <svg
-                className="w-5 h-5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-                />
-              </svg>
+              Driver
             </button>
+            <button
+              onClick={handleAdmin}
+              className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                window.location.pathname.startsWith("/manager/restaurants")
+                  ? "bg-blue-600 text-white"
+                  : "text-gray-700 hover:bg-gray-100"
+              }`}
+            >
+              Admin
+            </button>
+          </nav>
 
+          {/* Right section - User menu */}
+          <div className="flex items-center gap-3 sm:gap-4">
             {/* User Dropdown Menu */}
             <div className="relative">
               <button
@@ -106,7 +133,7 @@ const ManagerHeader = ({ userEmail, userName }) => {
                 {/* Username and role next to avatar */}
                 <div className="flex flex-col items-start">
                   <span className="text-sm font-semibold text-gray-800 truncate max-w-[100px] sm:max-w-[140px]">
-                    {managerInfo?.username }
+                    {managerInfo?.username}
                   </span>
                   <span className="text-xs text-gray-600 truncate">
                     {role || "manager"}

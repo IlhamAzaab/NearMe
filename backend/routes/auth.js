@@ -14,13 +14,13 @@ const router = express.Router();
  */
 router.post("/signup", async (req, res) => {
   console.log(
-    "\n╔══════════════════════════════════════════════════════════════╗"
+    "\n╔══════════════════════════════════════════════════════════════╗",
   );
   console.log(
-    "║           NEW SIGNUP REQUEST RECEIVED                        ║"
+    "║           NEW SIGNUP REQUEST RECEIVED                        ║",
   );
   console.log(
-    "╚══════════════════════════════════════════════════════════════╝"
+    "╚══════════════════════════════════════════════════════════════╝",
   );
 
   try {
@@ -30,7 +30,7 @@ router.post("/signup", async (req, res) => {
     console.log("  Email:", email);
     console.log(
       "  Password:",
-      password ? "***" + password.slice(-3) : "not provided"
+      password ? "***" + password.slice(-3) : "not provided",
     );
     console.log("  Password length:", password?.length || 0);
 
@@ -62,7 +62,7 @@ router.post("/signup", async (req, res) => {
     if (existingUser) {
       console.log(
         "❌ Email already exists in users table as:",
-        existingUser.role
+        existingUser.role,
       );
       return res.status(400).json({
         message: `This email is already registered as ${existingUser.role}`,
@@ -125,7 +125,7 @@ router.post("/signup", async (req, res) => {
     console.log("  User ID:", authData.user.id);
     console.log(
       "  Email confirmed:",
-      authData.user.email_confirmed_at ? "Yes" : "No (needs verification)"
+      authData.user.email_confirmed_at ? "Yes" : "No (needs verification)",
     );
 
     console.log("\nInserting user record into users table...");
@@ -176,18 +176,18 @@ router.post("/signup", async (req, res) => {
       console.log("\nStep 3: generateLink() response received");
       console.log(
         "Link Error:",
-        linkError ? JSON.stringify(linkError, null, 2) : "null"
+        linkError ? JSON.stringify(linkError, null, 2) : "null",
       );
       console.log(
         "Link Data:",
-        linkData ? JSON.stringify(linkData, null, 2) : "null"
+        linkData ? JSON.stringify(linkData, null, 2) : "null",
       );
 
       if (linkError) {
         console.error("\n❌ EMAIL GENERATION FAILED!");
         console.error("Error details:", JSON.stringify(linkError, null, 2));
         console.log(
-          "========== EMAIL VERIFICATION PROCESS END (FAILED) ==========\n"
+          "========== EMAIL VERIFICATION PROCESS END (FAILED) ==========\n",
         );
         // User is created but email failed - still return success
         // User can request resend later
@@ -202,15 +202,15 @@ router.post("/signup", async (req, res) => {
       console.log("\n✅ EMAIL LINK GENERATED SUCCESSFULLY!");
       console.log(
         "Action Link:",
-        linkData.properties?.action_link || "Not provided"
+        linkData.properties?.action_link || "Not provided",
       );
       console.log(
         "Hashed Token:",
-        linkData.properties?.hashed_token || "Not provided"
+        linkData.properties?.hashed_token || "Not provided",
       );
       console.log(
         "Redirect URL:",
-        linkData.properties?.redirect_to || "Not provided"
+        linkData.properties?.redirect_to || "Not provided",
       );
 
       // Step 4: Actually SEND the verification email
@@ -220,7 +220,7 @@ router.post("/signup", async (req, res) => {
       if (!actionLink) {
         console.error("\n❌ No action link returned from generateLink()");
         console.log(
-          "========== EMAIL VERIFICATION PROCESS END (FAILED) ==========\n"
+          "========== EMAIL VERIFICATION PROCESS END (FAILED) ==========\n",
         );
         return res.status(201).json({
           message:
@@ -242,7 +242,7 @@ router.post("/signup", async (req, res) => {
         console.log("Expected delivery time: 1-5 minutes");
         console.log("\n⚠️ IMPORTANT: Check your email inbox and spam folder!");
         console.log(
-          "========== EMAIL VERIFICATION PROCESS END (SUCCESS) ==========\n"
+          "========== EMAIL VERIFICATION PROCESS END (SUCCESS) ==========\n",
         );
 
         res.status(201).json({
@@ -256,7 +256,7 @@ router.post("/signup", async (req, res) => {
         console.error("SMTP Error:", smtpError.message);
         console.error("Full error:", smtpError);
         console.log(
-          "========== EMAIL VERIFICATION PROCESS END (FAILED) ==========\n"
+          "========== EMAIL VERIFICATION PROCESS END (FAILED) ==========\n",
         );
 
         res.status(201).json({
@@ -272,7 +272,7 @@ router.post("/signup", async (req, res) => {
       console.error("Error message:", emailError.message);
       console.error("Error stack:", emailError.stack);
       console.log(
-        "========== EMAIL VERIFICATION PROCESS END (EXCEPTION) ==========\n"
+        "========== EMAIL VERIFICATION PROCESS END (EXCEPTION) ==========\n",
       );
       // User is created but email failed
       res.status(201).json({
@@ -284,19 +284,19 @@ router.post("/signup", async (req, res) => {
     }
   } catch (error) {
     console.error(
-      "\n╔══════════════════════════════════════════════════════════════╗"
+      "\n╔══════════════════════════════════════════════════════════════╗",
     );
     console.error(
-      "║           SIGNUP ERROR - UNEXPECTED EXCEPTION                ║"
+      "║           SIGNUP ERROR - UNEXPECTED EXCEPTION                ║",
     );
     console.error(
-      "╚══════════════════════════════════════════════════════════════╝"
+      "╚══════════════════════════════════════════════════════════════╝",
     );
     console.error("Signup error:", error);
     console.error("Error message:", error.message);
     console.error("Error stack:", error.stack);
     console.error(
-      "╚══════════════════════════════════════════════════════════════╝\n"
+      "╚══════════════════════════════════════════════════════════════╝\n",
     );
     res.status(500).json({
       message: "Server error during signup",
@@ -581,11 +581,11 @@ router.post("/complete-profile", async (req, res) => {
     // Update users table with phone
     await supabaseAdmin.from("users").update({ phone }).eq("id", userId);
 
-    // Generate JWT token for the customer
+    // Generate JWT token for the customer (1 year expiration)
     const token = jwt.sign(
       { id: userId, role: "customer" },
       process.env.JWT_SECRET,
-      { expiresIn: "7d" }
+      { expiresIn: "1y" },
     );
 
     res.json({
@@ -683,11 +683,11 @@ router.post("/login", async (req, res) => {
         });
       }
 
-      // Generate JWT token
+      // Generate JWT token (1 year expiration)
       const token = jwt.sign(
         { id: userId, role: roleData.role },
         process.env.JWT_SECRET,
-        { expiresIn: "7d" }
+        { expiresIn: "1y" },
       );
 
       return res.json({
@@ -699,11 +699,11 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    // Generate JWT token for non-customer roles
+    // Generate JWT token for non-customer roles (1 year expiration)
     const token = jwt.sign(
       { id: userId, role: roleData.role },
       process.env.JWT_SECRET,
-      { expiresIn: "7d" }
+      { expiresIn: "1y" },
     );
 
     res.json({

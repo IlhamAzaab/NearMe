@@ -1,10 +1,21 @@
 import React, { useState, useEffect } from "react";
 import AdminLayout from "../../components/AdminLayout";
+import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
 
 export default function Products() {
   const [foods, setFoods] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setRawError] = useState(null);
+  const {
+    alert: alertState,
+    visible: alertVisible,
+    showSuccess,
+    showError,
+  } = useAlert();
+  const setError = (msg) => {
+    setRawError(msg);
+    if (msg) showError(msg);
+  };
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingFood, setEditingFood] = useState(null);
   const [search, setSearch] = useState("");
@@ -54,10 +65,10 @@ export default function Products() {
         setFoods(foods.filter((f) => f.id !== foodId));
       } else {
         const data = await res.json();
-        alert(data?.message || "Failed to delete product");
+        showError(data?.message || "Failed to delete product");
       }
     } catch (err) {
-      alert("Error deleting product");
+      showError("Error deleting product");
       console.error(err);
     }
   };
@@ -68,7 +79,7 @@ export default function Products() {
   };
 
   const filteredFoods = foods.filter((food) =>
-    food.name.toLowerCase().includes(search.toLowerCase())
+    food.name.toLowerCase().includes(search.toLowerCase()),
   );
 
   const renderStars = (rating = 0) => {
@@ -96,10 +107,13 @@ export default function Products() {
 
   return (
     <AdminLayout>
+      <AnimatedAlert alert={alertState} visible={alertVisible} />
       <div className="space-y-6 animate-fadeIn">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-3xl sm:text-4xl font-bold bg-gradient-to-r from-green-600 via-green-500 to-green-600 bg-clip-text text-transparent">Products</h1>
+            <h1 className="text-3xl sm:text-4xl font-bold bg-gradient-to-r from-green-600 via-green-500 to-green-600 bg-clip-text text-transparent">
+              Products
+            </h1>
             <p className="text-gray-700 mt-2 font-medium">
               Manage your restaurant menu items and products.
             </p>
@@ -139,18 +153,27 @@ export default function Products() {
           />
         </div>
 
-        {error && (
-          <div className="p-4 bg-red-50 border-2 border-red-200 text-red-700 rounded-xl font-medium shadow-sm">
-            {error}
-          </div>
-        )}
-
         {/* Products List */}
         <div className="bg-white rounded-xl shadow-md border border-green-100 hover:shadow-xl transition-shadow duration-300">
           {loading ? (
-            <div className="text-center py-12 sm:py-16">
-              <div className="animate-spin rounded-full h-12 sm:h-14 w-12 sm:w-14 border-b-4 border-green-500 mx-auto"></div>
-              <p className="text-gray-700 mt-4 font-medium">Loading products...</p>
+            <div className="p-4 space-y-4">
+              {[...Array(4)].map((_, i) => (
+                <div
+                  key={i}
+                  className="flex items-center gap-4 p-3 animate-pulse"
+                >
+                  <div className="w-16 h-16 bg-gray-200 rounded-xl shrink-0" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-4 w-3/4 bg-gray-200 rounded" />
+                    <div className="h-3 w-1/2 bg-gray-200 rounded" />
+                    <div className="h-3 w-1/3 bg-gray-200 rounded" />
+                  </div>
+                  <div className="space-y-2">
+                    <div className="h-5 w-16 bg-gray-200 rounded" />
+                    <div className="h-8 w-12 bg-gray-200 rounded-full" />
+                  </div>
+                </div>
+              ))}
             </div>
           ) : filteredFoods.length === 0 ? (
             <div className="text-center py-12 sm:py-16 text-gray-500">
@@ -169,7 +192,9 @@ export default function Products() {
                   />
                 </svg>
               </div>
-              <p className="text-lg font-semibold text-gray-700">No products found</p>
+              <p className="text-lg font-semibold text-gray-700">
+                No products found
+              </p>
               <p className="text-sm mt-2 text-gray-500">
                 {foods.length === 0
                   ? 'Click "Add Product" to create your first menu item.'
@@ -436,7 +461,17 @@ function AddProductModal({ food, onClose, onSave }) {
 
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [error, setError] = useState(null);
+  const [error, setRawError] = useState(null);
+  const {
+    alert: alertState2,
+    visible: alertVisible2,
+    showSuccess: showSuccess2,
+    showError: showError2,
+  } = useAlert();
+  const setError = (msg) => {
+    setRawError(msg);
+    if (msg) showError2(msg);
+  };
   const token = localStorage.getItem("token");
 
   const availableTimes = ["breakfast", "lunch", "dinner"];
@@ -622,11 +657,7 @@ function AddProductModal({ food, onClose, onSave }) {
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-6">
-          {error && (
-            <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
-              {error}
-            </div>
-          )}
+          <AnimatedAlert alert={alertState2} visible={alertVisible2} />
 
           {/* Product Image */}
           <div>
@@ -887,4 +918,3 @@ function AddProductModal({ food, onClose, onSave }) {
     </div>
   );
 }
-

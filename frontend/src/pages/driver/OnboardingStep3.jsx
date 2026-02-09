@@ -1,11 +1,17 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import SiteHeader from "../../components/SiteHeader";
+import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
 
 export default function OnboardingStep3() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [error, setRawError] = useState(null);
+  const { alert: alertState, visible: alertVisible, showError } = useAlert();
+  const setError = (msg) => {
+    setRawError(msg);
+    if (msg) showError(msg);
+  };
   const [documents, setDocuments] = useState({
     nic_front: null,
     nic_back: null,
@@ -47,7 +53,7 @@ export default function OnboardingStep3() {
       // Validate file type
       if (
         !["image/jpeg", "image/jpg", "image/png", "application/pdf"].includes(
-          file.type
+          file.type,
         )
       ) {
         setError(`${documentLabels[docType]} must be JPG, PNG, or PDF`);
@@ -76,7 +82,7 @@ export default function OnboardingStep3() {
             Authorization: `Bearer ${token}`,
           },
           body: formData,
-        }
+        },
       );
 
       if (!response.ok) {
@@ -99,7 +105,7 @@ export default function OnboardingStep3() {
     try {
       // Check if all documents are selected
       const missingDocs = Object.keys(documents).filter(
-        (key) => !documents[key]
+        (key) => !documents[key],
       );
       if (missingDocs.length > 0) {
         setError("Please upload all required documents");
@@ -222,11 +228,7 @@ export default function OnboardingStep3() {
               </div>
             ))}
 
-            {error && (
-              <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
-                {error}
-              </div>
-            )}
+            <AnimatedAlert alert={alertState} visible={alertVisible} />
 
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
               <p className="text-sm text-blue-800 font-semibold mb-2">

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import foodBg from '../assets/food-bg.jpg';
+import foodBg from "../assets/food-bg.jpg";
+import AnimatedAlert, { useAlert } from "../components/AnimatedAlert";
 
 export default function Signup() {
   const navigate = useNavigate();
@@ -10,16 +11,15 @@ export default function Signup() {
     confirmPassword: "",
   });
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
   const [shake, setShake] = useState(false);
+  const { alert, visible, showError } = useAlert();
 
   const handleChange = (e) => {
     setFormData({
       ...formData,
       [e.target.name]: e.target.value,
     });
-    setError(""); // Clear error when user types
   };
 
   const triggerShake = () => {
@@ -29,26 +29,25 @@ export default function Signup() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError("");
     setLoading(true);
 
     // Validation
     if (!formData.email || !formData.password || !formData.confirmPassword) {
-      setError("All fields are required");
+      showError("All fields are required");
       setLoading(false);
       triggerShake();
       return;
     }
 
     if (formData.password.length < 6) {
-      setError("Password must be at least 6 characters");
+      showError("Password must be at least 6 characters");
       setLoading(false);
       triggerShake();
       return;
     }
 
     if (formData.password !== formData.confirmPassword) {
-      setError("Passwords do not match");
+      showError("Passwords do not match");
       setLoading(false);
       triggerShake();
       return;
@@ -57,7 +56,7 @@ export default function Signup() {
     // Email format validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(formData.email)) {
-      setError("Please enter a valid email address");
+      showError("Please enter a valid email address");
       setLoading(false);
       triggerShake();
       return;
@@ -71,13 +70,13 @@ export default function Signup() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ email: formData.email }),
-        }
+        },
       );
 
       const checkData = await checkResponse.json();
 
       if (!checkData.emailAvailable) {
-        setError(checkData.message);
+        showError(checkData.message);
         setLoading(false);
         triggerShake();
         return;
@@ -96,7 +95,7 @@ export default function Signup() {
       const data = await response.json();
 
       if (!response.ok) {
-        setError(data.message || "Signup failed");
+        showError(data.message || "Signup failed");
         setLoading(false);
         triggerShake();
         return;
@@ -107,7 +106,7 @@ export default function Signup() {
       setLoading(false);
     } catch (err) {
       console.error("Signup error:", err);
-      setError("Network error. Please try again.");
+      showError("Network error. Please try again.");
       setLoading(false);
       triggerShake();
     }
@@ -149,7 +148,9 @@ export default function Signup() {
             </h2>
             <p className="text-gray-600 mb-6 animate-fade-in animation-delay-100">
               We've sent a verification link to{" "}
-              <span className="font-semibold text-green-600">{formData.email}</span>
+              <span className="font-semibold text-green-600">
+                {formData.email}
+              </span>
             </p>
             <div className="bg-green-50 border border-green-100 rounded-xl p-4 mb-6 animate-fade-in animation-delay-200">
               <p className="text-sm text-green-600 font-semibold mb-2">
@@ -163,8 +164,8 @@ export default function Signup() {
               </ol>
             </div>
             <p className="text-xs text-gray-400 mb-6 animate-fade-in animation-delay-300">
-              Didn't receive the email? Check your spam folder or try again
-              in a few minutes.
+              Didn't receive the email? Check your spam folder or try again in a
+              few minutes.
             </p>
             <button
               onClick={() => navigate("/login")}
@@ -172,21 +173,38 @@ export default function Signup() {
             >
               <div className="absolute inset-0 bg-white/20 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
               <span>Go to Login</span>
-              <svg className="w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+              <svg
+                className="w-5 h-5 group-hover:translate-x-1 transition-transform"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M13 7l5 5m0 0l-5 5m5-5H6"
+                />
               </svg>
             </button>
           </div>
         </div>
 
         {/* Floating accent elements */}
-        <div className="fixed top-6 right-6 w-2 h-2 bg-green-400 rounded-full animate-float" style={{ animationDelay: '0s' }}></div>
-        <div className="fixed bottom-6 left-6 w-2 h-2 bg-emerald-400 rounded-full animate-float" style={{ animationDelay: '1s' }}></div>
+        <div
+          className="fixed top-6 right-6 w-2 h-2 bg-green-400 rounded-full animate-float"
+          style={{ animationDelay: "0s" }}
+        ></div>
+        <div
+          className="fixed bottom-6 left-6 w-2 h-2 bg-emerald-400 rounded-full animate-float"
+          style={{ animationDelay: "1s" }}
+        ></div>
 
         {/* Custom animations */}
         <style jsx>{`
           @keyframes blob {
-            0%, 100% {
+            0%,
+            100% {
               transform: translate(0, 0) scale(1);
             }
             33% {
@@ -232,7 +250,8 @@ export default function Signup() {
           }
 
           @keyframes float {
-            0%, 100% {
+            0%,
+            100% {
               transform: translateY(0px);
             }
             50% {
@@ -303,7 +322,9 @@ export default function Signup() {
       <div className="absolute -bottom-8 left-20 w-96 h-96 bg-teal-200 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob animation-delay-4000"></div>
 
       {/* Main signup form - Light card style */}
-      <div className={`w-full max-w-md backdrop-blur-xl bg-white/90 border border-green-100 rounded-3xl shadow-2xl shadow-green-100/50 p-8 transform transition-all duration-500 ${shake ? 'animate-shake' : ''} animate-fade-in-down z-10`}>
+      <div
+        className={`w-full max-w-md backdrop-blur-xl bg-white/90 border border-green-100 rounded-3xl shadow-2xl shadow-green-100/50 p-8 transform transition-all duration-500 ${shake ? "animate-shake" : ""} animate-fade-in-down z-10`}
+      >
         {/* Header */}
         <div className="text-center mb-8">
           <div className="inline-block mb-6 p-3 bg-gradient-to-br from-green-400 to-emerald-500 rounded-2xl shadow-lg">
@@ -325,12 +346,7 @@ export default function Signup() {
 
         {/* Signup Form */}
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Error Message */}
-          {error && (
-            <div className="bg-red-500/20 border border-red-500/50 text-red-300 px-4 py-3 rounded-xl animate-fade-in">
-              <p className="text-sm">{error}</p>
-            </div>
-          )}
+          <AnimatedAlert alert={alert} visible={visible} />
 
           {/* Email Input */}
           <div className="relative group">
@@ -338,8 +354,18 @@ export default function Signup() {
               Email Address
             </label>
             <div className="relative">
-              <svg className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-green-500 transition-colors duration-300 group-focus-within:text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              <svg
+                className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-green-500 transition-colors duration-300 group-focus-within:text-green-600"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                />
               </svg>
               <input
                 type="email"
@@ -359,8 +385,18 @@ export default function Signup() {
               Password
             </label>
             <div className="relative">
-              <svg className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-green-500 transition-colors duration-300 group-focus-within:text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              <svg
+                className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-green-500 transition-colors duration-300 group-focus-within:text-green-600"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                />
               </svg>
               <input
                 type="password"
@@ -383,8 +419,18 @@ export default function Signup() {
               Confirm Password
             </label>
             <div className="relative">
-              <svg className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-green-500 transition-colors duration-300 group-focus-within:text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+              <svg
+                className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-green-500 transition-colors duration-300 group-focus-within:text-green-600"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
+                />
               </svg>
               <input
                 type="password"
@@ -407,16 +453,19 @@ export default function Signup() {
               required
               className="h-4 w-4 text-green-500 focus:ring-green-500 border-gray-300 rounded mt-1 bg-gray-50"
             />
-            <label
-              htmlFor="terms"
-              className="ml-2 block text-sm text-gray-600"
-            >
+            <label htmlFor="terms" className="ml-2 block text-sm text-gray-600">
               I agree to the{" "}
-              <a href="#" className="text-green-600 hover:text-green-500 transition-colors">
+              <a
+                href="#"
+                className="text-green-600 hover:text-green-500 transition-colors"
+              >
                 Terms and Conditions
               </a>{" "}
               and{" "}
-              <a href="#" className="text-green-600 hover:text-green-500 transition-colors">
+              <a
+                href="#"
+                className="text-green-600 hover:text-green-500 transition-colors"
+              >
                 Privacy Policy
               </a>
             </label>
@@ -431,17 +480,43 @@ export default function Signup() {
             <div className="absolute inset-0 bg-white/20 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
             {loading ? (
               <>
-                <svg className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                <svg
+                  className="w-5 h-5 animate-spin"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  ></circle>
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  ></path>
                 </svg>
                 <span>Creating account...</span>
               </>
             ) : (
               <>
                 <span>Sign Up</span>
-                <svg className="w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                <svg
+                  className="w-5 h-5 group-hover:translate-x-1 transition-transform"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M13 7l5 5m0 0l-5 5m5-5H6"
+                  />
                 </svg>
               </>
             )}
@@ -465,13 +540,20 @@ export default function Signup() {
       </div>
 
       {/* Floating accent elements */}
-      <div className="fixed top-6 right-6 w-2 h-2 bg-green-400 rounded-full animate-float" style={{ animationDelay: '0s' }}></div>
-      <div className="fixed bottom-6 left-6 w-2 h-2 bg-emerald-400 rounded-full animate-float" style={{ animationDelay: '1s' }}></div>
+      <div
+        className="fixed top-6 right-6 w-2 h-2 bg-green-400 rounded-full animate-float"
+        style={{ animationDelay: "0s" }}
+      ></div>
+      <div
+        className="fixed bottom-6 left-6 w-2 h-2 bg-emerald-400 rounded-full animate-float"
+        style={{ animationDelay: "1s" }}
+      ></div>
 
       {/* Custom animations */}
       <style jsx>{`
         @keyframes blob {
-          0%, 100% {
+          0%,
+          100% {
             transform: translate(0, 0) scale(1);
           }
           33% {
@@ -528,7 +610,8 @@ export default function Signup() {
         }
 
         @keyframes shake {
-          0%, 100% {
+          0%,
+          100% {
             transform: translateX(0);
           }
           25% {
@@ -540,7 +623,8 @@ export default function Signup() {
         }
 
         @keyframes float {
-          0%, 100% {
+          0%,
+          100% {
             transform: translateY(0px);
           }
           50% {

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import SiteHeader from "../components/SiteHeader";
+import AnimatedAlert, { useAlert } from "../components/AnimatedAlert";
 import {
   MapContainer,
   TileLayer,
@@ -61,10 +62,10 @@ export default function CompleteProfile() {
   const [position, setPosition] = useState(null); // [lat, lng]
   const [mapCenter, setMapCenter] = useState([7.8731, 80.7718]); // For centering map
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
   const [phoneError, setPhoneError] = useState("");
   const [usernameError, setUsernameError] = useState("");
   const [locating, setLocating] = useState(false);
+  const { alert, visible, showError } = useAlert();
 
   useEffect(() => {
     if (!userId) {
@@ -81,7 +82,6 @@ export default function CompleteProfile() {
       ...formData,
       [e.target.name]: e.target.value,
     });
-    setError("");
     if (e.target.name === "phone") setPhoneError("");
     if (e.target.name === "username") setUsernameError("");
   };
@@ -94,7 +94,7 @@ export default function CompleteProfile() {
 
   const handleUseMyLocation = () => {
     if (!navigator.geolocation) {
-      setError("Geolocation is not supported by your browser");
+      showError("Geolocation is not supported by your browser");
       return;
     }
 
@@ -108,8 +108,8 @@ export default function CompleteProfile() {
       },
       (err) => {
         console.error("Geolocation error:", err);
-        setError(
-          "Unable to get your location. Please select manually on the map."
+        showError(
+          "Unable to get your location. Please select manually on the map.",
         );
         setLocating(false);
       },
@@ -117,7 +117,7 @@ export default function CompleteProfile() {
         enableHighAccuracy: true,
         timeout: 10000,
         maximumAge: 0,
-      }
+      },
     );
   };
 
@@ -129,7 +129,7 @@ export default function CompleteProfile() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ phone }),
-        }
+        },
       );
       const data = await response.json();
       return data.phoneAvailable;
@@ -155,12 +155,11 @@ export default function CompleteProfile() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError("");
     setLoading(true);
 
     // Validation
     if (!formData.username || !formData.phone) {
-      setError("Username and phone number are required");
+      showError("Username and phone number are required");
       setLoading(false);
       return;
     }
@@ -173,7 +172,7 @@ export default function CompleteProfile() {
 
     // Check if position is set
     if (!position) {
-      setError("Please select your location on the map");
+      showError("Please select your location on the map");
       setLoading(false);
       return;
     }
@@ -183,12 +182,12 @@ export default function CompleteProfile() {
       // We need to get the email from the userId
       // For now, we'll make a request to get user email
       const userResponse = await fetch(
-        `http://localhost:5000/auth/user-email?userId=${userId}`
+        `http://localhost:5000/auth/user-email?userId=${userId}`,
       );
       const userData = await userResponse.json();
 
       if (!userResponse.ok) {
-        setError("Failed to retrieve user information");
+        showError("Failed to retrieve user information");
         setLoading(false);
         return;
       }
@@ -209,20 +208,23 @@ export default function CompleteProfile() {
             latitude: position[0].toString(),
             longitude: position[1].toString(),
           }),
-        }
+        },
       );
 
       const data = await response.json();
 
       if (!response.ok) {
-        setError(data.message || "Failed to complete profile");
+        showError(data.message || "Failed to complete profile");
         setLoading(false);
         return;
       }
 
       // Success - save token and user data, then redirect to home
-      console.log("✅ Profile completed, saving token:", data.token ? `${data.token.substring(0, 20)}...` : "NULL");
-      
+      console.log(
+        "✅ Profile completed, saving token:",
+        data.token ? `${data.token.substring(0, 20)}...` : "NULL",
+      );
+
       if (data.token) {
         localStorage.setItem("token", data.token);
       }
@@ -234,12 +236,12 @@ export default function CompleteProfile() {
       if (data.userName) {
         localStorage.setItem("userName", data.userName);
       }
-      
+
       // Navigate directly to home (logged in)
       navigate("/home");
     } catch (err) {
       console.error("Profile completion error:", err);
-      setError("Network error. Please try again.");
+      showError("Network error. Please try again.");
       setLoading(false);
     }
   };
@@ -278,12 +280,7 @@ export default function CompleteProfile() {
           {/* Form */}
           <div className="bg-white rounded-lg shadow-lg p-8">
             <form onSubmit={handleSubmit} className="space-y-6">
-              {/* Error Message */}
-              {error && (
-                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
-                  <p className="text-sm">{error}</p>
-                </div>
-              )}
+              <AnimatedAlert alert={alert} visible={visible} />
 
               {/* Two Column Layout for Desktop */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

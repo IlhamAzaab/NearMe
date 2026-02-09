@@ -150,6 +150,32 @@ export default function AdminSidebar({ mobileOpen, setMobileOpen }) {
         </NavLink>
 
         <NavLink
+          to="/admin/withdrawals"
+          className={({ isActive }) =>
+            `${baseItem} ${
+              isActive
+                ? "bg-gradient-to-r from-green-100 to-green-50 text-green-700 font-semibold shadow-sm"
+                : "text-gray-700"
+            }`
+          }
+        >
+          <svg
+            className="w-5 h-5"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"
+            />
+          </svg>
+          <span className="font-medium">Withdrawals</span>
+        </NavLink>
+
+        <NavLink
           to="/admin/settings"
           className={({ isActive }) =>
             `${baseItem} ${

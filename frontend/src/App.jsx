@@ -18,6 +18,8 @@ import PastOrderDetails from "./pages/PastOrderDetails";
 import CustomerOrders from "./pages/Orders";
 import TrackOrder from "./pages/TrackOrder";
 import ManagerDashboard from "./pages/manager/Dashboard";
+import ManagerDeposits from "./pages/manager/ManagerDeposits";
+import VerifyDeposit from "./pages/manager/VerifyDeposit";
 import AddAdmin from "./pages/manager/restaurants/AddAdmin";
 import AdminManagement from "./pages/manager/restaurants/AdminManagement";
 import RestaurantManagement from "./pages/manager/restaurants/RestaurantManagement";
@@ -25,6 +27,11 @@ import PendingRestaurants from "./pages/manager/restaurants/PendingRestaurants";
 import AddDriver from "./pages/manager/drivers/AddDriver";
 import DriverManagement from "./pages/manager/drivers/DriverManagement";
 import DriverVerification from "./pages/manager/drivers/DriverVerification";
+import DriverPayments from "./pages/manager/drivers/DriverPayments";
+import ProcessDriverPayment from "./pages/manager/drivers/ProcessDriverPayment";
+import AdminPayments from "./pages/manager/restaurants/AdminPayments";
+import ProcessAdminPayment from "./pages/manager/restaurants/ProcessAdminPayment";
+import ManagerEarnings from "./pages/manager/ManagerEarnings";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import AdminProfile from "./pages/admin/AdminProfile";
 import RestaurantDetail from "./pages/admin/RestaurantDetail";
@@ -68,6 +75,9 @@ import DeliveryTracking from "./pages/DeliveryTracking";
 import DriverNotifications from "./pages/driver/Notifications";
 import DeliveryHistory from "./pages/driver/DeliveryHistory";
 import DriverEarnings from "./pages/driver/DriverEarnings";
+import DriverDeposits from "./pages/driver/DriverDeposits";
+import DriverWithdrawals from "./pages/driver/DriverWithdrawals";
+import AdminWithdrawals from "./pages/admin/AdminWithdrawals";
 import CustomerNotifications from "./pages/CustomerNotifications";
 import AdminNotifications from "./pages/admin/AdminNotifications";
 import CustomerProfile from "./pages/CustomerProfile";
@@ -91,7 +101,6 @@ function App() {
             />
             <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<Signup />} />
-
             <Route path="/auth/verify-email" element={<VerifyEmail />} />
             <Route
               path="/restaurant/:restaurantId/foods"
@@ -114,7 +123,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             {/* Cart Route - Customer Only */}
             <Route
               path="/cart"
@@ -140,7 +148,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             {/* Checkout Route - Customer Only */}
             <Route
               path="/checkout"
@@ -150,7 +157,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             {/* Placing Order Confirmation Screen */}
             <Route
               path="/placing-order"
@@ -160,7 +166,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             {/* Order Received - Restaurant accepted */}
             <Route
               path="/order-received/:orderId"
@@ -170,7 +175,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             {/* Driver Accepted - Driver accepted the order */}
             <Route
               path="/driver-accepted/:orderId"
@@ -180,7 +184,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             {/* Order Picked Up - Driver picked up the order */}
             <Route
               path="/order-picked-up/:orderId"
@@ -190,7 +193,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             {/* Order On The Way - Driver heading to customer with live tracking */}
             <Route
               path="/order-on-the-way/:orderId"
@@ -234,7 +236,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             {/* Manager Routes - Protected */}
             <Route
               path="/manager/dashboard"
@@ -297,6 +298,83 @@ function App() {
               element={
                 <ProtectedRoute allowedRole="manager">
                   <DriverVerification />
+                </ProtectedRoute>
+              }
+            />
+            {/* Manager Deposits Routes */}
+            <Route
+              path="/manager/deposits"
+              element={
+                <ProtectedRoute allowedRole="manager">
+                  <ManagerDeposits />
+                </ProtectedRoute>
+              }
+            />
+            {/* Manager Driver Payments Routes */}
+            <Route
+              path="/manager/driver-payments"
+              element={
+                <ProtectedRoute allowedRole="manager">
+                  <DriverPayments />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/manager/driver-payments/:driverId"
+              element={
+                <ProtectedRoute allowedRole="manager">
+                  <ProcessDriverPayment />
+                </ProtectedRoute>
+              }
+            />{" "}
+            {/* Manager Admin Payments Routes */}
+            <Route
+              path="/manager/admin-payments"
+              element={
+                <ProtectedRoute allowedRole="manager">
+                  <AdminPayments />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/manager/admin-payments/:restaurantId"
+              element={
+                <ProtectedRoute allowedRole="manager">
+                  <ProcessAdminPayment />
+                </ProtectedRoute>
+              }
+            />{" "}
+            {/* Manager Admin Payments Routes */}
+            <Route
+              path="/manager/admin-payments"
+              element={
+                <ProtectedRoute allowedRole="manager">
+                  <AdminPayments />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/manager/admin-payments/:restaurantId"
+              element={
+                <ProtectedRoute allowedRole="manager">
+                  <ProcessAdminPayment />
+                </ProtectedRoute>
+              }
+            />
+            {/* Manager Earnings */}
+            <Route
+              path="/manager/earnings"
+              element={
+                <ProtectedRoute allowedRole="manager">
+                  <ManagerEarnings />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/manager/deposits/verify/:depositId"
+              element={
+                <ProtectedRoute allowedRole="manager">
+                  <VerifyDeposit />
                 </ProtectedRoute>
               }
             />
@@ -387,6 +465,14 @@ function App() {
               element={
                 <AdminDashboardRoute>
                   <Earnings />
+                </AdminDashboardRoute>
+              }
+            />
+            <Route
+              path="/admin/withdrawals"
+              element={
+                <AdminDashboardRoute>
+                  <AdminWithdrawals />
                 </AdminDashboardRoute>
               }
             />
@@ -487,7 +573,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             <Route
               path="/driver/delivery/active/:deliveryId/map"
               element={
@@ -525,6 +610,22 @@ function App() {
               element={
                 <ProtectedRoute allowedRole="driver">
                   <DriverEarnings />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/driver/deposits"
+              element={
+                <ProtectedRoute allowedRole="driver">
+                  <DriverDeposits />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/driver/withdrawals"
+              element={
+                <ProtectedRoute allowedRole="driver">
+                  <DriverWithdrawals />
                 </ProtectedRoute>
               }
             />

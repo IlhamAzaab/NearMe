@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import AnimatedAlert, { useAlert } from "../components/AnimatedAlert";
 import {
   MapContainer,
   TileLayer,
@@ -103,7 +104,14 @@ const Checkout = () => {
   // Cart data
   const [cart, setCart] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setRawError] = useState(null);
+  const { alert: alertState, visible: alertVisible, showError } = useAlert();
+
+  // Wrap setError to also trigger animated toast
+  const setError = (msg) => {
+    setRawError(msg);
+    if (msg) showError(msg);
+  };
 
   // Order summary dropdown
   const [showOrderItems, setShowOrderItems] = useState(false);
@@ -358,8 +366,17 @@ const Checkout = () => {
   // Order placement state
   const [placing, setPlacing] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState(null);
+  const isPlacingRef = useRef(false); // Ref-based lock to prevent double clicks
 
   const handlePlaceOrder = async () => {
+    // Double-click protection using ref (more reliable than state)
+    if (isPlacingRef.current) {
+      console.log(
+        "Order placement already in progress, ignoring duplicate click",
+      );
+      return;
+    }
+
     if (!phone || !address || !position) {
       setError(
         "Please ensure all delivery details are filled and location is selected",
@@ -377,6 +394,8 @@ const Checkout = () => {
       return;
     }
 
+    // Set both state and ref lock immediately
+    isPlacingRef.current = true;
     setPlacing(true);
     setError(null);
 
@@ -403,14 +422,65 @@ const Checkout = () => {
       const data = await response.json();
 
       if (response.ok) {
-        // Order placed successfully!
-        setOrderSuccess(data.order);
+        // Order placed successfully! Navigate to placing-order page
+        // Keep the lock set to prevent any further clicks
+        navigate("/placing-order", {
+          state: {
+            orderPlaced: true,
+            orderId: data.order.id,
+            orderNumber: data.order.order_number,
+            order: data.order,
+            address: address,
+            restaurantName: data.order.restaurant_name,
+            totalAmount: data.order.total_amount,
+            items:
+              cart?.items?.map((item) => ({
+                name: item.food_name,
+                quantity: item.quantity,
+                price: item.unit_price,
+              })) || [],
+          },
+          replace: true,
+        });
+        return; // Exit early, don't continue processing
       } else {
-        setError(data.message || "Failed to place order");
+        // Check if it's a duplicate order error (cart already completed)
+        if (
+          data.message?.includes("already") ||
+          data.message?.includes("completed") ||
+          response.status === 409
+        ) {
+          // Cart was already ordered - navigate to placing-order if we have order info
+          if (data.order) {
+            navigate("/placing-order", {
+              state: {
+                orderPlaced: true,
+                orderId: data.order.id,
+                orderNumber: data.order.order_number,
+                order: data.order,
+                address: address,
+                restaurantName: data.order.restaurant_name || "Restaurant",
+                totalAmount: data.order.total_amount,
+              },
+              replace: true,
+            });
+            return;
+          } else {
+            setError(
+              "This order has already been placed. Please check your orders.",
+            );
+          }
+        } else {
+          setError(data.message || "Failed to place order");
+          // Only clear the lock if it's a recoverable error
+          isPlacingRef.current = false;
+        }
       }
     } catch (err) {
       console.error("Place order error:", err);
       setError("Failed to connect to server. Please try again.");
+      // Clear the lock so user can retry on network errors
+      isPlacingRef.current = false;
     } finally {
       setPlacing(false);
     }
@@ -569,6 +639,7 @@ const Checkout = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 font-poppins pb-32 page-slide-up">
+      <AnimatedAlert alert={alertState} visible={alertVisible} />
       {/* Main Content */}
       <main className="max-w-lg mx-auto">
         {/* Map Preview Section */}
@@ -1261,12 +1332,7 @@ const Checkout = () => {
           </div>
         )}
 
-        {/* Error message */}
-        {error && (
-          <div className="mx-4 mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
-            {error}
-          </div>
-        )}
+        <AnimatedAlert alert={alertState} visible={alertVisible} />
       </main>
 
       {/* Sticky Bottom CTA */}

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import AdminLayout from "../../components/AdminLayout";
+import { API_URL } from "../../config";
 
 export default function AdminDashboard() {
   const [stats, setStats] = useState({
@@ -40,7 +41,7 @@ export default function AdminDashboard() {
     setLoading(true);
     try {
       // Fetch stats
-      const statsRes = await fetch("http://localhost:5000/admin/stats", {
+      const statsRes = await fetch(`${API_URL}/admin/stats`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const statsData = await statsRes.json();
@@ -50,12 +51,9 @@ export default function AdminDashboard() {
       }
 
       // Fetch recent orders
-      const ordersRes = await fetch(
-        "http://localhost:5000/admin/orders?limit=5",
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
-      );
+      const ordersRes = await fetch(`${API_URL}/admin/orders?limit=5`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const ordersData = await ordersRes.json();
 
       if (ordersRes.ok && ordersData.orders) {
@@ -128,21 +126,47 @@ export default function AdminDashboard() {
   if (loading) {
     return (
       <AdminLayout>
-        <div className="min-h-screen bg-gradient-to-br from-green-50 via-green-50 to-green-100 animate-fadeIn">
-          <div className="animate-pulse space-y-6 p-4 sm:p-6">
-            <div className="h-8 bg-green-200/50 rounded w-1/2 sm:w-1/4"></div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-              {[...Array(4)].map((_, i) => (
-                <div
-                  key={i}
-                  className="h-32 bg-white/80 rounded-2xl shadow-sm"
-                ></div>
-              ))}
+        <div className="space-y-6">
+          {/* Header skeleton */}
+          <div className="animate-pulse space-y-3">
+            <div className="h-8 bg-gray-200 rounded w-1/3" />
+            <div className="flex items-center gap-2">
+              <div className="h-4 w-32 bg-gray-200 rounded" />
+              <div className="w-2.5 h-2.5 bg-gray-200 rounded-full" />
+              <div className="h-4 w-28 bg-gray-200 rounded" />
             </div>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="h-80 bg-white/80 rounded-2xl shadow-sm"></div>
-              <div className="h-80 bg-white/80 rounded-2xl shadow-sm"></div>
-            </div>
+          </div>
+          {/* Stats grid skeleton */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {[...Array(4)].map((_, i) => (
+              <div
+                key={i}
+                className="bg-white rounded-2xl p-5 border border-gray-100 animate-pulse"
+              >
+                <div className="flex items-start justify-between">
+                  <div className="space-y-3 flex-1">
+                    <div className="h-3 w-20 bg-gray-200 rounded" />
+                    <div className="h-8 w-24 bg-gray-200 rounded" />
+                  </div>
+                  <div className="w-12 h-12 bg-gray-200 rounded-xl" />
+                </div>
+              </div>
+            ))}
+          </div>
+          {/* Content skeleton */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {[...Array(2)].map((_, i) => (
+              <div
+                key={i}
+                className="bg-white rounded-2xl p-6 border border-gray-100 animate-pulse"
+              >
+                <div className="h-5 w-40 bg-gray-200 rounded mb-6" />
+                <div className="space-y-4">
+                  <div className="h-20 bg-gray-100 rounded-xl" />
+                  <div className="h-20 bg-gray-100 rounded-xl" />
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </AdminLayout>

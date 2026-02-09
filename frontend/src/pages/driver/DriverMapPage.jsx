@@ -12,6 +12,7 @@ import {
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import DriverLayout from "../../components/DriverLayout";
+import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
 
 // Fix Leaflet default marker icons
 delete L.Icon.Default.prototype._getIconUrl;
@@ -95,6 +96,12 @@ export default function DriverMapPage() {
   // New state for controlling map auto-fit behavior
   const [shouldFitBounds, setShouldFitBounds] = useState(true);
   const [userHasInteracted, setUserHasInteracted] = useState(false);
+  const {
+    alert: alertState,
+    visible: alertVisible,
+    showSuccess,
+    showError,
+  } = useAlert();
 
   // Callbacks for map interaction
   const handleBoundsFitted = useCallback(() => {
@@ -128,19 +135,41 @@ export default function DriverMapPage() {
     };
   }, [navigate]);
 
+  // Fetch data only on initial mount or when explicitly needed (not on every location update)
+  const hasFetchedRef = useRef(false);
   useEffect(() => {
-    if (driverLocation) {
+    if (driverLocation && !hasFetchedRef.current) {
+      hasFetchedRef.current = true;
       fetchPickupsAndDeliveries();
     }
   }, [driverLocation]);
 
+  // Periodic data refresh every 10 seconds (separate from location updates)
+  const dataRefreshIntervalRef = useRef(null);
+  useEffect(() => {
+    if (!driverLocation) return;
+
+    dataRefreshIntervalRef.current = setInterval(() => {
+      console.log("[DATA REFRESH] Refreshing pickups and deliveries...");
+      fetchPickupsAndDeliveries();
+    }, 10000); // Refresh data every 10 seconds
+
+    return () => {
+      if (dataRefreshIntervalRef.current) {
+        clearInterval(dataRefreshIntervalRef.current);
+        dataRefreshIntervalRef.current = null;
+      }
+    };
+  }, [driverLocation]);
+
   const startLocationTracking = () => {
     if (!navigator.geolocation) {
-      alert("Geolocation not supported");
+      showError("Geolocation not supported");
       return;
     }
 
     setIsTracking(true);
+    console.log("[LOCATION] Starting location tracking with 3s interval");
 
     // Get initial location
     navigator.geolocation.getCurrentPosition(
@@ -149,6 +178,9 @@ export default function DriverMapPage() {
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
         };
+        console.log(
+          `[LOCATION] Initial: (${location.latitude.toFixed(6)}, ${location.longitude.toFixed(6)})`,
+        );
         setDriverLocation(location);
         updateLocationOnBackend(deliveryId, location);
       },
@@ -156,7 +188,7 @@ export default function DriverMapPage() {
         console.error("Location error:", error);
         setIsTracking(false);
       },
-      { enableHighAccuracy: true },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 },
     );
 
     // Update every 3 seconds for live tracking
@@ -167,11 +199,14 @@ export default function DriverMapPage() {
             latitude: position.coords.latitude,
             longitude: position.coords.longitude,
           };
+          console.log(
+            `[LOCATION] Updated: (${location.latitude.toFixed(6)}, ${location.longitude.toFixed(6)})`,
+          );
           setDriverLocation(location);
           updateLocationOnBackend(deliveryId, location);
         },
         (error) => console.error("Location update error:", error),
-        { enableHighAccuracy: true, maximumAge: 0 },
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 },
       );
     }, 3000);
   };
@@ -244,8 +279,118 @@ export default function DriverMapPage() {
           setCurrentTarget(deliveriesData.deliveries[0]);
         }
       }
+
+      // If both endpoints returned empty, do a fallback check
+      // using the simpler /active endpoint (no coordinates needed)
+      const hasPickups = pickupsData.pickups && pickupsData.pickups.length > 0;
+      const hasDeliveries =
+        deliveriesData.deliveries && deliveriesData.deliveries.length > 0;
+
+      if (!hasPickups && !hasDeliveries) {
+        console.log(
+          "[DRIVER MAP] Both endpoints empty, checking fallback /active endpoint...",
+        );
+        try {
+          const fallbackRes = await fetch(
+            "http://localhost:5000/driver/deliveries/active",
+            { headers: { Authorization: `Bearer ${token}` } },
+          );
+          if (fallbackRes.ok) {
+            const fallbackData = await fallbackRes.json();
+            const activeList = fallbackData.deliveries || [];
+            if (activeList.length > 0) {
+              console.log(
+                `[DRIVER MAP] Fallback found ${activeList.length} active deliveries`,
+              );
+              // Build minimal delivery objects from the active endpoint data
+              const fallbackDeliveries = activeList.map((d) => ({
+                delivery_id: d.id,
+                order_id: d.order_id,
+                order_number: d.order?.order_number || "N/A",
+                status: d.status,
+                restaurant: d.order?.restaurant || {
+                  name: "Restaurant",
+                  address: "",
+                  latitude: 0,
+                  longitude: 0,
+                },
+                customer: {
+                  name: d.order?.customer?.name || "Customer",
+                  phone: d.order?.customer?.phone || "",
+                  address: d.order?.delivery?.address || "",
+                  latitude: d.order?.delivery?.latitude || 0,
+                  longitude: d.order?.delivery?.longitude || 0,
+                },
+                distance_meters: d.total_distance || 0,
+                distance_km: ((d.total_distance || 0) / 1000).toFixed(2),
+                estimated_time_minutes: 0,
+              }));
+
+              const acceptedOnes = fallbackDeliveries.filter(
+                (d) => d.status === "accepted",
+              );
+              const inProgressOnes = fallbackDeliveries.filter(
+                (d) => d.status !== "accepted",
+              );
+
+              if (acceptedOnes.length > 0) {
+                setPickups(acceptedOnes);
+                setMode("pickup");
+                setCurrentTarget(acceptedOnes[0]);
+              } else if (inProgressOnes.length > 0) {
+                setDeliveries(inProgressOnes);
+                setMode("delivery");
+                setCurrentTarget(inProgressOnes[0]);
+              }
+            }
+          }
+        } catch (fallbackErr) {
+          console.error("[DRIVER MAP] Fallback check error:", fallbackErr);
+        }
+      }
     } catch (e) {
       console.error("Fetch error:", e);
+      // On error, try the fallback endpoint
+      try {
+        const token = localStorage.getItem("token");
+        const fallbackRes = await fetch(
+          "http://localhost:5000/driver/deliveries/active",
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        if (fallbackRes.ok) {
+          const fallbackData = await fallbackRes.json();
+          const activeList = fallbackData.deliveries || [];
+          if (activeList.length > 0) {
+            const first = activeList[0];
+            const target = {
+              delivery_id: first.id,
+              order_id: first.order_id,
+              order_number: first.order?.order_number || "N/A",
+              status: first.status,
+              restaurant: first.order?.restaurant || {
+                name: "Restaurant",
+                address: "",
+                latitude: 0,
+                longitude: 0,
+              },
+              customer: {
+                name: first.order?.customer?.name || "Customer",
+                phone: first.order?.customer?.phone || "",
+                address: first.order?.delivery?.address || "",
+                latitude: first.order?.delivery?.latitude || 0,
+                longitude: first.order?.delivery?.longitude || 0,
+              },
+              distance_meters: first.total_distance || 0,
+              distance_km: ((first.total_distance || 0) / 1000).toFixed(2),
+              estimated_time_minutes: 0,
+            };
+            setMode(first.status === "accepted" ? "pickup" : "delivery");
+            setCurrentTarget(target);
+          }
+        }
+      } catch (fallbackErr) {
+        console.error("[DRIVER MAP] Error fallback also failed:", fallbackErr);
+      }
     } finally {
       setLoading(false);
     }
@@ -289,11 +434,11 @@ export default function DriverMapPage() {
         }
       } else {
         const data = await res.json();
-        alert(data.message || "Failed to update status");
+        showError(data.message || "Failed to update status");
       }
     } catch (e) {
       console.error("Update error:", e);
-      alert("Failed to update status");
+      showError("Failed to update status");
     } finally {
       setUpdating(false);
     }
@@ -386,16 +531,16 @@ export default function DriverMapPage() {
           setCurrentTarget(updatedDeliveries[0]);
         } else {
           // All done
-          alert("All deliveries completed!");
+          showSuccess("All deliveries completed!");
           navigate("/driver/deliveries/active");
         }
       } else {
         const data = await res.json();
-        alert(data.message || "Failed to update status");
+        showError(data.message || "Failed to update status");
       }
     } catch (e) {
       console.error("Delivery error:", e);
-      alert("Failed to mark as delivered");
+      showError("Failed to mark as delivered");
     } finally {
       setUpdating(false);
     }
@@ -464,6 +609,7 @@ export default function DriverMapPage() {
 
   return (
     <DriverLayout>
+      <AnimatedAlert alert={alertState} visible={alertVisible} />
       <div className="h-screen flex flex-col bg-gray-50">
         {/* Map */}
         <div className="flex-1 relative">

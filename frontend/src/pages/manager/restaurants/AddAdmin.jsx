@@ -1,13 +1,28 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import ManagerLayout from "../../../components/ManagerLayout";
+import AnimatedAlert, { useAlert } from "../../../components/AnimatedAlert";
 
 export default function AddAdmin() {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState(null);
-  const [error, setError] = useState(null);
+  const [message, setRawMessage] = useState(null);
+  const [error, setRawError] = useState(null);
   const navigate = useNavigate();
+  const {
+    alert: alertState,
+    visible: alertVisible,
+    showSuccess,
+    showError,
+  } = useAlert();
+  const setError = (msg) => {
+    setRawError(msg);
+    if (msg) showError(msg);
+  };
+  const setMessage = (msg) => {
+    setRawMessage(msg);
+    if (msg) showSuccess(msg);
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -41,7 +56,7 @@ export default function AddAdmin() {
         setError(data?.message || "Failed to create admin");
       } else {
         setMessage(
-          `Admin created successfully. A temporary password has been sent to ${email}.`
+          `Admin created successfully. A temporary password has been sent to ${email}.`,
         );
         setEmail("");
         setTimeout(() => setMessage(null), 3000);
@@ -55,6 +70,7 @@ export default function AddAdmin() {
 
   return (
     <ManagerLayout>
+      <AnimatedAlert alert={alertState} visible={alertVisible} />
       <div className="max-w-2xl mx-auto">
         <h1 className="text-2xl font-bold text-gray-800">Add Admin</h1>
         <p className="text-gray-600 mt-2">
@@ -79,17 +95,6 @@ export default function AddAdmin() {
               required
             />
           </div>
-
-          {error && (
-            <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
-              {error}
-            </div>
-          )}
-          {message && (
-            <div className="p-3 bg-green-50 border border-green-200 text-green-700 rounded-lg text-sm">
-              {message}
-            </div>
-          )}
 
           <button
             type="submit"

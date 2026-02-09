@@ -1,6 +1,14 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import DriverRealtimeNotificationListener from "../../components/DriverRealtimeNotificationListener";
+import DriverLayout from "../../components/DriverLayout";
+import { API_URL } from "../../config";
 import { useSocket } from "../../context/SocketContext";
 import {
   MapContainer,
@@ -11,6 +19,8 @@ import {
 } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import "./AvailableDeliveries.css";
+import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
 
 // Fix Leaflet default marker icons
 delete L.Icon.Default.prototype._getIconUrl;
@@ -40,6 +50,41 @@ const createCircleIcon = (color, borderColor = "#ffffff") => {
     popupAnchor: [0, -10],
   });
 };
+
+// Custom SVG icons for Leaflet (black, no background)
+const createSvgIcon = (svgPath, size = 32) => {
+  return L.divIcon({
+    className: "custom-svg-marker",
+    html: `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="#1a1a1a" style="filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));">${svgPath}</svg>`,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size],
+    popupAnchor: [0, -size],
+  });
+};
+
+// Driver icon (motorcycle/scooter)
+const driverSvgIcon = createSvgIcon(
+  '<path d="M19 7c0-1.1-.9-2-2-2h-3v2h3v2.65L13.52 14H10V9H6c-2.21 0-4 1.79-4 4v3h2c0 1.66 1.34 3 3 3s3-1.34 3-3h4.48L19 10.35V7zM7 17c-.55 0-1-.45-1-1h2c0 .55-.45 1-1 1z"/><path d="M5 6h5v2H5zm14 7c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3zm0 4c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1z"/>',
+  28,
+);
+
+// Restaurant icon (storefront/building)
+const restaurantSvgIcon = createSvgIcon(
+  '<path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>',
+  28,
+);
+
+// Restaurant alt icon (home/store)
+const restaurantHomeIcon = createSvgIcon(
+  '<path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/>',
+  28,
+);
+
+// Customer icon (location pin)
+const customerSvgIcon = createSvgIcon(
+  '<path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>',
+  28,
+);
 
 const driverIcon = createCircleIcon("#13ec37");
 const restaurantIcon = createCircleIcon("#13ec37");
@@ -115,7 +160,9 @@ export default function AvailableDeliveries() {
   const cachedData = loadCachedData();
   const [deliveries, setDeliveries] = useState(cachedData?.deliveries || []);
   const [declinedIds, setDeclinedIds] = useState(new Set()); // Track declined delivery IDs
-  const [initialLoading, setInitialLoading] = useState(!cachedData); // Only show skeleton on first load
+  const [initialLoading, setInitialLoading] = useState(true); // Always start with skeleton until first fetch completes
+  const [hasCompletedFirstFetch, setHasCompletedFirstFetch] =
+    useState(!!cachedData); // Track if first fetch is done
   const [isRefreshing, setIsRefreshing] = useState(false); // Background refresh indicator
   const [accepting, setAccepting] = useState(null);
   const [driverLocation, setDriverLocation] = useState(
@@ -129,9 +176,15 @@ export default function AvailableDeliveries() {
     },
   );
   const [deliveryListRef, setDeliveryListRef] = useState(null);
-  const [toast, setToast] = useState(null);
+  const {
+    alert: alertState,
+    visible: alertVisible,
+    showSuccess,
+    showError,
+  } = useAlert();
   const [fetchError, setFetchError] = useState(null); // Network error state
   const [showNewDeliveryBanner, setShowNewDeliveryBanner] = useState(false); // Real-time alert banner
+  const [isLoadingAfterAccept, setIsLoadingAfterAccept] = useState(false); // Show skeleton after accepting delivery
   const deliveryListRefEl = useRef(null);
   const abortControllerRef = useRef(null); // For cancelling pending requests
 
@@ -197,6 +250,127 @@ export default function AvailableDeliveries() {
     }
   }, [takenDeliveries, clearAllTakenDeliveries]);
 
+  // Refs for location tracking
+  const locationIntervalRef = useRef(null);
+  const dataFetchIntervalRef = useRef(null);
+  const isFetchingRef = useRef(false);
+  const lastFetchLocationRef = useRef(null);
+  const fetchPendingDeliveriesRef = useRef(null); // Ref to hold fetch function
+
+  // Minimum distance (in meters) driver must move before triggering a recalculation
+  const MOVEMENT_THRESHOLD_METERS = 50;
+
+  // Calculate distance between two coordinates (Haversine formula)
+  const calculateDistance = useCallback((lat1, lng1, lat2, lng2) => {
+    const R = 6371000; // Earth's radius in meters
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLng = ((lng2 - lng1) * Math.PI) / 180;
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos((lat1 * Math.PI) / 180) *
+        Math.cos((lat2 * Math.PI) / 180) *
+        Math.sin(dLng / 2) *
+        Math.sin(dLng / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c; // Distance in meters
+  }, []);
+
+  // Function to update location only (every 3 seconds for map display)
+  // Only triggers data refresh if driver moved significantly
+  const updateLocation = useCallback(() => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const location = {
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+          };
+
+          setDriverLocation(location);
+
+          // Check if driver moved significantly since last API fetch
+          if (lastFetchLocationRef.current) {
+            const distanceMoved = calculateDistance(
+              lastFetchLocationRef.current.latitude,
+              lastFetchLocationRef.current.longitude,
+              location.latitude,
+              location.longitude,
+            );
+
+            if (distanceMoved >= MOVEMENT_THRESHOLD_METERS) {
+              console.log(
+                `[LOCATION] 🚗 Driver moved ${distanceMoved.toFixed(0)}m (threshold: ${MOVEMENT_THRESHOLD_METERS}m) - Triggering refresh`,
+              );
+              lastFetchLocationRef.current = location;
+              // Use ref to call the fetch function (avoids circular dependency)
+              if (fetchPendingDeliveriesRef.current) {
+                fetchPendingDeliveriesRef.current(location, true);
+              }
+            } else {
+              console.log(
+                `[LOCATION] Updated: (${location.latitude.toFixed(6)}, ${location.longitude.toFixed(6)}) - Moved ${distanceMoved.toFixed(0)}m (no refresh needed)`,
+              );
+            }
+          } else {
+            console.log(
+              `[LOCATION] Initial: (${location.latitude.toFixed(6)}, ${location.longitude.toFixed(6)})`,
+            );
+          }
+        },
+        (error) => {
+          console.error("Error getting location:", error);
+        },
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 },
+      );
+    }
+  }, [calculateDistance]);
+
+  // Function to fetch deliveries with current location (every 10 seconds)
+  const fetchDeliveriesWithCurrentLocation = useCallback(
+    (isBackgroundRefresh = false) => {
+      if (isFetchingRef.current && isBackgroundRefresh) return;
+
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const location = {
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+            };
+            setDriverLocation(location);
+            lastFetchLocationRef.current = location;
+            fetchPendingDeliveriesWithLocation(location, isBackgroundRefresh);
+          },
+          (error) => {
+            console.error("Error getting location:", error);
+            // Use default on initial load if no location
+            if (!driverLocation && !isBackgroundRefresh) {
+              setDriverLocation(DEFAULT_DRIVER_LOCATION);
+              fetchPendingDeliveriesWithLocation(
+                DEFAULT_DRIVER_LOCATION,
+                isBackgroundRefresh,
+              );
+            } else if (driverLocation) {
+              // Use last known location for background refresh
+              fetchPendingDeliveriesWithLocation(
+                driverLocation,
+                isBackgroundRefresh,
+              );
+            }
+          },
+          { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 },
+        );
+      } else if (!driverLocation) {
+        setDriverLocation(DEFAULT_DRIVER_LOCATION);
+        fetchPendingDeliveriesWithLocation(
+          DEFAULT_DRIVER_LOCATION,
+          isBackgroundRefresh,
+        );
+      }
+    },
+    [driverLocation],
+  );
+
   useEffect(() => {
     const role = localStorage.getItem("role");
     if (role !== "driver") {
@@ -207,43 +381,38 @@ export default function AvailableDeliveries() {
     // Check if driver is in delivering mode first
     checkDeliveringMode();
 
-    // Get driver's current location, fallback to default
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const location = {
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-          };
-          setDriverLocation(location);
-          fetchPendingDeliveriesWithLocation(location);
-        },
-        (error) => {
-          console.error(
-            "Error getting location, using default Kinniya location:",
-            error,
-          );
-          setDriverLocation(DEFAULT_DRIVER_LOCATION);
-          fetchPendingDeliveriesWithLocation(DEFAULT_DRIVER_LOCATION);
-        },
-      );
-    } else {
-      setDriverLocation(DEFAULT_DRIVER_LOCATION);
-      fetchPendingDeliveriesWithLocation(DEFAULT_DRIVER_LOCATION);
-    }
+    // Get initial location and fetch deliveries
+    fetchDeliveriesWithCurrentLocation(false);
+
+    // Update location every 3 seconds for live map display
+    // This also checks if driver moved significantly and triggers refresh if needed
+    locationIntervalRef.current = setInterval(() => {
+      updateLocation();
+    }, 3000);
+
+    // REMOVED: Unconditional 10-second polling
+    // Now we rely on:
+    // 1. WebSocket events for new/taken deliveries (real-time)
+    // 2. Location-based refresh when driver moves 50+ meters
+    // 3. Fallback 60-second refresh as safety net (only if no recent fetch)
+    dataFetchIntervalRef.current = setInterval(() => {
+      // Only fetch if we haven't fetched in the last 30 seconds
+      // (This is a safety fallback, not primary refresh mechanism)
+      console.log("[DATA REFRESH] Safety fallback check (60s interval)...");
+      fetchDeliveriesWithCurrentLocation(true);
+    }, 60000); // Changed from 10s to 60s
+
+    return () => {
+      if (locationIntervalRef.current) {
+        clearInterval(locationIntervalRef.current);
+        locationIntervalRef.current = null;
+      }
+      if (dataFetchIntervalRef.current) {
+        clearInterval(dataFetchIntervalRef.current);
+        dataFetchIntervalRef.current = null;
+      }
+    };
   }, [navigate]);
-
-  // Auto-refresh every 30 seconds
-  useEffect(() => {
-    if (!driverLocation) return;
-
-    const intervalId = setInterval(() => {
-      console.log("[AUTO-REFRESH] Polling for new deliveries...");
-      fetchPendingDeliveriesWithLocation(driverLocation, true);
-    }, 30000); // 30 seconds
-
-    return () => clearInterval(intervalId);
-  }, [driverLocation]);
 
   const checkDeliveringMode = async () => {
     try {
@@ -253,7 +422,7 @@ export default function AvailableDeliveries() {
       const currentLoc = driverLocation || DEFAULT_DRIVER_LOCATION;
 
       const res = await fetch(
-        `http://localhost:5000/driver/deliveries/pickups?driver_latitude=${currentLoc.latitude}&driver_longitude=${currentLoc.longitude}`,
+        `${API_URL}/driver/deliveries/pickups?driver_latitude=${currentLoc.latitude}&driver_longitude=${currentLoc.longitude}`,
         {
           headers: { Authorization: `Bearer ${token}` },
         },
@@ -265,12 +434,9 @@ export default function AvailableDeliveries() {
         // If no pickups but has active deliveries, check for delivering mode
         if (!data.pickups || data.pickups.length === 0) {
           // Check for deliveries in delivering statuses
-          const activeRes = await fetch(
-            "http://localhost:5000/driver/deliveries/active",
-            {
-              headers: { Authorization: `Bearer ${token}` },
-            },
-          );
+          const activeRes = await fetch(`${API_URL}/driver/deliveries/active`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
           if (activeRes.ok) {
             const activeData = await activeRes.json();
             const hasDeliveringOrders = activeData.deliveries?.some((d) =>
@@ -300,17 +466,17 @@ export default function AvailableDeliveries() {
     abortControllerRef.current = new AbortController();
 
     try {
-      // Only show skeleton on initial load when no cached data
-      if (!isBackgroundRefresh && deliveries.length === 0) {
+      // Show skeleton on initial load (before first successful fetch)
+      if (!hasCompletedFirstFetch) {
         setInitialLoading(true);
-      } else {
+      } else if (isBackgroundRefresh) {
         setIsRefreshing(true);
       }
 
       const token = localStorage.getItem("token");
       const currentLoc = location || DEFAULT_DRIVER_LOCATION;
 
-      const url = `http://localhost:5000/driver/deliveries/available/v2?driver_latitude=${currentLoc.latitude}&driver_longitude=${currentLoc.longitude}`;
+      const url = `${API_URL}/driver/deliveries/available/v2?driver_latitude=${currentLoc.latitude}&driver_longitude=${currentLoc.longitude}`;
 
       console.log("[FETCH] Requesting available deliveries from:", url);
 
@@ -334,10 +500,8 @@ export default function AvailableDeliveries() {
         current_route: data.current_route,
       });
 
-      let deliveriesArray = data.available_deliveries || [];
-
-      // Sort: Non-declined first (newest first), declined at bottom
-      deliveriesArray = sortDeliveries(deliveriesArray, declinedIds);
+      const deliveriesArray = data.available_deliveries || [];
+      // Don't sort - we use CSS order property to visually move declined items
       setDeliveries(deliveriesArray);
 
       const newCurrentRoute = data.current_route || {
@@ -358,6 +522,9 @@ export default function AvailableDeliveries() {
 
       // Clear any previous errors on successful fetch
       setFetchError(null);
+
+      // Mark first fetch as complete
+      setHasCompletedFirstFetch(true);
     } catch (e) {
       if (e.name === "AbortError") return; // Ignore aborted requests
       console.error("❌ [FRONTEND] Failed to fetch deliveries:", e);
@@ -382,6 +549,9 @@ export default function AvailableDeliveries() {
       setIsRefreshing(false);
     }
   };
+
+  // Store fetch function in ref so updateLocation can access it without circular dependency
+  fetchPendingDeliveriesRef.current = fetchPendingDeliveriesWithLocation;
 
   const handleAcceptDelivery = async (deliveryId) => {
     setAccepting(deliveryId);
@@ -417,7 +587,7 @@ export default function AvailableDeliveries() {
       };
 
       const res = await fetch(
-        `http://localhost:5000/driver/deliveries/${deliveryId}/accept`,
+        `${API_URL}/driver/deliveries/${deliveryId}/accept`,
         {
           method: "POST",
           headers: {
@@ -431,18 +601,22 @@ export default function AvailableDeliveries() {
       const data = await res.json();
 
       if (res.ok) {
-        // Remove accepted delivery
-        setDeliveries((prev) =>
-          prev.filter((d) => d.delivery_id !== deliveryId),
-        );
-
         // Show toast notification
         showToast("✅ Delivery accepted!");
 
-        // Auto-refresh in background to get updated earnings calculations
-        setTimeout(() => {
-          fetchPendingDeliveriesWithLocation(driverLocation, true);
-        }, 300);
+        // IMPORTANT: Clear ALL deliveries immediately to prevent showing stale earnings data
+        // The earnings for remaining deliveries need to be recalculated based on the new route
+        setDeliveries([]);
+
+        // Show skeleton with heartbeat while fetching updated deliveries with fresh calculations
+        setIsLoadingAfterAccept(true);
+
+        // Fetch updated deliveries with recalculated earnings based on new route context
+        // The backend will recalculate extra_distance and extra_earnings for the new delivery_sequence
+        setTimeout(async () => {
+          await fetchPendingDeliveriesWithLocation(driverLocation, false);
+          setIsLoadingAfterAccept(false);
+        }, 500); // 500ms delay to ensure DB has updated before fetching
       } else {
         showToast(data.message || "Failed to accept delivery", "error");
       }
@@ -454,22 +628,10 @@ export default function AvailableDeliveries() {
     }
   };
 
-  // Sort deliveries: non-declined first, declined at bottom
-  const sortDeliveries = (deliveriesArray, declinedSet) => {
-    const nonDeclined = deliveriesArray.filter(
-      (d) => !declinedSet.has(d.delivery_id),
-    );
-    const declined = deliveriesArray.filter((d) =>
-      declinedSet.has(d.delivery_id),
-    );
-    return [...nonDeclined, ...declined];
-  };
-
-  // Handle decline - move to bottom of list
+  // Handle decline - just add to declined set, use CSS order to move visually
+  // This avoids re-ordering the array which causes Leaflet map container issues
   const handleDecline = (deliveryId) => {
-    const newDeclinedIds = new Set([...declinedIds, deliveryId]);
-    setDeclinedIds(newDeclinedIds);
-    setDeliveries((prev) => sortDeliveries(prev, newDeclinedIds));
+    setDeclinedIds((prev) => new Set([...prev, deliveryId]));
 
     // Scroll to top to show next delivery
     if (deliveryListRefEl.current) {
@@ -479,32 +641,61 @@ export default function AvailableDeliveries() {
 
   // Simple toast notification
   const showToast = (message, type = "success") => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
+    if (type === "error") showError(message);
+    else showSuccess(message);
   };
 
   return (
-    <div
-      className="min-h-screen bg-gray-50 flex flex-col"
-      style={{ fontFamily: "'Work Sans', sans-serif" }}
-    >
-      <DriverRealtimeNotificationListener
-        onNewDelivery={() => {
-          if (driverLocation) {
-            // Background refresh - don't block UI
-            fetchPendingDeliveriesWithLocation(driverLocation, true);
-          }
-        }}
-      />
+    <DriverLayout>
+      <div
+        className="bg-gray-50 flex flex-col"
+        style={{ fontFamily: "'Work Sans', sans-serif" }}
+      >
+        <DriverRealtimeNotificationListener
+          onNewDelivery={() => {
+            if (driverLocation) {
+              // Background refresh - don't block UI
+              fetchPendingDeliveriesWithLocation(driverLocation, true);
+            }
+          }}
+        />
 
-      {/* 🚨 REAL-TIME NEW DELIVERY ALERT BANNER */}
-      {showNewDeliveryBanner && newDeliveryAlert && (
-        <div className="fixed top-0 left-0 right-0 z-50 bg-gradient-to-r from-green-500 to-emerald-600 text-white px-4 py-3 shadow-lg animate-pulse">
-          <div className="max-w-4xl mx-auto flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
+        {/* 🚨 REAL-TIME NEW DELIVERY ALERT BANNER */}
+        {showNewDeliveryBanner && newDeliveryAlert && (
+          <div className="fixed top-0 left-0 right-0 z-50 bg-gradient-to-r from-green-500 to-emerald-600 text-white px-4 py-3 shadow-lg animate-pulse">
+            <div className="max-w-4xl mx-auto flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
+                  <svg
+                    className="w-6 h-6"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
+                    />
+                  </svg>
+                </div>
+                <div>
+                  <p className="font-bold text-sm">
+                    🚨 New Delivery Available!
+                  </p>
+                  <p className="text-xs opacity-90">
+                    {newDeliveryAlert.restaurant?.name || "Restaurant"} → Order
+                    #{newDeliveryAlert.order_number}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowNewDeliveryBanner(false)}
+                className="text-white/80 hover:text-white"
+              >
                 <svg
-                  className="w-6 h-6"
+                  className="w-5 h-5"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -513,24 +704,41 @@ export default function AvailableDeliveries() {
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     strokeWidth={2}
-                    d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
+                    d="M6 18L18 6M6 6l12 12"
                   />
                 </svg>
-              </div>
-              <div>
-                <p className="font-bold text-sm">🚨 New Delivery Available!</p>
-                <p className="text-xs opacity-90">
-                  {newDeliveryAlert.restaurant?.name || "Restaurant"} → Order #
-                  {newDeliveryAlert.order_number}
-                </p>
-              </div>
+              </button>
             </div>
+          </div>
+        )}
+
+        {/* WebSocket Connection Status Indicator */}
+        <div
+          className={`fixed bottom-20 right-4 z-40 px-3 py-1.5 rounded-full text-xs font-medium shadow-lg transition-all duration-300 ${
+            isConnected
+              ? "bg-green-100 text-green-700 border border-green-200"
+              : "bg-red-100 text-red-700 border border-red-200"
+          }`}
+        >
+          <div className="flex items-center gap-1.5">
+            <div
+              className={`w-2 h-2 rounded-full ${isConnected ? "bg-green-500 animate-pulse" : "bg-red-500"}`}
+            ></div>
+            {isConnected ? "Live" : "Offline"}
+          </div>
+        </div>
+
+        <AnimatedAlert alert={alertState} visible={alertVisible} />
+
+        {/* Top Navbar */}
+        <div className="shrink-0 bg-white border-b border-gray-100 px-4 py-3 sticky top-0 z-20">
+          <div className="flex items-center gap-3">
             <button
-              onClick={() => setShowNewDeliveryBanner(false)}
-              className="text-white/80 hover:text-white"
+              onClick={() => navigate("/driver/deliveries/active")}
+              className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 active:scale-95 transition-all"
             >
               <svg
-                className="w-5 h-5"
+                className="w-6 h-6 text-gray-800"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -539,285 +747,222 @@ export default function AvailableDeliveries() {
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   strokeWidth={2}
-                  d="M6 18L18 6M6 6l12 12"
+                  d="M15 19l-7-7 7-7"
                 />
               </svg>
             </button>
-          </div>
-        </div>
-      )}
-
-      {/* WebSocket Connection Status Indicator */}
-      <div
-        className={`fixed bottom-20 right-4 z-40 px-3 py-1.5 rounded-full text-xs font-medium shadow-lg transition-all duration-300 ${
-          isConnected
-            ? "bg-green-100 text-green-700 border border-green-200"
-            : "bg-red-100 text-red-700 border border-red-200"
-        }`}
-      >
-        <div className="flex items-center gap-1.5">
-          <div
-            className={`w-2 h-2 rounded-full ${isConnected ? "bg-green-500 animate-pulse" : "bg-red-500"}`}
-          ></div>
-          {isConnected ? "Live" : "Offline"}
-        </div>
-      </div>
-
-      {/* Toast Notification */}
-      {toast && (
-        <div
-          className={`fixed top-4 left-1/2 transform -translate-x-1/2 z-50 px-6 py-3 rounded-full shadow-lg text-white font-medium text-sm animate-slide-down ${
-            toast.type === "error" ? "bg-red-500" : "bg-green-500"
-          }`}
-        >
-          {toast.message}
-        </div>
-      )}
-
-      {/* Network Error Alert */}
-      {fetchError && (
-        <div className="bg-red-50 border-b border-red-200 px-4 py-3 flex items-start gap-3">
-          <div className="flex-shrink-0 mt-0.5">
-            <svg
-              className="w-5 h-5 text-red-500"
-              fill="currentColor"
-              viewBox="0 0 20 20"
-            >
-              <path
-                fillRule="evenodd"
-                d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                clipRule="evenodd"
-              />
-            </svg>
-          </div>
-          <div className="flex-1">
-            <h3 className="text-sm font-medium text-red-800">
-              Connection Error
-            </h3>
-            <p className="text-xs text-red-700 mt-0.5">{fetchError}</p>
-          </div>
-          <button
-            onClick={() => {
-              setFetchError(null);
-              if (driverLocation) {
-                fetchPendingDeliveriesWithLocation(driverLocation);
-              }
-            }}
-            className="flex-shrink-0 text-red-700 hover:text-red-800 font-medium text-xs"
-          >
-            Retry
-          </button>
-        </div>
-      )}
-
-      {/* Top Navbar */}
-      <div className="shrink-0 bg-white border-b border-gray-100 px-4 py-3 sticky top-0 z-20">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => navigate("/driver/deliveries/active")}
-            className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 active:scale-95 transition-all"
-          >
-            <svg
-              className="w-6 h-6 text-gray-800"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M15 19l-7-7 7-7"
-              />
-            </svg>
-          </button>
-          <div className="flex-1 items-center text-center">
-            <h1 className="text-lg text-center font-bold text-gray-900">
-              New Delivery Request
-            </h1>
-            <p className="text-xs text-gray-500 flex items-center gap-1">
-              {deliveries.length} available
-              {isRefreshing && (
-                <span className="inline-block w-3 h-3 border-2 border-green-500 border-t-transparent rounded-3xl animate-spin ml-1"></span>
-              )}
-            </p>
-          </div>
-          {currentRoute.active_deliveries > 0 && (
-            <span className="bg-green-500 text-white text-xs font-bold px-2.5 py-1 rounded-full">
-              {currentRoute.active_deliveries} Active
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Main Content */}
-      <div ref={deliveryListRefEl} className="flex-1 overflow-y-auto pb-24">
-        {inDeliveringMode ? (
-          <div className="p-6 text-center">
-            <div className="text-5xl mb-4">🚗</div>
-            <h3 className="text-lg font-bold text-gray-800 mb-2">
-              Currently Delivering
-            </h3>
-            <p className="text-sm text-gray-600 mb-4">
-              Complete current deliveries first
-            </p>
-            <button
-              onClick={() => navigate("/driver/deliveries/active")}
-              className="px-6 py-3 bg-green-500 text-white rounded-full font-medium"
-            >
-              Go to Active Deliveries
-            </button>
-          </div>
-        ) : initialLoading ? (
-          /* Skeleton Loading Blocks */
-          <div className="space-y-4 p-4">
-            {[1, 2, 3].map((i) => (
-              <SkeletonCard key={i} />
-            ))}
-          </div>
-        ) : deliveries.length === 0 ? (
-          <div className="p-8 text-center">
-            <div className="text-5xl mb-4">📦</div>
-            <h3 className="text-lg font-bold text-gray-700 mb-2">
-              No Deliveries Available
-            </h3>
-            <p className="text-sm text-gray-500 mb-6">
-              {currentRoute.active_deliveries >= 5
-                ? "You've reached the maximum deliveries. Complete some deliveries first."
-                : "No new delivery requests match your current location. Check back soon!"}
-            </p>
-            <div className="flex gap-3 justify-center">
-              <button
-                onClick={() =>
-                  fetchPendingDeliveriesWithLocation(driverLocation)
-                }
-                className="px-6 py-2 bg-green-500 text-white rounded-full text-sm font-medium hover:bg-green-600 active:scale-95 transition-all"
-              >
-                Refresh
-              </button>
-              {currentRoute.active_deliveries > 0 && (
-                <button
-                  onClick={() => navigate("/driver/deliveries/active")}
-                  className="px-6 py-2 border border-green-500 text-green-500 rounded-full text-sm font-medium hover:bg-green-50 active:scale-95 transition-all"
-                >
-                  View Active ({currentRoute.active_deliveries})
-                </button>
-              )}
+            <div className="flex-1 items-center text-center">
+              <h1 className="text-lg text-center font-bold text-gray-900">
+                New Delivery Request
+              </h1>
+              <p className="text-xs text-gray-500 flex items-center gap-1">
+                {deliveries.length} available
+                {isRefreshing && (
+                  <span className="inline-block w-3 h-3 border-2 border-green-500 border-t-transparent rounded-3xl animate-spin ml-1"></span>
+                )}
+              </p>
             </div>
-          </div>
-        ) : (
-          <div className="space-y-0">
-            {deliveries.map((delivery, index) => (
-              <DeliveryCard
-                key={delivery.delivery_id}
-                delivery={delivery}
-                driverLocation={driverLocation}
-                accepting={accepting === delivery.delivery_id}
-                onAccept={handleAcceptDelivery}
-                onDecline={handleDecline}
-                hasActiveDeliveries={currentRoute.total_stops > 0}
-                isLoaded={isLoaded}
-                isFirstDelivery={
-                  index === 0 && !declinedIds.has(delivery.delivery_id)
-                }
-                isDeclined={declinedIds.has(delivery.delivery_id)}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Bottom Navigation */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-6 py-2 z-20">
-        <div className="flex items-center justify-around">
-          <button
-            onClick={() => navigate("/driver/dashboard")}
-            className="flex flex-col items-center gap-1 py-2 px-4 text-gray-500 hover:text-gray-900 transition-colors"
-          >
-            <svg
-              className="w-6 h-6"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
-              />
-            </svg>
-            <span className="text-xs font-medium">Home</span>
-          </button>
-          <button className="flex flex-col items-center gap-1 py-2 px-4 text-[#13ec37]">
-            <svg
-              className="w-6 h-6"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
-              />
-            </svg>
-            <span className="text-xs font-bold">Orders</span>
-          </button>
-          <button
-            onClick={() => navigate("/driver/deliveries/active")}
-            className="flex flex-col items-center gap-1 py-2 px-4 text-gray-500 hover:text-gray-900 transition-colors relative"
-          >
-            <svg
-              className="w-6 h-6"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
-              />
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
-              />
-            </svg>
-            <span className="text-xs font-medium">Active</span>
             {currentRoute.active_deliveries > 0 && (
-              <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center">
-                {currentRoute.active_deliveries}
+              <span className="bg-green-500 text-white text-xs font-bold px-2.5 py-1 rounded-full">
+                {currentRoute.active_deliveries} Active
               </span>
             )}
-          </button>
-          <button
-            onClick={() => navigate("/driver/profile")}
-            className="flex flex-col items-center gap-1 py-2 px-4 text-gray-500 hover:text-gray-900 transition-colors"
-          >
-            <svg
-              className="w-6 h-6"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-              />
-            </svg>
-            <span className="text-xs font-medium">Profile</span>
-          </button>
+          </div>
         </div>
-      </div>
 
-      <style>{`
+        {/* Main Content */}
+        <div ref={deliveryListRefEl} className="flex-1 overflow-y-auto pb-24">
+          {inDeliveringMode ? (
+            <div className="p-6 text-center">
+              <div className="text-5xl mb-4">🚗</div>
+              <h3 className="text-lg font-bold text-gray-800 mb-2">
+                Currently Delivering
+              </h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Complete current deliveries first
+              </p>
+              <button
+                onClick={() => navigate("/driver/deliveries/active")}
+                className="px-6 py-3 bg-green-500 text-white rounded-full font-medium"
+              >
+                Go to Active Deliveries
+              </button>
+            </div>
+          ) : initialLoading ||
+            !hasCompletedFirstFetch ||
+            isLoadingAfterAccept ? (
+            /* Skeleton Loading Blocks with Heartbeat Animation */
+            <div className="space-y-4 p-4">
+              {[1, 2, 3].map((i) => (
+                <SkeletonCard key={i} withHeartbeat={isLoadingAfterAccept} />
+              ))}
+              {isLoadingAfterAccept && (
+                <p className="text-center text-sm text-gray-500 mt-2 animate-pulse">
+                  Loading available deliveries...
+                </p>
+              )}
+            </div>
+          ) : deliveries.length === 0 ? (
+            <div className="p-8 text-center">
+              <div className="text-5xl mb-4">�</div>
+              <h3 className="text-lg font-bold text-gray-700 mb-2">
+                No Deliveries Near You
+              </h3>
+              <p className="text-sm text-gray-500 mb-6">
+                {currentRoute.active_deliveries >= 5
+                  ? "You've reached the maximum of 5 deliveries. Complete some deliveries first."
+                  : "No delivery requests available in your area right now. We'll notify you when new orders come in!"}
+              </p>
+              <div className="flex gap-3 justify-center">
+                <button
+                  onClick={() => {
+                    setIsLoadingAfterAccept(true);
+                    fetchPendingDeliveriesWithLocation(
+                      driverLocation,
+                      false,
+                    ).finally(() => {
+                      setIsLoadingAfterAccept(false);
+                    });
+                  }}
+                  className="px-6 py-2 bg-green-500 text-white rounded-full text-sm font-medium hover:bg-green-600 active:scale-95 transition-all"
+                >
+                  🔄 Refresh
+                </button>
+                {currentRoute.active_deliveries > 0 && (
+                  <button
+                    onClick={() => navigate("/driver/deliveries/active")}
+                    className="px-6 py-2 border border-green-500 text-green-500 rounded-full text-sm font-medium hover:bg-green-50 active:scale-95 transition-all"
+                  >
+                    View Active ({currentRoute.active_deliveries})
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col">
+              {deliveries.map((delivery, index) => {
+                const isDeclined = declinedIds.has(delivery.delivery_id);
+                // Count non-declined items before this one to determine if it's "first"
+                const nonDeclinedBefore = deliveries
+                  .slice(0, index)
+                  .filter((d) => !declinedIds.has(d.delivery_id)).length;
+                const isFirstNonDeclined =
+                  !isDeclined && nonDeclinedBefore === 0;
+
+                return (
+                  <div
+                    key={delivery.delivery_id}
+                    style={{ order: isDeclined ? 1000 + index : index }}
+                  >
+                    <DeliveryCard
+                      delivery={delivery}
+                      driverLocation={driverLocation}
+                      accepting={accepting === delivery.delivery_id}
+                      onAccept={handleAcceptDelivery}
+                      onDecline={handleDecline}
+                      hasActiveDeliveries={currentRoute.total_stops > 0}
+                      isLoaded={isLoaded}
+                      isFirstDelivery={isFirstNonDeclined}
+                      isDeclined={isDeclined}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Bottom Navigation */}
+        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-6 py-2 z-20">
+          <div className="flex items-center justify-around">
+            <button
+              onClick={() => navigate("/driver/dashboard")}
+              className="flex flex-col items-center gap-1 py-2 px-4 text-gray-500 hover:text-gray-900 transition-colors"
+            >
+              <svg
+                className="w-6 h-6"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
+                />
+              </svg>
+              <span className="text-xs font-medium">Home</span>
+            </button>
+            <button className="flex flex-col items-center gap-1 py-2 px-4 text-[#13ec37]">
+              <svg
+                className="w-6 h-6"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+                />
+              </svg>
+              <span className="text-xs font-bold">Orders</span>
+            </button>
+            <button
+              onClick={() => navigate("/driver/deliveries/active")}
+              className="flex flex-col items-center gap-1 py-2 px-4 text-gray-500 hover:text-gray-900 transition-colors relative"
+            >
+              <svg
+                className="w-6 h-6"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+                />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+                />
+              </svg>
+              <span className="text-xs font-medium">Active</span>
+              {currentRoute.active_deliveries > 0 && (
+                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center">
+                  {currentRoute.active_deliveries}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => navigate("/driver/profile")}
+              className="flex flex-col items-center gap-1 py-2 px-4 text-gray-500 hover:text-gray-900 transition-colors"
+            >
+              <svg
+                className="w-6 h-6"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                />
+              </svg>
+              <span className="text-xs font-medium">Profile</span>
+            </button>
+          </div>
+        </div>
+
+        <style>{`
         @keyframes slide-down {
           from {
             opacity: 0;
@@ -840,15 +985,26 @@ export default function AvailableDeliveries() {
           background-size: 200% 100%;
           animation: shimmer 1.5s infinite;
         }
+        @keyframes heartbeat {
+          0%, 100% { transform: scale(1); opacity: 1; }
+          50% { transform: scale(1.02); opacity: 0.9; }
+        }
       `}</style>
-    </div>
+      </div>
+    </DriverLayout>
   );
 }
 
-// Skeleton Loading Card Component - Matches new design
-function SkeletonCard() {
+// Skeleton Loading Card Component - Matches new design with optional heartbeat
+function SkeletonCard({ withHeartbeat = false }) {
+  const heartbeatStyle = withHeartbeat
+    ? {
+        animation: "heartbeat 1.2s ease-in-out infinite",
+      }
+    : {};
+
   return (
-    <div className="bg-white overflow-hidden">
+    <div className="bg-white overflow-hidden" style={heartbeatStyle}>
       {/* Map Skeleton - Full Width */}
       <div className="h-[40vh] min-h-[220px] bg-gradient-to-br from-gray-100 to-gray-200 relative">
         <div
@@ -1070,7 +1226,23 @@ function DeliveryCard({
     return poly;
   };
 
+  // DEBUG: Log route data to understand structure
+  console.log("🗺️ Route Data Debug:", {
+    order_number,
+    driver_to_restaurant_route,
+    restaurant_to_customer_route,
+    hasDriverRoute: !!driver_to_restaurant_route,
+    hasRestaurantRoute: !!restaurant_to_customer_route,
+    driverRouteKeys: driver_to_restaurant_route
+      ? Object.keys(driver_to_restaurant_route)
+      : [],
+    driverRouteCoords: driver_to_restaurant_route?.coordinates?.length || 0,
+    restaurantRouteCoords:
+      restaurant_to_customer_route?.coordinates?.length || 0,
+  });
+
   // Prepare route paths for polylines
+  // Handle both GeoJSON format (coordinates array) and encoded polyline format
   const driverToRestaurantPath = driver_to_restaurant_route?.encoded_polyline
     ? decodePolyline(driver_to_restaurant_route.encoded_polyline)
     : driver_to_restaurant_route?.coordinates
@@ -1093,6 +1265,71 @@ function DeliveryCard({
   // State for info windows
   const [selectedMarker, setSelectedMarker] = useState(null);
 
+  // Generate curved path points between two locations (for animated dashed line)
+  const generateCurvedPath = useCallback((start, end, numPoints = 50) => {
+    if (!start || !end) return [];
+
+    const points = [];
+
+    // Calculate midpoint
+    const midLat = (start.lat + end.lat) / 2;
+    const midLng = (start.lng + end.lng) / 2;
+
+    // Calculate perpendicular offset for curve (arc height)
+    const dx = end.lng - start.lng;
+    const dy = end.lat - start.lat;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    // Curve offset (perpendicular to the line) - adjust multiplier for curve intensity
+    const curveIntensity = distance * 0.25;
+    const perpX = (-dy / distance) * curveIntensity;
+    const perpY = (dx / distance) * curveIntensity;
+
+    // Control point for quadratic bezier curve
+    const controlPoint = {
+      lat: midLat + perpY,
+      lng: midLng + perpX,
+    };
+
+    // Generate points along quadratic bezier curve
+    for (let i = 0; i <= numPoints; i++) {
+      const t = i / numPoints;
+      const oneMinusT = 1 - t;
+
+      // Quadratic bezier formula: B(t) = (1-t)²P0 + 2(1-t)tP1 + t²P2
+      const lat =
+        oneMinusT * oneMinusT * start.lat +
+        2 * oneMinusT * t * controlPoint.lat +
+        t * t * end.lat;
+      const lng =
+        oneMinusT * oneMinusT * start.lng +
+        2 * oneMinusT * t * controlPoint.lng +
+        t * t * end.lng;
+
+      points.push([lat, lng]); // Leaflet format [lat, lng]
+    }
+
+    return points;
+  }, []);
+
+  // Generate curved paths for stacked deliveries (driver → restaurant → customer)
+  // Also used as fallback for first delivery when backend doesn't provide polyline data
+  const driverToRestaurantCurved = useMemo(() => {
+    if (!driverLocation || !restaurant) return [];
+    return generateCurvedPath(
+      { lat: driverLocation.latitude, lng: driverLocation.longitude },
+      { lat: restaurant.latitude, lng: restaurant.longitude },
+    );
+  }, [driverLocation, restaurant, generateCurvedPath]);
+
+  const restaurantToCustomerCurved = useMemo(() => {
+    if (!restaurant || !customer) return [];
+    return generateCurvedPath(
+      { lat: restaurant.latitude, lng: restaurant.longitude },
+      { lat: customer.latitude, lng: customer.longitude },
+    );
+  }, [restaurant, customer, generateCurvedPath]);
+
   // 🆕 Show routes for ALL deliveries when driver has no active deliveries
   // When driver accepts first delivery, routes will be hidden for remaining available deliveries
   const showRoutes = !hasActiveDeliveries;
@@ -1100,10 +1337,41 @@ function DeliveryCard({
   // Is this a stacked delivery (2nd or more)?
   const isStackedDelivery = hasActiveDeliveries;
 
+  // Check if we have actual polyline data from backend, otherwise use curved paths
+  const hasPolylineData =
+    driverToRestaurantPath.length > 0 || restaurantToCustomerPath.length > 0;
+
   return (
     <div
-      className={`bg-white overflow-hidden transition-all duration-300 ${isDeclined ? "opacity-50 scale-[0.98]" : ""} ${!can_accept ? "border-2 border-red-200 opacity-75" : ""}`}
+      className={`bg-white overflow-hidden transition-all duration-300 ${isDeclined ? "opacity-60 scale-[0.98]" : ""} ${!can_accept ? "border-2 border-red-200 opacity-75" : ""}`}
     >
+      {/* Declined Badge */}
+      {isDeclined && (
+        <div className="bg-gray-100 px-4 py-2 flex items-center justify-between border-b border-gray-200">
+          <div className="flex items-center gap-2">
+            <svg
+              className="w-4 h-4 text-gray-500"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
+            </svg>
+            <span className="text-sm text-gray-600 font-medium">
+              Moved to bottom
+            </span>
+          </div>
+          <span className="text-xs text-gray-500">
+            Still available to accept
+          </span>
+        </div>
+      )}
+
       {/* Map Section - Full Width */}
       <div className="relative w-full h-[40vh] min-h-[220px]">
         {restaurant && customer && isLoaded ? (
@@ -1116,11 +1384,11 @@ function DeliveryCard({
           >
             <TileLayer url={TILE_URL} attribution={TILE_ATTRIBUTION} />
 
-            {/* Driver Marker */}
+            {/* Driver Marker - Motorcycle icon (black, no background) */}
             {driverLocation && (
               <Marker
                 position={[driverLocation.latitude, driverLocation.longitude]}
-                icon={createCircleIcon("#13ec37")}
+                icon={driverSvgIcon}
                 eventHandlers={{
                   click: () => setSelectedMarker("driver"),
                 }}
@@ -1128,17 +1396,17 @@ function DeliveryCard({
                 {selectedMarker === "driver" && (
                   <Popup onClose={() => setSelectedMarker(null)}>
                     <div className="text-center p-1">
-                      <p className="font-bold text-green-600 text-sm">📍 You</p>
+                      <p className="font-bold text-gray-800 text-sm">🛵 You</p>
                     </div>
                   </Popup>
                 )}
               </Marker>
             )}
 
-            {/* Restaurant Marker */}
+            {/* Restaurant Marker - Home/Store icon (black, no background) */}
             <Marker
               position={[restaurant.latitude, restaurant.longitude]}
-              icon={createCircleIcon("#13ec37")}
+              icon={restaurantHomeIcon}
               eventHandlers={{
                 click: () => setSelectedMarker("restaurant"),
               }}
@@ -1152,10 +1420,10 @@ function DeliveryCard({
               )}
             </Marker>
 
-            {/* Customer Marker */}
+            {/* Customer Marker - Location pin icon (black, no background) */}
             <Marker
               position={[customer?.latitude || 0, customer?.longitude || 0]}
-              icon={createCircleIcon("#111812")}
+              icon={customerSvgIcon}
               eventHandlers={{
                 click: () => setSelectedMarker("customer"),
               }}
@@ -1171,25 +1439,86 @@ function DeliveryCard({
               )}
             </Marker>
 
-            {/* Route Polylines */}
-            {showRoutes && driverToRestaurantPath.length > 0 && (
+            {/* FIRST DELIVERY: Show actual polyline routes from OSRM if available */}
+            {showRoutes &&
+              hasPolylineData &&
+              driverToRestaurantPath.length > 0 && (
+                <Polyline
+                  positions={driverToRestaurantPath.map((p) => [p.lat, p.lng])}
+                  pathOptions={{
+                    color: "#1a1a1a",
+                    opacity: 0.9,
+                    weight: 4,
+                  }}
+                />
+              )}
+
+            {showRoutes &&
+              hasPolylineData &&
+              restaurantToCustomerPath.length > 0 && (
+                <Polyline
+                  positions={restaurantToCustomerPath.map((p) => [
+                    p.lat,
+                    p.lng,
+                  ])}
+                  pathOptions={{
+                    color: "#1a1a1a",
+                    opacity: 0.7,
+                    weight: 3,
+                  }}
+                />
+              )}
+
+            {/* FIRST DELIVERY FALLBACK: Use curved solid lines when no polyline data */}
+            {showRoutes &&
+              !hasPolylineData &&
+              driverToRestaurantCurved.length > 0 && (
+                <Polyline
+                  positions={driverToRestaurantCurved}
+                  pathOptions={{
+                    color: "#1a1a1a",
+                    opacity: 0.9,
+                    weight: 4,
+                  }}
+                />
+              )}
+
+            {showRoutes &&
+              !hasPolylineData &&
+              restaurantToCustomerCurved.length > 0 && (
+                <Polyline
+                  positions={restaurantToCustomerCurved}
+                  pathOptions={{
+                    color: "#1a1a1a",
+                    opacity: 0.7,
+                    weight: 3,
+                  }}
+                />
+              )}
+
+            {/* STACKED DELIVERY (2nd+): Show animated curved dashed lines */}
+            {isStackedDelivery && driverToRestaurantCurved.length > 0 && (
               <Polyline
-                positions={driverToRestaurantPath.map((p) => [p.lat, p.lng])}
+                positions={driverToRestaurantCurved}
                 pathOptions={{
-                  color: "#13ec37",
-                  opacity: 0.9,
-                  weight: 5,
+                  color: "#1a1a1a",
+                  weight: 4,
+                  dashArray: "8, 12",
+                  opacity: 0.85,
+                  lineCap: "round",
                 }}
               />
             )}
 
-            {showRoutes && restaurantToCustomerPath.length > 0 && (
+            {isStackedDelivery && restaurantToCustomerCurved.length > 0 && (
               <Polyline
-                positions={restaurantToCustomerPath.map((p) => [p.lat, p.lng])}
+                positions={restaurantToCustomerCurved}
                 pathOptions={{
-                  color: "#13ec37",
-                  opacity: 0.6,
+                  color: "#1a1a1a",
                   weight: 4,
+                  dashArray: "8, 12",
+                  opacity: 0.7,
+                  lineCap: "round",
                 }}
               />
             )}
@@ -1203,14 +1532,15 @@ function DeliveryCard({
           </div>
         )}
 
-        {/* Floating Decline Button */}
-        {onDecline && (
+        {/* Floating Decline Button - Only show if not already declined */}
+        {/* z-[1000] ensures it's above Leaflet map layers */}
+        {onDecline && !isDeclined && (
           <button
             onClick={() => onDecline(delivery_id)}
-            className="absolute top-4 right-4 bg-white/90 backdrop-blur shadow-lg rounded-full p-2.5 text-gray-600 hover:text-gray-900 hover:bg-white transition-all active:scale-90 z-10"
+            className="absolute top-4 right-4 bg-white/95 backdrop-blur shadow-lg rounded-full px-4 py-2 text-gray-600 hover:text-red-600 hover:bg-red-50 transition-all active:scale-95 z-[1000] flex items-center gap-1.5 border border-gray-200"
           >
             <svg
-              className="w-5 h-5"
+              className="w-4 h-4"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -1219,9 +1549,10 @@ function DeliveryCard({
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 strokeWidth={2}
-                d="M6 18L18 6M6 6l12 12"
+                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
               />
             </svg>
+            <span className="text-sm font-semibold">Decline</span>
           </button>
         )}
       </div>

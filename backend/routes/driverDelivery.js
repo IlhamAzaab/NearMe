@@ -401,7 +401,7 @@ router.get(
             delivery_id: d.id,
             order_id: d.order_id,
             order_number: d.orders.order_number,
-            order_status: d.orders.status,
+            order_status: d.status,
             delivery_status: d.status,
             restaurant: {
               id: d.orders.restaurant_id,
@@ -556,24 +556,35 @@ router.post(
       // Prepare earnings metadata fields - store calculation data but NOT actual earnings
       // Actual earnings (base_amount, extra_earnings, bonus_amount, driver_earnings) will be
       // calculated and stored when delivery status changes to 'delivered'
+      const deliverySequence = earnings_data?.delivery_sequence || 1;
+      const isFirstDelivery = deliverySequence === 1;
+
+      // Calculate driver_earnings based on delivery sequence
+      const driverEarningsAmount = isFirstDelivery
+        ? earnings_data?.base_amount || 0
+        : (earnings_data?.extra_earnings || 0) +
+          (earnings_data?.bonus_amount || 0);
+
       const earningsFields = earnings_data
         ? {
-            delivery_sequence: earnings_data.delivery_sequence || 1,
+            delivery_sequence: deliverySequence,
             // Store metadata for distance calculations
             r0_distance_km: earnings_data.r0_distance_km || null,
             r1_distance_km: earnings_data.r1_distance_km || null,
             extra_distance_km: earnings_data.extra_distance_km || 0,
             total_distance_km: earnings_data.total_distance_km || 0,
             // Store pending earnings data as JSON for later use (when delivered)
+            // IMPORTANT: Only store base_amount for 1st delivery (delivery_sequence=1)
+            // For subsequent deliveries, base_amount is NOT stored - it will be calculated
+            // dynamically when needed based on cumulative previous earnings
             pending_earnings: JSON.stringify({
-              base_amount: earnings_data.base_amount || 0,
+              // Only include base_amount for 1st delivery
+              ...(isFirstDelivery
+                ? { base_amount: earnings_data.base_amount || 0 }
+                : {}),
               extra_earnings: earnings_data.extra_earnings || 0,
               bonus_amount: earnings_data.bonus_amount || 0,
-              driver_earnings:
-                earnings_data.delivery_sequence === 1
-                  ? earnings_data.base_amount || 0
-                  : (earnings_data.extra_earnings || 0) +
-                    (earnings_data.bonus_amount || 0),
+              driver_earnings: driverEarningsAmount,
             }),
             // Set actual earnings to 0 until delivered
             base_amount: 0,
@@ -1912,7 +1923,7 @@ router.get("/deliveries/active", authenticate, driverOnly, async (req, res) => {
           total_distance: totalDistance, // in meters
           order: {
             order_number: d.orders.order_number,
-            status: d.orders.status,
+            status: d.status,
             restaurant: {
               name: d.orders.restaurant_name,
               address: d.orders.restaurant_address,
@@ -2472,7 +2483,7 @@ router.get("/earnings/history", authenticate, driverOnly, async (req, res) => {
 // GET /driver/earnings/summary - Get earnings summary (today/week/month)
 router.get("/earnings/summary", authenticate, driverOnly, async (req, res) => {
   const driverId = req.user.id;
-  const { period = "today" } = req.query;
+  const { period = "all" } = req.query; // Default to "all" for total earnings
 
   console.log(
     `\n[EARNINGS SUMMARY] 📊 Fetching ${period} summary for driver: ${driverId}`,
@@ -2482,10 +2493,11 @@ router.get("/earnings/summary", authenticate, driverOnly, async (req, res) => {
     // Build date filter based on period
     let dateFilter = "";
     const now = new Date();
+    const todayStart = now.toISOString().split("T")[0]; // YYYY-MM-DD for today
 
     switch (period) {
       case "today":
-        dateFilter = now.toISOString().split("T")[0]; // YYYY-MM-DD
+        dateFilter = todayStart;
         break;
       case "week":
         const weekStart = new Date(now);
@@ -2501,10 +2513,11 @@ router.get("/earnings/summary", authenticate, driverOnly, async (req, res) => {
         break;
     }
 
+    // Main query for selected period
     let query = supabaseAdmin
       .from("deliveries")
       .select(
-        "base_amount, extra_earnings, bonus_amount, tip_amount, driver_earnings, total_distance_km",
+        "base_amount, extra_earnings, bonus_amount, tip_amount, driver_earnings, total_distance_km, extra_distance_km",
       )
       .eq("driver_id", driverId)
       .eq("status", "delivered");
@@ -2522,11 +2535,25 @@ router.get("/earnings/summary", authenticate, driverOnly, async (req, res) => {
         .json({ success: false, message: "Failed to fetch summary" });
     }
 
-    // Calculate summary
+    // Also fetch today's data separately (for Today's Performance section)
+    const { data: todayDeliveries, error: todayError } = await supabaseAdmin
+      .from("deliveries")
+      .select(
+        "base_amount, extra_earnings, bonus_amount, tip_amount, driver_earnings, total_distance_km, extra_distance_km",
+      )
+      .eq("driver_id", driverId)
+      .eq("status", "delivered")
+      .gte("delivered_at", todayStart);
+
+    if (todayError) {
+      console.error(`[EARNINGS SUMMARY] ❌ Today error: ${todayError.message}`);
+    }
+
+    // Calculate summary for selected period
     const summary = {
       total_deliveries: deliveries.length,
       total_distance_km: deliveries.reduce(
-        (sum, d) => sum + parseFloat(d.total_distance_km || 0),
+        (sum, d) => sum + parseFloat(d.extra_distance_km || 0),
         0,
       ),
       total_base: deliveries.reduce(
@@ -2564,10 +2591,35 @@ router.get("/earnings/summary", authenticate, driverOnly, async (req, res) => {
           : 0,
     };
 
+    // Calculate today's performance (always included regardless of period)
+    const todayPerformance = {
+      deliveries: todayDeliveries?.length || 0,
+      earnings: (todayDeliveries || []).reduce(
+        (sum, d) =>
+          sum +
+          parseFloat(d.driver_earnings || 0) +
+          parseFloat(d.tip_amount || 0),
+        0,
+      ),
+      distance_km: (todayDeliveries || []).reduce(
+        (sum, d) => sum + parseFloat(d.extra_distance_km || 0),
+        0,
+      ),
+    };
+
     console.log(
       `[EARNINGS SUMMARY] ✅ ${period}: ${summary.total_deliveries} deliveries, Rs.${summary.total_earnings.toFixed(2)} total`,
     );
-    return res.json({ success: true, summary, period });
+    console.log(
+      `[EARNINGS SUMMARY] ✅ Today: ${todayPerformance.deliveries} deliveries, Rs.${todayPerformance.earnings.toFixed(2)}, ${todayPerformance.distance_km.toFixed(1)}km`,
+    );
+
+    return res.json({
+      success: true,
+      summary,
+      period,
+      today: todayPerformance,
+    });
   } catch (error) {
     console.error(`[EARNINGS SUMMARY] ❌ Error: ${error.message}`);
     return res

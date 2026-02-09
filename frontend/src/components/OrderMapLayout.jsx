@@ -128,7 +128,7 @@ const OrderMapLayout = ({
         {/* Delivery Details Section */}
         <div className="delivery-section">
           <p className="section-title">Delivery details</p>
-          <p className="delivery-address">Meet at my door at {deliveryAddress}</p>
+          <p className="delivery-address">{deliveryAddress}</p>
         </div>
 
         {/* View Order Button and Details */}

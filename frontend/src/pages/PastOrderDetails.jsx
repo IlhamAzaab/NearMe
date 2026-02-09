@@ -11,9 +11,11 @@
 
 import React, { useState, useEffect } from "react";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
+import AnimatedAlert, { useAlert } from "../components/AnimatedAlert";
 
 const PastOrderDetails = () => {
   const navigate = useNavigate();
+  const { alert, visible, showError } = useAlert();
   const location = useLocation();
   const { orderId: paramOrderId } = useParams();
 
@@ -155,7 +157,7 @@ const PastOrderDetails = () => {
       navigate("/cart");
     } catch (error) {
       console.error("Reorder error:", error);
-      alert("Failed to add items to cart");
+      showError("Failed to add items to cart");
     }
   };
 
@@ -189,12 +191,24 @@ const PastOrderDetails = () => {
     );
   }
 
-  const statusInfo = getStatusInfo(order.status);
+  const getDeliveryStatus = (orderData) => {
+    const delivery = orderData?.deliveries?.[0] || orderData?.deliveries;
+    return (
+      delivery?.status ||
+      orderData?.delivery_status ||
+      orderData?.effective_status ||
+      orderData?.status ||
+      "placed"
+    );
+  };
+
+  const statusInfo = getStatusInfo(getDeliveryStatus(order));
   const totals = calculateTotals();
   const items = order?.order_items || [];
 
   return (
     <div className="min-h-screen bg-[#f6f8f6] font-['Work_Sans',sans-serif]">
+      <AnimatedAlert alert={alert} visible={visible} />
       {/* Container */}
       <div className="w-full max-w-md mx-auto bg-white min-h-screen shadow-lg flex flex-col relative overflow-x-hidden">
         {/* Top App Bar */}

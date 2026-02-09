@@ -4,6 +4,7 @@ import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import ManagerLayout from "../../../components/ManagerLayout";
+import AnimatedAlert, { useAlert } from "../../../components/AnimatedAlert";
 
 // Fix Leaflet default marker icon issue
 delete L.Icon.Default.prototype._getIconUrl;
@@ -29,6 +30,12 @@ export default function PendingRestaurants() {
   const [rejectionReason, setRejectionReason] = useState("");
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [selectedImage, setSelectedImage] = useState(null); // For image preview modal
+  const {
+    alert: alertState,
+    visible: alertVisible,
+    showSuccess,
+    showError,
+  } = useAlert();
 
   // Fetch pending restaurants
   useEffect(() => {
@@ -38,7 +45,7 @@ export default function PendingRestaurants() {
           "http://localhost:5000/manager/pending-restaurants",
           {
             headers: { Authorization: `Bearer ${token}` },
-          }
+          },
         );
         const data = await res.json();
         if (res.ok) {
@@ -62,7 +69,7 @@ export default function PendingRestaurants() {
         `http://localhost:5000/manager/restaurant-details/${restaurantId}`,
         {
           headers: { Authorization: `Bearer ${token}` },
-        }
+        },
       );
       const data = await res.json();
       if (res.ok) {
@@ -91,24 +98,24 @@ export default function PendingRestaurants() {
           body: JSON.stringify({
             action: "approve",
           }),
-        }
+        },
       );
 
       const data = await res.json();
       if (res.ok) {
-        alert("Restaurant approved successfully!");
+        showSuccess("Restaurant approved successfully!");
         // Remove from list
         setRestaurants((prev) =>
-          prev.filter((r) => r.id !== selectedRestaurant)
+          prev.filter((r) => r.id !== selectedRestaurant),
         );
         setSelectedRestaurant(null);
         setDetails(null);
       } else {
-        alert(data?.message || "Failed to approve restaurant");
+        showError(data?.message || "Failed to approve restaurant");
       }
     } catch (e) {
       console.error("Approve error", e);
-      alert("Something went wrong");
+      showError("Something went wrong");
     } finally {
       setApproving(false);
     }
@@ -116,7 +123,7 @@ export default function PendingRestaurants() {
 
   const handleReject = async () => {
     if (!selectedRestaurant || !rejectionReason.trim()) {
-      alert("Please provide a reason for rejection");
+      showError("Please provide a reason for rejection");
       return;
     }
 
@@ -134,26 +141,26 @@ export default function PendingRestaurants() {
             action: "reject",
             reason: rejectionReason,
           }),
-        }
+        },
       );
 
       const data = await res.json();
       if (res.ok) {
-        alert("Restaurant rejected");
+        showSuccess("Restaurant rejected");
         // Remove from list
         setRestaurants((prev) =>
-          prev.filter((r) => r.id !== selectedRestaurant)
+          prev.filter((r) => r.id !== selectedRestaurant),
         );
         setSelectedRestaurant(null);
         setDetails(null);
         setShowRejectModal(false);
         setRejectionReason("");
       } else {
-        alert(data?.message || "Failed to reject restaurant");
+        showError(data?.message || "Failed to reject restaurant");
       }
     } catch (e) {
       console.error("Reject error", e);
-      alert("Something went wrong");
+      showError("Something went wrong");
     } finally {
       setRejecting(false);
     }
@@ -173,6 +180,7 @@ export default function PendingRestaurants() {
 
   return (
     <ManagerLayout>
+      <AnimatedAlert alert={alertState} visible={alertVisible} />
       <div className="min-h-screen bg-gray-50 py-10 px-4">
         <div className="max-w-7xl mx-auto">
           <h1 className="text-3xl font-bold text-gray-800 mb-8">

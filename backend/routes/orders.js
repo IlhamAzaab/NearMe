@@ -187,8 +187,10 @@ router.post("/place", authenticate, async (req, res) => {
 
   try {
     // ========================================================================
-    // STEP 1: Fetch and validate cart
+    // STEP 1: Fetch and validate cart (with atomic check)
     // ========================================================================
+
+    // First, fetch the cart to validate it exists and is active
     const { data: cart, error: cartError } = await supabaseAdmin
       .from("carts")
       .select(
@@ -201,11 +203,47 @@ router.post("/place", authenticate, async (req, res) => {
       )
       .eq("id", cartId)
       .eq("customer_id", customerId)
-      .eq("status", "active")
       .single();
 
     if (cartError || !cart) {
-      return res.status(404).json({ message: "Active cart not found" });
+      return res.status(404).json({ message: "Cart not found" });
+    }
+
+    // Check if cart is already completed (duplicate order prevention)
+    if (cart.status === "completed") {
+      // Try to find the existing order for this customer
+      const { data: existingOrder } = await supabaseAdmin
+        .from("orders")
+        .select("id, order_number, status, total_amount, placed_at")
+        .eq("customer_id", customerId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single();
+
+      return res.status(409).json({
+        message: "This order has already been placed",
+        order: existingOrder || null,
+      });
+    }
+
+    if (cart.status !== "active") {
+      return res.status(400).json({ message: "Cart is not active" });
+    }
+
+    // Immediately mark cart as completed to prevent duplicate orders
+    // This is the atomic lock - if another request tries to do the same,
+    // they'll fail because status is no longer 'active'
+    const { error: lockError } = await supabaseAdmin
+      .from("carts")
+      .update({ status: "completed", updated_at: new Date().toISOString() })
+      .eq("id", cartId)
+      .eq("status", "active"); // Only update if still active
+
+    if (lockError) {
+      console.error("Cart lock error:", lockError);
+      return res
+        .status(409)
+        .json({ message: "Order is being processed, please wait" });
     }
 
     // ========================================================================
@@ -453,6 +491,11 @@ router.post("/place", authenticate, async (req, res) => {
 
     if (orderError) {
       console.error("Order insert error:", orderError);
+      // Rollback: reset cart status to active
+      await supabaseAdmin
+        .from("carts")
+        .update({ status: "active" })
+        .eq("id", cartId);
       return res.status(500).json({ message: "Failed to create order" });
     }
 
@@ -479,8 +522,12 @@ router.post("/place", authenticate, async (req, res) => {
 
     if (itemsInsertError) {
       console.error("Order items insert error:", itemsInsertError);
-      // Rollback: delete the order
+      // Rollback: delete the order and reset cart status
       await supabaseAdmin.from("orders").delete().eq("id", order.id);
+      await supabaseAdmin
+        .from("carts")
+        .update({ status: "active" })
+        .eq("id", cartId);
       return res.status(500).json({ message: "Failed to create order items" });
     }
 
@@ -547,7 +594,7 @@ router.post("/place", authenticate, async (req, res) => {
         is_read: false,
         metadata: {
           order_number: orderNumber,
-          customer_name: customer.full_name,
+          customer_name: customer.username,
           items_count: cartItems.length,
           total_amount: totalAmount,
         },
@@ -571,20 +618,8 @@ router.post("/place", authenticate, async (req, res) => {
     }
 
     // ========================================================================
-    // STEP 12: Mark cart as completed
-    // ========================================================================
-    const { error: cartUpdateError } = await supabaseAdmin
-      .from("carts")
-      .update({ status: "completed" })
-      .eq("id", cartId);
-
-    if (cartUpdateError) {
-      console.error("Cart update error:", cartUpdateError);
-      // Continue anyway - order is placed
-    }
-
-    // ========================================================================
-    // STEP 13: Return success response
+    // STEP 12: Return success response
+    // (Cart was already marked as completed at the start for idempotency)
     // ========================================================================
     return res.status(201).json({
       message: "Order placed successfully",
@@ -641,6 +676,8 @@ router.get("/my-orders", authenticate, async (req, res) => {
         estimated_duration_min,
         delivery_address,
         delivery_city,
+        delivery_latitude,
+        delivery_longitude,
         placed_at,
         accepted_at,
         preparing_at,
@@ -655,6 +692,16 @@ router.get("/my-orders", authenticate, async (req, res) => {
           quantity,
           unit_price,
           total_price
+        ),
+        deliveries (
+          id,
+          status,
+          driver_id,
+          picked_up_at,
+          delivered_at
+        ),
+        restaurants (
+          logo_url
         )
       `,
       )
@@ -662,9 +709,8 @@ router.get("/my-orders", authenticate, async (req, res) => {
       .order("placed_at", { ascending: false })
       .range(parseInt(offset), parseInt(offset) + parseInt(limit) - 1);
 
-    if (status && status !== "all") {
-      query = query.eq("status", status);
-    }
+    // Note: We don't filter by orders.status here.
+    // Status is determined by deliveries.status (via effective_status) on the client.
 
     const { data: orders, error } = await query;
 
@@ -673,7 +719,45 @@ router.get("/my-orders", authenticate, async (req, res) => {
       return res.status(500).json({ message: "Failed to fetch orders" });
     }
 
-    return res.json({ orders: orders || [] });
+    // Transform orders to include delivery status and combined status for navigation
+    const transformedOrders = (orders || []).map((order) => {
+      const delivery = order.deliveries?.[0] || order.deliveries;
+      const deliveryStatus = delivery?.status || null;
+
+      // Determine the effective status for UI navigation
+      // Priority: delivery status (if exists) > order status
+      let effectiveStatus = order.status;
+      if (deliveryStatus) {
+        // Map delivery statuses to navigation statuses
+        if (
+          deliveryStatus === "pending" ||
+          deliveryStatus === "accepted" ||
+          deliveryStatus === "driver_assigned"
+        ) {
+          effectiveStatus = "accepted"; // Driver assigned/accepted
+        } else if (deliveryStatus === "picked_up") {
+          effectiveStatus = "picked_up";
+        } else if (
+          deliveryStatus === "on_the_way" ||
+          deliveryStatus === "at_customer"
+        ) {
+          effectiveStatus = "on_the_way";
+        } else if (deliveryStatus === "delivered") {
+          effectiveStatus = "delivered";
+        }
+      }
+
+      return {
+        ...order,
+        delivery_status: deliveryStatus,
+        effective_status: effectiveStatus,
+        restaurant_logo: order.restaurants?.logo_url || null,
+        deliveries: undefined, // Remove raw deliveries from response
+        restaurants: undefined, // Remove raw restaurants from response
+      };
+    });
+
+    return res.json({ orders: transformedOrders });
   } catch (error) {
     console.error("Get orders error:", error);
     return res.status(500).json({ message: "Server error" });
@@ -965,9 +1049,8 @@ router.get("/restaurant/orders", authenticate, async (req, res) => {
       .order("placed_at", { ascending: false })
       .range(parseInt(offset), parseInt(offset) + parseInt(limit) - 1);
 
-    if (status && status !== "all") {
-      query = query.eq("status", status);
-    }
+    // Note: We don't filter by orders.status here.
+    // Status filtering is done client-side using deliveries.status (via getDeliveryStatus).
 
     const { data: orders, error } = await query;
 
@@ -1003,28 +1086,24 @@ router.get("/restaurant/orders", authenticate, async (req, res) => {
       return res.status(500).json({ message: "Failed to fetch orders" });
     }
 
-    // Get counts by status
-    const { data: statusCounts } = await supabaseAdmin
-      .from("orders")
-      .select("status")
-      .eq("restaurant_id", admin.restaurant_id);
+    // Get counts by delivery status (not orders.status)
+    const { data: deliveryStatusCounts } = await supabaseAdmin
+      .from("deliveries")
+      .select("status, orders!inner(restaurant_id)")
+      .eq("orders.restaurant_id", admin.restaurant_id);
 
+    const dsCounts = deliveryStatusCounts || [];
     const counts = {
-      all: statusCounts?.length || 0,
-      placed: statusCounts?.filter((o) => o.status === "placed").length || 0,
-      accepted:
-        statusCounts?.filter((o) => o.status === "accepted").length || 0,
-      preparing:
-        statusCounts?.filter((o) => o.status === "preparing").length || 0,
-      ready: statusCounts?.filter((o) => o.status === "ready").length || 0,
-      picked_up:
-        statusCounts?.filter((o) => o.status === "picked_up").length || 0,
-      delivered:
-        statusCounts?.filter((o) => o.status === "delivered").length || 0,
-      cancelled:
-        statusCounts?.filter((o) => o.status === "cancelled").length || 0,
-      rejected:
-        statusCounts?.filter((o) => o.status === "rejected").length || 0,
+      all: dsCounts.length,
+      placed: dsCounts.filter((d) => d.status === "placed").length,
+      pending: dsCounts.filter((d) => d.status === "pending").length,
+      accepted: dsCounts.filter((d) => d.status === "accepted").length,
+      picked_up: dsCounts.filter((d) => d.status === "picked_up").length,
+      on_the_way: dsCounts.filter((d) => d.status === "on_the_way").length,
+      at_customer: dsCounts.filter((d) => d.status === "at_customer").length,
+      delivered: dsCounts.filter((d) => d.status === "delivered").length,
+      cancelled: dsCounts.filter((d) => d.status === "cancelled").length,
+      rejected: dsCounts.filter((d) => d.status === "rejected").length,
     };
 
     return res.json({
@@ -1129,8 +1208,8 @@ router.patch(
       // Log status change
       await supabaseAdmin.from("order_status_history").insert({
         order_id: orderId,
-        old_status: order.status,
-        new_status: status,
+        from_status: order.status,
+        to_status: status,
         changed_by: adminId,
         changed_by_role: "admin",
         reason: reason || null,

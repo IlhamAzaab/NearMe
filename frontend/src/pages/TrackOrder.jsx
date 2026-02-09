@@ -134,6 +134,17 @@ export default function TrackOrder() {
     }
   }, [isLoggedIn, orderId, fetchOrder]);
 
+  // Helper to get delivery status from order
+  const getEffectiveStatus = (orderData) => {
+    const delivery = orderData?.deliveries?.[0] || orderData?.deliveries;
+    return (
+      delivery?.status ||
+      orderData?.delivery_status ||
+      orderData?.status ||
+      "placed"
+    );
+  };
+
   // ============================================================================
   // SUPABASE REALTIME SUBSCRIPTION
   // ============================================================================
@@ -141,19 +152,35 @@ export default function TrackOrder() {
   useEffect(() => {
     if (!supabase || !orderId) return;
 
+    // Subscribe to deliveries table updates for this order
     const channel = supabase
-      .channel(`track-order-${orderId}`)
+      .channel(`track-delivery-${orderId}`)
       .on(
         "postgres_changes",
         {
           event: "UPDATE",
           schema: "public",
-          table: "orders",
-          filter: `id=eq.${orderId}`,
+          table: "deliveries",
+          filter: `order_id=eq.${orderId}`,
         },
         (payload) => {
-          console.log("Order updated:", payload);
-          handleOrderUpdate(payload.new, payload.old);
+          console.log("Delivery updated:", payload.new?.status);
+          const newDeliveryStatus = payload.new?.status;
+          if (newDeliveryStatus) {
+            setOrder((prev) => {
+              if (!prev) return prev;
+              const updatedDeliveries = (prev.deliveries || []).map((d) =>
+                d.id === payload.new.id ? { ...d, ...payload.new } : d,
+              );
+              // If no matching delivery found, add it
+              if (!updatedDeliveries.some((d) => d.id === payload.new.id)) {
+                updatedDeliveries.push(payload.new);
+              }
+              return { ...prev, deliveries: updatedDeliveries };
+            });
+            showStatusNotification(newDeliveryStatus);
+            playNotificationSound();
+          }
         },
       )
       .subscribe((status) => {
@@ -166,18 +193,8 @@ export default function TrackOrder() {
   }, [orderId]);
 
   // ============================================================================
-  // HANDLE ORDER UPDATE (REALTIME)
+  // STATUS NOTIFICATIONS
   // ============================================================================
-
-  const handleOrderUpdate = (newOrder, oldOrder) => {
-    setOrder((prev) => ({ ...prev, ...newOrder }));
-
-    // Show notification if status changed
-    if (oldOrder.status !== newOrder.status) {
-      showStatusNotification(newOrder.status);
-      playNotificationSound();
-    }
-  };
 
   const showStatusNotification = (status) => {
     const statusMessages = {
@@ -350,11 +367,12 @@ export default function TrackOrder() {
     );
   }
 
-  const currentIndex = getStatusIndex(order.status);
+  const effectiveStatus = getEffectiveStatus(order);
+  const currentIndex = getStatusIndex(effectiveStatus);
   const isCancelledOrRejected = ["cancelled", "rejected"].includes(
-    order.status,
+    effectiveStatus,
   );
-  const isDelivered = order.status === "delivered";
+  const isDelivered = effectiveStatus === "delivered";
 
   return (
     <div className="min-h-screen bg-gray-50 page-slide-up">
@@ -449,8 +467,10 @@ export default function TrackOrder() {
                         : "bg-white/20 text-white backdrop-blur"
                   }`}
                 >
-                  <span className="text-lg">{getStatusIcon(order.status)}</span>
-                  {order.status.replace("_", " ").toUpperCase()}
+                  <span className="text-lg">
+                    {getStatusIcon(effectiveStatus)}
+                  </span>
+                  {effectiveStatus.replace("_", " ").toUpperCase()}
                 </span>
               </div>
             </div>
@@ -562,10 +582,11 @@ export default function TrackOrder() {
             <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center">
               <span className="text-5xl">❌</span>
               <p className="font-bold text-red-700 mt-4 text-lg">
-                Order {order.status === "cancelled" ? "Cancelled" : "Rejected"}
+                Order{" "}
+                {effectiveStatus === "cancelled" ? "Cancelled" : "Rejected"}
               </p>
               <p className="text-red-600 mt-2">
-                {order.status === "rejected"
+                {effectiveStatus === "rejected"
                   ? "The restaurant couldn't accept your order at this time."
                   : "This order has been cancelled."}
               </p>
