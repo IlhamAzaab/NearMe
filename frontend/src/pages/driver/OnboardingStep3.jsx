@@ -1,17 +1,78 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import SiteHeader from "../../components/SiteHeader";
-import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
+
+// Step Progress Component with animation
+const StepProgress = ({ currentStep, totalSteps = 5 }) => {
+  const steps = [
+    { num: 1, label: "Personal" },
+    { num: 2, label: "Vehicle" },
+    { num: 3, label: "Documents" },
+    { num: 4, label: "Bank" },
+    { num: 5, label: "Contract" },
+  ];
+
+  return (
+    <div className="w-full mb-8">
+      {/* Step segments */}
+      <div className="flex gap-2 mb-3">
+        {steps.map((step) => (
+          <div key={step.num} className="flex-1 relative">
+            <div
+              className={`h-2 rounded-full overflow-hidden ${
+                step.num === currentStep
+                  ? "bg-gray-200"
+                  : step.num < currentStep
+                  ? "bg-[#1db95b]"
+                  : "bg-gray-200"
+              }`}
+            >
+              {step.num === currentStep && (
+                <div
+                  className="h-full bg-[#1db95b] rounded-full"
+                  style={{
+                    animation: "progressFill 2s ease-in-out infinite",
+                  }}
+                />
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+      
+      {/* Step labels */}
+      <div className="flex justify-between">
+        {steps.map((step) => (
+          <div
+            key={step.num}
+            className={`text-xs font-medium ${
+              step.num === currentStep
+                ? "text-[#1db95b]"
+                : step.num < currentStep
+                ? "text-[#1db95b]"
+                : "text-gray-400"
+            }`}
+          >
+            {step.label}
+          </div>
+        ))}
+      </div>
+
+      {/* CSS Animation */}
+      <style>{`
+        @keyframes progressFill {
+          0% { width: 0%; opacity: 0.6; }
+          50% { width: 100%; opacity: 1; }
+          100% { width: 0%; opacity: 0.6; }
+        }
+      `}</style>
+    </div>
+  );
+};
 
 export default function OnboardingStep3() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
-  const [error, setRawError] = useState(null);
-  const { alert: alertState, visible: alertVisible, showError } = useAlert();
-  const setError = (msg) => {
-    setRawError(msg);
-    if (msg) showError(msg);
-  };
+  const [error, setError] = useState(null);
   const [documents, setDocuments] = useState({
     nic_front: null,
     nic_back: null,
@@ -20,26 +81,14 @@ export default function OnboardingStep3() {
     insurance: null,
     revenue_license: null,
   });
-  const [uploadedUrls, setUploadedUrls] = useState({
-    nic_front: "",
-    nic_back: "",
-    license_front: "",
-    license_back: "",
-    insurance: "",
-    revenue_license: "",
-  });
-
-  const userEmail = localStorage.getItem("userEmail");
-  const userName =
-    localStorage.getItem("userName") || userEmail?.split("@")[0] || "Driver";
 
   const documentLabels = {
-    nic_front: "NIC Front Side",
-    nic_back: "NIC Back Side",
-    license_front: "Driving License Front Side",
-    license_back: "Driving License Back Side",
-    insurance: "Insurance Certificate",
-    revenue_license: "Revenue License",
+    nic_front: { label: "NIC Front Side", icon: "badge" },
+    nic_back: { label: "NIC Back Side", icon: "badge" },
+    license_front: { label: "Driving License Front", icon: "id_card" },
+    license_back: { label: "Driving License Back", icon: "id_card" },
+    insurance: { label: "Insurance Certificate", icon: "verified_user" },
+    revenue_license: { label: "Revenue License", icon: "receipt_long" },
   };
 
   const handleFileChange = (docType, e) => {
@@ -47,16 +96,16 @@ export default function OnboardingStep3() {
     if (file) {
       // Validate file size (max 5MB)
       if (file.size > 5 * 1024 * 1024) {
-        setError(`${documentLabels[docType]} must be less than 5MB`);
+        setError(`${documentLabels[docType].label} must be less than 5MB`);
         return;
       }
       // Validate file type
       if (
         !["image/jpeg", "image/jpg", "image/png", "application/pdf"].includes(
-          file.type,
+          file.type
         )
       ) {
-        setError(`${documentLabels[docType]} must be JPG, PNG, or PDF`);
+        setError(`${documentLabels[docType].label} must be JPG, PNG, or PDF`);
         return;
       }
       setDocuments({ ...documents, [docType]: file });
@@ -68,12 +117,10 @@ export default function OnboardingStep3() {
     const token = localStorage.getItem("token");
 
     try {
-      // Create FormData for file upload
       const formData = new FormData();
       formData.append("file", file);
       formData.append("docType", docType);
 
-      // Upload to backend endpoint which handles Cloudinary
       const response = await fetch(
         "http://localhost:5000/onboarding/upload-document",
         {
@@ -82,7 +129,7 @@ export default function OnboardingStep3() {
             Authorization: `Bearer ${token}`,
           },
           body: formData,
-        },
+        }
       );
 
       if (!response.ok) {
@@ -90,7 +137,7 @@ export default function OnboardingStep3() {
       }
 
       const data = await response.json();
-      return data.url; // Returns the secure_url from Cloudinary
+      return data.url;
     } catch (error) {
       console.error("Upload error:", error);
       throw error;
@@ -103,9 +150,8 @@ export default function OnboardingStep3() {
     setLoading(true);
 
     try {
-      // Check if all documents are selected
       const missingDocs = Object.keys(documents).filter(
-        (key) => !documents[key],
+        (key) => !documents[key]
       );
       if (missingDocs.length > 0) {
         setError("Please upload all required documents");
@@ -113,7 +159,6 @@ export default function OnboardingStep3() {
         return;
       }
 
-      // Upload all documents to Cloudinary
       const uploadPromises = Object.keys(documents).map(async (docType) => {
         if (documents[docType]) {
           const url = await uploadToCloudinary(documents[docType], docType);
@@ -123,7 +168,6 @@ export default function OnboardingStep3() {
 
       const uploadedDocs = await Promise.all(uploadPromises);
 
-      // Submit to backend
       const token = localStorage.getItem("token");
       const res = await fetch("http://localhost:5000/onboarding/step-3", {
         method: "POST",
@@ -148,11 +192,6 @@ export default function OnboardingStep3() {
     }
   };
 
-  const handleLogout = () => {
-    localStorage.clear();
-    navigate("/login");
-  };
-
   const handleBack = () => {
     navigate("/driver/onboarding/step-2");
   };
@@ -160,115 +199,143 @@ export default function OnboardingStep3() {
   const allDocsUploaded = Object.values(documents).every((doc) => doc !== null);
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <SiteHeader
-        isLoggedIn={true}
-        role="driver"
-        userName={userName}
-        userEmail={userEmail}
-        onLogout={handleLogout}
-      />
+    <div className="min-h-screen flex flex-col items-center justify-start relative font-display">
+      {/* Gradient background */}
+      <div className="absolute inset-0 bg-gradient-to-b from-[#1db95b] via-[#34d399] via-40% to-[#f0fdf4]"></div>
+      
+      {/* Subtle pattern overlay */}
+      <div 
+        className="absolute inset-0 opacity-20 pointer-events-none"
+        style={{ backgroundImage: "url('https://grainy-gradients.vercel.app/noise.svg')" }}
+      ></div>
 
-      <main className="max-w-2xl mx-auto px-4 sm:px-6 py-8">
-        <div className="mb-6">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium text-indigo-600">
-              Step 3 of 5
-            </span>
-            <span className="text-sm text-gray-500">Document Upload</span>
-          </div>
-          <div className="w-full bg-gray-200 rounded-full h-2">
-            <div
-              className="bg-indigo-600 h-2 rounded-full"
-              style={{ width: "60%" }}
-            ></div>
-          </div>
-        </div>
+      {/* Main content */}
+      <div className="relative w-full max-w-[540px] px-4 py-8 z-10">
+        {/* White card */}
+        <div className="bg-white rounded-3xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.15)] p-8">
+          {/* Step Progress */}
+          <StepProgress currentStep={3} />
 
-        <div className="bg-white rounded-xl shadow p-6">
-          <h1 className="text-2xl font-bold text-gray-800 mb-2">
-            Upload Documents
-          </h1>
-          <p className="text-gray-600 mb-6">
-            Upload clear photos or scans of your documents. All documents are
-            required.
-          </p>
+          {/* Header */}
+          <div className="flex items-center gap-3 mb-6">
+            <div className="h-12 w-12 bg-[#dcfce7] rounded-xl flex items-center justify-center">
+              <span className="material-symbols-outlined text-[#1db95b] text-2xl">upload_file</span>
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-gray-900">Upload Documents</h1>
+              <p className="text-gray-500 text-sm">Step 3 of 5</p>
+            </div>
+          </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Document upload cards */}
             {Object.keys(documentLabels).map((docType) => (
               <div
                 key={docType}
-                className="border border-gray-200 rounded-lg p-4"
+                className={`border-2 border-dashed rounded-xl p-4 transition-all ${
+                  documents[docType]
+                    ? "border-[#1db95b] bg-[#f0fdf4]"
+                    : "border-gray-200 hover:border-[#1db95b]/50"
+                }`}
               >
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  {documentLabels[docType]} *
-                </label>
-                <input
-                  type="file"
-                  accept="image/jpeg,image/jpg,image/png,application/pdf"
-                  onChange={(e) => handleFileChange(docType, e)}
-                  className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
-                />
-                {documents[docType] && (
-                  <div className="mt-2 flex items-center text-sm text-green-600">
-                    <svg
-                      className="w-4 h-4 mr-1"
-                      fill="currentColor"
-                      viewBox="0 0 20 20"
-                    >
-                      <path
-                        fillRule="evenodd"
-                        d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                        clipRule="evenodd"
-                      />
-                    </svg>
-                    {documents[docType].name}
+                <div className="flex items-center gap-3">
+                  <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${
+                    documents[docType] ? "bg-[#1db95b]" : "bg-gray-100"
+                  }`}>
+                    <span className={`material-symbols-outlined text-xl ${
+                      documents[docType] ? "text-white" : "text-[#1db95b]"
+                    }`}>
+                      {documents[docType] ? "check" : documentLabels[docType].icon}
+                    </span>
                   </div>
-                )}
+                  <div className="flex-1">
+                    <label className="block text-sm font-semibold text-gray-700">
+                      {documentLabels[docType].label} *
+                    </label>
+                    {documents[docType] && (
+                      <p className="text-xs text-[#1db95b] truncate">{documents[docType].name}</p>
+                    )}
+                  </div>
+                  <label className={`px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-all ${
+                    documents[docType]
+                      ? "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                      : "bg-[#1db95b] text-white hover:bg-[#18a34a]"
+                  }`}>
+                    {documents[docType] ? "Change" : "Upload"}
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/jpg,image/png,application/pdf"
+                      onChange={(e) => handleFileChange(docType, e)}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
               </div>
             ))}
 
-            <AnimatedAlert alert={alertState} visible={alertVisible} />
+            {/* Error message */}
+            {error && (
+              <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm flex items-start gap-2">
+                <span className="material-symbols-outlined text-red-500 text-lg">error</span>
+                <span>{error}</span>
+              </div>
+            )}
 
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <p className="text-sm text-blue-800 font-semibold mb-2">
-                📌 Document Requirements:
+            {/* Requirements note */}
+            <div className="p-4 bg-[#dcfce7] border border-[#86efac] rounded-xl">
+              <p className="text-sm font-semibold text-[#166534] mb-2 flex items-center gap-2">
+                <span className="material-symbols-outlined text-lg">info</span>
+                Document Requirements
               </p>
-              <ul className="text-sm text-blue-700 space-y-1 ml-4 list-disc">
+              <ul className="text-sm text-[#166534] space-y-1 ml-6 list-disc">
                 <li>Clear, readable images or PDFs</li>
                 <li>Maximum file size: 5MB per document</li>
                 <li>Supported formats: JPG, PNG, PDF</li>
                 <li>All details must be visible</li>
-                <li>No expired documents</li>
               </ul>
             </div>
 
-            <div className="flex gap-3">
+            {/* Progress indicator */}
+            {!allDocsUploaded && (
+              <p className="text-center text-sm text-gray-500">
+                {Object.values(documents).filter(d => d !== null).length} of {Object.keys(documentLabels).length} documents uploaded
+              </p>
+            )}
+
+            {/* Buttons */}
+            <div className="flex gap-3 mt-6">
               <button
                 type="button"
                 onClick={handleBack}
-                className="flex-1 px-4 py-3 bg-gray-200 text-gray-700 font-medium rounded-lg hover:bg-gray-300 transition"
+                className="flex-1 h-14 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
               >
-                Back
+                <span className="material-symbols-outlined">arrow_back</span>
+                <span>Back</span>
               </button>
               <button
                 type="submit"
                 disabled={loading || !allDocsUploaded}
-                className="flex-1 px-4 py-3 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed transition"
+                className="flex-1 h-14 bg-[#1db95b] text-white font-bold rounded-xl hover:bg-[#18a34a] active:scale-[0.98] transition-all shadow-lg shadow-[#1db95b]/30 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
-                {loading ? "Uploading..." : "Continue to Bank Details"}
+                {loading ? (
+                  <>
+                    <svg className="w-5 h-5 animate-spin text-white" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span>Uploading...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Continue</span>
+                    <span className="material-symbols-outlined">arrow_forward</span>
+                  </>
+                )}
               </button>
             </div>
-
-            {!allDocsUploaded && (
-              <p className="text-center text-sm text-gray-500">
-                Please upload all {Object.keys(documentLabels).length} required
-                documents to continue
-              </p>
-            )}
           </form>
         </div>
-      </main>
+      </div>
     </div>
   );
 }

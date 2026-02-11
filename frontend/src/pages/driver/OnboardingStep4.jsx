@@ -1,17 +1,78 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import SiteHeader from "../../components/SiteHeader";
-import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
+
+// Step Progress Component with animation
+const StepProgress = ({ currentStep, totalSteps = 5 }) => {
+  const steps = [
+    { num: 1, label: "Personal" },
+    { num: 2, label: "Vehicle" },
+    { num: 3, label: "Documents" },
+    { num: 4, label: "Bank" },
+    { num: 5, label: "Contract" },
+  ];
+
+  return (
+    <div className="w-full mb-8">
+      {/* Step segments */}
+      <div className="flex gap-2 mb-3">
+        {steps.map((step) => (
+          <div key={step.num} className="flex-1 relative">
+            <div
+              className={`h-2 rounded-full overflow-hidden ${
+                step.num === currentStep
+                  ? "bg-gray-200"
+                  : step.num < currentStep
+                  ? "bg-[#1db95b]"
+                  : "bg-gray-200"
+              }`}
+            >
+              {step.num === currentStep && (
+                <div
+                  className="h-full bg-[#1db95b] rounded-full"
+                  style={{
+                    animation: "progressFill 2s ease-in-out infinite",
+                  }}
+                />
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+      
+      {/* Step labels */}
+      <div className="flex justify-between">
+        {steps.map((step) => (
+          <div
+            key={step.num}
+            className={`text-xs font-medium ${
+              step.num === currentStep
+                ? "text-[#1db95b]"
+                : step.num < currentStep
+                ? "text-[#1db95b]"
+                : "text-gray-400"
+            }`}
+          >
+            {step.label}
+          </div>
+        ))}
+      </div>
+
+      {/* CSS Animation */}
+      <style>{`
+        @keyframes progressFill {
+          0% { width: 0%; opacity: 0.6; }
+          50% { width: 100%; opacity: 1; }
+          100% { width: 0%; opacity: 0.6; }
+        }
+      `}</style>
+    </div>
+  );
+};
 
 export default function OnboardingStep4() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
-  const [error, setRawError] = useState(null);
-  const { alert: alertState, visible: alertVisible, showError } = useAlert();
-  const setError = (msg) => {
-    setRawError(msg);
-    if (msg) showError(msg);
-  };
+  const [error, setError] = useState(null);
   const [formData, setFormData] = useState({
     accountHolderName: "",
     bankName: "",
@@ -19,10 +80,6 @@ export default function OnboardingStep4() {
     accountNumber: "",
     confirmAccountNumber: "",
   });
-
-  const userEmail = localStorage.getItem("userEmail");
-  const userName =
-    localStorage.getItem("userName") || userEmail?.split("@")[0] || "Driver";
 
   const sriLankanBanks = [
     "Bank of Ceylon",
@@ -52,7 +109,6 @@ export default function OnboardingStep4() {
     e.preventDefault();
     setError(null);
 
-    // Validate account number match
     if (formData.accountNumber !== formData.confirmAccountNumber) {
       setError("Account numbers do not match");
       return;
@@ -88,173 +144,219 @@ export default function OnboardingStep4() {
     }
   };
 
-  const handleLogout = () => {
-    localStorage.clear();
-    navigate("/login");
-  };
-
   const handleBack = () => {
     navigate("/driver/onboarding/step-3");
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <SiteHeader
-        isLoggedIn={true}
-        role="driver"
-        userName={userName}
-        userEmail={userEmail}
-        onLogout={handleLogout}
-      />
+    <div className="min-h-screen flex flex-col items-center justify-start relative font-display">
+      {/* Gradient background */}
+      <div className="absolute inset-0 bg-gradient-to-b from-[#1db95b] via-[#34d399] via-40% to-[#f0fdf4]"></div>
+      
+      {/* Subtle pattern overlay */}
+      <div 
+        className="absolute inset-0 opacity-20 pointer-events-none"
+        style={{ backgroundImage: "url('https://grainy-gradients.vercel.app/noise.svg')" }}
+      ></div>
 
-      <main className="max-w-2xl mx-auto px-4 sm:px-6 py-8">
-        <div className="mb-6">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium text-indigo-600">
-              Step 4 of 5
-            </span>
-            <span className="text-sm text-gray-500">Bank Details</span>
-          </div>
-          <div className="w-full bg-gray-200 rounded-full h-2">
-            <div
-              className="bg-indigo-600 h-2 rounded-full"
-              style={{ width: "80%" }}
-            ></div>
-          </div>
-        </div>
+      {/* Main content */}
+      <div className="relative w-full max-w-[540px] px-4 py-8 z-10">
+        {/* White card */}
+        <div className="bg-white rounded-3xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.15)] p-8">
+          {/* Step Progress */}
+          <StepProgress currentStep={4} />
 
-        <div className="bg-white rounded-xl shadow p-6">
-          <h1 className="text-2xl font-bold text-gray-800 mb-2">
-            Bank Account Details
-          </h1>
-          <p className="text-gray-600 mb-6">
-            Enter your bank account details for earnings payments. All fields
-            are required.
-          </p>
+          {/* Header */}
+          <div className="flex items-center gap-3 mb-6">
+            <div className="h-12 w-12 bg-[#dcfce7] rounded-xl flex items-center justify-center">
+              <span className="material-symbols-outlined text-[#1db95b] text-2xl">account_balance</span>
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-gray-900">Bank Details</h1>
+              <p className="text-gray-500 text-sm">Step 4 of 5</p>
+            </div>
+          </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Account Holder Name */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
                 Account Holder Name *
               </label>
-              <input
-                name="accountHolderName"
-                className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
-                placeholder="Name as per bank account"
-                value={formData.accountHolderName}
-                onChange={handleChange}
-                required
-              />
-              <p className="text-xs text-gray-500 mt-1">
+              <div className="relative">
+                <input
+                  name="accountHolderName"
+                  className="w-full h-12 pl-11 pr-4 border border-gray-200 rounded-xl bg-gray-50 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#1db95b] focus:ring-2 focus:ring-[#1db95b]/20 focus:bg-white transition-all duration-200"
+                  placeholder="Name as per bank account"
+                  value={formData.accountHolderName}
+                  onChange={handleChange}
+                  required
+                />
+                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#1db95b]">
+                  <span className="material-symbols-outlined text-xl">person</span>
+                </div>
+              </div>
+              <p className="text-xs text-gray-500 mt-1 ml-1">
                 Enter the name exactly as it appears on your bank account
               </p>
             </div>
 
+            {/* Bank Name */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
                 Bank Name *
               </label>
-              <select
-                name="bankName"
-                className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
-                value={formData.bankName}
-                onChange={handleChange}
-                required
-              >
-                <option value="">Select your bank</option>
-                {sriLankanBanks.map((bank) => (
-                  <option key={bank} value={bank}>
-                    {bank}
-                  </option>
-                ))}
-              </select>
+              <div className="relative">
+                <select
+                  name="bankName"
+                  className="w-full h-12 pl-11 pr-10 border border-gray-200 rounded-xl bg-gray-50 text-gray-900 focus:outline-none focus:border-[#1db95b] focus:ring-2 focus:ring-[#1db95b]/20 focus:bg-white transition-all duration-200 appearance-none"
+                  value={formData.bankName}
+                  onChange={handleChange}
+                  required
+                >
+                  <option value="">Select your bank</option>
+                  {sriLankanBanks.map((bank) => (
+                    <option key={bank} value={bank}>
+                      {bank}
+                    </option>
+                  ))}
+                </select>
+                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#1db95b]">
+                  <span className="material-symbols-outlined text-xl">account_balance</span>
+                </div>
+                <div className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
+                  <span className="material-symbols-outlined text-xl">expand_more</span>
+                </div>
+              </div>
             </div>
 
+            {/* Branch Name */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
                 Branch Name *
               </label>
-              <input
-                name="branch"
-                className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
-                placeholder="e.g., Colombo Fort, Kandy City"
-                value={formData.branch}
-                onChange={handleChange}
-                required
-              />
+              <div className="relative">
+                <input
+                  name="branch"
+                  className="w-full h-12 pl-11 pr-4 border border-gray-200 rounded-xl bg-gray-50 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#1db95b] focus:ring-2 focus:ring-[#1db95b]/20 focus:bg-white transition-all duration-200"
+                  placeholder="e.g., Colombo Fort, Kandy City"
+                  value={formData.branch}
+                  onChange={handleChange}
+                  required
+                />
+                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#1db95b]">
+                  <span className="material-symbols-outlined text-xl">location_on</span>
+                </div>
+              </div>
             </div>
 
+            {/* Account Number */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
                 Account Number *
               </label>
-              <input
-                name="accountNumber"
-                type="text"
-                className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
-                placeholder="Enter your account number"
-                value={formData.accountNumber}
-                onChange={handleChange}
-                required
-              />
+              <div className="relative">
+                <input
+                  name="accountNumber"
+                  type="text"
+                  className="w-full h-12 pl-11 pr-4 border border-gray-200 rounded-xl bg-gray-50 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#1db95b] focus:ring-2 focus:ring-[#1db95b]/20 focus:bg-white transition-all duration-200"
+                  placeholder="Enter your account number"
+                  value={formData.accountNumber}
+                  onChange={handleChange}
+                  required
+                />
+                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#1db95b]">
+                  <span className="material-symbols-outlined text-xl">pin</span>
+                </div>
+              </div>
             </div>
 
+            {/* Confirm Account Number */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
                 Confirm Account Number *
               </label>
-              <input
-                name="confirmAccountNumber"
-                type="text"
-                className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
-                placeholder="Re-enter your account number"
-                value={formData.confirmAccountNumber}
-                onChange={handleChange}
-                required
-              />
+              <div className="relative">
+                <input
+                  name="confirmAccountNumber"
+                  type="text"
+                  className="w-full h-12 pl-11 pr-4 border border-gray-200 rounded-xl bg-gray-50 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#1db95b] focus:ring-2 focus:ring-[#1db95b]/20 focus:bg-white transition-all duration-200"
+                  placeholder="Re-enter your account number"
+                  value={formData.confirmAccountNumber}
+                  onChange={handleChange}
+                  required
+                />
+                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#1db95b]">
+                  <span className="material-symbols-outlined text-xl">verified</span>
+                </div>
+              </div>
             </div>
 
-            <AnimatedAlert alert={alertState} visible={alertVisible} />
+            {/* Error message */}
+            {error && (
+              <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm flex items-start gap-2">
+                <span className="material-symbols-outlined text-red-500 text-lg">error</span>
+                <span>{error}</span>
+              </div>
+            )}
 
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-              <p className="text-sm text-green-800 font-semibold mb-2">
-                💰 Payment Information:
+            {/* Payment Info */}
+            <div className="p-4 bg-[#dcfce7] border border-[#86efac] rounded-xl">
+              <p className="text-sm font-semibold text-[#166534] mb-2 flex items-center gap-2">
+                <span className="material-symbols-outlined text-lg">payments</span>
+                Payment Information
               </p>
-              <ul className="text-sm text-green-700 space-y-1 ml-4 list-disc">
+              <ul className="text-sm text-[#166534] space-y-1 ml-6 list-disc">
                 <li>Weekly earnings will be transferred to this account</li>
                 <li>Processing time: 2-3 business days</li>
                 <li>Ensure account details are accurate to avoid delays</li>
-                <li>You can update bank details later from your profile</li>
               </ul>
             </div>
 
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-              <p className="text-sm text-blue-800">
-                🔒 <strong>Security:</strong> Your bank details are encrypted
-                and stored securely. We never share your information with third
-                parties.
-              </p>
+            {/* Security note */}
+            <div className="p-4 bg-[#f0fdf4] border border-[#bbf7d0] rounded-xl">
+              <div className="flex items-start gap-2">
+                <span className="material-symbols-outlined text-[#16a34a] text-lg mt-0.5">lock</span>
+                <p className="text-sm text-[#166534]">
+                  <strong>Security:</strong> Your bank details are encrypted and stored securely.
+                </p>
+              </div>
             </div>
 
-            <div className="flex gap-3">
+            {/* Buttons */}
+            <div className="flex gap-3 mt-6">
               <button
                 type="button"
                 onClick={handleBack}
-                className="flex-1 px-4 py-3 bg-gray-200 text-gray-700 font-medium rounded-lg hover:bg-gray-300 transition"
+                className="flex-1 h-14 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
               >
-                Back
+                <span className="material-symbols-outlined">arrow_back</span>
+                <span>Back</span>
               </button>
               <button
                 type="submit"
                 disabled={loading}
-                className="flex-1 px-4 py-3 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-60 transition"
+                className="flex-1 h-14 bg-[#1db95b] text-white font-bold rounded-xl hover:bg-[#18a34a] active:scale-[0.98] transition-all shadow-lg shadow-[#1db95b]/30 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
-                {loading ? "Saving..." : "Continue to Contract"}
+                {loading ? (
+                  <>
+                    <svg className="w-5 h-5 animate-spin text-white" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span>Saving...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Continue</span>
+                    <span className="material-symbols-outlined">arrow_forward</span>
+                  </>
+                )}
               </button>
             </div>
           </form>
         </div>
-      </main>
+      </div>
     </div>
   );
 }

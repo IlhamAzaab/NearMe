@@ -1,23 +1,81 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import SiteHeader from "../../components/SiteHeader";
-import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
+
+// Step Progress Component with animation
+const StepProgress = ({ currentStep, totalSteps = 5 }) => {
+  const steps = [
+    { num: 1, label: "Personal" },
+    { num: 2, label: "Vehicle" },
+    { num: 3, label: "Documents" },
+    { num: 4, label: "Bank" },
+    { num: 5, label: "Contract" },
+  ];
+
+  return (
+    <div className="w-full mb-8">
+      {/* Step segments */}
+      <div className="flex gap-2 mb-3">
+        {steps.map((step) => (
+          <div key={step.num} className="flex-1 relative">
+            <div
+              className={`h-2 rounded-full overflow-hidden ${
+                step.num === currentStep
+                  ? "bg-gray-200"
+                  : step.num < currentStep
+                  ? "bg-[#1db95b]"
+                  : "bg-gray-200"
+              }`}
+            >
+              {step.num === currentStep && (
+                <div
+                  className="h-full bg-[#1db95b] rounded-full"
+                  style={{
+                    animation: "progressFill 2s ease-in-out infinite",
+                  }}
+                />
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+      
+      {/* Step labels */}
+      <div className="flex justify-between">
+        {steps.map((step) => (
+          <div
+            key={step.num}
+            className={`text-xs font-medium ${
+              step.num === currentStep
+                ? "text-[#1db95b]"
+                : step.num < currentStep
+                ? "text-[#1db95b]"
+                : "text-gray-400"
+            }`}
+          >
+            {step.label}
+          </div>
+        ))}
+      </div>
+
+      {/* CSS Animation */}
+      <style>{`
+        @keyframes progressFill {
+          0% { width: 0%; opacity: 0.6; }
+          50% { width: 100%; opacity: 1; }
+          100% { width: 0%; opacity: 0.6; }
+        }
+      `}</style>
+    </div>
+  );
+};
 
 export default function OnboardingStep5() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
-  const [error, setRawError] = useState(null);
-  const { alert: alertState, visible: alertVisible, showError } = useAlert();
-  const setError = (msg) => {
-    setRawError(msg);
-    if (msg) showError(msg);
-  };
+  const [error, setError] = useState(null);
   const [contractAccepted, setContractAccepted] = useState(false);
   const [confirmRead, setConfirmRead] = useState(false);
 
-  const userEmail = localStorage.getItem("userEmail");
-  const userName =
-    localStorage.getItem("userName") || userEmail?.split("@")[0] || "Driver";
   const contractVersion = "1.0.0";
 
   const contractHtml = `
@@ -123,7 +181,7 @@ export default function OnboardingStep5() {
 
     if (!contractAccepted || !confirmRead) {
       setError(
-        "You must accept the contract and confirm you have read all terms",
+        "You must accept the contract and confirm you have read all terms"
       );
       return;
     }
@@ -133,11 +191,10 @@ export default function OnboardingStep5() {
     const token = localStorage.getItem("token");
 
     try {
-      // Get IP address (in production, use a proper IP service)
       const ipResponse = await fetch("https://api.ipify.org?format=json").catch(
         () => ({
           json: () => ({ ip: "0.0.0.0" }),
-        }),
+        })
       );
       const ipData = await ipResponse.json();
 
@@ -170,75 +227,65 @@ export default function OnboardingStep5() {
     }
   };
 
-  const handleLogout = () => {
-    localStorage.clear();
-    navigate("/login");
-  };
-
   const handleBack = () => {
     navigate("/driver/onboarding/step-4");
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <SiteHeader
-        isLoggedIn={true}
-        role="driver"
-        userName={userName}
-        userEmail={userEmail}
-        onLogout={handleLogout}
-      />
+    <div className="min-h-screen flex flex-col items-center justify-start relative font-display">
+      {/* Gradient background */}
+      <div className="absolute inset-0 bg-gradient-to-b from-[#1db95b] via-[#34d399] via-40% to-[#f0fdf4]"></div>
+      
+      {/* Subtle pattern overlay */}
+      <div 
+        className="absolute inset-0 opacity-20 pointer-events-none"
+        style={{ backgroundImage: "url('https://grainy-gradients.vercel.app/noise.svg')" }}
+      ></div>
 
-      <main className="max-w-3xl mx-auto px-4 sm:px-6 py-8">
-        <div className="mb-6">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium text-indigo-600">
-              Step 5 of 5
-            </span>
-            <span className="text-sm text-gray-500">Contract Agreement</span>
-          </div>
-          <div className="w-full bg-gray-200 rounded-full h-2">
-            <div
-              className="bg-indigo-600 h-2 rounded-full"
-              style={{ width: "100%" }}
-            ></div>
-          </div>
-        </div>
+      {/* Main content */}
+      <div className="relative w-full max-w-[600px] px-4 py-8 z-10">
+        {/* White card */}
+        <div className="bg-white rounded-3xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.15)] p-8">
+          {/* Step Progress */}
+          <StepProgress currentStep={5} />
 
-        <div className="bg-white rounded-xl shadow p-6">
-          <h1 className="text-2xl font-bold text-gray-800 mb-2">
-            Driver Partnership Agreement
-          </h1>
-          <p className="text-gray-600 mb-6">
-            Please read the entire agreement carefully before accepting.
-          </p>
+          {/* Header */}
+          <div className="flex items-center gap-3 mb-6">
+            <div className="h-12 w-12 bg-[#dcfce7] rounded-xl flex items-center justify-center">
+              <span className="material-symbols-outlined text-[#1db95b] text-2xl">description</span>
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-gray-900">Partnership Agreement</h1>
+              <p className="text-gray-500 text-sm">Step 5 of 5 - Final Step</p>
+            </div>
+          </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Scrollable Contract */}
-            <div className="border border-gray-300 rounded-lg p-6 h-96 overflow-y-auto bg-gray-50">
+            <div className="border border-gray-200 rounded-xl p-5 h-72 overflow-y-auto bg-gray-50">
               <div
                 className="prose prose-sm max-w-none"
                 dangerouslySetInnerHTML={{ __html: contractHtml }}
                 style={{
-                  fontSize: "0.875rem",
-                  lineHeight: "1.5",
+                  fontSize: "0.8rem",
+                  lineHeight: "1.6",
                 }}
               />
             </div>
 
             {/* Acceptance Checkboxes */}
-            <div className="space-y-3 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+            <div className="space-y-3 p-4 bg-[#fefce8] border border-[#fef08a] rounded-xl">
               <div className="flex items-start">
                 <input
                   type="checkbox"
                   id="confirmRead"
                   checked={confirmRead}
                   onChange={(e) => setConfirmRead(e.target.checked)}
-                  className="mt-1 mr-3 h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                  className="mt-1 mr-3 h-5 w-5 text-[#1db95b] focus:ring-[#1db95b] border-gray-300 rounded cursor-pointer accent-[#1db95b]"
                 />
                 <label
                   htmlFor="confirmRead"
-                  className="text-sm text-gray-700 cursor-pointer"
+                  className="text-sm text-[#854d0e] cursor-pointer"
                 >
                   I confirm that I have read and understood all terms and
                   conditions of this Driver Partnership Agreement
@@ -251,11 +298,11 @@ export default function OnboardingStep5() {
                   id="contractAccepted"
                   checked={contractAccepted}
                   onChange={(e) => setContractAccepted(e.target.checked)}
-                  className="mt-1 mr-3 h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                  className="mt-1 mr-3 h-5 w-5 text-[#1db95b] focus:ring-[#1db95b] border-gray-300 rounded cursor-pointer accent-[#1db95b]"
                 />
                 <label
                   htmlFor="contractAccepted"
-                  className="text-sm text-gray-700 cursor-pointer"
+                  className="text-sm text-[#854d0e] cursor-pointer"
                 >
                   I accept and agree to be bound by the terms of this agreement.
                   I understand that this is a legally binding contract.
@@ -263,45 +310,61 @@ export default function OnboardingStep5() {
               </div>
             </div>
 
-            <AnimatedAlert alert={alertState} visible={alertVisible} />
+            {/* Error message */}
+            {error && (
+              <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm flex items-start gap-2">
+                <span className="material-symbols-outlined text-red-500 text-lg">error</span>
+                <span>{error}</span>
+              </div>
+            )}
 
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <p className="text-sm text-blue-800 font-semibold mb-2">
-                📝 Legal Notice:
+            {/* Legal Notice */}
+            <div className="p-4 bg-[#dcfce7] border border-[#86efac] rounded-xl">
+              <p className="text-sm font-semibold text-[#166534] mb-2 flex items-center gap-2">
+                <span className="material-symbols-outlined text-lg">gavel</span>
+                Legal Notice
               </p>
-              <ul className="text-sm text-blue-700 space-y-1 ml-4 list-disc">
-                <li>
-                  Your acceptance will be recorded with timestamp and IP address
-                </li>
-                <li>
-                  This is a legally binding agreement under Sri Lankan law
-                </li>
-                <li>
-                  You can download a copy of this agreement from your profile
-                </li>
+              <ul className="text-sm text-[#166534] space-y-1 ml-6 list-disc">
+                <li>Your acceptance will be recorded with timestamp and IP address</li>
+                <li>This is a legally binding agreement under Sri Lankan law</li>
                 <li>Contract version: {contractVersion}</li>
               </ul>
             </div>
 
-            <div className="flex gap-3">
+            {/* Buttons */}
+            <div className="flex gap-3 mt-6">
               <button
                 type="button"
                 onClick={handleBack}
-                className="flex-1 px-4 py-3 bg-gray-200 text-gray-700 font-medium rounded-lg hover:bg-gray-300 transition"
+                className="flex-1 h-14 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
               >
-                Back
+                <span className="material-symbols-outlined">arrow_back</span>
+                <span>Back</span>
               </button>
               <button
                 type="submit"
                 disabled={loading || !contractAccepted || !confirmRead}
-                className="flex-1 px-4 py-3 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 disabled:opacity-60 disabled:cursor-not-allowed transition"
+                className="flex-1 h-14 bg-[#1db95b] text-white font-bold rounded-xl hover:bg-[#18a34a] active:scale-[0.98] transition-all shadow-lg shadow-[#1db95b]/30 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
-                {loading ? "Submitting..." : "Accept & Complete Onboarding"}
+                {loading ? (
+                  <>
+                    <svg className="w-5 h-5 animate-spin text-white" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span>Submitting...</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="material-symbols-outlined">check_circle</span>
+                    <span>Complete Onboarding</span>
+                  </>
+                )}
               </button>
             </div>
           </form>
         </div>
-      </main>
+      </div>
     </div>
   );
 }
