@@ -1,8 +1,9 @@
 /**
- * Real-time Delivery Socket Context
+ * Real-time Socket Context
  *
- * Purpose: Connect drivers to WebSocket server for instant delivery notifications
- * All online drivers receive new delivery alerts at EXACTLY the same time
+ * Purpose: Connect drivers AND customers to WebSocket server for instant notifications
+ * - Drivers: receive new delivery alerts at EXACTLY the same time
+ * - Customers: receive real-time order status updates
  */
 
 import {
@@ -14,35 +15,50 @@ import {
   useRef,
 } from "react";
 import { io } from "socket.io-client";
+import { API_URL } from "../config";
 
-const SOCKET_URL = "http://localhost:5000";
+const SOCKET_URL = API_URL || "http://localhost:5000";
 
 // Default context value to prevent null errors
 const defaultContextValue = {
   socket: null,
   isConnected: false,
   connectAsDriver: () => {},
+  connectAsCustomer: () => {},
+  connectAsAdmin: () => {},
+  connectAsManager: () => {},
   disconnect: () => {},
   newDeliveryAlert: null,
   clearNewDeliveryAlert: () => {},
   takenDeliveries: new Set(),
   clearTakenDelivery: () => {},
   clearAllTakenDeliveries: () => {},
+  customerNotification: null,
+  clearCustomerNotification: () => {},
+  customerNotifications: [],
+  clearCustomerNotifications: () => {},
+  adminNotifications: [],
+  dismissAdminNotification: () => {},
+  clearAllAdminNotifications: () => {},
 };
 
 const SocketContext = createContext(defaultContextValue);
 
-export function useSocket() {
+// Export the hook with proper Fast Refresh compatibility
+export const useSocket = () => {
   const context = useContext(SocketContext);
   // Return default if context is null (shouldn't happen if Provider is used correctly)
   return context || defaultContextValue;
-}
+};
 
 export function SocketProvider({ children }) {
   const [socket, setSocket] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
   const [newDeliveryAlert, setNewDeliveryAlert] = useState(null);
   const [takenDeliveries, setTakenDeliveries] = useState(new Set());
+  const [customerNotification, setCustomerNotification] = useState(null);
+  const [customerNotifications, setCustomerNotifications] = useState([]);
+  const [adminNotifications, setAdminNotifications] = useState([]);
   const reconnectAttempts = useRef(0);
   const socketRef = useRef(null);
   const maxReconnectAttempts = 5;
@@ -53,6 +69,12 @@ export function SocketProvider({ children }) {
       if (!driverId) {
         console.warn("[Socket] No driverId provided");
         return;
+      }
+
+      // Prevent duplicate connections
+      if (socketRef.current && socketRef.current.connected) {
+        console.log("[Socket] Already connected as driver");
+        return socketRef.current;
       }
 
       // Disconnect existing socket if any
@@ -70,6 +92,8 @@ export function SocketProvider({ children }) {
         reconnectionDelay: 1000,
         reconnectionDelayMax: 5000,
         timeout: 20000,
+        autoConnect: true,
+        forceNew: true, // Force a new connection
       });
 
       newSocket.on("connect", () => {
@@ -136,12 +160,304 @@ export function SocketProvider({ children }) {
     [], // No dependencies - we use ref instead
   );
 
+  // Initialize socket connection for customers
+  const connectAsCustomer = useCallback((customerId) => {
+    if (!customerId) {
+      console.warn("[Socket] No customerId provided");
+      return;
+    }
+
+    // Prevent duplicate connections
+    if (socketRef.current && socketRef.current.connected) {
+      console.log("[Socket] Already connected as customer");
+      return socketRef.current;
+    }
+
+    // Disconnect existing socket if any
+    if (socketRef.current) {
+      socketRef.current.disconnect();
+      socketRef.current = null;
+    }
+
+    console.log(`[Socket] Connecting as customer: ${customerId}`);
+
+    const newSocket = io(SOCKET_URL, {
+      transports: ["websocket", "polling"],
+      reconnection: true,
+      reconnectionAttempts: maxReconnectAttempts,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout: 20000,
+      autoConnect: true,
+      forceNew: true, // Force a new connection
+    });
+
+    newSocket.on("connect", () => {
+      console.log(`[Socket] ✅ Customer connected: ${newSocket.id}`);
+      setIsConnected(true);
+      reconnectAttempts.current = 0;
+
+      // Register as customer
+      newSocket.emit("customer:register", customerId);
+    });
+
+    newSocket.on("customer:registered", (data) => {
+      console.log(`[Socket] ✅ Registered as customer:`, data);
+    });
+
+    // 📦 ORDER STATUS UPDATE - Real-time notifications for customers
+    newSocket.on("order:status_update", (data) => {
+      console.log(`[Socket] 📦 ORDER STATUS UPDATE:`, data);
+      console.log(`[Socket] ⏰ Received at: ${new Date().toISOString()}`);
+      console.log(`[Socket] 📋 Status: ${data.status}`);
+      console.log(`[Socket] 💬 Message: ${data.message}`);
+
+      const notification = {
+        ...data,
+        id: Date.now(),
+        receivedAt: Date.now(),
+      };
+
+      // Set active notification (for banner display)
+      setCustomerNotification(notification);
+
+      // Add to notification queue
+      setCustomerNotifications((prev) => [notification, ...prev].slice(0, 20));
+
+      // Auto-clear the banner after 8 seconds
+      setTimeout(() => {
+        setCustomerNotification((curr) =>
+          curr?.id === notification.id ? null : curr,
+        );
+      }, 8000);
+    });
+
+    newSocket.on("disconnect", (reason) => {
+      console.log(`[Socket] ❌ Customer disconnected: ${reason}`);
+      setIsConnected(false);
+    });
+
+    newSocket.on("connect_error", (error) => {
+      console.error(`[Socket] Customer connection error:`, error.message);
+      reconnectAttempts.current += 1;
+
+      if (reconnectAttempts.current >= maxReconnectAttempts) {
+        console.error(`[Socket] Max reconnection attempts reached`);
+      }
+    });
+
+    newSocket.on("pong", () => {
+      // Heartbeat response
+    });
+
+    socketRef.current = newSocket;
+    setSocket(newSocket);
+
+    return newSocket;
+  }, []);
+
+  // Initialize socket connection for admins (restaurant)
+  const connectAsAdmin = useCallback((adminId) => {
+    if (!adminId) {
+      console.warn("[Socket] No adminId provided");
+      return;
+    }
+
+    // Prevent duplicate connections
+    if (socketRef.current && socketRef.current.connected) {
+      console.log("[Socket] Already connected as admin");
+      return socketRef.current;
+    }
+
+    // Disconnect existing socket if any
+    if (socketRef.current) {
+      socketRef.current.disconnect();
+      socketRef.current = null;
+    }
+
+    console.log(`[Socket] Connecting as admin: ${adminId}`);
+
+    const newSocket = io(SOCKET_URL, {
+      transports: ["websocket", "polling"],
+      reconnection: true,
+      reconnectionAttempts: maxReconnectAttempts,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout: 20000,
+      autoConnect: true,
+      forceNew: true,
+    });
+
+    newSocket.on("connect", () => {
+      console.log(`[Socket] \u2705 Admin connected: ${newSocket.id}`);
+      setIsConnected(true);
+      reconnectAttempts.current = 0;
+
+      // Register as admin
+      newSocket.emit("admin:register", adminId);
+    });
+
+    newSocket.on("admin:registered", (data) => {
+      console.log(`[Socket] \u2705 Registered as admin:`, data);
+    });
+
+    // \ud83d\udea8 NEW ORDER - Real-time notification for restaurant admins
+    newSocket.on("order:new_order", (data) => {
+      console.log(`[Socket] \ud83d\udea8 NEW ORDER FOR ADMIN:`, data);
+      console.log(`[Socket] \u23f0 Received at: ${new Date().toISOString()}`);
+
+      const notification = {
+        ...data,
+        id: Date.now(),
+        receivedAt: Date.now(),
+      };
+
+      // Add to admin notifications queue (no auto-dismiss!)
+      setAdminNotifications((prev) => {
+        // Prevent duplicates by order_id
+        if (prev.some((n) => n.order_id === data.order_id)) return prev;
+        return [notification, ...prev];
+      });
+    });
+
+    // 🎉 RESTAURANT DAILY ORDER MILESTONE (every 10 orders today)
+    newSocket.on("admin:order_milestone", (data) => {
+      console.log(`[Socket] 🎉 RESTAURANT ORDER MILESTONE:`, data);
+
+      // Play success sound
+      try {
+        const audio = new Audio("/success-alert.wav");
+        audio.volume = 0.6;
+        audio.play().catch(() => {});
+      } catch {}
+
+      // Browser notification
+      if (Notification.permission === "granted") {
+        try {
+          new Notification("🎉 Order Milestone!", {
+            body: data.message || `${data.milestone} orders completed today!`,
+            icon: "/icon-192.png",
+            tag: `admin-milestone-${data.milestone}`,
+          });
+        } catch {}
+      }
+
+      const milestoneNotif = {
+        ...data,
+        id: Date.now(),
+        order_id: `milestone-${Date.now()}`,
+        receivedAt: Date.now(),
+        isMilestone: true,
+      };
+
+      setAdminNotifications((prev) => [milestoneNotif, ...prev]);
+    });
+
+    newSocket.on("disconnect", (reason) => {
+      console.log(`[Socket] \u274c Admin disconnected: ${reason}`);
+      setIsConnected(false);
+    });
+
+    newSocket.on("connect_error", (error) => {
+      console.error(`[Socket] Admin connection error:`, error.message);
+      reconnectAttempts.current += 1;
+
+      if (reconnectAttempts.current >= maxReconnectAttempts) {
+        console.error(`[Socket] Max reconnection attempts reached`);
+      }
+    });
+
+    newSocket.on("pong", () => {
+      // Heartbeat response
+    });
+
+    socketRef.current = newSocket;
+    setSocket(newSocket);
+
+    return newSocket;
+  }, []);
+
+  // Initialize socket connection for managers
+  const connectAsManager = useCallback((managerId) => {
+    if (!managerId) {
+      console.warn("[Socket] No managerId provided");
+      return;
+    }
+
+    // Prevent duplicate connections
+    if (socketRef.current && socketRef.current.connected) {
+      console.log("[Socket] Already connected as manager");
+      return socketRef.current;
+    }
+
+    // Disconnect existing socket if any
+    if (socketRef.current) {
+      socketRef.current.disconnect();
+      socketRef.current = null;
+    }
+
+    console.log(`[Socket] Connecting as manager: ${managerId}`);
+
+    const newSocket = io(SOCKET_URL, {
+      transports: ["websocket", "polling"],
+      reconnection: true,
+      reconnectionAttempts: maxReconnectAttempts,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout: 20000,
+      autoConnect: true,
+      forceNew: true,
+    });
+
+    newSocket.on("connect", () => {
+      console.log(`[Socket] ✅ Manager connected: ${newSocket.id}`);
+      setIsConnected(true);
+      reconnectAttempts.current = 0;
+      newSocket.emit("manager:register", managerId);
+    });
+
+    newSocket.on("manager:registered", (data) => {
+      console.log(`[Socket] ✅ Registered as manager:`, data);
+    });
+
+    newSocket.on("disconnect", (reason) => {
+      console.log(`[Socket] ❌ Manager disconnected: ${reason}`);
+      setIsConnected(false);
+    });
+
+    newSocket.on("connect_error", (error) => {
+      console.error(`[Socket] Manager connection error:`, error.message);
+      reconnectAttempts.current += 1;
+      if (reconnectAttempts.current >= maxReconnectAttempts) {
+        console.error(`[Socket] Max reconnection attempts reached`);
+      }
+    });
+
+    newSocket.on("pong", () => {});
+
+    socketRef.current = newSocket;
+    setSocket(newSocket);
+    return newSocket;
+  }, []);
+
   // Disconnect socket
   const disconnect = useCallback(() => {
     if (socketRef.current) {
       const driverId = localStorage.getItem("driverId");
-      if (driverId) {
+      const customerId = localStorage.getItem("userId");
+      const role = localStorage.getItem("role");
+
+      if (driverId && role === "driver") {
         socketRef.current.emit("driver:offline", driverId);
+      }
+      if (customerId && role === "customer") {
+        socketRef.current.emit("customer:offline", customerId);
+      }
+      if (customerId && role === "admin") {
+        socketRef.current.emit("admin:offline", customerId);
+      }
+      if (customerId && role === "manager") {
+        socketRef.current.emit("manager:offline", customerId);
       }
       socketRef.current.disconnect();
       socketRef.current = null;
@@ -169,6 +485,26 @@ export function SocketProvider({ children }) {
     setNewDeliveryAlert(null);
   }, []);
 
+  // Clear customer notification banner
+  const clearCustomerNotification = useCallback(() => {
+    setCustomerNotification(null);
+  }, []);
+
+  // Clear all customer notifications
+  const clearCustomerNotifications = useCallback(() => {
+    setCustomerNotifications([]);
+  }, []);
+
+  // Dismiss a specific admin notification by order_id
+  const dismissAdminNotification = useCallback((orderId) => {
+    setAdminNotifications((prev) => prev.filter((n) => n.order_id !== orderId));
+  }, []);
+
+  // Clear all admin notifications
+  const clearAllAdminNotifications = useCallback(() => {
+    setAdminNotifications([]);
+  }, []);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -183,12 +519,22 @@ export function SocketProvider({ children }) {
     socket,
     isConnected,
     connectAsDriver,
+    connectAsCustomer,
+    connectAsAdmin,
+    connectAsManager,
     disconnect,
     newDeliveryAlert,
     clearNewDeliveryAlert,
     takenDeliveries,
     clearTakenDelivery,
     clearAllTakenDeliveries,
+    customerNotification,
+    clearCustomerNotification,
+    customerNotifications,
+    clearCustomerNotifications,
+    adminNotifications,
+    dismissAdminNotification,
+    clearAllAdminNotifications,
   };
 
   return (

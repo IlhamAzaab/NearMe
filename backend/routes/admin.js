@@ -128,6 +128,10 @@ router.patch("/restaurant", authenticate, async (req, res) => {
       cleanData.latitude = updateData.latitude;
     if (updateData.longitude !== undefined)
       cleanData.longitude = updateData.longitude;
+    if (updateData.is_open !== undefined)
+      cleanData.is_open = !!updateData.is_open;
+    if (updateData.is_manually_overridden !== undefined)
+      cleanData.is_manually_overridden = !!updateData.is_manually_overridden;
 
     cleanData.updated_at = new Date().toISOString();
 
@@ -150,6 +154,69 @@ router.patch("/restaurant", authenticate, async (req, res) => {
     return res.status(500).json({ message: "Server error" });
   }
 });
+
+/**
+ * PATCH /admin/restaurant/toggle-open
+ * Toggle the restaurant's is_open status (manual override)
+ */
+router.patch("/restaurant/toggle-open", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const adminId = req.user.id;
+
+    // Get admin's restaurant_id
+    const { data: admin, error: adminError } = await supabaseAdmin
+      .from("admins")
+      .select("restaurant_id")
+      .eq("id", adminId)
+      .maybeSingle();
+
+    if (adminError || !admin?.restaurant_id) {
+      return res.status(404).json({ message: "Restaurant not found" });
+    }
+
+    // Get current status
+    const { data: restaurant, error: fetchError } = await supabaseAdmin
+      .from("restaurants")
+      .select("is_open")
+      .eq("id", admin.restaurant_id)
+      .maybeSingle();
+
+    if (fetchError || !restaurant) {
+      return res.status(404).json({ message: "Restaurant not found" });
+    }
+
+    const newIsOpen = !restaurant.is_open;
+
+    // Update is_open and set manual override
+    const { data: updated, error: updateError } = await supabaseAdmin
+      .from("restaurants")
+      .update({
+        is_open: newIsOpen,
+        is_manually_overridden: true,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", admin.restaurant_id)
+      .select()
+      .maybeSingle();
+
+    if (updateError || !updated) {
+      console.error("Toggle error:", updateError);
+      return res
+        .status(500)
+        .json({ message: "Failed to toggle restaurant status" });
+    }
+
+    return res.json({ restaurant: updated, is_open: newIsOpen });
+  } catch (e) {
+    console.error("/admin/restaurant/toggle-open error:", e);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
 router.put("/update-profile", authenticate, async (req, res) => {
   try {
     if (req.user.role !== "admin") {

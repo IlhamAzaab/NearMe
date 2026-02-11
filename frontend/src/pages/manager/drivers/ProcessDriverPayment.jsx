@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import ManagerPageLayout from "../../../components/ManagerPageLayout";
+import { ManagerPageSkeleton } from "../../../components/ManagerSkeleton";
 import AnimatedAlert, { useAlert } from "../../../components/AnimatedAlert";
 
 export default function ProcessDriverPayment() {
@@ -176,64 +178,38 @@ export default function ProcessDriverPayment() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#f5faf8]">
-        <div className="max-w-md mx-auto px-4 py-6">
-          <div className="animate-pulse space-y-4">
-            <div className="h-8 bg-gray-200 rounded w-48 mx-auto"></div>
-            <div className="flex flex-col items-center space-y-3 py-6">
-              <div className="w-20 h-20 rounded-full bg-gray-200"></div>
-              <div className="h-5 bg-gray-200 rounded w-32"></div>
-              <div className="h-4 bg-gray-200 rounded w-24"></div>
-            </div>
-            <div className="h-24 bg-gray-200 rounded-2xl"></div>
-            <div className="h-12 bg-gray-200 rounded-xl"></div>
-            <div className="h-32 bg-gray-200 rounded-2xl"></div>
-          </div>
-        </div>
-      </div>
+      <ManagerPageLayout title="Process Payment">
+        <ManagerPageSkeleton type="form" />
+      </ManagerPageLayout>
     );
   }
 
   if (!driver) {
     return (
-      <div className="min-h-screen bg-[#f5faf8] flex items-center justify-center">
-        <div className="text-center">
-          <span className="material-symbols-outlined text-5xl text-[#618980]/30">
-            person_off
-          </span>
-          <p className="text-[#618980] mt-2">Driver not found</p>
-          <button
-            onClick={() => navigate(-1)}
-            className="mt-4 px-4 py-2 bg-[#13ecb9] text-[#111816] rounded-xl font-bold text-sm"
-          >
-            Go Back
-          </button>
+      <ManagerPageLayout title="Process Payment">
+        <div className="flex items-center justify-center py-20">
+          <div className="text-center">
+            <span className="material-symbols-outlined text-5xl text-[#618980]/30">
+              person_off
+            </span>
+            <p className="text-[#618980] mt-2">Driver not found</p>
+            <button
+              onClick={() => navigate(-1)}
+              className="mt-4 px-4 py-2 bg-[#13ecb9] text-[#111816] rounded-xl font-bold text-sm"
+            >
+              Go Back
+            </button>
+          </div>
         </div>
-      </div>
+      </ManagerPageLayout>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#f5faf8]">
-      <AnimatedAlert alert={alertState} visible={alertVisible} />
-      <div className="max-w-md mx-auto">
-        {/* Header */}
-        <div className="sticky top-0 z-10 bg-white/95 backdrop-blur-md border-b border-[#dbe6e3] px-4 py-3">
-          <div className="flex items-center justify-between">
-            <button
-              onClick={() => navigate(-1)}
-              className="p-2 -ml-2 text-[#618980] hover:text-[#111816]"
-            >
-              <span className="material-symbols-outlined">arrow_back_ios</span>
-            </button>
-            <h1 className="text-lg font-bold text-[#111816]">
-              Process Withdrawal
-            </h1>
-            <div className="w-10"></div>
-          </div>
-        </div>
-
-        <div className="px-4 py-6 space-y-5">
+    <ManagerPageLayout title="Process Withdrawal">
+      <div className="p-4">
+        <AnimatedAlert alert={alertState} visible={alertVisible} />
+        <div className="max-w-lg mx-auto">
           {/* Driver Profile */}
           <div className="flex flex-col items-center">
             <div className="relative">
@@ -548,6 +524,6 @@ export default function ProcessDriverPayment() {
           </div>
         </div>
       </div>
-    </div>
+    </ManagerPageLayout>
   );
 }

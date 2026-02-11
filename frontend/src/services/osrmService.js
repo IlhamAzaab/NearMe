@@ -3,13 +3,12 @@
  * OSRM Service (Frontend)
  * ============================================================================
  *
- * Replaces Google Maps Directions API with OSRM (Open Source Routing Machine)
- * Uses public OSRM server: https://router.project-osrm.org
+ * Uses OSRM (Open Source Routing Machine) for route calculation
+ * Public OSRM server: https://router.project-osrm.org
  *
- * IMPORTANT: This service maintains the EXACT same interface as googleMapsService.js
- * - Same function signatures
- * - Same return format
- * - Same logic for selecting shortest route
+ * Features:
+ * - Free and open source, no API key required
+ * - Supports driving, walking, cycling profiles
  * ============================================================================
  */
 
@@ -25,7 +24,7 @@ const OSRM_BASE_URL =
  */
 async function fetchRouteForProfile(waypoints, profile) {
   try {
-    // OSRM uses format: lng,lat;lng,lat (opposite of Google Maps lat,lng)
+    // OSRM uses format: lng,lat;lng,lat
     const coordinates = waypoints.map((wp) => `${wp.lng},${wp.lat}`).join(";");
 
     const url = `${OSRM_BASE_URL}/route/v1/${profile}/${coordinates}?overview=full&geometries=geojson&steps=true&alternatives=true`;
@@ -300,7 +299,6 @@ export function haversineDistance(lat1, lng1, lat2, lng2) {
 
 /**
  * Get complete optimized route: Driver → Restaurant → Customer
- * Same logic as Google Maps implementation
  */
 export async function getCompleteOptimizedRoute(
   driverLocation,

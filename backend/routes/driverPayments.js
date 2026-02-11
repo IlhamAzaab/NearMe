@@ -76,17 +76,15 @@ router.get("/summary", authenticate, managerOnly, async (req, res) => {
     }
 
     // Total earnings for all drivers (from delivered deliveries)
+    // tip_amount is already included in driver_earnings
     const { data: earningsData } = await supabaseAdmin
       .from("deliveries")
-      .select("driver_earnings, tip_amount")
+      .select("driver_earnings")
       .in("driver_id", driverIds)
       .eq("status", "delivered");
 
     const totalEarnings = (earningsData || []).reduce(
-      (sum, d) =>
-        sum +
-        parseFloat(d.driver_earnings || 0) +
-        parseFloat(d.tip_amount || 0),
+      (sum, d) => sum + parseFloat(d.driver_earnings || 0),
       0,
     );
 
@@ -155,10 +153,10 @@ router.get("/drivers", authenticate, managerOnly, async (req, res) => {
 
     const driverIds = drivers.map((d) => d.id);
 
-    // Get earnings per driver
+    // Get earnings per driver (tip_amount is already included in driver_earnings)
     const { data: deliveries } = await supabaseAdmin
       .from("deliveries")
-      .select("driver_id, driver_earnings, tip_amount")
+      .select("driver_id, driver_earnings")
       .in("driver_id", driverIds)
       .eq("status", "delivered");
 
@@ -166,8 +164,7 @@ router.get("/drivers", authenticate, managerOnly, async (req, res) => {
     const earningsByDriver = {};
     (deliveries || []).forEach((d) => {
       if (!earningsByDriver[d.driver_id]) earningsByDriver[d.driver_id] = 0;
-      earningsByDriver[d.driver_id] +=
-        parseFloat(d.driver_earnings || 0) + parseFloat(d.tip_amount || 0);
+      earningsByDriver[d.driver_id] += parseFloat(d.driver_earnings || 0);
     });
 
     // Count deliveries per driver
@@ -259,18 +256,15 @@ router.get("/driver/:driverId", authenticate, managerOnly, async (req, res) => {
         .json({ success: false, message: "Driver not found" });
     }
 
-    // Get total earnings
+    // Get total earnings (tip_amount is already included in driver_earnings)
     const { data: deliveries } = await supabaseAdmin
       .from("deliveries")
-      .select("driver_earnings, tip_amount")
+      .select("driver_earnings")
       .eq("driver_id", driverId)
       .eq("status", "delivered");
 
     const totalEarnings = (deliveries || []).reduce(
-      (sum, d) =>
-        sum +
-        parseFloat(d.driver_earnings || 0) +
-        parseFloat(d.tip_amount || 0),
+      (sum, d) => sum + parseFloat(d.driver_earnings || 0),
       0,
     );
 
@@ -398,15 +392,12 @@ router.post(
       // Check that amount doesn't exceed withdrawal balance
       const { data: deliveries } = await supabaseAdmin
         .from("deliveries")
-        .select("driver_earnings, tip_amount")
+        .select("driver_earnings")
         .eq("driver_id", driverId)
         .eq("status", "delivered");
 
       const totalEarnings = (deliveries || []).reduce(
-        (sum, d) =>
-          sum +
-          parseFloat(d.driver_earnings || 0) +
-          parseFloat(d.tip_amount || 0),
+        (sum, d) => sum + parseFloat(d.driver_earnings || 0),
         0,
       );
 
@@ -525,15 +516,12 @@ router.get("/my/summary", authenticate, driverOnly, async (req, res) => {
     // Total earnings from delivered deliveries
     const { data: deliveries } = await supabaseAdmin
       .from("deliveries")
-      .select("driver_earnings, tip_amount")
+      .select("driver_earnings")
       .eq("driver_id", driverId)
       .eq("status", "delivered");
 
     const totalEarnings = (deliveries || []).reduce(
-      (sum, d) =>
-        sum +
-        parseFloat(d.driver_earnings || 0) +
-        parseFloat(d.tip_amount || 0),
+      (sum, d) => sum + parseFloat(d.driver_earnings || 0),
       0,
     );
 

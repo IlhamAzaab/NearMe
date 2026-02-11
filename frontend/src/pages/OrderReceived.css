@@ -444,7 +444,7 @@
     box-shadow: 0 0 60px rgba(0,0,0,0.1);
   }
 }
-/* ===== Google Map Container ===== */
+/* ===== Map Container ===== */
 .map-container-full {
   position: absolute;
   top: 0;

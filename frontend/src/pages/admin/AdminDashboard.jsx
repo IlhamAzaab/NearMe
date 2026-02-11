@@ -18,6 +18,8 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [greeting, setGreeting] = useState("");
   const [slideIn, setSlideIn] = useState(false);
+  const [restaurant, setRestaurant] = useState(null);
+  const [toggling, setToggling] = useState(false);
   const navigate = useNavigate();
 
   const token = localStorage.getItem("token");
@@ -59,10 +61,52 @@ export default function AdminDashboard() {
       if (ordersRes.ok && ordersData.orders) {
         setRecentOrders(ordersData.orders);
       }
+
+      // Fetch restaurant details (for is_open status)
+      const restaurantRes = await fetch(`${API_URL}/admin/restaurant`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const restaurantData = await restaurantRes.json();
+      if (restaurantRes.ok && restaurantData.restaurant) {
+        setRestaurant(restaurantData.restaurant);
+      }
     } catch (error) {
       console.error("Error fetching dashboard data:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const toggleRestaurantOpen = async () => {
+    if (toggling) return;
+    setToggling(true);
+    // Optimistic update
+    setRestaurant((prev) =>
+      prev ? { ...prev, is_open: !prev.is_open } : prev,
+    );
+    try {
+      const res = await fetch(`${API_URL}/admin/restaurant/toggle-open`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const data = await res.json();
+      if (res.ok && data.restaurant) {
+        setRestaurant(data.restaurant);
+      } else {
+        // Revert on failure
+        setRestaurant((prev) =>
+          prev ? { ...prev, is_open: !prev.is_open } : prev,
+        );
+      }
+    } catch {
+      setRestaurant((prev) =>
+        prev ? { ...prev, is_open: !prev.is_open } : prev,
+      );
+    } finally {
+      setToggling(false);
     }
   };
 
@@ -187,10 +231,41 @@ export default function AdminDashboard() {
               </h1>
               <div className="flex items-center gap-2 sm:gap-3 mt-3">
                 <p className="text-gray-700 text-lg font-medium">{greeting}</p>
-                <div className="w-2.5 h-2.5 bg-green-500 rounded-full animate-pulse shadow-lg shadow-green-500/50"></div>
-                <p className="text-sm text-gray-600 font-medium">
-                  Restaurant is open
-                </p>
+                <button
+                  onClick={toggleRestaurantOpen}
+                  disabled={toggling}
+                  className="flex items-center gap-2 ml-2 px-3 py-1.5 rounded-full border transition-all duration-300 select-none"
+                  style={{
+                    borderColor: restaurant?.is_open ? "#22c55e" : "#ef4444",
+                    backgroundColor: restaurant?.is_open
+                      ? "#f0fdf4"
+                      : "#fef2f2",
+                  }}
+                >
+                  <div
+                    className={`relative w-10 h-[22px] rounded-full transition-colors duration-300 ${
+                      restaurant?.is_open ? "bg-green-500" : "bg-red-400"
+                    }`}
+                  >
+                    <div
+                      className={`absolute top-[3px] left-[3px] w-4 h-4 bg-white rounded-full shadow transition-transform duration-300 ${
+                        restaurant?.is_open
+                          ? "translate-x-[18px]"
+                          : "translate-x-0"
+                      }`}
+                    />
+                  </div>
+                  <span
+                    className={`text-sm font-semibold ${restaurant?.is_open ? "text-green-700" : "text-red-600"}`}
+                  >
+                    {restaurant?.is_open ? "Open" : "Closed"}
+                  </span>
+                </button>
+                {restaurant?.is_manually_overridden && (
+                  <span className="text-[11px] text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full font-medium">
+                    Manual
+                  </span>
+                )}
               </div>
             </div>
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">

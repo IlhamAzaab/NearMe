@@ -78,6 +78,44 @@ export default function Products() {
     setShowAddModal(true);
   };
 
+  const toggleAvailability = async (e, food) => {
+    e.stopPropagation();
+    const newValue = !food.is_available;
+    // Optimistic update
+    setFoods((prev) =>
+      prev.map((f) =>
+        f.id === food.id ? { ...f, is_available: newValue } : f,
+      ),
+    );
+    try {
+      const res = await fetch(`http://localhost:5000/admin/foods/${food.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ is_available: newValue }),
+      });
+      if (!res.ok) {
+        // Revert on failure
+        setFoods((prev) =>
+          prev.map((f) =>
+            f.id === food.id ? { ...f, is_available: !newValue } : f,
+          ),
+        );
+        const data = await res.json();
+        showError(data?.message || "Failed to update availability");
+      }
+    } catch {
+      setFoods((prev) =>
+        prev.map((f) =>
+          f.id === food.id ? { ...f, is_available: !newValue } : f,
+        ),
+      );
+      showError("Network error updating availability");
+    }
+  };
+
   const filteredFoods = foods.filter((food) =>
     food.name.toLowerCase().includes(search.toLowerCase()),
   );
@@ -243,15 +281,31 @@ export default function Products() {
                               {food.description || "-"}
                             </p>
                           </div>
-                          <span
-                            className={`px-2 py-1 rounded-full text-[11px] font-medium ${
-                              food.is_available
-                                ? "bg-green-100 text-green-700"
-                                : "bg-red-100 text-red-700"
-                            }`}
+                          <button
+                            onClick={(e) => toggleAvailability(e, food)}
+                            className="flex items-center gap-1.5 flex-shrink-0"
                           >
-                            {food.is_available ? "Available" : "Unavailable"}
-                          </span>
+                            <div
+                              className={`relative w-9 h-5 rounded-full transition-colors duration-200 ${
+                                food.is_available
+                                  ? "bg-green-500"
+                                  : "bg-gray-300"
+                              }`}
+                            >
+                              <div
+                                className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform duration-200 ${
+                                  food.is_available
+                                    ? "translate-x-4"
+                                    : "translate-x-0"
+                                }`}
+                              />
+                            </div>
+                            <span
+                              className={`text-[11px] font-medium ${food.is_available ? "text-green-700" : "text-red-600"}`}
+                            >
+                              {food.is_available ? "On" : "Off"}
+                            </span>
+                          </button>
                         </div>
                         <div className="mt-2 flex flex-wrap items-center gap-2">
                           <span className="text-sm font-semibold text-gray-900">
@@ -382,15 +436,31 @@ export default function Products() {
                         </td>
                         <td className="px-6 py-4">{renderStars(food.stars)}</td>
                         <td className="px-6 py-4">
-                          <span
-                            className={`px-2.5 py-1 rounded-full text-xs font-medium ${
-                              food.is_available
-                                ? "bg-green-100 text-green-700"
-                                : "bg-red-100 text-red-700"
-                            }`}
+                          <button
+                            onClick={(e) => toggleAvailability(e, food)}
+                            className="flex items-center gap-2"
                           >
-                            {food.is_available ? "Available" : "Unavailable"}
-                          </span>
+                            <div
+                              className={`relative w-10 h-[22px] rounded-full transition-colors duration-200 ${
+                                food.is_available
+                                  ? "bg-green-500"
+                                  : "bg-gray-300"
+                              }`}
+                            >
+                              <div
+                                className={`absolute top-[3px] left-[3px] w-4 h-4 bg-white rounded-full shadow transition-transform duration-200 ${
+                                  food.is_available
+                                    ? "translate-x-[18px]"
+                                    : "translate-x-0"
+                                }`}
+                              />
+                            </div>
+                            <span
+                              className={`text-xs font-medium ${food.is_available ? "text-green-700" : "text-red-600"}`}
+                            >
+                              {food.is_available ? "Available" : "Unavailable"}
+                            </span>
+                          </button>
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex gap-2">
@@ -759,7 +829,7 @@ function AddProductModal({ food, onClose, onSave }) {
                 Toggle off to hide from menu
               </p>
             </div>
-            <label className="inline-flex items-center cursor-pointer">
+            <label className="inline-flex items-center cursor-pointer relative">
               <input
                 type="checkbox"
                 className="sr-only peer"
@@ -768,8 +838,12 @@ function AddProductModal({ food, onClose, onSave }) {
                   setFormData({ ...formData, is_available: e.target.checked })
                 }
               />
-              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:bg-indigo-600 relative transition">
-                <div className="absolute top-[2px] left-[2px] w-5 h-5 bg-white rounded-full transition peer-checked:translate-x-5"></div>
+              <div
+                className={`w-11 h-6 rounded-full relative transition-colors duration-200 ${formData.is_available ? "bg-indigo-600" : "bg-gray-200"}`}
+              >
+                <div
+                  className={`absolute top-[2px] left-[2px] w-5 h-5 bg-white rounded-full transition-transform duration-200 ${formData.is_available ? "translate-x-5" : "translate-x-0"}`}
+                ></div>
               </div>
             </label>
           </div>

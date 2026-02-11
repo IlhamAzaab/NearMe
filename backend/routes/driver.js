@@ -1,6 +1,7 @@
 import express from "express";
 import { supabaseAdmin } from "../supabaseAdmin.js";
 import { authenticate } from "../middleware/authenticate.js";
+import { getSystemConfig } from "../utils/systemConfig.js";
 
 const router = express.Router();
 
@@ -121,27 +122,44 @@ router.put("/update-profile", authenticate, async (req, res) => {
 
 /**
  * Helper function to check if current time is within driver's working hours
+ * Uses DB config for shift times, falls back to defaults
  * @param {string} workingTime - 'full_time', 'day', or 'night'
- * @returns {boolean} - true if within working hours
+ * @returns {Promise<boolean>} - true if within working hours
  */
-function isWithinWorkingHours(workingTime) {
+async function isWithinWorkingHours(workingTime) {
   const now = new Date();
   const currentHour = now.getHours();
   const currentMinutes = now.getMinutes();
   const currentTime = currentHour + currentMinutes / 60;
+
+  // Load shift times from DB config
+  let dayStart = 5.0,
+    dayEnd = 19.0,
+    nightStart = 18.0,
+    nightEnd = 6.0;
+  try {
+    const config = await getSystemConfig();
+    dayStart = parseFloat(config.day_shift_start ?? 5.0);
+    dayEnd = parseFloat(config.day_shift_end ?? 19.0);
+    nightStart = parseFloat(config.night_shift_start ?? 18.0);
+    nightEnd = parseFloat(config.night_shift_end ?? 6.0);
+  } catch (err) {
+    console.error(
+      "Failed to load working hours config, using defaults:",
+      err.message,
+    );
+  }
 
   switch (workingTime) {
     case "full_time":
       return true; // Always active
 
     case "day":
-      // Active from 5:00 AM (5.0) to 7:00 PM (19.0)
-      return currentTime >= 5.0 && currentTime < 19.0;
+      return currentTime >= dayStart && currentTime < dayEnd;
 
     case "night":
-      // Active from 6:00 PM (18.0) to 6:00 AM (6.0)
-      // This crosses midnight, so check if >= 18:00 OR < 6:00
-      return currentTime >= 18.0 || currentTime < 6.0;
+      // Crosses midnight: check if >= nightStart OR < nightEnd
+      return currentTime >= nightStart || currentTime < nightEnd;
 
     default:
       return false;
@@ -182,7 +200,7 @@ router.get("/profile", authenticate, async (req, res) => {
     // Check if driver should be active based on working_time
     // Default to full_time if working_time is not set
     const workingTime = data.working_time || "full_time";
-    const withinWorkingHours = isWithinWorkingHours(workingTime);
+    const withinWorkingHours = await isWithinWorkingHours(workingTime);
     const manualOverride = data.manual_status_override || false;
     const canBeActive = withinWorkingHours || manualOverride;
 
@@ -232,15 +250,15 @@ router.get("/stats/today", authenticate, async (req, res) => {
     }
 
     // Calculate total earnings
-    // Use driver_earnings if available, otherwise calculate from components
+    // driver_earnings already includes tip_amount
     const totalEarnings = (deliveries || []).reduce((sum, d) => {
       const earnings =
         parseFloat(d.driver_earnings || 0) ||
         parseFloat(d.base_amount || 0) +
           parseFloat(d.extra_earnings || 0) +
-          parseFloat(d.bonus_amount || 0);
-      const tip = parseFloat(d.tip_amount || 0);
-      return sum + earnings + tip;
+          parseFloat(d.bonus_amount || 0) +
+          parseFloat(d.tip_amount || 0);
+      return sum + earnings;
     }, 0);
 
     return res.json({
@@ -290,7 +308,7 @@ router.patch("/status", authenticate, async (req, res) => {
 
     // Check if driver is trying to go active
     if (status === "active") {
-      const withinWorkingHours = isWithinWorkingHours(workingTime);
+      const withinWorkingHours = await isWithinWorkingHours(workingTime);
 
       // If outside working hours and not manually overriding, deny the request
       if (!withinWorkingHours && !manualOverride) {
@@ -303,45 +321,15 @@ router.patch("/status", authenticate, async (req, res) => {
       }
 
       // Update driver status to active
-      // Only set manual_status_override if the column exists (graceful handling)
-      const updateData = {
-        driver_status: "active",
-      };
-
-      // Try to set manual_status_override if outside working hours
-      if (!withinWorkingHours && manualOverride) {
-        updateData.manual_status_override = true;
-      }
-
       const { data, error } = await supabaseAdmin
         .from("drivers")
-        .update(updateData)
+        .update({ driver_status: "active" })
         .eq("id", driverId)
         .select()
         .single();
 
       if (error) {
         console.error("Update driver status error:", error);
-        // If error is about manual_status_override column, retry without it
-        if (error.message?.includes("manual_status_override")) {
-          const { data: retryData, error: retryError } = await supabaseAdmin
-            .from("drivers")
-            .update({ driver_status: "active" })
-            .eq("id", driverId)
-            .select()
-            .single();
-
-          if (retryError) {
-            return res.status(500).json({ message: "Failed to update status" });
-          }
-
-          return res.json({
-            message: "Status updated to active",
-            status: "active",
-            manual_override: false,
-            within_working_hours: withinWorkingHours,
-          });
-        }
         return res.status(500).json({ message: "Failed to update status" });
       }
 
@@ -405,7 +393,7 @@ router.get("/working-hours-status", authenticate, async (req, res) => {
     // Default to full_time if working_time is not set
     const workingTime = driverData.working_time || "full_time";
     const manualOverride = driverData.manual_status_override || false;
-    const withinWorkingHours = isWithinWorkingHours(workingTime);
+    const withinWorkingHours = await isWithinWorkingHours(workingTime);
     const shouldBeActive = withinWorkingHours || manualOverride;
 
     // If driver is active but should not be (outside working hours and no manual override)

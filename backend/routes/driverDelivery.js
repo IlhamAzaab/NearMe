@@ -24,7 +24,10 @@ import {
   removeDeliveryStops,
 } from "../utils/driverRouteContext.js";
 import { getAvailableDeliveriesForDriver } from "../utils/availableDeliveriesLogic.js";
-import { broadcastDeliveryTaken } from "../utils/socketManager.js";
+import {
+  broadcastDeliveryTaken,
+  notifyCustomer,
+} from "../utils/socketManager.js";
 
 const router = express.Router();
 
@@ -272,6 +275,7 @@ router.get(
           id,
           order_id,
           status,
+          tip_amount,
           created_at,
           orders!inner (
             id,
@@ -429,6 +433,7 @@ router.get(
               service_fee: parseFloat(d.orders.service_fee || 0),
               total: parseFloat(d.orders.total_amount || 0),
               driver_earnings: earnings,
+              tip_amount: parseFloat(d.tip_amount || 0),
             },
             distance_km: (totalDistance / 1000).toFixed(2),
             distance_meters: totalDistance,
@@ -441,6 +446,15 @@ router.get(
           };
         }),
       );
+
+      // Sort: tipped deliveries appear first so drivers are incentivized
+      deliveriesWithDetails.sort((a, b) => {
+        const tipA = a.pricing.tip_amount || 0;
+        const tipB = b.pricing.tip_amount || 0;
+        if (tipA > 0 && tipB <= 0) return -1;
+        if (tipB > 0 && tipA <= 0) return 1;
+        return 0;
+      });
 
       return res.json({
         deliveries: deliveriesWithDetails,
@@ -559,11 +573,21 @@ router.post(
       const deliverySequence = earnings_data?.delivery_sequence || 1;
       const isFirstDelivery = deliverySequence === 1;
 
+      // Fetch tip_amount from the delivery record (set by manager, not from frontend)
+      const { data: deliveryRecord } = await supabaseAdmin
+        .from("deliveries")
+        .select("tip_amount")
+        .eq("id", deliveryId)
+        .single();
+      const tipAmount = parseFloat(deliveryRecord?.tip_amount || 0);
+
       // Calculate driver_earnings based on delivery sequence
+      // tip_amount is included in driver_earnings (total payout = driver_earnings)
       const driverEarningsAmount = isFirstDelivery
-        ? earnings_data?.base_amount || 0
+        ? (earnings_data?.base_amount || 0) + tipAmount
         : (earnings_data?.extra_earnings || 0) +
-          (earnings_data?.bonus_amount || 0);
+          (earnings_data?.bonus_amount || 0) +
+          tipAmount;
 
       const earningsFields = earnings_data
         ? {
@@ -732,6 +756,20 @@ router.post(
       }
 
       console.log(`[ACCEPT DELIVERY]   ✓ Notifications sent`);
+
+      // 📡 REAL-TIME WEBSOCKET: Notify customer that driver accepted their order
+      if (updated.orders?.customer_id) {
+        notifyCustomer(updated.orders.customer_id, "order:status_update", {
+          type: "driver_assigned",
+          title: "Driver Accepted!",
+          message: `${driverInfo.driver_name} has accepted your order and is heading to the restaurant.`,
+          order_id: updated.order_id,
+          order_number: updated.orders.order_number,
+          status: "accepted",
+          driver: driverInfo,
+        });
+        console.log(`[ACCEPT DELIVERY]   📡 WebSocket: Customer notified`);
+      }
 
       // ======================================================================
       // 📡 BROADCAST: Notify all other drivers that this delivery is taken
@@ -1335,6 +1373,11 @@ router.get(
 );
 
 // ============================================================================
+// ============================================================================
+// Proximity notification throttle — only send once per delivery
+// ============================================================================
+const proximityNotifiedDeliveries = new Set();
+
 // PATCH /driver/deliveries/:id/location - Update driver location
 // ============================================================================
 
@@ -1371,7 +1414,9 @@ router.patch(
         })
         .eq("id", deliveryId)
         .eq("driver_id", req.user.id)
-        .select("id, order_id, status")
+        .select(
+          "id, order_id, status, orders (customer_id, order_number, delivery_latitude, delivery_longitude)",
+        )
         .maybeSingle();
 
       if (error) {
@@ -1382,6 +1427,46 @@ router.patch(
         return res
           .status(404)
           .json({ message: "Delivery not found or not assigned to you" });
+      }
+
+      // 📡 Check proximity to customer and notify if < 100m
+      if (
+        updated.status === "on_the_way" &&
+        updated.orders?.customer_id &&
+        updated.orders?.delivery_latitude &&
+        updated.orders?.delivery_longitude
+      ) {
+        const customerLat = parseFloat(updated.orders.delivery_latitude);
+        const customerLng = parseFloat(updated.orders.delivery_longitude);
+        const distance = calculateHaversineDistance(
+          latitude,
+          longitude,
+          customerLat,
+          customerLng,
+        );
+
+        if (distance < 100 && !proximityNotifiedDeliveries.has(deliveryId)) {
+          proximityNotifiedDeliveries.add(deliveryId);
+          notifyCustomer(updated.orders.customer_id, "order:status_update", {
+            type: "driver_nearby",
+            title: "Your Food is Arriving!",
+            message: "Your driver is just around the corner. Get ready!",
+            order_id: updated.order_id,
+            order_number: updated.orders.order_number,
+            delivery_id: updated.id,
+            status: "nearby",
+            distance_meters: Math.round(distance),
+          });
+          console.log(
+            `📡 WebSocket: Customer notified - driver is ${Math.round(distance)}m away`,
+          );
+
+          // Clean up after 10 minutes
+          setTimeout(
+            () => proximityNotifiedDeliveries.delete(deliveryId),
+            600000,
+          );
+        }
       }
 
       return res.json({
@@ -1613,6 +1698,33 @@ router.patch(
         await supabaseAdmin.from("notifications").insert(notifications);
       }
 
+      // 📡 REAL-TIME WEBSOCKET: Notify customer of delivery status change
+      if (messages && currentDelivery.orders?.customer_id) {
+        const wsStatusTitles = {
+          picked_up: "Order Picked Up!",
+          on_the_way: "Driver On The Way!",
+          at_customer: "Your Food is Arriving!",
+          delivered: "Order Delivered!",
+        };
+
+        notifyCustomer(
+          currentDelivery.orders.customer_id,
+          "order:status_update",
+          {
+            type: "delivery_status_update",
+            title: wsStatusTitles[status] || "Order Update",
+            message: messages.customer,
+            order_id: delivery.order_id,
+            delivery_id: delivery.id,
+            order_number: currentDelivery.orders.order_number,
+            status: status,
+          },
+        );
+        console.log(
+          `📡 WebSocket: Customer ${currentDelivery.orders.customer_id} notified of status: ${status}`,
+        );
+      }
+
       // Helper: promote the nearest picked_up delivery to on_the_way when no active on_the_way/at_customer exists
       const promoteNextPickedUp = async (referenceLat, referenceLng) => {
         const hasReference =
@@ -1735,6 +1847,19 @@ router.patch(
           }
           if (followups.length > 0) {
             await supabaseAdmin.from("notifications").insert(followups);
+          }
+
+          // 📡 REAL-TIME WEBSOCKET: Notify customer of auto-promoted delivery
+          if (next.customer_id) {
+            notifyCustomer(next.customer_id, "order:status_update", {
+              type: "delivery_status_update",
+              title: "Driver On The Way!",
+              message: nextMsgs.customer,
+              order_id: promoted?.order_id || next.order_id,
+              delivery_id: promoted?.id || next.id,
+              order_number: next.order_number,
+              status: "on_the_way",
+            });
           }
 
           // Return promoted delivery info so frontend can update immediately
@@ -2573,19 +2698,13 @@ router.get("/earnings/summary", authenticate, driverOnly, async (req, res) => {
         0,
       ),
       total_earnings: deliveries.reduce(
-        (sum, d) =>
-          sum +
-          parseFloat(d.driver_earnings || 0) +
-          parseFloat(d.tip_amount || 0),
+        (sum, d) => sum + parseFloat(d.driver_earnings || 0),
         0,
       ),
       avg_per_delivery:
         deliveries.length > 0
           ? deliveries.reduce(
-              (sum, d) =>
-                sum +
-                parseFloat(d.driver_earnings || 0) +
-                parseFloat(d.tip_amount || 0),
+              (sum, d) => sum + parseFloat(d.driver_earnings || 0),
               0,
             ) / deliveries.length
           : 0,
@@ -2595,10 +2714,7 @@ router.get("/earnings/summary", authenticate, driverOnly, async (req, res) => {
     const todayPerformance = {
       deliveries: todayDeliveries?.length || 0,
       earnings: (todayDeliveries || []).reduce(
-        (sum, d) =>
-          sum +
-          parseFloat(d.driver_earnings || 0) +
-          parseFloat(d.tip_amount || 0),
+        (sum, d) => sum + parseFloat(d.driver_earnings || 0),
         0,
       ),
       distance_km: (todayDeliveries || []).reduce(
@@ -2689,8 +2805,7 @@ router.get(
 
         const customer = customerMap.get(customerId);
         customer.delivery_count++;
-        customer.total_earned +=
-          parseFloat(d.driver_earnings || 0) + parseFloat(d.tip_amount || 0);
+        customer.total_earned += parseFloat(d.driver_earnings || 0);
         customer.total_tips += parseFloat(d.tip_amount || 0);
         if (
           !customer.last_delivery ||

@@ -575,6 +575,7 @@ export default function AvailableDeliveries() {
                 0,
               extra_earnings: delivery.route_impact?.extra_earnings || 0,
               bonus_amount: delivery.route_impact?.bonus_amount || 0,
+              tip_amount: parseFloat(delivery.pricing?.tip_amount || 0),
               r0_distance_km: delivery.route_impact?.r0_distance_km || null,
               r1_distance_km:
                 delivery.route_impact?.r1_distance_km ||
@@ -1189,6 +1190,9 @@ function DeliveryCard({
   const driverEarnings =
     pricing?.total_trip_earnings || total_trip_earnings || 0;
 
+  // Get tip amount from pricing (set by manager)
+  const tipAmount = parseFloat(pricing?.tip_amount || 0);
+
   // Decode polyline for routes
   const decodePolyline = (encoded) => {
     if (!encoded) return [];
@@ -1571,6 +1575,21 @@ function DeliveryCard({
         {/* For STACKED deliveries (2nd or more) - Show bonus above earnings */}
         {isStackedDelivery ? (
           <>
+            {/* Tip Amount Badge */}
+            {tipAmount > 0 && (
+              <div className="p-3 rounded-xl border-2 border-dashed border-yellow-400 bg-yellow-50 mb-4 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">💰</span>
+                  <span className="text-gray-800 font-bold text-sm">
+                    Manager Tip Included
+                  </span>
+                </div>
+                <span className="text-yellow-600 font-bold text-lg">
+                  +Rs.{tipAmount.toFixed(0)}
+                </span>
+              </div>
+            )}
+
             {/* Bonus Amount Box - Only show if bonus exists */}
             {Number(bonus_amount || 0) > 0 && (
               <div className="p-3 rounded-xl border-2 border-dashed border-[#13ec37] bg-green-50 mb-4 flex items-center justify-between">
@@ -1634,6 +1653,21 @@ function DeliveryCard({
         ) : (
           /* For FIRST delivery - Show earnings with detailed breakdown */
           <>
+            {/* Tip Amount Badge */}
+            {tipAmount > 0 && (
+              <div className="p-3 rounded-xl border-2 border-dashed border-yellow-400 bg-yellow-50 mb-4 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">💰</span>
+                  <span className="text-gray-800 font-bold text-sm">
+                    Manager Tip Included
+                  </span>
+                </div>
+                <span className="text-yellow-600 font-bold text-lg">
+                  +Rs.{tipAmount.toFixed(0)}
+                </span>
+              </div>
+            )}
+
             {/* Distance & Time Stats */}
             <div className="flex items-center justify-between mb-5 pb-5 my-4 border-b border-gray-100">
               <div>

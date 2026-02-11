@@ -59,6 +59,27 @@ router.post("/add", authenticate, async (req, res) => {
       });
     }
 
+    // STEP 1.5: Check if restaurant is open
+    const { data: restaurant, error: restaurantError } = await supabaseAdmin
+      .from("restaurants")
+      .select("id, is_open, restaurant_name")
+      .eq("id", restaurant_id)
+      .eq("restaurant_status", "active")
+      .maybeSingle();
+
+    if (restaurantError || !restaurant) {
+      return res.status(404).json({
+        message: "Restaurant not found",
+      });
+    }
+
+    if (restaurant.is_open === false) {
+      return res.status(400).json({
+        message: `${restaurant.restaurant_name} is currently closed`,
+        closed: true,
+      });
+    }
+
     // Determine size and get prices with commission
     let actualSize = size;
     if (!actualSize) {
@@ -82,7 +103,7 @@ router.post("/add", authenticate, async (req, res) => {
     const admin_unit_price = adminPrice;
     const total_price = (parseFloat(unit_price) * quantity).toFixed(2);
     const admin_total_price = (parseFloat(admin_unit_price) * quantity).toFixed(
-      2
+      2,
     );
 
     // STEP 2: Check for existing active cart for this customer + restaurant

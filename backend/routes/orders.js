@@ -24,7 +24,14 @@ import {
 import {
   broadcastNewDelivery,
   broadcastDeliveryTaken,
+  notifyCustomer,
+  notifyAdmin,
 } from "../utils/socketManager.js";
+import {
+  getSystemConfig,
+  calculateServiceFeeFromConfig,
+  calculateDeliveryFeeFromConfig,
+} from "../utils/systemConfig.js";
 
 const router = express.Router();
 
@@ -55,31 +62,40 @@ function getSupabaseClient(userToken) {
 
 /**
  * Calculate service fee based on subtotal
- * Must match frontend calculation
+ * Uses DB config tiers, falls back to hardcoded defaults
  */
-function calculateServiceFee(subtotal) {
-  if (subtotal < 300) return 0;
-  if (subtotal >= 300 && subtotal < 1000) return 31;
-  if (subtotal >= 1000 && subtotal < 1500) return 42;
-  if (subtotal >= 1500 && subtotal < 2500) return 56;
-  return 62; // above 2500
+async function calculateServiceFee(subtotal) {
+  try {
+    const config = await getSystemConfig();
+    return calculateServiceFeeFromConfig(subtotal, config);
+  } catch {
+    // Fallback to hardcoded defaults
+    if (subtotal < 300) return 0;
+    if (subtotal >= 300 && subtotal < 1000) return 31;
+    if (subtotal >= 1000 && subtotal < 1500) return 42;
+    if (subtotal >= 1500 && subtotal < 2500) return 56;
+    return 62;
+  }
 }
 
 /**
  * Calculate delivery fee based on distance in km
- * Must match frontend calculation
+ * Uses DB config tiers, falls back to hardcoded defaults
  */
-function calculateDeliveryFee(distanceKm) {
+async function calculateDeliveryFee(distanceKm) {
   if (distanceKm === null || distanceKm === undefined) return null;
-
-  if (distanceKm <= 1) return 50;
-  if (distanceKm <= 2) return 80;
-  if (distanceKm <= 2.5) return 87;
-
-  // Above 2.5km: Rs.87 + Rs.2.3 per 100m
-  const extraMeters = (distanceKm - 2.5) * 1000;
-  const extra100mUnits = Math.ceil(extraMeters / 100);
-  return 87 + extra100mUnits * 2.3;
+  try {
+    const config = await getSystemConfig();
+    return calculateDeliveryFeeFromConfig(distanceKm, config);
+  } catch {
+    // Fallback to hardcoded defaults
+    if (distanceKm <= 1) return 50;
+    if (distanceKm <= 2) return 80;
+    if (distanceKm <= 2.5) return 87;
+    const extraMeters = (distanceKm - 2.5) * 1000;
+    const extra100mUnits = Math.ceil(extraMeters / 100);
+    return 87 + extra100mUnits * 2.3;
+  }
 }
 
 /**
@@ -442,8 +458,8 @@ router.post("/place", authenticate, async (req, res) => {
       });
     }
 
-    const serviceFee = calculateServiceFee(subtotal);
-    const deliveryFee = calculateDeliveryFee(distance_km);
+    const serviceFee = await calculateServiceFee(subtotal);
+    const deliveryFee = await calculateDeliveryFee(distance_km);
     const totalAmount = subtotal + serviceFee + deliveryFee;
 
     // ========================================================================
@@ -612,6 +628,28 @@ router.post("/place", authenticate, async (req, res) => {
         // Continue anyway
       } else {
         console.log("✅ Notifications created successfully:", insertedNotifs);
+      }
+
+      // 🔔 WebSocket: Notify each online admin in real-time
+      const itemsSummary = processedItems
+        .map((item) => `${item.quantity}x ${item.food_name}`)
+        .join(", ");
+      const firstItemImage = processedItems[0]?.food_image_url || null;
+
+      for (const admin of admins) {
+        notifyAdmin(admin.id, "order:new_order", {
+          type: "new_order",
+          title: "New Order Arrived!",
+          message: itemsSummary,
+          order_id: order.id,
+          order_number: orderNumber,
+          items_summary: itemsSummary,
+          items_count: processedItems.length,
+          total_amount: totalAmount,
+          customer_name: customer.username,
+          food_image: firstItemImage,
+          restaurant_id: restaurant.id,
+        });
       }
     } else {
       console.log("⚠️ No admins found for restaurant");
@@ -1264,6 +1302,21 @@ router.patch(
         } else {
           console.log("✅ Customer notified successfully");
         }
+
+        // 📡 REAL-TIME WEBSOCKET: Notify customer instantly
+        if (order.customer_id) {
+          notifyCustomer(order.customer_id, "order:status_update", {
+            type: notificationTypes[status],
+            title: notificationTitles[status],
+            message: notificationMessages[status],
+            order_id: orderId,
+            order_number: order.order_number,
+            status: status,
+          });
+          console.log(
+            `📡 WebSocket: Customer ${order.customer_id} notified of status: ${status}`,
+          );
+        }
       }
 
       // ====================================================================
@@ -1378,6 +1431,17 @@ router.patch(
             // 🚀 REAL-TIME WEBSOCKET BROADCAST - Fair Instant Notification
             // All online drivers receive this at EXACTLY the same time
             // ================================================================
+
+            // Fetch tip_amount from the delivery record
+            const { data: deliveryTipData } = await supabaseAdmin
+              .from("deliveries")
+              .select("tip_amount")
+              .eq("id", delivery.id)
+              .single();
+            const deliveryTipAmount = parseFloat(
+              deliveryTipData?.tip_amount || 0,
+            );
+
             const broadcastResult = broadcastNewDelivery({
               delivery_id: delivery.id,
               order_id: orderId,
@@ -1396,6 +1460,9 @@ router.patch(
                 city: order.delivery_city,
               },
               total_amount: parseFloat(order.total_amount || 0),
+              distance_km: parseFloat(order.distance_km || 0),
+              estimated_time: parseFloat(order.estimated_duration_min || 0),
+              tip_amount: deliveryTipAmount,
               created_at: new Date().toISOString(),
             });
 

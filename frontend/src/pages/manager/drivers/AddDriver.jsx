@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import ManagerLayout from "../../../components/ManagerLayout";
+import ManagerPageLayout from "../../../components/ManagerPageLayout";
+import { ManagerPageSkeleton } from "../../../components/ManagerSkeleton";
 import AnimatedAlert, { useAlert } from "../../../components/AnimatedAlert";
 
 export default function AddDriver() {
@@ -69,42 +70,44 @@ export default function AddDriver() {
   };
 
   return (
-    <ManagerLayout>
-      <AnimatedAlert alert={alertState} visible={alertVisible} />
-      <div className="max-w-2xl mx-auto">
-        <h1 className="text-2xl font-bold text-gray-800">Add Driver</h1>
-        <p className="text-gray-600 mt-2">
-          Create a new driver account. A temporary password will be sent to the
-          email address.
-        </p>
+    <ManagerPageLayout title="Add Driver">
+      <div className="p-4">
+        <AnimatedAlert alert={alertState} visible={alertVisible} />
+        <div className="max-w-2xl mx-auto">
+          <h1 className="text-2xl font-bold text-gray-800">Add Driver</h1>
+          <p className="text-gray-600 mt-2">
+            Create a new driver account. A temporary password will be sent to
+            the email address.
+          </p>
 
-        <form
-          onSubmit={handleSubmit}
-          className="mt-6 bg-white rounded-xl shadow p-6 space-y-4"
-        >
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Email Address
-            </label>
-            <input
-              className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
-              placeholder="driver@example.com"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full px-4 py-3 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-60 transition"
+          <form
+            onSubmit={handleSubmit}
+            className="mt-6 bg-white rounded-xl shadow p-6 space-y-4"
           >
-            {loading ? "Creating..." : "Create Driver"}
-          </button>
-        </form>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Email Address
+              </label>
+              <input
+                className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                placeholder="driver@example.com"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full px-4 py-3 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-60 transition"
+            >
+              {loading ? "Creating..." : "Create Driver"}
+            </button>
+          </form>
+        </div>
       </div>
-    </ManagerLayout>
+    </ManagerPageLayout>
   );
 }

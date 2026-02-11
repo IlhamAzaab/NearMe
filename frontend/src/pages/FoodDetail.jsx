@@ -123,6 +123,13 @@ const FoodDetail = () => {
         return;
       }
 
+      if (restaurant?.is_open === false) {
+        showError(
+          `${restaurant?.restaurant_name || "This restaurant"} is currently closed`,
+        );
+        return;
+      }
+
       setAddingToCart(true);
 
       const token = currentToken;

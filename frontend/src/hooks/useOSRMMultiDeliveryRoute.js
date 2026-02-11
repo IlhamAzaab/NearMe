@@ -4,7 +4,6 @@
  * ============================================================================
  *
  * Calculates optimized routes for multiple deliveries using OSRM
- * Same interface as the Google Maps version
  * ============================================================================
  */
 import { useState, useCallback } from "react";

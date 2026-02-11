@@ -20,33 +20,91 @@
 
 import { supabaseAdmin } from "../supabaseAdmin.js";
 import { getDriverRouteContext } from "./driverRouteContext.js";
-// OSRM replaces Google Maps - same interface, same return format
-import { getOSRMRoute as getGoogleRoute } from "./osrmService.js";
+import { getOSRMRoute as calculateOSRMRoute } from "./osrmService.js";
+import { getSystemConfig } from "./systemConfig.js";
 
-// Thresholds for showing available deliveries
+// Default thresholds (fallback values — overridden by DB system_config)
 const AVAILABLE_DELIVERY_THRESHOLDS = {
   MAX_EXTRA_TIME_MINUTES: 10,
   MAX_EXTRA_DISTANCE_KM: 3,
   MAX_ACTIVE_DELIVERIES: 5,
 };
 
-// Driver earnings constants
+// Default driver earnings (fallback values — overridden by DB system_config)
 const DRIVER_EARNINGS = {
-  RATE_PER_KM: 40, // Rs per km
-  MAX_DRIVER_TO_RESTAURANT_KM: 1, // Maximum distance paid for driver to restaurant
-  MAX_RESTAURANT_PROXIMITY_KM: 1, // Maximum distance between new and existing restaurants for subsequent deliveries
+  RATE_PER_KM: 40,
+  MAX_DRIVER_TO_RESTAURANT_KM: 1,
+  MAX_DRIVER_TO_RESTAURANT_AMOUNT: 30,
+  MAX_RESTAURANT_PROXIMITY_KM: 1,
   DELIVERY_BONUS: {
-    SECOND_DELIVERY: 20, // Rs bonus when driver has 1 active delivery (getting 2nd)
-    ADDITIONAL_DELIVERY: 30, // Rs bonus when driver has 2+ active deliveries (getting 3rd, 4th, 5th)
+    SECOND_DELIVERY: 20,
+    ADDITIONAL_DELIVERY: 30,
   },
 };
+
+/**
+ * Load live thresholds + earnings from system_config table.
+ * Falls back to the hardcoded defaults above if the DB is unreachable.
+ */
+async function loadConfigConstants() {
+  try {
+    const cfg = await getSystemConfig();
+    const thresholds = {
+      MAX_EXTRA_TIME_MINUTES:
+        cfg.max_extra_time_minutes ??
+        AVAILABLE_DELIVERY_THRESHOLDS.MAX_EXTRA_TIME_MINUTES,
+      MAX_EXTRA_DISTANCE_KM: parseFloat(
+        cfg.max_extra_distance_km ??
+          AVAILABLE_DELIVERY_THRESHOLDS.MAX_EXTRA_DISTANCE_KM,
+      ),
+      MAX_ACTIVE_DELIVERIES:
+        cfg.max_active_deliveries ??
+        AVAILABLE_DELIVERY_THRESHOLDS.MAX_ACTIVE_DELIVERIES,
+    };
+    const earnings = {
+      RATE_PER_KM: parseFloat(cfg.rate_per_km ?? DRIVER_EARNINGS.RATE_PER_KM),
+      MAX_DRIVER_TO_RESTAURANT_KM: parseFloat(
+        cfg.max_driver_to_restaurant_km ??
+          DRIVER_EARNINGS.MAX_DRIVER_TO_RESTAURANT_KM,
+      ),
+      MAX_DRIVER_TO_RESTAURANT_AMOUNT: parseFloat(
+        cfg.max_driver_to_restaurant_amount ??
+          DRIVER_EARNINGS.MAX_DRIVER_TO_RESTAURANT_AMOUNT,
+      ),
+      MAX_RESTAURANT_PROXIMITY_KM: parseFloat(
+        cfg.max_restaurant_proximity_km ??
+          DRIVER_EARNINGS.MAX_RESTAURANT_PROXIMITY_KM,
+      ),
+      DELIVERY_BONUS: {
+        SECOND_DELIVERY: parseFloat(
+          cfg.second_delivery_bonus ??
+            DRIVER_EARNINGS.DELIVERY_BONUS.SECOND_DELIVERY,
+        ),
+        ADDITIONAL_DELIVERY: parseFloat(
+          cfg.additional_delivery_bonus ??
+            DRIVER_EARNINGS.DELIVERY_BONUS.ADDITIONAL_DELIVERY,
+        ),
+      },
+    };
+    return { thresholds, earnings };
+  } catch (err) {
+    console.error(
+      "[CONFIG] Failed to load system config, using defaults:",
+      err.message,
+    );
+    return {
+      thresholds: AVAILABLE_DELIVERY_THRESHOLDS,
+      earnings: DRIVER_EARNINGS,
+    };
+  }
+}
 
 // ============================================================================
 // OSRM ROUTE CALCULATION (Using Public OSRM Server)
 // ============================================================================
 async function getOSRMRoute(waypoints, context = "") {
   // Uses OSRM foot profile for shortest distance (suitable for motorcycles too)
-  return await getGoogleRoute(waypoints, context, { useSingleMode: true });
+  return await calculateOSRMRoute(waypoints, context, { useSingleMode: true });
 }
 
 // ============================================================================
@@ -1445,10 +1503,12 @@ async function evaluateAvailableDelivery(
         driverToRestaurantKm,
         DRIVER_EARNINGS.MAX_DRIVER_TO_RESTAURANT_KM,
       );
+      // DTR uses MAX_DRIVER_TO_RESTAURANT_AMOUNT rate
       driverToRestaurantEarnings =
-        paidDriverToRestaurantKm * DRIVER_EARNINGS.RATE_PER_KM;
+        paidDriverToRestaurantKm *
+        DRIVER_EARNINGS.MAX_DRIVER_TO_RESTAURANT_AMOUNT;
 
-      // Calculate earnings: Rs. 40 per km
+      // Calculate earnings: RATE_PER_KM per km
       restaurantToCustomerEarnings =
         restaurantToCustomerKm * DRIVER_EARNINGS.RATE_PER_KM;
 
@@ -2132,8 +2192,10 @@ async function evaluateAvailableDeliveryOptimized(
         DRIVER_EARNINGS.MAX_DRIVER_TO_RESTAURANT_KM,
       );
 
+      // DTR uses MAX_DRIVER_TO_RESTAURANT_AMOUNT rate (e.g. Rs.30/km for DTR leg)
       const dtrEarnings =
-        paidDriverToRestaurantKm * DRIVER_EARNINGS.RATE_PER_KM;
+        paidDriverToRestaurantKm *
+        DRIVER_EARNINGS.MAX_DRIVER_TO_RESTAURANT_AMOUNT;
       const rtcEarnings = restaurantToCustomerKm * DRIVER_EARNINGS.RATE_PER_KM;
 
       totalTripEarnings = dtrEarnings + rtcEarnings;
@@ -2302,6 +2364,18 @@ export async function getAvailableDeliveriesForDriver(
   console.log(`${"=".repeat(80)}`);
 
   try {
+    // Load live config from DB (cached, refreshes every 60s)
+    const { thresholds: liveThresholds, earnings: liveEarnings } =
+      await loadConfigConstants();
+    // Update module-level constants so all evaluate functions use DB values
+    Object.assign(AVAILABLE_DELIVERY_THRESHOLDS, liveThresholds);
+    Object.assign(DRIVER_EARNINGS, liveEarnings);
+    // Also update nested DELIVERY_BONUS
+    Object.assign(DRIVER_EARNINGS.DELIVERY_BONUS, liveEarnings.DELIVERY_BONUS);
+    console.log(
+      `[AVAILABLE DELIVERIES] ⚙️  Config loaded: RATE_PER_KM=${DRIVER_EARNINGS.RATE_PER_KM}, MAX_ACTIVE=${AVAILABLE_DELIVERY_THRESHOLDS.MAX_ACTIVE_DELIVERIES}`,
+    );
+
     // Step 1: Get driver's current route context (pass coordinates to ensure location is set)
     console.log(
       `\n[AVAILABLE DELIVERIES] Step 1️⃣ : Get driver's route context`,
@@ -2341,6 +2415,7 @@ export async function getAvailableDeliveriesForDriver(
           order_id,
           status,
           res_accepted_at,
+          tip_amount,
           orders (
             id,
             order_number,
@@ -2540,6 +2615,7 @@ export async function getAvailableDeliveriesForDriver(
             ),
             service_fee: parseFloat(candidateDelivery.orders.service_fee || 0),
             total: parseFloat(candidateDelivery.orders.total_amount || 0),
+            tip_amount: parseFloat(candidateDelivery.tip_amount || 0),
             // Driver earnings breakdown:
             base_amount: result.base_amount, // 1st order's earnings (R0 × Rs.40)
             extra_earnings: result.extra_earnings, // Extra distance × Rs.40
@@ -2605,8 +2681,18 @@ export async function getAvailableDeliveriesForDriver(
       );
     });
 
+    // Sort: tipped deliveries first, then by tip amount descending
+    acceptedDeliveries.sort((a, b) => {
+      const tipA = parseFloat(a.pricing?.tip_amount || 0);
+      const tipB = parseFloat(b.pricing?.tip_amount || 0);
+      if (tipA > 0 && tipB <= 0) return -1;
+      if (tipB > 0 && tipA <= 0) return 1;
+      if (tipA > 0 && tipB > 0) return tipB - tipA; // higher tip first
+      return 0; // preserve existing order for non-tipped
+    });
+
     console.log(
-      `\n[AVAILABLE DELIVERIES] ✅ Complete: Showing ${acceptedDeliveries.length} available deliveries`,
+      `\n[AVAILABLE DELIVERIES] ✅ Complete: Showing ${acceptedDeliveries.length} available deliveries (tipped first)`,
     );
     console.log(`${"=".repeat(80)}\n`);
 

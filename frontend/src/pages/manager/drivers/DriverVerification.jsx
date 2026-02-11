@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import ManagerHeader from "../../../components/ManagerHeader";
+import ManagerPageLayout from "../../../components/ManagerPageLayout";
+import { ManagerPageSkeleton } from "../../../components/ManagerSkeleton";
 import AnimatedAlert, { useAlert } from "../../../components/AnimatedAlert";
 
 export default function DriverVerification() {
@@ -127,20 +128,15 @@ export default function DriverVerification() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50">
-        <ManagerHeader onLogout={handleLogout} />
-        <div className="max-w-7xl mx-auto px-4 py-8 text-center">
-          <p>Loading...</p>
-        </div>
-      </div>
+      <ManagerPageLayout title="Driver Verification">
+        <ManagerPageSkeleton type="list" />
+      </ManagerPageLayout>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <ManagerHeader onLogout={handleLogout} />
-
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+    <ManagerPageLayout title="Driver Verification">
+      <main className="p-4 sm:px-6">
         <AnimatedAlert alert={alertState} visible={alertVisible} />
         <div className="mb-6">
           <h1 className="text-3xl font-bold text-gray-800">
@@ -477,6 +473,6 @@ export default function DriverVerification() {
           </div>
         </div>
       )}
-    </div>
+    </ManagerPageLayout>
   );
 }

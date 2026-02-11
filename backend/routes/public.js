@@ -1,6 +1,11 @@
 import express from "express";
 import { supabaseAdmin } from "../supabaseAdmin.js";
 import { addCustomerPricing } from "../utils/commission.js";
+import {
+  getSystemConfig,
+  getServiceFeeTiers,
+  getDeliveryFeeTiers,
+} from "../utils/systemConfig.js";
 
 const router = express.Router();
 
@@ -57,7 +62,10 @@ router.get("/foods", async (req, res) => {
           restaurant_name,
           logo_url,
           city,
-          restaurant_status
+          restaurant_status,
+          is_open,
+          opening_time,
+          close_time
         )
       `,
       )
@@ -213,6 +221,23 @@ router.get("/restaurants/:restaurantId/foods/:foodId", async (req, res) => {
   } catch (e) {
     console.error("/public/restaurants/:restaurantId/foods/:foodId error:", e);
     return res.status(500).json({ message: "Server error", error: e.message });
+  }
+});
+
+/**
+ * GET /public/fee-config
+ * Returns service fee tiers and delivery fee tiers for frontend calculations
+ */
+router.get("/fee-config", async (req, res) => {
+  try {
+    const config = await getSystemConfig();
+    return res.json({
+      service_fee_tiers: getServiceFeeTiers(config),
+      delivery_fee_tiers: getDeliveryFeeTiers(config),
+    });
+  } catch (err) {
+    console.error("Fee config fetch error:", err);
+    return res.status(500).json({ message: "Failed to fetch fee config" });
   }
 });
 

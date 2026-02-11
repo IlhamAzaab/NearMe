@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
+import ManagerPageLayout from "../../../components/ManagerPageLayout";
+import { ManagerPageSkeleton } from "../../../components/ManagerSkeleton";
 
 export default function AdminPayments() {
   const navigate = useNavigate();
@@ -62,51 +64,19 @@ export default function AdminPayments() {
   // Skeleton loader
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50">
-        <div className="max-w-7xl mx-auto px-4 py-6">
-          <div className="animate-pulse space-y-4">
-            <div className="h-8 bg-gray-200 rounded w-64"></div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="h-32 bg-gray-200 rounded-xl"></div>
-              <div className="h-32 bg-gray-200 rounded-xl"></div>
-              <div className="h-32 bg-gray-200 rounded-xl"></div>
-            </div>
-            <div className="h-12 bg-gray-200 rounded-xl"></div>
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="h-24 bg-gray-200 rounded-xl"></div>
-            ))}
-          </div>
-        </div>
-      </div>
+      <ManagerPageLayout title="Admin Payments">
+        <ManagerPageSkeleton type="payments" />
+      </ManagerPageLayout>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto px-4 py-6">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-bold text-gray-800">Admin Payments</h1>
-          <button
-            onClick={handleRefresh}
-            className={`p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-all ${refreshing ? "animate-spin" : ""}`}
-          >
-            <svg
-              className="w-6 h-6"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-              />
-            </svg>
-          </button>
-        </div>
-
+    <ManagerPageLayout
+      title="Admin Payments"
+      onRefresh={handleRefresh}
+      refreshing={refreshing}
+    >
+      <div className="p-4">
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
           {/* Total to Pay */}
@@ -337,6 +307,6 @@ export default function AdminPayments() {
           )}
         </div>
       </div>
-    </div>
+    </ManagerPageLayout>
   );
 }

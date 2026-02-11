@@ -3,7 +3,7 @@
  * Calculates optimized routes for multiple deliveries and computes payment distances
  */
 import { useState, useCallback } from "react";
-import { useGoogleDirections } from "./useGoogleDirections";
+import { useOSRMDirections } from "./useOSRMDirections";
 import {
   getTotalDistanceKm,
   getTotalDurationMinutes,
@@ -13,7 +13,7 @@ import {
 } from "../utils/routeCalculations";
 
 export function useMultiDeliveryRoute() {
-  const { calculateOptimizedRoute } = useGoogleDirections();
+  const { calculateOptimizedRoute } = useOSRMDirections();
   const [routeData, setRouteData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);

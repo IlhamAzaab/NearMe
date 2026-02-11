@@ -2,7 +2,7 @@
  * Socket.io Manager for Real-time Notifications
  *
  * Purpose: Broadcast new deliveries to ALL online drivers SIMULTANEOUSLY
- * This ensures fair opportunity - every driver sees new deliveries at the exact same time
+ * AND send real-time order status notifications to customers
  */
 
 import { Server } from "socket.io";
@@ -11,6 +11,15 @@ let io = null;
 
 // Track connected drivers with their socket IDs
 const connectedDrivers = new Map(); // driverId -> { socketId, connectedAt }
+
+// Track connected customers with their socket IDs
+const connectedCustomers = new Map(); // customerId -> { socketId, connectedAt }
+
+// Track connected admins (restaurant admins) with their socket IDs
+const connectedAdmins = new Map(); // adminId -> { socketId, connectedAt }
+
+// Track connected managers with their socket IDs
+const connectedManagers = new Map(); // managerId -> { socketId, connectedAt }
 
 /**
  * Initialize Socket.io server
@@ -64,6 +73,121 @@ export function initializeSocket(server) {
       });
     });
 
+    // Customer joins and registers their customer ID
+    socket.on("customer:register", (customerId) => {
+      if (!customerId) {
+        console.log(
+          `⚠️ Socket ${socket.id} tried to register as customer without customerId`,
+        );
+        return;
+      }
+
+      // Store customer connection
+      connectedCustomers.set(customerId, {
+        socketId: socket.id,
+        connectedAt: new Date(),
+      });
+
+      // Join customer-specific room for targeted notifications
+      socket.join(`customer:${customerId}`);
+
+      console.log(
+        `✅ Customer ${customerId} registered (socket: ${socket.id})`,
+      );
+      console.log(`📊 Total online customers: ${connectedCustomers.size}`);
+
+      // Acknowledge registration
+      socket.emit("customer:registered", {
+        success: true,
+        customerId,
+      });
+    });
+
+    // Customer goes offline
+    socket.on("customer:offline", (customerId) => {
+      if (customerId && connectedCustomers.has(customerId)) {
+        connectedCustomers.delete(customerId);
+        socket.leave(`customer:${customerId}`);
+        console.log(`📴 Customer ${customerId} went offline`);
+        console.log(`📊 Total online customers: ${connectedCustomers.size}`);
+      }
+    });
+
+    // Admin (restaurant) joins and registers their admin ID
+    socket.on("admin:register", (adminId) => {
+      if (!adminId) {
+        console.log(
+          `⚠️ Socket ${socket.id} tried to register as admin without adminId`,
+        );
+        return;
+      }
+
+      // Store admin connection
+      connectedAdmins.set(adminId, {
+        socketId: socket.id,
+        connectedAt: new Date(),
+      });
+
+      // Join admin-specific room for targeted notifications
+      socket.join(`admin:${adminId}`);
+
+      console.log(`✅ Admin ${adminId} registered (socket: ${socket.id})`);
+      console.log(`📊 Total online admins: ${connectedAdmins.size}`);
+
+      // Acknowledge registration
+      socket.emit("admin:registered", {
+        success: true,
+        adminId,
+      });
+    });
+
+    // Admin goes offline
+    socket.on("admin:offline", (adminId) => {
+      if (adminId && connectedAdmins.has(adminId)) {
+        connectedAdmins.delete(adminId);
+        socket.leave(`admin:${adminId}`);
+        console.log(`📴 Admin ${adminId} went offline`);
+        console.log(`📊 Total online admins: ${connectedAdmins.size}`);
+      }
+    });
+
+    // Manager joins and registers
+    socket.on("manager:register", (managerId) => {
+      if (!managerId) {
+        console.log(
+          `⚠️ Socket ${socket.id} tried to register as manager without managerId`,
+        );
+        return;
+      }
+
+      connectedManagers.set(managerId, {
+        socketId: socket.id,
+        connectedAt: new Date(),
+      });
+
+      socket.join(`manager:${managerId}`);
+      socket.join("all-managers");
+
+      console.log(`✅ Manager ${managerId} registered (socket: ${socket.id})`);
+      console.log(`📊 Total online managers: ${connectedManagers.size}`);
+
+      socket.emit("manager:registered", {
+        success: true,
+        managerId,
+      });
+    });
+
+    // Manager goes offline
+    socket.on("manager:offline", (managerId) => {
+      if (managerId && connectedManagers.has(managerId)) {
+        connectedManagers.delete(managerId);
+        socket.leave(`manager:${managerId}`);
+        socket.leave("all-managers");
+        console.log(`📴 Manager ${managerId} went offline`);
+        console.log(`📊 Total online managers: ${connectedManagers.size}`);
+      }
+    });
+
     // Driver goes offline
     socket.on("driver:offline", (driverId) => {
       if (driverId && connectedDrivers.has(driverId)) {
@@ -85,7 +209,38 @@ export function initializeSocket(server) {
           break;
         }
       }
+      // Find and remove the customer by socket ID
+      for (const [customerId, data] of connectedCustomers.entries()) {
+        if (data.socketId === socket.id) {
+          connectedCustomers.delete(customerId);
+          console.log(
+            `❌ Customer ${customerId} disconnected (reason: ${reason})`,
+          );
+          break;
+        }
+      }
+      // Find and remove the admin by socket ID
+      for (const [adminId, data] of connectedAdmins.entries()) {
+        if (data.socketId === socket.id) {
+          connectedAdmins.delete(adminId);
+          console.log(`❌ Admin ${adminId} disconnected (reason: ${reason})`);
+          break;
+        }
+      }
+      // Find and remove the manager by socket ID
+      for (const [managerId, data] of connectedManagers.entries()) {
+        if (data.socketId === socket.id) {
+          connectedManagers.delete(managerId);
+          console.log(
+            `❌ Manager ${managerId} disconnected (reason: ${reason})`,
+          );
+          break;
+        }
+      }
       console.log(`📊 Total online drivers: ${connectedDrivers.size}`);
+      console.log(`📊 Total online customers: ${connectedCustomers.size}`);
+      console.log(`📊 Total online admins: ${connectedAdmins.size}`);
+      console.log(`📊 Total online managers: ${connectedManagers.size}`);
     });
 
     // Ping to keep connection alive
@@ -163,6 +318,46 @@ export function broadcastNewDelivery(deliveryData) {
 }
 
 /**
+ * Broadcast tip update to ALL online drivers
+ * Triggered when manager sets/updates tip_amount on a pending delivery
+ *
+ * @param {Object} data - Delivery info with updated tip
+ * @param {string} data.delivery_id - Delivery ID
+ * @param {number} data.tip_amount - Tip amount set by manager
+ */
+export function broadcastTipUpdate(data) {
+  if (!io) {
+    console.error("❌ Socket.io not initialized, cannot broadcast tip update");
+    return { success: false, driversNotified: 0 };
+  }
+
+  const onlineDriverCount = connectedDrivers.size;
+
+  console.log(`\n${"=".repeat(60)}`);
+  console.log(`💰 BROADCASTING TIP UPDATE TO ALL DRIVERS`);
+  console.log(`${"=".repeat(60)}`);
+  console.log(`📦 Delivery ID: ${data.delivery_id}`);
+  console.log(`💵 Tip Amount: Rs.${data.tip_amount}`);
+  console.log(`👥 Online Drivers: ${onlineDriverCount}`);
+  console.log(`${"=".repeat(60)}\n`);
+
+  if (onlineDriverCount === 0) {
+    console.log("⚠️ No drivers online to receive tip update");
+    return { success: true, driversNotified: 0 };
+  }
+
+  io.to("all-drivers").emit("delivery:tip_updated", {
+    ...data,
+    broadcast_timestamp: Date.now(),
+    message: "A tip has been added to a delivery!",
+  });
+
+  console.log(`✅ Tip update broadcast sent to ${onlineDriverCount} drivers`);
+
+  return { success: true, driversNotified: onlineDriverCount };
+}
+
+/**
  * Notify a specific driver (for targeted notifications)
  * @param {string} driverId - Driver ID to notify
  * @param {string} event - Event name
@@ -199,12 +394,15 @@ export function notifyDriver(driverId, event, data) {
 export function broadcastDeliveryTaken(deliveryId, takenByDriverId) {
   if (!io) return;
 
-  io.to("all-drivers").emit("delivery:taken", {
+  const payload = {
     delivery_id: deliveryId,
     taken_by: takenByDriverId,
     timestamp: Date.now(),
     message: "This delivery has been accepted by another driver",
-  });
+  };
+
+  io.to("all-drivers").emit("delivery:taken", payload);
+  io.to("all-managers").emit("delivery:taken", payload);
 
   console.log(
     `📢 Broadcast: Delivery ${deliveryId} taken by driver ${takenByDriverId}`,
@@ -232,13 +430,153 @@ export function isDriverOnline(driverId) {
   return connectedDrivers.has(driverId);
 }
 
+/**
+ * Notify a specific customer with a delivery status update
+ * @param {string} customerId - Customer ID to notify
+ * @param {string} event - Event name (e.g., 'order:status_update')
+ * @param {Object} data - Event data including status, message, etc.
+ */
+export function notifyCustomer(customerId, event, data) {
+  if (!io) {
+    console.error("❌ Socket.io not initialized, cannot notify customer");
+    return false;
+  }
+
+  const customerConnection = connectedCustomers.get(customerId);
+  if (!customerConnection) {
+    console.log(
+      `⚠️ Customer ${customerId} not online, cannot send real-time notification`,
+    );
+    return false;
+  }
+
+  io.to(`customer:${customerId}`).emit(event, {
+    ...data,
+    timestamp: Date.now(),
+  });
+
+  console.log(`📨 Sent ${event} to customer ${customerId}`);
+  return true;
+}
+
+/**
+ * Notify a specific admin (restaurant) with a real-time event
+ * @param {string} adminId - Admin ID to notify
+ * @param {string} event - Event name (e.g., 'order:new_order')
+ * @param {Object} data - Event data
+ */
+export function notifyAdmin(adminId, event, data) {
+  if (!io) {
+    console.error("❌ Socket.io not initialized, cannot notify admin");
+    return false;
+  }
+
+  const adminConnection = connectedAdmins.get(adminId);
+  if (!adminConnection) {
+    console.log(
+      `⚠️ Admin ${adminId} not online, cannot send real-time notification`,
+    );
+    return false;
+  }
+
+  io.to(`admin:${adminId}`).emit(event, {
+    ...data,
+    timestamp: Date.now(),
+  });
+
+  console.log(`📨 Sent ${event} to admin ${adminId}`);
+  return true;
+}
+
+/**
+ * Check if a specific customer is online
+ */
+export function isCustomerOnline(customerId) {
+  return connectedCustomers.has(customerId);
+}
+
+/**
+ * Get count of online customers
+ */
+export function getOnlineCustomerCount() {
+  return connectedCustomers.size;
+}
+
+/**
+ * Broadcast to all connected managers
+ * @param {string} event - Event name
+ * @param {Object} data - Event data
+ */
+export function broadcastToManagers(event, data) {
+  if (!io) {
+    console.error("❌ Socket.io not initialized, cannot broadcast to managers");
+    return false;
+  }
+
+  const onlineManagerCount = connectedManagers.size;
+  if (onlineManagerCount === 0) {
+    console.log(`⚠️ No managers online to receive ${event}`);
+    return false;
+  }
+
+  io.to("all-managers").emit(event, {
+    ...data,
+    timestamp: Date.now(),
+  });
+
+  console.log(`📨 Broadcast ${event} to ${onlineManagerCount} online managers`);
+  return true;
+}
+
+/**
+ * Notify a specific manager
+ * @param {string} managerId - Manager ID to notify
+ * @param {string} event - Event name
+ * @param {Object} data - Event data
+ */
+export function notifyManager(managerId, event, data) {
+  if (!io) {
+    console.error("❌ Socket.io not initialized, cannot notify manager");
+    return false;
+  }
+
+  const managerConnection = connectedManagers.get(managerId);
+  if (!managerConnection) {
+    console.log(`⚠️ Manager ${managerId} not online`);
+    return false;
+  }
+
+  io.to(`manager:${managerId}`).emit(event, {
+    ...data,
+    timestamp: Date.now(),
+  });
+
+  console.log(`📨 Sent ${event} to manager ${managerId}`);
+  return true;
+}
+
+/**
+ * Get count of online managers
+ */
+export function getOnlineManagerCount() {
+  return connectedManagers.size;
+}
+
 export default {
   initializeSocket,
   getIO,
   broadcastNewDelivery,
+  broadcastTipUpdate,
   notifyDriver,
+  notifyCustomer,
+  notifyAdmin,
   broadcastDeliveryTaken,
   getOnlineDrivers,
   getOnlineDriverCount,
   isDriverOnline,
+  isCustomerOnline,
+  getOnlineCustomerCount,
+  broadcastToManagers,
+  notifyManager,
+  getOnlineManagerCount,
 };

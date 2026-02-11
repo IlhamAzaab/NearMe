@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import AnimatedAlert, { useAlert } from "../components/AnimatedAlert";
+import { API_URL } from "../config";
 import {
   MapContainer,
   TileLayer,
@@ -165,26 +166,62 @@ const Checkout = () => {
   // Minimum order amount
   const MINIMUM_SUBTOTAL = 300;
 
-  // Calculate service fee based on subtotal
+  // Fee config from API (loaded dynamically)
+  const [feeConfig, setFeeConfig] = useState(null);
+
+  // Load fee config on mount
+  useEffect(() => {
+    fetch(`${API_URL}/public/fee-config`)
+      .then((res) => res.json())
+      .then((data) => setFeeConfig(data))
+      .catch((err) => console.error("Failed to load fee config:", err));
+  }, []);
+
+  // Calculate service fee based on subtotal (uses API config or fallback)
   const calculateServiceFee = (subtotal) => {
+    if (feeConfig?.service_fee_tiers) {
+      const tiers = [...feeConfig.service_fee_tiers].sort(
+        (a, b) => a.min - b.min,
+      );
+      for (let i = tiers.length - 1; i >= 0; i--) {
+        if (subtotal >= tiers[i].min) return tiers[i].fee;
+      }
+      return 0;
+    }
+    // Fallback
     if (subtotal < 300) return 0;
     if (subtotal >= 300 && subtotal < 1000) return 31;
     if (subtotal >= 1000 && subtotal < 1500) return 42;
     if (subtotal >= 1500 && subtotal < 2500) return 56;
-    return 62; // above 2500
+    return 62;
   };
 
-  // Calculate delivery fee based on distance in km
+  // Calculate delivery fee based on distance in km (uses API config or fallback)
   const calculateDeliveryFee = (distanceKm) => {
     if (distanceKm === null || distanceKm === undefined) return null;
 
+    if (feeConfig?.delivery_fee_tiers) {
+      const tiers = [...feeConfig.delivery_fee_tiers].sort((a, b) => {
+        if (a.max_km === null) return 1;
+        if (b.max_km === null) return -1;
+        return a.max_km - b.max_km;
+      });
+      for (const tier of tiers) {
+        if (tier.max_km !== null && distanceKm <= tier.max_km) return tier.fee;
+        if (tier.max_km === null) {
+          const extraMeters = (distanceKm - tier.base_km) * 1000;
+          const extra100mUnits = Math.ceil(extraMeters / 100);
+          return tier.base_fee + extra100mUnits * tier.extra_per_100m;
+        }
+      }
+      return 0;
+    }
+    // Fallback
     if (distanceKm <= 1) return 50;
     if (distanceKm <= 2) return 80;
     if (distanceKm <= 2.5) return 87;
-
-    // Above 2.5km: Rs.87 + Rs.2.3 per 100m
-    const extraMeters = (distanceKm - 2.5) * 1000; // Convert km to meters
-    const extra100mUnits = Math.ceil(extraMeters / 100); // Number of 100m units
+    const extraMeters = (distanceKm - 2.5) * 1000;
+    const extra100mUnits = Math.ceil(extraMeters / 100);
     return 87 + extra100mUnits * 2.3;
   };
 

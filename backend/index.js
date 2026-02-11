@@ -5,6 +5,8 @@ import { createServer } from "http";
 import cron from "node-cron";
 import { supabaseAdmin } from "./supabaseAdmin.js";
 import { initializeSocket } from "./utils/socketManager.js";
+import { runManagerChecks } from "./utils/managerNotificationChecker.js";
+import { runRestaurantScheduler } from "./utils/restaurantScheduler.js";
 
 // Load .env file only if NODE_ENV is not production and .env exists
 if (process.env.NODE_ENV !== "production") {
@@ -65,6 +67,7 @@ import publicRoutes from "./routes/public.js";
 import cartRoutes from "./routes/cart.js";
 import ordersRoutes from "./routes/orders.js";
 import customerRoutes from "./routes/customer.js";
+import reportsRoutes from "./routes/reports.js";
 
 const app = express();
 
@@ -95,6 +98,7 @@ app.use("/public", publicRoutes);
 app.use("/cart", cartRoutes);
 app.use("/orders", ordersRoutes);
 app.use("/customer", customerRoutes);
+app.use("/manager/reports", reportsRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -140,6 +144,51 @@ const server = httpServer.listen(PORT, () => {
   );
   console.log(
     `⏰ Daily snapshot scheduler active (runs at midnight Sri Lanka time / 18:30 UTC)`,
+  );
+
+  // ============================================================================
+  // MANAGER NOTIFICATION CHECKER
+  // Runs every 60 seconds to detect unassigned deliveries & milestones
+  // ============================================================================
+  setInterval(async () => {
+    try {
+      await runManagerChecks();
+    } catch (err) {
+      console.error("[ManagerChecker] ❌ Check cycle error:", err.message);
+    }
+  }, 60 * 1000); // every 60 seconds
+
+  // Run once on startup after a short delay
+  setTimeout(() => {
+    runManagerChecks().catch((err) =>
+      console.error("[ManagerChecker] ❌ Initial check error:", err.message),
+    );
+  }, 5000);
+  console.log(`📋 Manager notification checker active (runs every 60s)`);
+
+  // ============================================================================
+  // RESTAURANT AUTO OPEN/CLOSE SCHEDULER
+  // Checks every minute to auto-open/close restaurants based on operating hours
+  // ============================================================================
+  setInterval(async () => {
+    try {
+      await runRestaurantScheduler();
+    } catch (err) {
+      console.error("[RestaurantScheduler] ❌ Check cycle error:", err.message);
+    }
+  }, 60 * 1000); // every 60 seconds
+
+  // Run once on startup after a short delay
+  setTimeout(() => {
+    runRestaurantScheduler().catch((err) =>
+      console.error(
+        "[RestaurantScheduler] ❌ Initial check error:",
+        err.message,
+      ),
+    );
+  }, 8000);
+  console.log(
+    `🕐 Restaurant auto open/close scheduler active (runs every 60s)`,
   );
 
   // On startup, check if we missed a snapshot and create one if needed

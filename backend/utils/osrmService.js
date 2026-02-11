@@ -3,13 +3,13 @@
  * OSRM Routing Service (Backend)
  * ============================================================================
  *
- * Replaces Google Maps Directions API with OSRM (Open Source Routing Machine)
- * Uses public OSRM server: https://router.project-osrm.org
+ * Uses OSRM (Open Source Routing Machine) for route calculation
+ * Public OSRM server: https://router.project-osrm.org
  *
- * IMPORTANT: This service maintains the EXACT same interface as googleMapsService.js
- * - Same function signatures
- * - Same return format
- * - Same logic for selecting shortest route
+ * Features:
+ * - No API key required
+ * - Free and open source
+ * - Supports driving, walking, cycling profiles
  *
  * Travel modes:
  * - driving → OSRM 'driving' profile (car/motorcycle)
@@ -177,7 +177,6 @@ async function fetchRouteForProfile(waypoints, profile) {
 
 /**
  * Get route using OSRM - uses FOOT (walking) profile for shortest distance
- * Same interface as getGoogleRoute() for drop-in replacement
  * Falls back to Haversine calculation when OSRM is unavailable
  *
  * @param {Array} waypoints - Array of {lat, lng, label} objects
@@ -424,14 +423,7 @@ export function decodePolyline(encoded) {
   return poly;
 }
 
-/**
- * Alias for backward compatibility with googleMapsService.js
- * Code that imports getGoogleRoute can switch to this
- */
-export const getGoogleRoute = getOSRMRoute;
-
 export default {
   getOSRMRoute,
-  getGoogleRoute: getOSRMRoute,
   decodePolyline,
 };

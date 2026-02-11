@@ -19,6 +19,7 @@ import React, {
 } from "react";
 import { useNavigate } from "react-router-dom";
 import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
+import { useDriverDeliveryNotifications } from "../../context/DriverDeliveryNotificationContext";
 import { MapContainer, TileLayer, Marker, Polyline } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -259,11 +260,22 @@ export default function DriverDashboard() {
     showError,
   } = useAlert();
 
+  // Driver notification context - to sync online status
+  const { setDriverOnline } = useDriverDeliveryNotifications();
+
   // Active time tracking
   const [activeStartTime, setActiveStartTime] = useState(null);
   const activeTimeRef = useRef(null);
   const workingHoursCheckRef = useRef(null);
   const driverLocationRef = useRef(null); // Ref to avoid infinite loop in fetchDashboardData
+
+  // ============================================================================
+  // SYNC ONLINE STATUS TO NOTIFICATION CONTEXT
+  // ============================================================================
+
+  useEffect(() => {
+    setDriverOnline(isOnline);
+  }, [isOnline, setDriverOnline]);
 
   // ============================================================================
   // AUTH CHECK
@@ -541,11 +553,45 @@ export default function DriverDashboard() {
     setAcceptingOrder(deliveryId);
     try {
       const token = localStorage.getItem("token");
+
+      // Find the delivery to build earnings_data
+      const delivery = availableDeliveries.find(
+        (d) => d.delivery_id === deliveryId,
+      );
+
+      const body = {
+        driver_latitude: driverLocation?.latitude,
+        driver_longitude: driverLocation?.longitude,
+        earnings_data: delivery
+          ? {
+              delivery_sequence: delivery.route_impact?.delivery_sequence || 1,
+              base_amount:
+                delivery.route_impact?.base_amount ||
+                delivery.pricing?.total_trip_earnings ||
+                0,
+              extra_earnings: delivery.route_impact?.extra_earnings || 0,
+              bonus_amount: delivery.route_impact?.bonus_amount || 0,
+              tip_amount: parseFloat(delivery.pricing?.tip_amount || 0),
+              r0_distance_km: delivery.route_impact?.r0_distance_km || null,
+              r1_distance_km:
+                delivery.route_impact?.r1_distance_km ||
+                delivery.total_delivery_distance_km ||
+                0,
+              extra_distance_km: delivery.route_impact?.extra_distance_km || 0,
+              total_distance_km: delivery.total_delivery_distance_km || 0,
+            }
+          : null,
+      };
+
       const res = await fetch(
         `${API_URL}/driver/deliveries/${deliveryId}/accept`,
         {
           method: "POST",
-          headers: { Authorization: `Bearer ${token}` },
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
         },
       );
 
@@ -962,6 +1008,19 @@ export default function DriverDashboard() {
                         <p className="text-[#22c55e] text-2xl font-bold leading-tight">
                           Rs. {getDeliveryEarnings(delivery)}
                         </p>
+                        {/* Tip Badge */}
+                        {parseFloat(delivery.pricing?.tip_amount || 0) > 0 && (
+                          <div className="flex items-center gap-1.5 bg-yellow-50 border border-yellow-300 rounded-full px-2.5 py-0.5 w-fit">
+                            <span className="text-xs">💰</span>
+                            <span className="text-yellow-700 text-xs font-bold">
+                              +Rs.
+                              {parseFloat(delivery.pricing.tip_amount).toFixed(
+                                0,
+                              )}{" "}
+                              tip included
+                            </span>
+                          </div>
+                        )}
                         <div className="flex items-center gap-1.5">
                           <span className="material-symbols-outlined text-[18px] text-slate-400">
                             store

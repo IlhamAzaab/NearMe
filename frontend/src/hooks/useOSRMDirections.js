@@ -3,8 +3,8 @@
  * OSRM Directions Hook
  * ============================================================================
  *
- * Replaces useGoogleDirections with OSRM-based routing
- * Same interface for drop-in replacement
+ * Uses OSRM (Open Source Routing Machine) for route calculation
+ * Free, no API key required
  * ============================================================================
  */
 import { useCallback, useRef } from "react";
@@ -19,12 +19,11 @@ export function useOSRMDirections() {
 
   /**
    * Calculate optimized route for multiple deliveries
-   * Same interface as useGoogleDirections
    * @param {Object} origin - Driver location {lat, lng}
    * @param {Array} waypoints - Array of waypoint locations [{lat, lng}]
    * @param {Object} destination - Final destination {lat, lng}
    * @param {boolean} optimizeWaypoints - Whether to optimize waypoint order (using OSRM trip service)
-   * @returns {Promise<Object>} Route result compatible with Google Directions format
+   * @returns {Promise<Object>} Route result
    */
   const calculateOptimizedRoute = useCallback(
     async (origin, waypoints, destination, optimizeWaypoints = true) => {
@@ -305,8 +304,5 @@ function calculateBounds(coordinates) {
     southwest: { lat: minLat, lng: minLng },
   };
 }
-
-// Alias for backward compatibility
-export const useGoogleDirections = useOSRMDirections;
 
 export default useOSRMDirections;

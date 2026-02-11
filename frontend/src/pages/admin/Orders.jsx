@@ -37,17 +37,23 @@ export default function Orders() {
   const [newOrderNotification, setNewOrderNotification] = useState(null);
   const [restaurant, setRestaurant] = useState(null);
 
+  // Normalize deliveries to always be an array (Supabase may return object for 1:1 relations)
+  const normalizeDeliveries = (deliveries) => {
+    if (!deliveries) return [];
+    if (Array.isArray(deliveries)) return deliveries;
+    return [deliveries]; // single object → wrap in array
+  };
+
   const getDeliveryStatus = (order) => {
+    const dels = normalizeDeliveries(order?.deliveries);
     return (
-      order?.deliveries?.[0]?.status ||
-      order?.delivery_status ||
-      order?.status ||
-      "placed"
+      dels[0]?.status || order?.delivery_status || order?.status || "placed"
     );
   };
 
   const getDriver = (order) => {
-    return order?.deliveries?.[0]?.drivers || null;
+    const dels = normalizeDeliveries(order?.deliveries);
+    return dels[0]?.drivers || null;
   };
 
   const computeCounts = (list) => {
@@ -180,10 +186,11 @@ export default function Orders() {
           // Immediately update local state for instant UI feedback
           setOrders((prevOrders) => {
             const newOrders = prevOrders.map((order) => {
-              if (order.deliveries?.some((d) => d.id === updatedDelivery.id)) {
+              const dels = normalizeDeliveries(order.deliveries);
+              if (dels.some((d) => d.id === updatedDelivery.id)) {
                 return {
                   ...order,
-                  deliveries: order.deliveries.map((d) =>
+                  deliveries: dels.map((d) =>
                     d.id === updatedDelivery.id
                       ? {
                           ...d,

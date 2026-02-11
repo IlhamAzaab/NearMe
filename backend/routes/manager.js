@@ -3,6 +3,11 @@ import { supabaseAdmin } from "../supabaseAdmin.js";
 import { authenticate } from "../middleware/authenticate.js";
 import { generateTempPassword } from "../utils/password.js";
 import { sendAdminInviteEmail, sendDriverInviteEmail } from "../utils/email.js";
+import {
+  getSystemConfig,
+  invalidateConfigCache,
+} from "../utils/systemConfig.js";
+import { broadcastNewDelivery } from "../utils/socketManager.js";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -1476,6 +1481,360 @@ router.get("/restaurant-payouts", authenticate, async (req, res) => {
   } catch (e) {
     console.error("/manager/restaurant-payouts error:", e);
     return res.status(500).json({ message: "Server error" });
+  }
+});
+
+// ============================================================================
+// PENDING DELIVERIES (no driver accepted > 10 min after restaurant accepted)
+// ============================================================================
+
+/**
+ * GET /manager/pending-deliveries
+ * Fetch deliveries where status='pending', driver_id IS NULL,
+ * and the restaurant accepted the order more than 10 minutes ago.
+ */
+router.get("/pending-deliveries", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "manager") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from("deliveries")
+      .select(
+        `
+        id, order_id, status, tip_amount, created_at,
+        orders (
+          id, order_number, customer_name, customer_phone,
+          restaurant_name, restaurant_address, restaurant_phone,
+          restaurant_latitude, restaurant_longitude,
+          delivery_address, delivery_city,
+          delivery_latitude, delivery_longitude,
+          subtotal, delivery_fee, service_fee, total_amount,
+          admin_subtotal, commission_total, distance_km,
+          estimated_duration_min, payment_method,
+          accepted_at, placed_at, status,
+          order_items (
+            id, food_name, food_image_url, size, quantity, unit_price, total_price
+          )
+        )
+      `,
+      )
+      .eq("status", "pending")
+      .is("driver_id", null);
+
+    if (error) {
+      console.error("Pending deliveries fetch error:", error);
+      return res
+        .status(500)
+        .json({ message: "Failed to fetch pending deliveries" });
+    }
+
+    // Filter: restaurant accepted > configurable minutes ago (from system_config)
+    const config = await getSystemConfig();
+    const pendingMinutes = config.pending_alert_minutes || 10;
+    const thresholdAgo = new Date(Date.now() - pendingMinutes * 60 * 1000);
+    const filtered = (data || []).filter((d) => {
+      if (!d.orders || !d.orders.accepted_at) return false;
+      if (!["accepted", "preparing", "ready"].includes(d.orders.status))
+        return false;
+      return new Date(d.orders.accepted_at) < thresholdAgo;
+    });
+
+    // Sort: tipped deliveries first, then by longest waiting
+    filtered.sort((a, b) => {
+      const tipA = parseFloat(a.tip_amount || 0);
+      const tipB = parseFloat(b.tip_amount || 0);
+      // Tipped first
+      if (tipA > 0 && tipB <= 0) return -1;
+      if (tipB > 0 && tipA <= 0) return 1;
+      // Then by accepted_at ascending (longest waiting first)
+      return new Date(a.orders.accepted_at) - new Date(b.orders.accepted_at);
+    });
+
+    // Enrich with computed fields
+    const result = filtered.map((d) => {
+      const totalAmount = parseFloat(d.orders.total_amount || 0);
+      const adminSubtotal = parseFloat(d.orders.admin_subtotal || 0);
+      const tipAmount = parseFloat(d.tip_amount || 0);
+      const waitingMs = Date.now() - new Date(d.orders.accepted_at).getTime();
+
+      return {
+        ...d,
+        waiting_minutes: Math.floor(waitingMs / 60000),
+        // Manager earning = total collected - restaurant payout - tip (driver earnings are 0 since unassigned)
+        manager_earning: totalAmount - adminSubtotal - tipAmount,
+        gross_earning: totalAmount - adminSubtotal,
+      };
+    });
+
+    return res.json({
+      success: true,
+      deliveries: result,
+      count: result.length,
+    });
+  } catch (err) {
+    console.error("Pending deliveries error:", err);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+/**
+ * GET /manager/pending-deliveries/count
+ * Lightweight count-only endpoint for badge display
+ */
+router.get("/pending-deliveries/count", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "manager") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from("deliveries")
+      .select("id, orders!inner ( accepted_at, status )")
+      .eq("status", "pending")
+      .is("driver_id", null);
+
+    if (error) {
+      return res.status(500).json({ message: "Failed to fetch count" });
+    }
+
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+    const count = (data || []).filter((d) => {
+      if (!d.orders || !d.orders.accepted_at) return false;
+      if (!["accepted", "preparing", "ready"].includes(d.orders.status))
+        return false;
+      return new Date(d.orders.accepted_at) < tenMinutesAgo;
+    }).length;
+
+    return res.json({ success: true, count });
+  } catch (err) {
+    console.error("Pending deliveries count error:", err);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+/**
+ * PATCH /manager/pending-deliveries/:deliveryId/tip
+ * Set or update tip_amount on a pending delivery to incentivize drivers.
+ * The tip is deducted from manager earnings and added to driver earnings on delivery.
+ */
+router.patch(
+  "/pending-deliveries/:deliveryId/tip",
+  authenticate,
+  async (req, res) => {
+    try {
+      if (req.user.role !== "manager") {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
+      const { deliveryId } = req.params;
+      const { tip_amount } = req.body;
+
+      if (
+        tip_amount === undefined ||
+        tip_amount === null ||
+        parseFloat(tip_amount) < 0
+      ) {
+        return res.status(400).json({ message: "Invalid tip amount" });
+      }
+
+      const tipValue = parseFloat(tip_amount);
+
+      // Verify delivery exists and is still pending with no driver
+      const { data: delivery, error: fetchError } = await supabaseAdmin
+        .from("deliveries")
+        .select("id, status, driver_id, tip_amount")
+        .eq("id", deliveryId)
+        .maybeSingle();
+
+      if (fetchError || !delivery) {
+        return res.status(404).json({ message: "Delivery not found" });
+      }
+
+      if (delivery.driver_id) {
+        return res
+          .status(400)
+          .json({ message: "Delivery already assigned to a driver" });
+      }
+
+      if (delivery.status !== "pending") {
+        return res
+          .status(400)
+          .json({ message: "Delivery is no longer pending" });
+      }
+
+      // Update tip_amount
+      const { data: updated, error: updateError } = await supabaseAdmin
+        .from("deliveries")
+        .update({
+          tip_amount: tipValue,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", deliveryId)
+        .select("id, tip_amount, order_id")
+        .single();
+
+      if (updateError) {
+        console.error("Tip update error:", updateError);
+        return res.status(500).json({ message: "Failed to update tip amount" });
+      }
+
+      // 📡 BROADCAST: Notify all drivers about the tip update via WebSocket
+      if (tipValue > 0 && updated.order_id) {
+        try {
+          // Fetch order details for the notification
+          const { data: orderData } = await supabaseAdmin
+            .from("orders")
+            .select(
+              "order_number, restaurant_name, restaurant_address, restaurant_latitude, restaurant_longitude, delivery_address, delivery_city, delivery_latitude, delivery_longitude, distance_km, estimated_duration_min, total_amount",
+            )
+            .eq("id", updated.order_id)
+            .single();
+
+          if (orderData) {
+            const { broadcastTipUpdate } =
+              await import("../utils/socketManager.js");
+            broadcastTipUpdate({
+              delivery_id: deliveryId,
+              order_id: updated.order_id,
+              order_number: orderData.order_number,
+              type: "tip_update",
+              restaurant_name: orderData.restaurant_name,
+              restaurant_address: orderData.restaurant_address,
+              restaurant_latitude: orderData.restaurant_latitude,
+              restaurant_longitude: orderData.restaurant_longitude,
+              customer_address: orderData.delivery_address,
+              customer_city: orderData.delivery_city,
+              customer_latitude: orderData.delivery_latitude,
+              customer_longitude: orderData.delivery_longitude,
+              distance_km: parseFloat(orderData.distance_km || 0),
+              estimated_time: parseFloat(orderData.estimated_duration_min || 0),
+              total_amount: parseFloat(orderData.total_amount || 0),
+              tip_amount: tipValue,
+            });
+          }
+        } catch (broadcastErr) {
+          console.error("Tip broadcast error:", broadcastErr);
+          // Don't fail the request, just log
+        }
+      }
+
+      return res.json({
+        success: true,
+        message:
+          tipValue > 0
+            ? `Tip of Rs.${tipValue.toFixed(2)} set successfully`
+            : "Tip removed",
+        delivery: updated,
+      });
+    } catch (err) {
+      console.error("Tip update error:", err);
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  },
+);
+
+// ============================================================================
+// SYSTEM CONFIGURATION (Operations Page)
+// ============================================================================
+
+/**
+ * GET /manager/system-config
+ * Fetch all system configuration values
+ */
+router.get("/system-config", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "manager") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const config = await getSystemConfig(true); // force fresh read
+    return res.json({ config });
+  } catch (err) {
+    console.error("System config fetch error:", err);
+    return res.status(500).json({ message: "Failed to fetch system config" });
+  }
+});
+
+/**
+ * PUT /manager/system-config
+ * Update system configuration (single row upsert)
+ */
+router.put("/system-config", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "manager") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const {
+      rate_per_km,
+      max_driver_to_restaurant_km,
+      max_driver_to_restaurant_amount,
+      max_restaurant_proximity_km,
+      second_delivery_bonus,
+      additional_delivery_bonus,
+      max_extra_time_minutes,
+      max_extra_distance_km,
+      max_active_deliveries,
+      service_fee_tiers,
+      delivery_fee_tiers,
+      pending_alert_minutes,
+      day_shift_start,
+      day_shift_end,
+      night_shift_start,
+      night_shift_end,
+    } = req.body;
+
+    const updatePayload = {
+      rate_per_km,
+      max_driver_to_restaurant_km,
+      max_driver_to_restaurant_amount,
+      max_restaurant_proximity_km,
+      second_delivery_bonus,
+      additional_delivery_bonus,
+      max_extra_time_minutes,
+      max_extra_distance_km,
+      max_active_deliveries,
+      service_fee_tiers,
+      delivery_fee_tiers,
+      pending_alert_minutes,
+      day_shift_start,
+      day_shift_end,
+      night_shift_start,
+      night_shift_end,
+      updated_by: req.user.id,
+    };
+
+    // Remove undefined fields
+    Object.keys(updatePayload).forEach(
+      (key) => updatePayload[key] === undefined && delete updatePayload[key],
+    );
+
+    const { data, error } = await supabaseAdmin
+      .from("system_config")
+      .upsert({ id: 1, ...updatePayload }, { onConflict: "id" })
+      .select()
+      .single();
+
+    if (error) {
+      console.error("System config update error:", error);
+      return res
+        .status(500)
+        .json({ message: "Failed to update system config" });
+    }
+
+    // Invalidate cache so all modules pick up new values
+    invalidateConfigCache();
+
+    console.log("✅ System config updated by manager:", req.user.id);
+    return res.json({
+      message: "System configuration updated successfully",
+      config: data,
+    });
+  } catch (err) {
+    console.error("System config update error:", err);
+    return res.status(500).json({ message: "Internal server error" });
   }
 });
 
