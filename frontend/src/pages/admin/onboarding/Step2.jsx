@@ -10,6 +10,7 @@ import {
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import AnimatedAlert, { useAlert } from "../../../components/AnimatedAlert";
+import { API_URL } from "../../../config";
 
 // Fix Leaflet default marker icon issue
 delete L.Icon.Default.prototype._getIconUrl;
@@ -206,7 +207,7 @@ export default function AdminOnboardingStep2() {
       formData.append("imageType", imageType);
 
       const response = await fetch(
-        "http://localhost:5000/restaurant-onboarding/upload-image",
+        `${API_URL}/restaurant-onboarding/upload-image`,
         {
           method: "POST",
           headers: {
@@ -292,7 +293,7 @@ export default function AdminOnboardingStep2() {
 
       // Submit to backend with URLs and position coordinates
       const res = await fetch(
-        "http://localhost:5000/restaurant-onboarding/step-2",
+        `${API_URL}/restaurant-onboarding/step-2`,
         {
           method: "POST",
           headers: {

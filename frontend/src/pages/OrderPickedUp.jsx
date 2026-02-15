@@ -2,8 +2,10 @@ import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
 import OrderMapLayout from "../components/OrderMapLayout";
 import AnimatedAlert, { useAlert } from "../components/AnimatedAlert";
+import { getFormattedETA } from "../utils/etaFormatter";
 import "./PlacingOrder.css";
 import "./DriverAccepted.css";
+import { API_URL } from "../config";
 
 // Progress steps for the order journey
 const PROGRESS_STEPS = [
@@ -45,7 +47,29 @@ const OrderPickedUp = () => {
   const [showDetails, setShowDetails] = useState(false);
   const [deliveryStatus, setDeliveryStatus] = useState("picked_up");
   const [driverInfo, setDriverInfo] = useState(driver || null);
+  const [etaData, setEtaData] = useState(null); // Dynamic ETA from backend
+  const [fetchedOrder, setFetchedOrder] = useState(null); // Fallback fetched order
   const { alert, visible, showSuccess } = useAlert();
+
+  // Fetch order data if state is incomplete (e.g. navigated from Orders or refreshed)
+  useEffect(() => {
+    if (!orderId || (orderData.address && orderData.restaurantName)) return;
+    const fetchOrder = async () => {
+      try {
+        const token = localStorage.getItem("token");
+        const res = await fetch(`${API_URL}/orders/${orderId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.order) setFetchedOrder(data.order);
+        }
+      } catch (err) {
+        console.error("Error fetching order:", err);
+      }
+    };
+    fetchOrder();
+  }, [orderId, orderData]);
 
   // Get current step index
   const getCurrentStepIndex = useCallback(() => {
@@ -67,7 +91,7 @@ const OrderPickedUp = () => {
       try {
         const token = localStorage.getItem("token");
         const response = await fetch(
-          `http://localhost:5000/orders/${orderId}/delivery-status`,
+          `${API_URL}/orders/${orderId}/delivery-status`,
           {
             headers: { Authorization: `Bearer ${token}` },
           },
@@ -79,6 +103,11 @@ const OrderPickedUp = () => {
 
           if (data.driver) {
             setDriverInfo(data.driver);
+          }
+
+          // Update dynamic ETA from backend
+          if (data.eta) {
+            setEtaData(data.eta);
           }
 
           if (newStatus && newStatus !== deliveryStatus) {
@@ -134,29 +163,23 @@ const OrderPickedUp = () => {
     navigate("/");
   };
 
-  // Calculate arrival time range
+  // Build arrival time display from dynamic ETA as clock time
   const getArrivalTimeRange = () => {
-    const now = new Date();
-    const start = new Date(now.getTime() + 15 * 60000);
-    const end = new Date(now.getTime() + 25 * 60000);
-    const format = (d) =>
-      d.toLocaleTimeString("en-US", {
-        hour: "numeric",
-        minute: "2-digit",
-        hour12: false,
-      });
-    return `${format(start)} – ${format(end)}`;
+    return getFormattedETA(etaData, "Calculating...");
   };
 
   const statusContent = STATUS_CONTENT.picked_up;
   const currentStepIndex = getCurrentStepIndex();
+
+  // Use fetched order data as fallback when state is incomplete
+  const displayAddress = fetchedOrder?.delivery_address || address;
 
   return (
     <OrderMapLayout
       title={statusContent.title}
       arrivalTimeText={getArrivalTimeRange()}
       stepIndex={currentStepIndex}
-      deliveryAddress={address}
+      deliveryAddress={displayAddress}
       actionButtons={[]}
       onBack={handleBack}
     >

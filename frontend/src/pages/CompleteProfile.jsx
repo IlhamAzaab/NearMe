@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import SiteHeader from "../components/SiteHeader";
 import AnimatedAlert, { useAlert } from "../components/AnimatedAlert";
+import { API_URL } from "../config";
 import {
   MapContainer,
   TileLayer,
@@ -123,14 +124,11 @@ export default function CompleteProfile() {
 
   const checkPhoneAvailability = async (phone) => {
     try {
-      const response = await fetch(
-        "http://localhost:5000/auth/check-availability",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ phone }),
-        },
-      );
+      const response = await fetch(`${API_URL}/auth/check-availability`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone }),
+      });
       const data = await response.json();
       return data.phoneAvailable;
     } catch (err) {
@@ -179,10 +177,13 @@ export default function CompleteProfile() {
 
     // Get email from Supabase user
     try {
-      // We need to get the email from the userId
-      // For now, we'll make a request to get user email
+      const accessToken = searchParams.get("access_token");
+      const headers = {};
+      if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+
       const userResponse = await fetch(
-        `http://localhost:5000/auth/user-email?userId=${userId}`,
+        `${API_URL}/auth/user-email?userId=${userId}`,
+        { headers },
       );
       const userData = await userResponse.json();
 
@@ -192,24 +193,22 @@ export default function CompleteProfile() {
         return;
       }
 
-      const response = await fetch(
-        "http://localhost:5000/auth/complete-profile",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            userId,
-            username: formData.username,
-            email: userData.email,
-            phone: formData.phone,
-            nic_number: formData.nic_number || null,
-            address: formData.address || null,
-            city: formData.city || null,
-            latitude: position[0].toString(),
-            longitude: position[1].toString(),
-          }),
-        },
-      );
+      const response = await fetch(`${API_URL}/auth/complete-profile`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId,
+          username: formData.username,
+          email: userData.email,
+          phone: formData.phone,
+          nic_number: formData.nic_number || null,
+          address: formData.address || null,
+          city: formData.city || null,
+          latitude: position[0].toString(),
+          longitude: position[1].toString(),
+          access_token: searchParams.get("access_token") || null,
+        }),
+      });
 
       const data = await response.json();
 
@@ -220,11 +219,6 @@ export default function CompleteProfile() {
       }
 
       // Success - save token and user data, then redirect to home
-      console.log(
-        "✅ Profile completed, saving token:",
-        data.token ? `${data.token.substring(0, 20)}...` : "NULL",
-      );
-
       if (data.token) {
         localStorage.setItem("token", data.token);
       }

@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import OrderMapLayout from "../components/OrderMapLayout";
 import { getStatusConfig } from "../config/orderStatusConfig";
 import "./PlacingOrder.css";
+import { API_URL } from "../config";
 
 const PlacingOrder = () => {
   const navigate = useNavigate();
@@ -45,7 +46,7 @@ const PlacingOrder = () => {
       const token = localStorage.getItem("token");
       try {
         const response = await fetch(
-          `http://localhost:5000/orders/${orderId}/delivery-status`,
+          `${API_URL}/orders/${orderId}/delivery-status`,
           { headers: { Authorization: `Bearer ${token}` } },
         );
 

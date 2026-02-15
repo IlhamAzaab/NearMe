@@ -12,6 +12,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
 import AnimatedAlert, { useAlert } from "../components/AnimatedAlert";
+import { API_URL } from "../config";
 
 const PastOrderDetails = () => {
   const navigate = useNavigate();
@@ -39,7 +40,7 @@ const PastOrderDetails = () => {
   const fetchOrderDetails = async () => {
     try {
       const token = localStorage.getItem("token");
-      const response = await fetch(`http://localhost:5000/orders/${orderId}`, {
+      const response = await fetch(`${API_URL}/orders/${orderId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -57,7 +58,7 @@ const PastOrderDetails = () => {
   const fetchCartCount = async () => {
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch("http://localhost:5000/cart", {
+      const res = await fetch(`${API_URL}/cart`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -141,7 +142,7 @@ const PastOrderDetails = () => {
 
       // Add each item to cart
       for (const item of items) {
-        await fetch("http://localhost:5000/cart/add", {
+        await fetch(`${API_URL}/cart/add`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",

@@ -11,6 +11,7 @@ import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import AdminLayout from "../../components/AdminLayout";
 import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
+import { API_URL } from "../../config";
 
 // Component to handle map clicks for location selection
 function LocationMarker({ position, setPosition, isEditing }) {
@@ -100,7 +101,7 @@ export default function RestaurantDetail() {
     }
 
     try {
-      const res = await fetch("http://localhost:5000/admin/restaurant", {
+      const res = await fetch(`${API_URL}/admin/restaurant`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -179,7 +180,7 @@ export default function RestaurantDetail() {
 
           // Upload to Cloudinary via backend
           const response = await fetch(
-            "http://localhost:5000/admin/upload-image",
+            `${API_URL}/admin/upload-image`,
             {
               method: "POST",
               headers: {
@@ -230,7 +231,7 @@ export default function RestaurantDetail() {
     }
 
     try {
-      const res = await fetch("http://localhost:5000/admin/restaurant", {
+      const res = await fetch(`${API_URL}/admin/restaurant`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",

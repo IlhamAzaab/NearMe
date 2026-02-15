@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import AnimatedAlert, { useAlert } from "../../../components/AnimatedAlert";
 import ManagerPageLayout from "../../../components/ManagerPageLayout";
 import { ManagerPageSkeleton } from "../../../components/ManagerSkeleton";
+import { API_URL } from "../../../config";
 
 export default function ProcessAdminPayment() {
   const navigate = useNavigate();
@@ -42,11 +43,11 @@ export default function ProcessAdminPayment() {
 
       const [restaurantRes, historyRes] = await Promise.all([
         fetch(
-          `http://localhost:5000/manager/admin-payments/restaurant/${restaurantId}`,
+          `${API_URL}/manager/admin-payments/restaurant/${restaurantId}`,
           { headers },
         ),
         fetch(
-          `http://localhost:5000/manager/admin-payments/restaurant/${restaurantId}/history`,
+          `${API_URL}/manager/admin-payments/restaurant/${restaurantId}/history`,
           { headers },
         ),
       ]);
@@ -140,7 +141,7 @@ export default function ProcessAdminPayment() {
       if (note) formData.append("note", note);
 
       const res = await fetch(
-        `http://localhost:5000/manager/admin-payments/pay/${restaurantId}`,
+        `${API_URL}/manager/admin-payments/pay/${restaurantId}`,
         {
           method: "POST",
           headers: { Authorization: `Bearer ${token}` },

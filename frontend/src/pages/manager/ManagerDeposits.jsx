@@ -8,6 +8,7 @@ import {
 } from "../../components/ManagerSkeleton";
 import supabaseClient from "../../supabaseClient";
 import { useNotification } from "../../contexts/NotificationContext";
+import { API_URL } from "../../config";
 
 export default function ManagerDeposits() {
   const navigate = useNavigate();
@@ -36,8 +37,8 @@ export default function ManagerDeposits() {
       const status = tabStatus === "pending" ? "pending" : "approved";
       const url =
         tabStatus === "pending"
-          ? "http://localhost:5000/driver/deposits/manager/pending"
-          : `http://localhost:5000/driver/deposits/manager/all?status=${status}&limit=50`;
+          ? `${API_URL}/driver/deposits/manager/pending`
+          : `${API_URL}/driver/deposits/manager/all?status=${status}&limit=50`;
 
       const res = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` },
@@ -159,7 +160,7 @@ export default function ManagerDeposits() {
       const token = localStorage.getItem("token");
       const p = period || selectedPeriod;
       const res = await fetch(
-        `http://localhost:5000/driver/deposits/manager/summary?period=${p}`,
+        `${API_URL}/driver/deposits/manager/summary?period=${p}`,
         {
           headers: { Authorization: `Bearer ${token}` },
         },
@@ -179,8 +180,8 @@ export default function ManagerDeposits() {
       const status = activeTab === "pending" ? "pending" : "approved";
       const url =
         activeTab === "pending"
-          ? "http://localhost:5000/driver/deposits/manager/pending"
-          : `http://localhost:5000/driver/deposits/manager/all?status=${status}&limit=50`;
+          ? `${API_URL}/driver/deposits/manager/pending`
+          : `${API_URL}/driver/deposits/manager/all?status=${status}&limit=50`;
 
       const res = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` },

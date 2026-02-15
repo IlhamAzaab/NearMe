@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import ManagerPageLayout from "../../../components/ManagerPageLayout";
 import { ManagerPageSkeleton } from "../../../components/ManagerSkeleton";
 import AnimatedAlert, { useAlert } from "../../../components/AnimatedAlert";
+import { API_URL } from "../../../config";
 
 export default function AddDriver() {
   const [email, setEmail] = useState("");
@@ -43,7 +44,7 @@ export default function AddDriver() {
 
     setLoading(true);
     try {
-      const res = await fetch("http://localhost:5000/manager/add-driver", {
+      const res = await fetch(`${API_URL}/manager/add-driver`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

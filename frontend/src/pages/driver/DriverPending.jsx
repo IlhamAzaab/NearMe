@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import SiteHeader from "../../components/SiteHeader";
+import { API_URL } from "../../config";
 
 export default function DriverPending() {
   const navigate = useNavigate();
@@ -15,7 +16,7 @@ export default function DriverPending() {
     const checkStatus = async () => {
       const token = localStorage.getItem("token");
       try {
-        const res = await fetch("http://localhost:5000/onboarding/status", {
+        const res = await fetch(`${API_URL}/onboarding/status`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         const data = await res.json();

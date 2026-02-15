@@ -48,7 +48,7 @@ router.get("/status", authenticate, async (req, res) => {
     const { data, error } = await supabaseAdmin
       .from("drivers")
       .select(
-        "onboarding_step, onboarding_completed, driver_status, force_password_change"
+        "onboarding_step, onboarding_completed, driver_status, force_password_change",
       )
       .eq("id", driverId)
       .single();
@@ -110,7 +110,7 @@ router.post(
         .status(500)
         .json({ message: "Server error", error: e.message });
     }
-  }
+  },
 );
 
 /**
@@ -251,11 +251,16 @@ router.post("/step-2", authenticate, async (req, res) => {
     }
 
     // Check for duplicate vehicle/license numbers
+    // Sanitize inputs to prevent PostgREST filter injection in .or()
+    const safeVehicleNumber = vehicleNumber.replace(/[,().]/g, "").trim();
+    const safeLicenseNumber = drivingLicenseNumber
+      .replace(/[,().]/g, "")
+      .trim();
     const { data: existingVehicle } = await supabaseAdmin
       .from("driver_vehicle_license")
       .select("driver_id")
       .or(
-        `vehicle_number.eq.${vehicleNumber},driving_license_number.eq.${drivingLicenseNumber}`
+        `vehicle_number.eq.${safeVehicleNumber},driving_license_number.eq.${safeLicenseNumber}`,
       )
       .neq("driver_id", driverId)
       .maybeSingle();
@@ -280,7 +285,7 @@ router.post("/step-2", authenticate, async (req, res) => {
           driving_license_number: drivingLicenseNumber,
           license_expiry_date: licenseExpiryDate,
         },
-        { onConflict: "driver_id" }
+        { onConflict: "driver_id" },
       );
 
     if (vehicleError) {
@@ -336,7 +341,7 @@ router.post("/step-3", authenticate, async (req, res) => {
     ];
     const providedTypes = documents.map((d) => d.documentType);
     const missingDocs = requiredDocs.filter(
-      (doc) => !providedTypes.includes(doc)
+      (doc) => !providedTypes.includes(doc),
     );
 
     if (missingDocs.length > 0) {
@@ -409,7 +414,7 @@ router.post("/step-4", authenticate, async (req, res) => {
           branch,
           account_number: accountNumber,
         },
-        { onConflict: "driver_id" }
+        { onConflict: "driver_id" },
       );
 
     if (bankError) {
@@ -503,13 +508,13 @@ router.post("/step-5", authenticate, async (req, res) => {
     ];
     const uploadedDocs = documents?.map((d) => d.document_type) || [];
     const missingDocs = requiredDocs.filter(
-      (doc) => !uploadedDocs.includes(doc)
+      (doc) => !uploadedDocs.includes(doc),
     );
 
     if (missingDocs.length > 0) {
       return res.status(400).json({
         message: `Please complete Step 3: Missing documents - ${missingDocs.join(
-          ", "
+          ", ",
         )}`,
       });
     }

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { API_URL } from "../../config";
 
 export default function DriverProfile() {
   const navigate = useNavigate();
@@ -29,7 +30,7 @@ export default function DriverProfile() {
   const fetchProfile = async () => {
     const token = localStorage.getItem("token");
     try {
-      const res = await fetch("http://localhost:5000/driver/me", {
+      const res = await fetch(`${API_URL}/driver/me`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -83,7 +84,7 @@ export default function DriverProfile() {
     setSaving(true);
 
     try {
-      const res = await fetch("http://localhost:5000/driver/update-profile", {
+      const res = await fetch(`${API_URL}/driver/update-profile`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",

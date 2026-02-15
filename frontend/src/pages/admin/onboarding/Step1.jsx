@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import AnimatedAlert, { useAlert } from "../../../components/AnimatedAlert";
+import { API_URL } from "../../../config";
 
 // Step Progress Bar Component
 function StepProgress({ currentStep, totalSteps }) {
@@ -93,7 +94,7 @@ export default function AdminOnboardingStep1() {
   useEffect(() => {
     const fetchUserData = async () => {
       try {
-        const res = await fetch("http://localhost:5000/auth/user", {
+        const res = await fetch(`${API_URL}/auth/user`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -114,7 +115,7 @@ export default function AdminOnboardingStep1() {
     const fetchSavedData = async () => {
       try {
         const res = await fetch(
-          "http://localhost:5000/restaurant-onboarding/step-1",
+          `${API_URL}/restaurant-onboarding/step-1`,
           {
             headers: {
               Authorization: `Bearer ${token}`,
@@ -175,7 +176,7 @@ export default function AdminOnboardingStep1() {
       formData.append("imageType", imageType);
 
       const res = await fetch(
-        "http://localhost:5000/restaurant-onboarding/upload-image",
+        `${API_URL}/restaurant-onboarding/upload-image`,
         {
           method: "POST",
           headers: {
@@ -280,7 +281,7 @@ export default function AdminOnboardingStep1() {
 
     try {
       const res = await fetch(
-        "http://localhost:5000/restaurant-onboarding/step-1",
+        `${API_URL}/restaurant-onboarding/step-1`,
         {
           method: "POST",
           headers: {

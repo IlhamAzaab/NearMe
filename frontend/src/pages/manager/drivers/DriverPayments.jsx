@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import ManagerPageLayout from "../../../components/ManagerPageLayout";
 import { ManagerPageSkeleton } from "../../../components/ManagerSkeleton";
+import { API_URL } from "../../../config";
 
 export default function ManagerDriverPayments() {
   const navigate = useNavigate();
@@ -21,10 +22,10 @@ export default function ManagerDriverPayments() {
       const headers = { Authorization: `Bearer ${token}` };
 
       const [summaryRes, driversRes] = await Promise.all([
-        fetch("http://localhost:5000/manager/driver-payments/summary", {
+        fetch(`${API_URL}/manager/driver-payments/summary`, {
           headers,
         }),
-        fetch("http://localhost:5000/manager/driver-payments/drivers", {
+        fetch(`${API_URL}/manager/driver-payments/drivers`, {
           headers,
         }),
       ]);

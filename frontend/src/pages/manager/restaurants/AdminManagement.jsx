@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import ManagerPageLayout from "../../../components/ManagerPageLayout";
 import { ManagerPageSkeleton } from "../../../components/ManagerSkeleton";
 import AnimatedAlert, { useAlert } from "../../../components/AnimatedAlert";
+import { API_URL } from "../../../config";
 
 const statusColors = {
   active: "bg-green-100 text-green-700",
@@ -56,7 +57,7 @@ export default function AdminManagement() {
 
     try {
       const res = await fetch(
-        `http://localhost:5000/manager/admins?${params.toString()}`,
+        `${API_URL}/manager/admins?${params.toString()}`,
         {
           headers: { Authorization: `Bearer ${token}` },
           signal,
@@ -89,7 +90,7 @@ export default function AdminManagement() {
 
     try {
       const res = await fetch(
-        `http://localhost:5000/manager/admins/${adminId}/status`,
+        `${API_URL}/manager/admins/${adminId}/status`,
         {
           method: "PATCH",
           headers: {

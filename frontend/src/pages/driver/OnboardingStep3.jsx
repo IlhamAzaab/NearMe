@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { API_URL } from "../../config";
 
 // Step Progress Component with animation
 const StepProgress = ({ currentStep, totalSteps = 5 }) => {
@@ -122,7 +123,7 @@ export default function OnboardingStep3() {
       formData.append("docType", docType);
 
       const response = await fetch(
-        "http://localhost:5000/onboarding/upload-document",
+        `${API_URL}/onboarding/upload-document`,
         {
           method: "POST",
           headers: {
@@ -169,7 +170,7 @@ export default function OnboardingStep3() {
       const uploadedDocs = await Promise.all(uploadPromises);
 
       const token = localStorage.getItem("token");
-      const res = await fetch("http://localhost:5000/onboarding/step-3", {
+      const res = await fetch(`${API_URL}/onboarding/step-3`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

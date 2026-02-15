@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import DriverLayout from "../../components/DriverLayout";
+import { API_URL } from "../../config";
 
 const PERIODS = ["all", "today", "week", "month"];
 
@@ -27,7 +28,7 @@ export default function DriverEarnings() {
 
     try {
       const summaryRes = await fetch(
-        `http://localhost:5000/driver/earnings/summary?period=${period}`,
+        `${API_URL}/driver/earnings/summary?period=${period}`,
         { headers: { Authorization: `Bearer ${token}` } },
       );
       const summaryData = await summaryRes.json();
@@ -37,7 +38,7 @@ export default function DriverEarnings() {
       }
 
       const historyRes = await fetch(
-        `http://localhost:5000/driver/earnings/history?limit=50`,
+        `${API_URL}/driver/earnings/history?limit=50`,
         { headers: { Authorization: `Bearer ${token}` } },
       );
       const historyData = await historyRes.json();

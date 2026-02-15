@@ -20,6 +20,10 @@ const router = express.Router();
  */
 router.get("/me", authenticate, async (req, res) => {
   try {
+    if (req.user.role !== "manager") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
     const userId = req.user.id;
     const { data, error } = await supabaseAdmin
       .from("managers")
@@ -58,13 +62,6 @@ router.post("/add-admin", authenticate, async (req, res) => {
     const tempPassword = generateTempPassword();
     const loginUrl =
       process.env.MANAGER_LOGIN_URL || "http://localhost:5173/login";
-
-    console.log("================ ADMIN CREATION ================");
-    console.log(`Email: ${email}`);
-    console.log(`Username: ${username}`);
-    console.log(`Temp password: ${tempPassword}`);
-    console.log(`Temp password length: ${tempPassword.length}`);
-    console.log("================================================");
 
     // 0) Check for orphaned records and clean them up
     const { data: existingAdmin } = await supabaseAdmin
@@ -159,9 +156,7 @@ router.post("/add-admin", authenticate, async (req, res) => {
 
     // 4) Send email (non-blocking)
     try {
-      console.log(
-        `Sending admin invite → email: ${email}, password: ${tempPassword}`,
-      );
+      console.log(`Sending admin invite → email: ${email}`);
       await sendAdminInviteEmail({ to: email, tempPassword, loginUrl });
       console.log(`Admin invite send complete for ${email}`);
     } catch (e) {
@@ -205,8 +200,6 @@ router.post("/add-driver", authenticate, async (req, res) => {
     console.log("================ DRIVER CREATION ================");
     console.log(`Email: ${email}`);
     console.log(`Username: ${username}`);
-    console.log(`Temp password: ${tempPassword}`);
-    console.log(`Temp password length: ${tempPassword.length}`);
     console.log("================================================");
 
     // Clean up orphaned driver records
@@ -299,9 +292,7 @@ router.post("/add-driver", authenticate, async (req, res) => {
 
     // Send invite email
     try {
-      console.log(
-        `Sending driver invite → email: ${email}, password: ${tempPassword}`,
-      );
+      console.log(`Sending driver invite → email: ${email}`);
       await sendDriverInviteEmail({ to: email, tempPassword, loginUrl });
       console.log(`Driver invite send complete for ${email}`);
     } catch (e) {
@@ -345,8 +336,11 @@ router.get("/admins", authenticate, async (req, res) => {
     }
 
     if (search) {
-      const term = `%${search.trim()}%`;
-      query = query.or(`email.ilike.${term},full_name.ilike.${term}`);
+      const safe = search.replace(/[,()]/g, "").trim();
+      if (safe) {
+        const term = `%${safe}%`;
+        query = query.or(`email.ilike.${term},full_name.ilike.${term}`);
+      }
     }
 
     const { data, error } = await query;
@@ -444,8 +438,11 @@ router.get("/drivers", authenticate, async (req, res) => {
     }
 
     if (search) {
-      const term = `%${search.trim()}%`;
-      query = query.or(`email.ilike.${term},full_name.ilike.${term}`);
+      const safe = search.replace(/[,()]/g, "").trim();
+      if (safe) {
+        const term = `%${safe}%`;
+        query = query.or(`email.ilike.${term},full_name.ilike.${term}`);
+      }
     }
 
     const { data, error } = await query;
@@ -560,8 +557,11 @@ router.get("/restaurants", authenticate, async (req, res) => {
     }
 
     if (search) {
-      const term = `%${search.trim()}%`;
-      query = query.or(`restaurant_name.ilike.${term},city.ilike.${term}`);
+      const safe = search.replace(/[,().]/g, "").trim();
+      if (safe) {
+        const term = `%${safe}%`;
+        query = query.or(`restaurant_name.ilike.${term},city.ilike.${term}`);
+      }
     }
 
     const { data, error } = await query;

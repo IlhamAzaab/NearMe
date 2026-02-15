@@ -33,6 +33,12 @@ export default function ManagerNotificationOverlay() {
     navigate(routes[notification.type] || "/manager");
   };
 
+  // Click anywhere on the card redirects to relevant page
+  const handleCardClick = (e, notification) => {
+    if (e.target.closest("button")) return;
+    handleViewDetails(notification);
+  };
+
   return (
     <div style={styles.overlay}>
       {notifications.map((notification, index) => (
@@ -42,13 +48,20 @@ export default function ManagerNotificationOverlay() {
           index={index}
           onViewDetails={() => handleViewDetails(notification)}
           onDismiss={() => dismissNotification(notification.id)}
+          onCardClick={(e) => handleCardClick(e, notification)}
         />
       ))}
     </div>
   );
 }
 
-function NotificationCard({ notification, index, onViewDetails, onDismiss }) {
+function NotificationCard({
+  notification,
+  index,
+  onViewDetails,
+  onDismiss,
+  onCardClick,
+}) {
   const isAlert = notification.type === "unassigned_delivery";
   const isMilestone =
     notification.type === "order_milestone" ||
@@ -56,10 +69,12 @@ function NotificationCard({ notification, index, onViewDetails, onDismiss }) {
 
   return (
     <div
+      onClick={onCardClick}
       style={{
         ...styles.card,
         animationDelay: `${index * 0.1}s`,
         borderColor: isAlert ? "#ef4444" : "#22c55e",
+        cursor: "pointer",
       }}
     >
       {/* Header gradient bar */}

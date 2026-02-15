@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { API_URL } from "../../../config";
 
 // Step Progress Bar Component
 function StepProgress({ currentStep, totalSteps }) {
@@ -83,7 +84,7 @@ export default function AdminRestaurantPending() {
   const loadStatus = async () => {
     try {
       const res = await fetch(
-        "http://localhost:5000/restaurant-onboarding/status",
+        `${API_URL}/restaurant-onboarding/status`,
         {
           headers: { Authorization: `Bearer ${token}` },
         }

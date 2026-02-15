@@ -29,14 +29,11 @@ const DriverNotifications = () => {
     if (token) {
       try {
         const payload = JSON.parse(atob(token.split(".")[1]));
-        console.log("🔍 Full token payload:", payload);
-
         // Try multiple possible ID fields in the JWT
         const userId =
           payload.sub || payload.id || payload.userId || payload.user_id;
 
         setDriverId(userId);
-        console.log("📍 Driver ID from token:", userId);
 
         if (!userId) {
           console.error(

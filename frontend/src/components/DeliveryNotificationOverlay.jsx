@@ -402,15 +402,16 @@ function NotificationCard({
 
   if (isFirstDelivery) {
     mainEarnings = parseFloat(driver_earnings || total_trip_earnings || 0);
-    earningsLabel = "Est. Earnings";
+    earningsLabel = "Base Earning";
   } else {
     mainEarnings =
       parseFloat(extra_earnings || 0) + parseFloat(bonus_amount || 0);
-    earningsLabel = "Extra Earnings";
+    earningsLabel = "Extra Earning";
   }
 
   // Add tip to display if available
   const totalDisplay = mainEarnings + tipValue;
+  const hasEarnings = mainEarnings > 0 || tipValue > 0;
 
   // Title based on type
   const title = isTipUpdate
@@ -419,11 +420,13 @@ function NotificationCard({
 
   // Format distance
   const distanceText = distance_km
-    ? `${parseFloat(distance_km).toFixed(1)} km away`
+    ? `${parseFloat(distance_km).toFixed(1)} km${!isFirstDelivery ? " extra" : ""}`
     : null;
 
   // Format time
-  const timeText = estimated_time ? `${Math.round(estimated_time)} mins` : null;
+  const timeText = estimated_time
+    ? `${Math.round(estimated_time)} min${!isFirstDelivery ? " extra" : "s"}`
+    : null;
 
   // Drop-off text
   const dropOffText = customer_address
@@ -487,66 +490,98 @@ function NotificationCard({
 
       {/* Earnings */}
       <div style={{ padding: "0 16px 8px" }}>
-        <div style={{ display: "flex", alignItems: "baseline", gap: "8px" }}>
-          <span
-            style={{
-              fontSize: "28px",
-              fontWeight: 800,
-              color: "#22c55e",
-              lineHeight: 1,
-            }}
-          >
-            Rs.{totalDisplay.toFixed(2)}
-          </span>
-          <span
-            style={{
-              fontSize: "13px",
-              color: "#888",
-              fontWeight: 500,
-            }}
-          >
-            {earningsLabel}
-          </span>
-        </div>
+        {hasEarnings ? (
+          <>
+            <div
+              style={{ display: "flex", alignItems: "baseline", gap: "8px" }}
+            >
+              <span
+                style={{
+                  fontSize: "28px",
+                  fontWeight: 800,
+                  color: "#22c55e",
+                  lineHeight: 1,
+                }}
+              >
+                Rs.{totalDisplay.toFixed(2)}
+              </span>
+              <span
+                style={{
+                  fontSize: "13px",
+                  color: "#888",
+                  fontWeight: 500,
+                }}
+              >
+                {earningsLabel}
+              </span>
+            </div>
 
-        {/* Breakdown for 2nd+ delivery or tip */}
-        {(!isFirstDelivery || tipValue > 0) && (
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: "6px",
-              marginTop: "4px",
-            }}
-          >
-            {!isFirstDelivery && parseFloat(extra_earnings || 0) > 0 && (
-              <span
+            {/* Breakdown for 2nd+ delivery or tip */}
+            {(!isFirstDelivery || tipValue > 0) && (
+              <div
                 style={{
-                  fontSize: "11px",
-                  backgroundColor: "#f0fdf4",
-                  color: "#16a34a",
-                  padding: "2px 8px",
-                  borderRadius: "10px",
-                  fontWeight: 600,
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: "6px",
+                  marginTop: "4px",
                 }}
               >
-                Extra: Rs.{parseFloat(extra_earnings).toFixed(2)}
-              </span>
+                {!isFirstDelivery && parseFloat(extra_earnings || 0) > 0 && (
+                  <span
+                    style={{
+                      fontSize: "11px",
+                      backgroundColor: "#f0fdf4",
+                      color: "#16a34a",
+                      padding: "2px 8px",
+                      borderRadius: "10px",
+                      fontWeight: 600,
+                    }}
+                  >
+                    Extra: Rs.{parseFloat(extra_earnings).toFixed(2)}
+                  </span>
+                )}
+                {!isFirstDelivery && parseFloat(bonus_amount || 0) > 0 && (
+                  <span
+                    style={{
+                      fontSize: "11px",
+                      backgroundColor: "#fef3c7",
+                      color: "#d97706",
+                      padding: "2px 8px",
+                      borderRadius: "10px",
+                      fontWeight: 600,
+                    }}
+                  >
+                    Bonus: Rs.{parseFloat(bonus_amount).toFixed(2)}
+                  </span>
+                )}
+                {tipValue > 0 && (
+                  <span
+                    style={{
+                      fontSize: "11px",
+                      backgroundColor: "#ede9fe",
+                      color: "#7c3aed",
+                      padding: "2px 8px",
+                      borderRadius: "10px",
+                      fontWeight: 600,
+                    }}
+                  >
+                    💰 Tip: Rs.{tipValue.toFixed(2)}
+                  </span>
+                )}
+              </div>
             )}
-            {!isFirstDelivery && parseFloat(bonus_amount || 0) > 0 && (
-              <span
-                style={{
-                  fontSize: "11px",
-                  backgroundColor: "#fef3c7",
-                  color: "#d97706",
-                  padding: "2px 8px",
-                  borderRadius: "10px",
-                  fontWeight: 600,
-                }}
-              >
-                Bonus: Rs.{parseFloat(bonus_amount).toFixed(2)}
-              </span>
-            )}
+          </>
+        ) : (
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <span
+              style={{
+                fontSize: "14px",
+                fontWeight: 600,
+                color: "#22c55e",
+              }}
+            >
+              Tap to view earnings
+            </span>
             {tipValue > 0 && (
               <span
                 style={{

@@ -9,6 +9,13 @@ import {
 
 const router = express.Router();
 
+// Sanitize search input to prevent PostgREST filter injection
+function sanitizeSearch(input) {
+  if (!input || typeof input !== "string") return "";
+  // Remove characters that could inject PostgREST operators: commas, dots (in column.op patterns), parentheses
+  return input.replace(/[,()]/g, "").trim();
+}
+
 /**
  * GET /public/restaurants
  * Get all active restaurants with search capability
@@ -25,9 +32,12 @@ router.get("/restaurants", async (req, res) => {
 
     // Add search filter if provided
     if (search && search.trim()) {
-      query = query.or(
-        `restaurant_name.ilike.%${search}%,city.ilike.%${search}%,address.ilike.%${search}%`,
-      );
+      const safe = sanitizeSearch(search);
+      if (safe) {
+        query = query.or(
+          `restaurant_name.ilike.%${safe}%,city.ilike.%${safe}%,address.ilike.%${safe}%`,
+        );
+      }
     }
 
     const { data: restaurants, error } = await query;
@@ -73,9 +83,12 @@ router.get("/foods", async (req, res) => {
       .eq("restaurants.restaurant_status", "active")
       .order("name", { ascending: true });
 
-    // Add search filter if provided
+    // Add search filter if provided (sanitize to prevent PostgREST injection)
     if (search && search.trim()) {
-      query = query.or(`name.ilike.%${search}%,description.ilike.%${search}%`);
+      const safe = sanitizeSearch(search);
+      if (safe) {
+        query = query.or(`name.ilike.%${safe}%,description.ilike.%${safe}%`);
+      }
     }
 
     const { data: foods, error } = await query;
@@ -158,9 +171,12 @@ router.get("/restaurants/:restaurantId/foods", async (req, res) => {
       .eq("is_available", true)
       .order("name", { ascending: true });
 
-    // Add search filter if provided
+    // Add search filter if provided (sanitize to prevent PostgREST injection)
     if (search && search.trim()) {
-      query = query.or(`name.ilike.%${search}%,description.ilike.%${search}%`);
+      const safe = sanitizeSearch(search);
+      if (safe) {
+        query = query.or(`name.ilike.%${safe}%,description.ilike.%${safe}%`);
+      }
     }
 
     const { data: foods, error } = await query;

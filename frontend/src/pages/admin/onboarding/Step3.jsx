@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import AnimatedAlert, { useAlert } from "../../../components/AnimatedAlert";
+import { API_URL } from "../../../config";
 
 const SRI_LANKAN_BANKS = [
   "Bank of Ceylon",
@@ -161,7 +162,7 @@ export default function AdminOnboardingStep3() {
     setLoading(true);
     try {
       const res = await fetch(
-        "http://localhost:5000/restaurant-onboarding/step-3",
+        `${API_URL}/restaurant-onboarding/step-3`,
         {
           method: "POST",
           headers: {

@@ -221,7 +221,7 @@ export default function AvailableDeliveries() {
 
       // Play notification sound (optional)
       try {
-        const audio = new Audio("/notification.mp3");
+        const audio = new Audio("/driver-alert-tone.wav");
         audio.volume = 0.5;
         audio.play().catch(() => {}); // Ignore errors if audio can't play
       } catch (e) {}
@@ -251,79 +251,19 @@ export default function AvailableDeliveries() {
   }, [takenDeliveries, clearAllTakenDeliveries]);
 
   // Refs for location tracking
-  const locationIntervalRef = useRef(null);
-  const dataFetchIntervalRef = useRef(null);
+  const watchIdRef = useRef(null);
   const isFetchingRef = useRef(false);
   const lastFetchLocationRef = useRef(null);
+  const lastLocationRef = useRef(null);
   const fetchPendingDeliveriesRef = useRef(null); // Ref to hold fetch function
+  const hasFetchedInitialRef = useRef(false);
 
-  // Minimum distance (in meters) driver must move before triggering a recalculation
+  // Minimum distance (in meters) driver must move before triggering a data refresh
   const MOVEMENT_THRESHOLD_METERS = 50;
 
-  // Calculate distance between two coordinates (Haversine formula)
-  const calculateDistance = useCallback((lat1, lng1, lat2, lng2) => {
-    const R = 6371000; // Earth's radius in meters
-    const dLat = ((lat2 - lat1) * Math.PI) / 180;
-    const dLng = ((lng2 - lng1) * Math.PI) / 180;
-    const a =
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos((lat1 * Math.PI) / 180) *
-        Math.cos((lat2 * Math.PI) / 180) *
-        Math.sin(dLng / 2) *
-        Math.sin(dLng / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c; // Distance in meters
-  }, []);
-
-  // Function to update location only (every 3 seconds for map display)
+  // Function to update location only - uses watchPosition (event-driven)
   // Only triggers data refresh if driver moved significantly
-  const updateLocation = useCallback(() => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const location = {
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-          };
-
-          setDriverLocation(location);
-
-          // Check if driver moved significantly since last API fetch
-          if (lastFetchLocationRef.current) {
-            const distanceMoved = calculateDistance(
-              lastFetchLocationRef.current.latitude,
-              lastFetchLocationRef.current.longitude,
-              location.latitude,
-              location.longitude,
-            );
-
-            if (distanceMoved >= MOVEMENT_THRESHOLD_METERS) {
-              console.log(
-                `[LOCATION] 🚗 Driver moved ${distanceMoved.toFixed(0)}m (threshold: ${MOVEMENT_THRESHOLD_METERS}m) - Triggering refresh`,
-              );
-              lastFetchLocationRef.current = location;
-              // Use ref to call the fetch function (avoids circular dependency)
-              if (fetchPendingDeliveriesRef.current) {
-                fetchPendingDeliveriesRef.current(location, true);
-              }
-            } else {
-              console.log(
-                `[LOCATION] Updated: (${location.latitude.toFixed(6)}, ${location.longitude.toFixed(6)}) - Moved ${distanceMoved.toFixed(0)}m (no refresh needed)`,
-              );
-            }
-          } else {
-            console.log(
-              `[LOCATION] Initial: (${location.latitude.toFixed(6)}, ${location.longitude.toFixed(6)})`,
-            );
-          }
-        },
-        (error) => {
-          console.error("Error getting location:", error);
-        },
-        { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 },
-      );
-    }
-  }, [calculateDistance]);
+  // (This is now handled inside the watchPosition callback in useEffect below)
 
   // Function to fetch deliveries with current location (every 10 seconds)
   const fetchDeliveriesWithCurrentLocation = useCallback(
@@ -371,6 +311,20 @@ export default function AvailableDeliveries() {
     [driverLocation],
   );
 
+  // Helper: distance between two coords in meters (for movement threshold)
+  const getDistanceMeters = (lat1, lng1, lat2, lng2) => {
+    const R = 6371000;
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLng = ((lng2 - lng1) * Math.PI) / 180;
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos((lat1 * Math.PI) / 180) *
+        Math.cos((lat2 * Math.PI) / 180) *
+        Math.sin(dLng / 2) *
+        Math.sin(dLng / 2);
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  };
+
   useEffect(() => {
     const role = localStorage.getItem("role");
     if (role !== "driver") {
@@ -384,32 +338,68 @@ export default function AvailableDeliveries() {
     // Get initial location and fetch deliveries
     fetchDeliveriesWithCurrentLocation(false);
 
-    // Update location every 3 seconds for live map display
-    // This also checks if driver moved significantly and triggers refresh if needed
-    locationIntervalRef.current = setInterval(() => {
-      updateLocation();
-    }, 3000);
+    // Use watchPosition (event-driven, fires only on real device movement)
+    if (navigator.geolocation) {
+      watchIdRef.current = navigator.geolocation.watchPosition(
+        (position) => {
+          const newLoc = {
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+          };
 
-    // REMOVED: Unconditional 10-second polling
-    // Now we rely on:
+          const prev = lastLocationRef.current;
+          if (!prev) {
+            lastLocationRef.current = newLoc;
+            setDriverLocation(newLoc);
+            return;
+          }
+
+          // Only update map marker when driver moved 10+ meters
+          const moved = getDistanceMeters(
+            prev.latitude,
+            prev.longitude,
+            newLoc.latitude,
+            newLoc.longitude,
+          );
+
+          if (moved >= 10) {
+            lastLocationRef.current = newLoc;
+            setDriverLocation(newLoc);
+          }
+
+          // Only refetch data when driver moved 50+ meters since last API call
+          if (lastFetchLocationRef.current) {
+            const movedSinceFetch = getDistanceMeters(
+              lastFetchLocationRef.current.latitude,
+              lastFetchLocationRef.current.longitude,
+              newLoc.latitude,
+              newLoc.longitude,
+            );
+
+            if (movedSinceFetch >= MOVEMENT_THRESHOLD_METERS) {
+              console.log(
+                `[LOCATION] Driver moved ${movedSinceFetch.toFixed(0)}m → refreshing`,
+              );
+              lastFetchLocationRef.current = newLoc;
+              if (fetchPendingDeliveriesRef.current) {
+                fetchPendingDeliveriesRef.current(newLoc, true);
+              }
+            }
+          }
+        },
+        (error) => console.error("Location watch error:", error),
+        { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 },
+      );
+    }
+
+    // NO periodic intervals — rely on:
     // 1. WebSocket events for new/taken deliveries (real-time)
-    // 2. Location-based refresh when driver moves 50+ meters
-    // 3. Fallback 60-second refresh as safety net (only if no recent fetch)
-    dataFetchIntervalRef.current = setInterval(() => {
-      // Only fetch if we haven't fetched in the last 30 seconds
-      // (This is a safety fallback, not primary refresh mechanism)
-      console.log("[DATA REFRESH] Safety fallback check (60s interval)...");
-      fetchDeliveriesWithCurrentLocation(true);
-    }, 60000); // Changed from 10s to 60s
+    // 2. watchPosition for location-based refresh when driver moves 50+ meters
 
     return () => {
-      if (locationIntervalRef.current) {
-        clearInterval(locationIntervalRef.current);
-        locationIntervalRef.current = null;
-      }
-      if (dataFetchIntervalRef.current) {
-        clearInterval(dataFetchIntervalRef.current);
-        dataFetchIntervalRef.current = null;
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
       }
     };
   }, [navigate]);
@@ -550,7 +540,7 @@ export default function AvailableDeliveries() {
     }
   };
 
-  // Store fetch function in ref so updateLocation can access it without circular dependency
+  // Store fetch function in ref so watchPosition callback can access it without circular dependency
   fetchPendingDeliveriesRef.current = fetchPendingDeliveriesWithLocation;
 
   const handleAcceptDelivery = async (deliveryId) => {

@@ -5,9 +5,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import supabaseClient from "../supabaseClient";
-
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+import { API_URL } from "../config";
 
 export function useAdminNotifications() {
   const [notifications, setNotifications] = useState([]);
@@ -18,18 +16,15 @@ export function useAdminNotifications() {
   const adminId = localStorage.getItem("userId");
   const role = localStorage.getItem("role");
 
-  // Fetch initial notifications
+  // Fetch initial notifications via backend API
   const fetchNotifications = useCallback(async () => {
     if (role !== "admin" || !adminId) return;
 
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(
-        "http://localhost:5000/admin/notifications?limit=50",
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
-      );
+      const res = await fetch(`${API_URL}/admin/notifications?limit=50`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
       if (!res.ok) throw new Error("Failed to fetch notifications");
 
@@ -45,12 +40,12 @@ export function useAdminNotifications() {
     }
   }, [adminId, role]);
 
-  // Mark notification as read
+  // Mark notification as read via backend API
   const markAsRead = useCallback(async (notificationId) => {
     try {
       const token = localStorage.getItem("token");
       const res = await fetch(
-        `http://localhost:5000/admin/notifications/${notificationId}/read`,
+        `${API_URL}/admin/notifications/${notificationId}/read`,
         {
           method: "PATCH",
           headers: { Authorization: `Bearer ${token}` },
@@ -78,41 +73,26 @@ export function useAdminNotifications() {
 
   // Subscribe to realtime notifications using broadcast (trigger-based)
   useEffect(() => {
-    if (!supabase || !adminId || role !== "admin") return;
-
-    console.log(
-      "🔔 Setting up realtime broadcast subscription for admin:",
-      adminId,
-    );
+    if (!supabaseClient || !adminId || role !== "admin") return;
 
     // Subscribe to role-based channel (matches your trigger setup)
-    const channel = supabase
+    const channel = supabaseClient
       .channel("role:admin:notifications")
       .on("broadcast", { event: "insert" }, (payload) => {
-        console.log("🆕 New notification broadcast received:", payload.payload);
-
         const newNotif = payload.payload;
 
         // Only add if it's for this admin
         if (newNotif.recipient_id === adminId) {
-          // Add to notifications list
           setNotifications((prev) => [newNotif, ...prev]);
           setUnreadCount((prev) => prev + 1);
-
-          // Trigger toast/sound (consumed by component)
           setNewNotification(newNotif);
-
-          // Clear after 100ms (allows component to react)
           setTimeout(() => setNewNotification(null), 100);
         }
       })
-      .subscribe((status) => {
-        console.log("📡 Broadcast subscription status:", status);
-      });
+      .subscribe();
 
     return () => {
-      console.log("🔌 Unsubscribing from broadcast notifications");
-      supabase.removeChannel(channel);
+      supabaseClient.removeChannel(channel);
     };
   }, [adminId, role]);
 

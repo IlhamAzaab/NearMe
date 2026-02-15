@@ -2712,4 +2712,10 @@ export async function getAvailableDeliveriesForDriver(
 }
 
 // Export the thresholds and earnings constants for external reference
-export { AVAILABLE_DELIVERY_THRESHOLDS, DRIVER_EARNINGS };
+export {
+  AVAILABLE_DELIVERY_THRESHOLDS,
+  DRIVER_EARNINGS,
+  loadConfigConstants,
+  calculateSegmentBySegmentRouteDistance,
+  getFirstDeliveryEarningsDistance,
+};

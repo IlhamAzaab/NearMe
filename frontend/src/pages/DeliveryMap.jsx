@@ -11,6 +11,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import supabaseClient from "../supabaseClient";
 import DriverLayout from "../components/DriverLayout";
+import { API_URL } from "../config";
 
 // Leaflet imports
 import L from "leaflet";
@@ -70,12 +71,9 @@ export default function DeliveryMap() {
     try {
       const token = localStorage.getItem("token");
 
-      const res = await fetch(
-        `http://localhost:5000/driver/deliveries/${deliveryId}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
-      );
+      const res = await fetch(`${API_URL}/driver/deliveries/${deliveryId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
       const data = await res.json();
 
@@ -122,7 +120,7 @@ export default function DeliveryMap() {
           try {
             const token = localStorage.getItem("token");
             await fetch(
-              `http://localhost:5000/driver/deliveries/${delivery.id}/location`,
+              `${API_URL}/driver/deliveries/${delivery.id}/location`,
               {
                 method: "PATCH",
                 headers: {
@@ -305,7 +303,7 @@ export default function DeliveryMap() {
     try {
       const token = localStorage.getItem("token");
       const response = await fetch(
-        `http://localhost:5000/driver/deliveries/${delivery.id}/status`,
+        `${API_URL}/driver/deliveries/${delivery.id}/status`,
         {
           method: "PATCH",
           headers: {

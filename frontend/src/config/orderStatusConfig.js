@@ -16,7 +16,7 @@ export const PROGRESS_STEPS = [
   { key: "accepted", label: "Driver accepted" },
   { key: "picked_up", label: "Picked up" },
   { key: "on_the_way", label: "Heading your way" },
-  { key: "delivered", label: "Delivered" }
+  { key: "delivered", label: "Delivered" },
 ];
 
 // Status-specific icons (SVG paths)
@@ -30,7 +30,10 @@ export const STATUS_ICONS = {
     type: "building",
   },
   accepted: {
-    paths: ["M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z", "M12 11.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z"],
+    paths: [
+      "M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z",
+      "M12 11.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z",
+    ],
     type: "driver",
   },
   picked_up: {
@@ -38,7 +41,10 @@ export const STATUS_ICONS = {
     type: "package",
   },
   on_the_way: {
-    paths: ["M12 22s-8-4.5-8-11.8A8 8 0 0112 2a8 8 0 018 8.2c0 7.3-8 11.8-8 11.8z", "M12 13a3 3 0 100-6 3 3 0 000 6z"],
+    paths: [
+      "M12 22s-8-4.5-8-11.8A8 8 0 0112 2a8 8 0 018 8.2c0 7.3-8 11.8-8 11.8z",
+      "M12 13a3 3 0 100-6 3 3 0 000 6z",
+    ],
     type: "location",
   },
   delivered: {
@@ -52,7 +58,8 @@ export const STATUS_CONFIG = {
     statusKey: "placed",
     title: "Order Placed!",
     subtitle: "We've received your order",
-    messageText: "Your order has been placed successfully. We're notifying the restaurant.",
+    messageText:
+      "Your order has been placed successfully. We're notifying the restaurant.",
     currentStepIndex: 0,
     showDriverInfo: false,
     showTrackButton: false,
@@ -116,7 +123,8 @@ export const getStatusConfig = (statusKey) => {
     placed: {
       title: "Order Placed!",
       subtitle: "We've received your order",
-      messageText: "Your order has been placed successfully. We're notifying the restaurant.",
+      messageText:
+        "Your order has been placed successfully. We're notifying the restaurant.",
       currentStepIndex: 0,
       showDriverInfo: false,
       showTrackButton: false,
@@ -174,20 +182,20 @@ export const getStatusConfig = (statusKey) => {
 
 // Helper to calculate ETA text
 export const getEtaDisplayText = (statusKey, estimatedMinutes = null) => {
-  const config = STATUS_CONFIG[statusKey];
-  if (!config) return "Estimated arrival";
-  
   if (statusKey === "delivered") {
     return "Delivered";
   }
-  
-  if (estimatedMinutes) {
-    return `${config.etaText} ${estimatedMinutes} min`;
+
+  if (statusKey === "placed" || statusKey === "pending") {
+    return "Waiting for driver...";
   }
-  
-  // Calculate default ETA (30-45 mins from now)
-  const now = new Date();
-  const start = new Date(now.getTime() + 30 * 60000);
-  const format = (d) => d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
-  return `${config.etaText} ${format(start)}`;
+
+  // Dynamic ETA from backend (range format: X - X+10 min)
+  if (estimatedMinutes && estimatedMinutes > 0) {
+    const rangeMax = estimatedMinutes + 10;
+    return `${estimatedMinutes} - ${rangeMax} min`;
+  }
+
+  // Fallback: generic message
+  return "Calculating ETA...";
 };

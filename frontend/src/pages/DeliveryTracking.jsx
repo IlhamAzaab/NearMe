@@ -13,6 +13,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import supabaseClient from "../supabaseClient";
 import AnimatedAlert, { useAlert } from "../components/AnimatedAlert";
+import { API_URL } from "../config";
 import {
   MapContainer,
   TileLayer,
@@ -94,12 +95,9 @@ export default function DriverDeliveryTracking() {
   const fetchActiveDelivery = useCallback(async () => {
     try {
       const token = localStorage.getItem("token");
-      const response = await fetch(
-        "http://localhost:5000/driver/deliveries/active",
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
-      );
+      const response = await fetch(`${API_URL}/driver/deliveries/active`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
       const data = await response.json();
       if (response.ok) {
@@ -165,20 +163,17 @@ export default function DriverDeliveryTracking() {
     const sendLocationUpdate = async () => {
       try {
         const token = localStorage.getItem("token");
-        await fetch(
-          `http://localhost:5000/driver/deliveries/${delivery.id}/location`,
-          {
-            method: "PATCH",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({
-              latitude: driverLocation.latitude,
-              longitude: driverLocation.longitude,
-            }),
+        await fetch(`${API_URL}/driver/deliveries/${delivery.id}/location`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
           },
-        );
+          body: JSON.stringify({
+            latitude: driverLocation.latitude,
+            longitude: driverLocation.longitude,
+          }),
+        });
       } catch (err) {
         console.error("Location update error:", err);
       }
@@ -288,7 +283,7 @@ export default function DriverDeliveryTracking() {
     try {
       const token = localStorage.getItem("token");
       const response = await fetch(
-        `http://localhost:5000/driver/deliveries/${delivery.id}/status`,
+        `${API_URL}/driver/deliveries/${delivery.id}/status`,
         {
           method: "PATCH",
           headers: {

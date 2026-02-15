@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import supabaseClient from "../../supabaseClient";
 import DriverLayout from "../../components/DriverLayout";
+import { API_URL } from "../../config";
 
 // Initialize Supabase
 const supabase = supabaseClient;
@@ -16,7 +17,7 @@ export default function DriverNotifications() {
   const markAllAsRead = useCallback(async () => {
     try {
       const token = localStorage.getItem("token");
-      await fetch("http://localhost:5000/driver/notifications/mark-all-read", {
+      await fetch(`${API_URL}/driver/notifications/mark-all-read`, {
         method: "PATCH",
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -32,7 +33,7 @@ export default function DriverNotifications() {
     try {
       const token = localStorage.getItem("token");
       const res = await fetch(
-        "http://localhost:5000/driver/notifications?limit=50",
+        `${API_URL}/driver/notifications?limit=50`,
         {
           headers: { Authorization: `Bearer ${token}` },
         },

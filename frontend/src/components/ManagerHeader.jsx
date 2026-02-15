@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { API_URL } from "../config";
 
 const ManagerHeader = ({ userEmail, userName }) => {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -38,7 +39,7 @@ const ManagerHeader = ({ userEmail, userName }) => {
     if (!token || storedRole !== "manager") return;
     (async () => {
       try {
-        const res = await fetch("http://localhost:5000/manager/me", {
+        const res = await fetch(`${API_URL}/manager/me`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         const data = await res.json();

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import foodBg from "../assets/food-bg.jpg";
 import AnimatedAlert, { useAlert } from "../components/AnimatedAlert";
+import { API_URL } from "../config";
 
 export default function Signup() {
   const navigate = useNavigate();
@@ -65,7 +66,7 @@ export default function Signup() {
     try {
       // Check if email is already registered
       const checkResponse = await fetch(
-        "http://localhost:5000/auth/check-availability",
+        `${API_URL}/auth/check-availability`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -83,7 +84,7 @@ export default function Signup() {
       }
 
       // Proceed with signup
-      const response = await fetch("http://localhost:5000/auth/signup", {
+      const response = await fetch(`${API_URL}/auth/signup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

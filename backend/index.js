@@ -3,6 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import { createServer } from "http";
 import cron from "node-cron";
+import rateLimit from "express-rate-limit";
 import { supabaseAdmin } from "./supabaseAdmin.js";
 import { initializeSocket } from "./utils/socketManager.js";
 import { runManagerChecks } from "./utils/managerNotificationChecker.js";
@@ -71,10 +72,71 @@ import reportsRoutes from "./routes/reports.js";
 
 const app = express();
 
-// Middleware
-app.use(cors());
-app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ limit: "50mb", extended: true }));
+// --- CORS: only allow your own frontend origins ---
+const allowedOrigins = [
+  process.env.FRONTEND_URL || "http://localhost:5173",
+  "http://localhost:5173",
+  "http://localhost:5174",
+  "http://localhost:5175",
+  "http://localhost:5176",
+  "http://localhost:5177",
+  "http://localhost:5178",
+  "http://localhost:5179",
+];
+app.use(
+  cors({
+    origin: (origin, cb) => {
+      // Allow requests with no origin (mobile apps, curl, server-to-server)
+      if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+      return cb(new Error("Not allowed by CORS"));
+    },
+    credentials: true,
+  }),
+);
+
+// --- Security headers ---
+app.use((req, res, next) => {
+  // Prevent MIME type sniffing
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  // Prevent clickjacking
+  res.setHeader("X-Frame-Options", "DENY");
+  // XSS protection
+  res.setHeader("X-XSS-Protection", "1; mode=block");
+  // Prevent referrer leakage
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  // Remove Express fingerprint
+  res.removeHeader("X-Powered-By");
+  next();
+});
+
+// --- Body size limits (10MB for image uploads, not 50MB) ---
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ limit: "10mb", extended: true }));
+
+// --- Global rate limiter: 200 requests per minute per IP ---
+app.use(
+  rateLimit({
+    windowMs: 60 * 1000,
+    max: 200,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { message: "Too many requests, please try again later" },
+  }),
+);
+
+// --- Strict rate limiter for auth endpoints ---
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 30, // 30 attempts per 15 min
+  standardHeaders: true,
+  legacyHeaders: false,
+  // Skip CORS preflight requests — browsers send OPTIONS before POST,
+  // which would double-count each login attempt
+  skip: (req) => req.method === "OPTIONS",
+  message: {
+    message: "Too many login attempts, please try again after 15 minutes",
+  },
+});
 
 // Health check endpoint
 app.get("/health", (req, res) => {
@@ -82,7 +144,7 @@ app.get("/health", (req, res) => {
 });
 
 // Routes
-app.use("/auth", authRoutes);
+app.use("/auth", authLimiter, authRoutes);
 app.use("/manager", managerRoutes);
 app.use("/admin", adminRoutes);
 app.use("/driver", driverRoutes);
@@ -103,9 +165,7 @@ app.use("/manager/reports", reportsRoutes);
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error("Unhandled error:", err);
-  res
-    .status(500)
-    .json({ message: "Internal server error", error: err.message });
+  res.status(500).json({ message: "Internal server error" });
 });
 
 // Server

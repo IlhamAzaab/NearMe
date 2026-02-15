@@ -1,17 +1,15 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import supabaseClient from "../supabaseClient";
+import { API_URL } from "../config";
 
 /**
  * Custom Hook: useDriverNotifications
  *
- * Subscribes to real-time notifications for drivers using Supabase Realtime
+ * Fetches / mutates notifications via backend API (uses service_role).
+ * Subscribes to real-time INSERT events via Supabase Realtime (anon key).
  *
- * Features:
- * - Auto-subscribe on mount
- * - Listen for new delivery notifications
- * - Update unread count in real-time
- * - Mark notifications as read
- * - Auto-cleanup on unmount
+ * SECURITY: All CRUD operations go through the backend API so the
+ *           frontend never needs direct write access to the notifications table.
  *
  * Usage:
  * const {
@@ -19,7 +17,9 @@ import supabaseClient from "../supabaseClient";
  *   unreadCount,
  *   loading,
  *   markAsRead,
- *   subscriptionStatus
+ *   markAllAsRead,
+ *   subscriptionStatus,
+ *   refetch,
  * } = useDriverNotifications(driverId);
  */
 
@@ -35,83 +35,69 @@ export const useDriverNotifications = (driverId, options = {}) => {
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [subscriptionStatus, setSubscriptionStatus] = useState("idle"); // idle, subscribing, subscribed, error
+  const [subscriptionStatus, setSubscriptionStatus] = useState("idle");
 
-  const supabaseRef = useRef(null);
-  const subscriptionRef = useRef(null);
   const channelRef = useRef(null);
 
-  // Initialize Supabase client (singleton)
-  useEffect(() => {
-    if (!supabaseRef.current) {
-      supabaseRef.current = supabaseClient;
-    }
-  }, []);
-
-  // Fetch initial notifications
+  // ──────────────────────────────────────────────
+  // Fetch notifications via backend API (secure)
+  // ──────────────────────────────────────────────
   const fetchInitialNotifications = useCallback(async () => {
-    if (!driverId || !supabaseRef.current) {
-      console.warn("⚠️ Cannot fetch: driverId or supabase client missing", {
-        driverId,
-        supabase: !!supabaseRef.current,
-      });
-      return;
-    }
+    if (!driverId) return;
 
     try {
       setLoading(true);
       setError(null);
 
-      console.log(`📥 Fetching notifications for driver: ${driverId}`);
-
-      const { data, error: fetchError } = await supabaseRef.current
-        .from("notifications")
-        .select("*")
-        .eq("recipient_id", driverId)
-        .eq("recipient_role", "driver")
-        .order("created_at", { ascending: false })
-        .limit(100);
-
-      if (fetchError) {
-        console.error("❌ Fetch error:", fetchError);
-        console.error("   Error code:", fetchError.code);
-        console.error("   Error message:", fetchError.message);
-        console.error("   Error details:", fetchError.details);
-        console.error("   Error hint:", fetchError.hint);
-        throw fetchError;
+      const token = localStorage.getItem("token");
+      if (!token) {
+        console.warn("⚠️ No auth token — cannot fetch notifications");
+        setLoading(false);
+        return;
       }
 
-      console.log(`✅ Fetched ${data?.length || 0} notifications`);
-      setNotifications(data || []);
-      const unread = (data || []).filter((n) => !n.is_read).length;
-      setUnreadCount(unread);
-      console.log(`   Unread: ${unread}`);
+      const res = await fetch(`${API_URL}/driver/notifications`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!res.ok) {
+        throw new Error(`Failed to fetch notifications: ${res.status}`);
+      }
+
+      const data = await res.json();
+      const notifs = data.notifications || [];
+
+      setNotifications(notifs);
+      setUnreadCount(notifs.filter((n) => !n.is_read).length);
     } catch (err) {
       console.error("❌ Error fetching notifications:", err);
       setError(err.message);
     } finally {
       setLoading(false);
-      console.log("✅ Loading set to false");
     }
   }, [driverId]);
 
-  // Mark notification as read
+  // ──────────────────────────────────────────────
+  // Mark single notification as read (via backend API)
+  // ──────────────────────────────────────────────
   const markAsRead = useCallback(
     async (notificationId) => {
-      if (!driverId || !supabaseRef.current) return;
+      if (!driverId) return;
 
       try {
-        const { error } = await supabaseRef.current
-          .from("notifications")
-          .update({
-            is_read: true,
-            read_at: new Date().toISOString(),
-          })
-          .eq("id", notificationId)
-          .eq("recipient_id", driverId);
+        const token = localStorage.getItem("token");
+        if (!token) return;
 
-        if (error) {
-          throw error;
+        const res = await fetch(
+          `${API_URL}/driver/notifications/${notificationId}/read`,
+          {
+            method: "PATCH",
+            headers: { Authorization: `Bearer ${token}` },
+          },
+        );
+
+        if (!res.ok) {
+          throw new Error(`Failed to mark notification read: ${res.status}`);
         }
 
         // Update local state
@@ -120,7 +106,6 @@ export const useDriverNotifications = (driverId, options = {}) => {
             notif.id === notificationId ? { ...notif, is_read: true } : notif,
           ),
         );
-
         setUnreadCount((prev) => Math.max(0, prev - 1));
       } catch (err) {
         console.error("Error marking notification as read:", err);
@@ -129,23 +114,26 @@ export const useDriverNotifications = (driverId, options = {}) => {
     [driverId],
   );
 
-  // Mark all notifications as read
+  // ──────────────────────────────────────────────
+  // Mark ALL notifications as read (via backend API)
+  // ──────────────────────────────────────────────
   const markAllAsRead = useCallback(async () => {
-    if (!driverId || !supabaseRef.current) return;
+    if (!driverId) return;
 
     try {
-      const { error } = await supabaseRef.current
-        .from("notifications")
-        .update({
-          is_read: true,
-          read_at: new Date().toISOString(),
-        })
-        .eq("recipient_id", driverId)
-        .eq("recipient_role", "driver")
-        .eq("is_read", false);
+      const token = localStorage.getItem("token");
+      if (!token) return;
 
-      if (error) {
-        throw error;
+      const res = await fetch(
+        `${API_URL}/driver/notifications/mark-all-read`,
+        {
+          method: "PATCH",
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+
+      if (!res.ok) {
+        throw new Error(`Failed to mark all as read: ${res.status}`);
       }
 
       setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
@@ -155,26 +143,16 @@ export const useDriverNotifications = (driverId, options = {}) => {
     }
   }, [driverId]);
 
-  // Subscribe to real-time notifications
+  // ──────────────────────────────────────────────
+  // Supabase Realtime subscription (INSERT only)
+  // ──────────────────────────────────────────────
   const subscribeToNotifications = useCallback(() => {
-    if (!realtimeEnabled || !driverId || !supabaseRef.current) {
-      console.warn(
-        "⚠️ Cannot subscribe: realtimeEnabled=",
-        realtimeEnabled,
-        "driverId=",
-        driverId,
-      );
-      return;
-    }
+    if (!realtimeEnabled || !driverId) return;
 
     try {
       setSubscriptionStatus("subscribing");
-      console.log(
-        `🔔 Setting up Realtime subscription for driver: ${driverId}`,
-      );
 
-      // Create a channel for this driver's notifications
-      const channel = supabaseRef.current
+      const channel = supabaseClient
         .channel(`driver-notifications:${driverId}`)
         .on(
           "postgres_changes",
@@ -185,55 +163,26 @@ export const useDriverNotifications = (driverId, options = {}) => {
             filter: `recipient_id=eq.${driverId}`,
           },
           (payload) => {
-            console.log("📡 Realtime event received:", payload);
             const newNotif = payload.new;
 
-            console.log("🔍 Checking notification:", {
-              recipient_id: newNotif.recipient_id,
-              recipient_role: newNotif.recipient_role,
-              type: newNotif.type,
-              driverId,
-              filterTypes,
-            });
-
-            // Only handle notifications for this driver and matching types
             if (
               newNotif.recipient_id === driverId &&
               newNotif.recipient_role === "driver" &&
               filterTypes.includes(newNotif.type)
             ) {
-              console.log("✅ New notification ADDED:", newNotif);
-
-              // Add to notifications array
               setNotifications((prev) => [newNotif, ...prev]);
               setUnreadCount((prev) => prev + 1);
 
-              // Call callback if provided
               if (onNewNotification) {
                 onNewNotification(newNotif);
               }
-            } else {
-              console.warn("❌ Notification filtered out:", {
-                idMatch: newNotif.recipient_id === driverId,
-                roleMatch: newNotif.recipient_role === "driver",
-                typeMatch: filterTypes.includes(newNotif.type),
-              });
             }
           },
         )
         .subscribe((status) => {
-          console.log(`📊 Realtime subscription status: ${status}`);
           setSubscriptionStatus(
             status === "SUBSCRIBED" ? "subscribed" : "error",
           );
-
-          if (status === "SUBSCRIBED") {
-            console.log("✅ Successfully subscribed to notifications");
-          } else if (status === "CLOSED") {
-            console.warn("⚠️ Subscription closed");
-          } else if (status === "CHANNEL_ERROR") {
-            console.error("❌ Channel error");
-          }
         });
 
       channelRef.current = channel;
@@ -244,31 +193,20 @@ export const useDriverNotifications = (driverId, options = {}) => {
     }
   }, [driverId, realtimeEnabled, filterTypes, onNewNotification]);
 
-  // Setup and cleanup
+  // ──────────────────────────────────────────────
+  // Setup & cleanup
+  // ──────────────────────────────────────────────
   useEffect(() => {
-    if (!autoSubscribe || !driverId) {
-      console.log("⏳ Waiting for driverId to be set...", {
-        autoSubscribe,
-        driverId,
-      });
-      return;
-    }
+    if (!autoSubscribe || !driverId) return;
 
-    console.log(`🔄 Initializing notifications for driver: ${driverId}`);
-
-    // Fetch initial notifications first
-    const initializeFetch = async () => {
+    const init = async () => {
       await fetchInitialNotifications();
-      // Subscribe after initial fetch completes
       subscribeToNotifications();
     };
+    init();
 
-    initializeFetch();
-
-    // Cleanup
     return () => {
       if (channelRef.current) {
-        console.log("🧹 Cleaning up Realtime subscription");
         channelRef.current.unsubscribe();
       }
     };

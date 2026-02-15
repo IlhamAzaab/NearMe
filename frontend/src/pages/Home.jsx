@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import BottomNavbar from "../components/BottomNavbar";
+import { API_URL } from "../config";
 
 // Category Icons
 const CategoryIcon = ({ type }) => {
@@ -128,12 +129,9 @@ const Home = () => {
   const fetchNotificationCount = async () => {
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(
-        "http://localhost:5000/customer/notifications?limit=100",
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
-      );
+      const res = await fetch(`${API_URL}/customer/notifications?limit=100`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const data = await res.json();
       const unread = (data.notifications || []).filter(
         (n) => !n.is_read,
@@ -147,7 +145,7 @@ const Home = () => {
   const fetchCartCount = async () => {
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch("http://localhost:5000/cart", {
+      const res = await fetch(`${API_URL}/cart`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -169,7 +167,7 @@ const Home = () => {
   const fetchRestaurants = async (search = "") => {
     try {
       setLoading(true);
-      const url = new URL("http://localhost:5000/public/restaurants");
+      const url = new URL(`${API_URL}/public/restaurants`);
       if (search) url.searchParams.append("search", search);
 
       const res = await fetch(url);
@@ -185,7 +183,7 @@ const Home = () => {
   const fetchAllFoods = async (search = "") => {
     try {
       setLoading(true);
-      const url = new URL("http://localhost:5000/public/foods");
+      const url = new URL(`${API_URL}/public/foods`);
       if (search) url.searchParams.append("search", search);
 
       const res = await fetch(url);

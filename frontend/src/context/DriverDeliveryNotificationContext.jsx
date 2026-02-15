@@ -48,7 +48,7 @@ function createAlertSound() {
 
     try {
       // Use HTML Audio element with loop for reliable looping
-      audioElement = new Audio("/delivery-alert.wav");
+      audioElement = new Audio("/driver-alert-tone.wav");
       audioElement.loop = true;
       audioElement.volume = 0.7;
       audioElement.play().catch((err) => {
@@ -197,15 +197,30 @@ export function DriverDeliveryNotificationProvider({ children }) {
     showBrowserNotification(deliveryData);
   }, []);
 
-  // Remove notification (decline)
+  // Remove notification (decline) - stop sound immediately
   const declineDelivery = useCallback((deliveryId) => {
-    setNotifications((prev) =>
-      prev.filter((n) => n.delivery_id !== deliveryId),
+    // Stop sound IMMEDIATELY on click (before state update)
+    const remaining = notificationsRef.current.filter(
+      (n) => n.delivery_id !== deliveryId,
     );
+    if (remaining.length === 0 && alertSoundRef.current) {
+      alertSoundRef.current.stop();
+    }
+    setNotifications(remaining);
   }, []);
 
-  // Accept a delivery
+  // Accept a delivery - stop sound immediately on click
   const acceptDelivery = useCallback(async (deliveryId, driverLocation) => {
+    // IMMEDIATELY stop sound and remove notification on click
+    if (alertSoundRef.current) {
+      alertSoundRef.current.stop();
+    }
+    // Remove notification instantly from UI
+    const remaining = notificationsRef.current.filter(
+      (n) => n.delivery_id !== deliveryId,
+    );
+    setNotifications(remaining);
+
     const notification = notificationsRef.current.find(
       (n) => n.delivery_id === deliveryId,
     );
@@ -236,12 +251,16 @@ export function DriverDeliveryNotificationProvider({ children }) {
       const data = await res.json();
 
       if (res.ok) {
-        // Remove the accepted delivery notification
-        setNotifications((prev) =>
-          prev.filter((n) => n.delivery_id !== deliveryId),
-        );
+        // Restart sound if there are still other notifications pending
+        if (remaining.length > 0 && alertSoundRef.current) {
+          alertSoundRef.current.play();
+        }
         return { success: true, data };
       } else {
+        // Restart sound if there are still other notifications pending
+        if (remaining.length > 0 && alertSoundRef.current) {
+          alertSoundRef.current.play();
+        }
         return {
           success: false,
           message: data.message || "Failed to accept delivery",
@@ -249,6 +268,10 @@ export function DriverDeliveryNotificationProvider({ children }) {
       }
     } catch (e) {
       console.error("[Accept Delivery] Error:", e);
+      // Restart sound if there are still other notifications pending
+      if (remaining.length > 0 && alertSoundRef.current) {
+        alertSoundRef.current.play();
+      }
       return {
         success: false,
         message: "Network error - could not accept delivery",

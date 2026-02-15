@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import SiteHeader from "../../components/SiteHeader";
 import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
+import { API_URL } from "../../config";
 
 export default function AdminProfile() {
   const navigate = useNavigate();
@@ -47,7 +48,7 @@ export default function AdminProfile() {
   const fetchProfile = async () => {
     const token = localStorage.getItem("token");
     try {
-      const res = await fetch("http://localhost:5000/admin/me", {
+      const res = await fetch(`${API_URL}/admin/me`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -95,7 +96,7 @@ export default function AdminProfile() {
     setSaving(true);
 
     try {
-      const res = await fetch("http://localhost:5000/admin/update-profile", {
+      const res = await fetch(`${API_URL}/admin/update-profile`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",

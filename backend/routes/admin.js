@@ -295,17 +295,34 @@ router.get("/stats", authenticate, async (req, res) => {
       return res.status(403).json({ message: "Forbidden" });
     }
 
-    // Total orders
+    // Get admin's restaurant_id to scope all queries
+    const { data: adminProfile } = await supabaseAdmin
+      .from("admins")
+      .select("restaurant_id")
+      .eq("id", req.user.id)
+      .single();
+
+    if (!adminProfile?.restaurant_id) {
+      return res
+        .status(400)
+        .json({ message: "No restaurant linked to this admin" });
+    }
+
+    const restId = adminProfile.restaurant_id;
+
+    // Total orders (scoped to this restaurant)
     const { count: ordersCount, error: ordersErr } = await supabaseAdmin
       .from("orders")
-      .select("id", { count: "exact", head: true });
+      .select("id", { count: "exact", head: true })
+      .eq("restaurant_id", restId);
 
     if (ordersErr) throw ordersErr;
 
-    // Total revenue
+    // Total revenue (scoped)
     const { data: revenueData, error: revenueErr } = await supabaseAdmin
       .from("orders")
-      .select("total_amount");
+      .select("total_amount")
+      .eq("restaurant_id", restId);
 
     const totalRevenue =
       revenueData?.reduce(
@@ -313,7 +330,7 @@ router.get("/stats", authenticate, async (req, res) => {
         0,
       ) || 0;
 
-    // Today's orders and revenue
+    // Today's orders and revenue (scoped)
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const todayISO = today.toISOString();
@@ -321,6 +338,7 @@ router.get("/stats", authenticate, async (req, res) => {
     const { data: todayOrders, error: todayErr } = await supabaseAdmin
       .from("orders")
       .select("total_amount")
+      .eq("restaurant_id", restId)
       .gte("created_at", todayISO);
 
     const todayOrdersCount = todayOrders?.length || 0;
@@ -330,22 +348,27 @@ router.get("/stats", authenticate, async (req, res) => {
         0,
       ) || 0;
 
-    // Foods count (products)
+    // Foods count (scoped to this restaurant)
     const { count: foodsCount, error: foodsErr } = await supabaseAdmin
       .from("foods")
-      .select("id", { count: "exact", head: true });
+      .select("id", { count: "exact", head: true })
+      .eq("restaurant_id", restId);
 
-    // Available foods
+    // Available foods (scoped)
     const { count: availableFoods, error: availErr } = await supabaseAdmin
       .from("foods")
       .select("id", { count: "exact", head: true })
+      .eq("restaurant_id", restId)
       .eq("is_available", true);
 
-    // Active customers (users with role customer)
-    const { count: customersCount, error: custErr } = await supabaseAdmin
-      .from("users")
-      .select("id", { count: "exact", head: true })
-      .eq("role", "customer");
+    // Unique customers who ordered from this restaurant
+    const { data: customerData, error: custErr } = await supabaseAdmin
+      .from("orders")
+      .select("customer_id")
+      .eq("restaurant_id", restId);
+    const uniqueCustomers = new Set(
+      (customerData || []).map((o) => o.customer_id),
+    ).size;
 
     // Calculate average order value
     const avgOrderValue = ordersCount > 0 ? totalRevenue / ordersCount : 0;
@@ -356,7 +379,7 @@ router.get("/stats", authenticate, async (req, res) => {
         totalRevenue: totalRevenue,
         totalProducts: foodsCount || 0,
         availableProducts: availableFoods || 0,
-        activeCustomers: customersCount || 0,
+        activeCustomers: uniqueCustomers,
         todayOrders: todayOrdersCount,
         todayRevenue: todayRevenue,
         avgOrderValue: avgOrderValue,
@@ -365,6 +388,255 @@ router.get("/stats", authenticate, async (req, res) => {
   } catch (e) {
     console.error("/admin/stats error:", e);
     return res.status(500).json({ message: "Failed to load stats" });
+  }
+});
+
+/**
+ * GET /admin/dashboard-stats
+ * Combined endpoint for the restructured admin dashboard.
+ * Returns today performance (with yesterday comparison), lifetime totals,
+ * products info, and chart data — all using admin earnings (restaurant_payment).
+ * Query params: chartPeriod (week|month|year) default: week
+ */
+router.get("/dashboard-stats", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const adminId = req.user.id;
+    const { chartPeriod = "week" } = req.query;
+
+    // Get restaurant ID
+    const { data: adminData, error: adminError } = await supabaseAdmin
+      .from("admins")
+      .select("restaurant_id")
+      .eq("id", adminId)
+      .maybeSingle();
+
+    if (adminError || !adminData?.restaurant_id) {
+      return res
+        .status(404)
+        .json({ message: "Restaurant not found for admin" });
+    }
+
+    const restaurantId = adminData.restaurant_id;
+
+    // Get qualifying deliveries (picked_up or later = admin earned)
+    const { data: qualifyingDeliveries, error: qualDelError } =
+      await supabaseAdmin
+        .from("deliveries")
+        .select("order_id")
+        .in("status", ["picked_up", "on_the_way", "at_customer", "delivered"]);
+
+    if (qualDelError) {
+      console.error("Qualifying deliveries error:", qualDelError);
+      return res
+        .status(500)
+        .json({ message: "Failed to fetch dashboard data" });
+    }
+
+    const qualifyingOrderIds = (qualifyingDeliveries || []).map(
+      (d) => d.order_id,
+    );
+
+    // --- Time calculations ---
+    const now = new Date();
+    const todayStart = new Date(now);
+    todayStart.setHours(0, 0, 0, 0);
+
+    const yesterdayStart = new Date(todayStart);
+    yesterdayStart.setDate(yesterdayStart.getDate() - 1);
+
+    // Yesterday at same time = from yesterday midnight to exactly 24h ago
+    const yesterdaySameTime = new Date(now);
+    yesterdaySameTime.setDate(yesterdaySameTime.getDate() - 1);
+
+    // Helper to build a scoped query on order_financial_details
+    const buildQuery = (selectFields) => {
+      let q = supabaseAdmin
+        .from("order_financial_details")
+        .select(selectFields)
+        .eq("restaurant_id", restaurantId);
+      if (qualifyingOrderIds.length > 0) {
+        q = q.in("order_id", qualifyingOrderIds);
+      } else {
+        return null; // no qualifying orders
+      }
+      return q;
+    };
+
+    // --- Today's data (from midnight to now) ---
+    let todaySales = 0,
+      todayOrders = 0,
+      todayAvg = 0;
+    const todayQ = buildQuery("restaurant_payment");
+    if (todayQ) {
+      const { data: todayData } = await todayQ.gte(
+        "placed_at",
+        todayStart.toISOString(),
+      );
+      todayOrders = todayData?.length || 0;
+      todaySales = (todayData || []).reduce(
+        (s, o) => s + parseFloat(o.restaurant_payment || 0),
+        0,
+      );
+      todayAvg = todayOrders > 0 ? todaySales / todayOrders : 0;
+    }
+
+    // --- Yesterday at same time (from yesterday midnight to yesterday same hour/minute) ---
+    let yesterdaySales = 0,
+      yesterdayOrders = 0,
+      yesterdayAvg = 0;
+    const yesterdayQ = buildQuery("restaurant_payment");
+    if (yesterdayQ) {
+      const { data: yesterdayData } = await yesterdayQ
+        .gte("placed_at", yesterdayStart.toISOString())
+        .lte("placed_at", yesterdaySameTime.toISOString());
+      yesterdayOrders = yesterdayData?.length || 0;
+      yesterdaySales = (yesterdayData || []).reduce(
+        (s, o) => s + parseFloat(o.restaurant_payment || 0),
+        0,
+      );
+      yesterdayAvg = yesterdayOrders > 0 ? yesterdaySales / yesterdayOrders : 0;
+    }
+
+    // --- Percentage changes ---
+    const calcChange = (today, yesterday) => {
+      if (yesterday === 0) return today > 0 ? 100 : 0;
+      return Math.round(((today - yesterday) / yesterday) * 1000) / 10;
+    };
+
+    const salesChange = calcChange(todaySales, yesterdaySales);
+    const ordersChange = calcChange(todayOrders, yesterdayOrders);
+    const avgChange = calcChange(todayAvg, yesterdayAvg);
+
+    // --- Lifetime totals (all time, using admin earnings) ---
+    let lifetimeRevenue = 0,
+      lifetimeOrders = 0;
+    const lifetimeQ = buildQuery("restaurant_payment");
+    if (lifetimeQ) {
+      const { data: lifetimeData } = await lifetimeQ;
+      lifetimeOrders = lifetimeData?.length || 0;
+      lifetimeRevenue = (lifetimeData || []).reduce(
+        (s, o) => s + parseFloat(o.restaurant_payment || 0),
+        0,
+      );
+    }
+
+    // --- Products info ---
+    const { count: totalProducts } = await supabaseAdmin
+      .from("foods")
+      .select("id", { count: "exact", head: true })
+      .eq("restaurant_id", restaurantId);
+
+    const { count: availableProducts } = await supabaseAdmin
+      .from("foods")
+      .select("id", { count: "exact", head: true })
+      .eq("restaurant_id", restaurantId)
+      .eq("is_available", true);
+
+    // --- Chart data ---
+    let chartStartDate = new Date(now);
+    let groupBy = "day"; // day or month
+
+    switch (chartPeriod) {
+      case "week":
+        chartStartDate.setDate(chartStartDate.getDate() - 7);
+        groupBy = "day";
+        break;
+      case "month":
+        chartStartDate.setDate(chartStartDate.getDate() - 30);
+        groupBy = "day";
+        break;
+      case "year":
+        chartStartDate.setFullYear(chartStartDate.getFullYear() - 1);
+        groupBy = "month";
+        break;
+      default:
+        chartStartDate.setDate(chartStartDate.getDate() - 7);
+        groupBy = "day";
+    }
+
+    let chartData = [];
+    const chartQ = buildQuery("restaurant_payment, placed_at");
+    if (chartQ) {
+      const { data: chartOrders } = await chartQ
+        .gte("placed_at", chartStartDate.toISOString())
+        .order("placed_at", { ascending: true });
+
+      const grouped = {};
+      (chartOrders || []).forEach((order) => {
+        const d = new Date(order.placed_at);
+        const key =
+          groupBy === "month"
+            ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
+            : d.toISOString().split("T")[0];
+        if (!grouped[key]) grouped[key] = { amount: 0, orders: 0 };
+        grouped[key].amount += parseFloat(order.restaurant_payment || 0);
+        grouped[key].orders += 1;
+      });
+
+      // Fill missing dates/months with zero values
+      if (groupBy === "day") {
+        const cursor = new Date(chartStartDate);
+        cursor.setHours(0, 0, 0, 0);
+        const endDate = new Date(now);
+        endDate.setHours(0, 0, 0, 0);
+        while (cursor <= endDate) {
+          const key = cursor.toISOString().split("T")[0];
+          if (!grouped[key]) grouped[key] = { amount: 0, orders: 0 };
+          cursor.setDate(cursor.getDate() + 1);
+        }
+      } else {
+        const cursor = new Date(chartStartDate);
+        const endMonth = now.getFullYear() * 12 + now.getMonth();
+        while (cursor.getFullYear() * 12 + cursor.getMonth() <= endMonth) {
+          const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`;
+          if (!grouped[key]) grouped[key] = { amount: 0, orders: 0 };
+          cursor.setMonth(cursor.getMonth() + 1);
+        }
+      }
+
+      chartData = Object.entries(grouped)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([date, data]) => ({
+          date,
+          amount: Math.round(data.amount),
+          orders: data.orders,
+        }));
+    }
+
+    return res.json({
+      today: {
+        sales: Math.round(todaySales),
+        orders: todayOrders,
+        avgOrderValue: Math.round(todayAvg),
+      },
+      yesterday: {
+        sales: Math.round(yesterdaySales),
+        orders: yesterdayOrders,
+        avgOrderValue: Math.round(yesterdayAvg),
+      },
+      changes: {
+        salesChange,
+        ordersChange,
+        avgChange,
+      },
+      lifetime: {
+        totalRevenue: Math.round(lifetimeRevenue),
+        totalOrders: lifetimeOrders,
+      },
+      products: {
+        total: totalProducts || 0,
+        available: availableProducts || 0,
+      },
+      chartData,
+      chartPeriod,
+    });
+  } catch (e) {
+    console.error("/admin/dashboard-stats error:", e);
+    return res.status(500).json({ message: "Server error" });
   }
 });
 
@@ -1073,7 +1345,7 @@ router.get("/earnings", authenticate, async (req, res) => {
       .gte("placed_at", todayStart.toISOString());
 
     if (qualifyingOrderIds.length > 0) {
-      todayQuery = todayQuery.in("id", qualifyingOrderIds);
+      todayQuery = todayQuery.in("order_id", qualifyingOrderIds);
     }
 
     const { data: todayOrders, error: todayError } = await todayQuery;
@@ -1098,7 +1370,7 @@ router.get("/earnings", authenticate, async (req, res) => {
       .lt("placed_at", lastWeekEnd.toISOString());
 
     if (qualifyingOrderIds.length > 0) {
-      lastWeekQuery = lastWeekQuery.in("id", qualifyingOrderIds);
+      lastWeekQuery = lastWeekQuery.in("order_id", qualifyingOrderIds);
     }
 
     const { data: lastWeekOrders } = await lastWeekQuery;
@@ -1118,7 +1390,7 @@ router.get("/earnings", authenticate, async (req, res) => {
       .gte("placed_at", thisWeekStart.toISOString());
 
     if (qualifyingOrderIds.length > 0) {
-      thisWeekQuery = thisWeekQuery.in("id", qualifyingOrderIds);
+      thisWeekQuery = thisWeekQuery.in("order_id", qualifyingOrderIds);
     }
 
     const { data: thisWeekOrders } = await thisWeekQuery;
@@ -1146,7 +1418,7 @@ router.get("/earnings", authenticate, async (req, res) => {
       .order("placed_at", { ascending: true });
 
     if (qualifyingOrderIds.length > 0) {
-      chartQuery = chartQuery.in("id", qualifyingOrderIds);
+      chartQuery = chartQuery.in("order_id", qualifyingOrderIds);
     }
 
     const { data: chartOrders } = await chartQuery;

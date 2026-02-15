@@ -11,6 +11,7 @@ import {
 } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { API_URL } from "../../config";
 
 // Fix Leaflet default marker icons
 delete L.Icon.Default.prototype._getIconUrl;
@@ -113,6 +114,22 @@ const mapContainerStyle = {
   height: "100%",
 };
 
+// Minimum movement threshold
+const MOVEMENT_THRESHOLD_METERS = 10;
+
+function getDistanceMeters(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 export default function ActiveDeliveries() {
   const navigate = useNavigate();
   const { alert: alertState, visible: alertVisible, showError } = useAlert();
@@ -138,58 +155,42 @@ export default function ActiveDeliveries() {
   const isLoaded = true;
 
   // Refs for location tracking
-  const locationIntervalRef = useRef(null);
-  const dataFetchIntervalRef = useRef(null);
+  const watchIdRef = useRef(null);
+  const lastLocationRef = useRef(null);
+  const lastFetchLocationRef = useRef(null);
   const isFetchingRef = useRef(false);
+  const hasFetchedInitialRef = useRef(false);
 
-  // Function to update location only (every 3 seconds for map display)
-  const updateLocation = useCallback(() => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const location = {
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-          };
-          console.log(
-            `[LOCATION] Updated: (${location.latitude.toFixed(6)}, ${location.longitude.toFixed(6)})`,
-          );
-          setDriverLocation(location);
-        },
-        (error) => {
-          console.error("Error getting location:", error);
-        },
-        { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 },
-      );
-    }
-  }, []);
-
-  // Function to fetch with current location (used for data refresh)
+  // Function to fetch with current location (used for action-triggered refresh)
   const fetchWithLocation = useCallback(
     (isBackgroundRefresh = false) => {
       if (isFetchingRef.current && isBackgroundRefresh) return; // Skip if already fetching
 
-      if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-          (position) => {
-            const location = {
-              latitude: position.coords.latitude,
-              longitude: position.coords.longitude,
-            };
-            setDriverLocation(location);
-            fetchPickups(location, isBackgroundRefresh);
-          },
-          (error) => {
-            console.error("Error getting location:", error);
-            // Try to fetch with last known location or without location
-            if (!isBackgroundRefresh) {
-              fetchPickups(driverLocation);
-            }
-          },
-          { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 },
-        );
+      const location = lastLocationRef.current || driverLocation;
+      if (location) {
+        fetchPickups(location, isBackgroundRefresh);
       } else if (!isBackgroundRefresh) {
-        fetchPickups(driverLocation);
+        // No location yet — try to get one
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(
+            (position) => {
+              const loc = {
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude,
+              };
+              lastLocationRef.current = loc;
+              setDriverLocation(loc);
+              fetchPickups(loc, isBackgroundRefresh);
+            },
+            (error) => {
+              console.error("Error getting location:", error);
+              fetchPickups(driverLocation);
+            },
+            { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 },
+          );
+        } else {
+          fetchPickups(driverLocation);
+        }
       }
     },
     [driverLocation],
@@ -202,28 +203,89 @@ export default function ActiveDeliveries() {
       return;
     }
 
-    // Initial fetch with location
-    fetchWithLocation(false);
+    // Initial fetch
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const loc = {
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+          };
+          lastLocationRef.current = loc;
+          lastFetchLocationRef.current = loc;
+          setDriverLocation(loc);
+          fetchPickups(loc, false);
+          hasFetchedInitialRef.current = true;
+        },
+        (error) => {
+          console.error("Error getting initial location:", error);
+          if (driverLocation) fetchPickups(driverLocation, false);
+        },
+        { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 },
+      );
+    }
 
-    // Update location every 3 seconds for live map display
-    locationIntervalRef.current = setInterval(() => {
-      updateLocation();
-    }, 3000);
+    // watchPosition fires only when the device detects real movement
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (position) => {
+        const newLoc = {
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        };
 
-    // Fetch data every 5 seconds (active deliveries need fresher data)
-    dataFetchIntervalRef.current = setInterval(() => {
-      console.log("[DATA REFRESH] Fetching active deliveries...");
-      fetchWithLocation(true);
-    }, 5000);
+        const prev = lastLocationRef.current;
+        if (!prev) {
+          lastLocationRef.current = newLoc;
+          lastFetchLocationRef.current = newLoc;
+          setDriverLocation(newLoc);
+          if (!hasFetchedInitialRef.current) {
+            hasFetchedInitialRef.current = true;
+            fetchPickups(newLoc, false);
+          }
+          return;
+        }
+
+        const moved = getDistanceMeters(
+          prev.latitude,
+          prev.longitude,
+          newLoc.latitude,
+          newLoc.longitude,
+        );
+
+        if (moved >= MOVEMENT_THRESHOLD_METERS) {
+          lastLocationRef.current = newLoc;
+          setDriverLocation(newLoc);
+
+          // Refresh data when driver has moved 30+ meters since last fetch
+          const movedSinceFetch = lastFetchLocationRef.current
+            ? getDistanceMeters(
+                lastFetchLocationRef.current.latitude,
+                lastFetchLocationRef.current.longitude,
+                newLoc.latitude,
+                newLoc.longitude,
+              )
+            : Infinity;
+
+          if (movedSinceFetch >= 30) {
+            console.log(
+              `[LOCATION] Moved ${movedSinceFetch.toFixed(0)}m since last fetch → refreshing data`,
+            );
+            lastFetchLocationRef.current = newLoc;
+            fetchPickups(newLoc, true);
+          }
+        }
+        // else: no significant movement — do nothing
+      },
+      (error) => console.error("Location watch error:", error),
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 },
+    );
+
+    // NO periodic intervals — data refreshes only on movement or user actions
 
     return () => {
-      if (locationIntervalRef.current) {
-        clearInterval(locationIntervalRef.current);
-        locationIntervalRef.current = null;
-      }
-      if (dataFetchIntervalRef.current) {
-        clearInterval(dataFetchIntervalRef.current);
-        dataFetchIntervalRef.current = null;
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
       }
     };
   }, [navigate]);
@@ -237,7 +299,7 @@ export default function ActiveDeliveries() {
         // using the simpler endpoint that doesn't need coordinates
         try {
           const fallbackRes = await fetch(
-            "http://localhost:5000/driver/deliveries/active",
+            `${API_URL}/driver/deliveries/active`,
             { headers: { Authorization: `Bearer ${token}` } },
           );
           if (fallbackRes.ok) {
@@ -272,7 +334,7 @@ export default function ActiveDeliveries() {
         setFetchError(null);
       }
 
-      const url = `http://localhost:5000/driver/deliveries/pickups?driver_latitude=${location.latitude}&driver_longitude=${location.longitude}`;
+      const url = `${API_URL}/driver/deliveries/pickups?driver_latitude=${location.latitude}&driver_longitude=${location.longitude}`;
 
       const res = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` },
@@ -323,7 +385,7 @@ export default function ActiveDeliveries() {
   const fetchFullRoute = async (location, pickupsList) => {
     try {
       const token = localStorage.getItem("token");
-      const url = `http://localhost:5000/driver/deliveries/full-route?driver_latitude=${location.latitude}&driver_longitude=${location.longitude}`;
+      const url = `${API_URL}/driver/deliveries/full-route?driver_latitude=${location.latitude}&driver_longitude=${location.longitude}`;
 
       const res = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` },
@@ -381,7 +443,7 @@ export default function ActiveDeliveries() {
   ) => {
     try {
       const token = localStorage.getItem("token");
-      const url = `http://localhost:5000/driver/deliveries/deliveries-route?driver_latitude=${location.latitude}&driver_longitude=${location.longitude}`;
+      const url = `${API_URL}/driver/deliveries/deliveries-route?driver_latitude=${location.latitude}&driver_longitude=${location.longitude}`;
       const res = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -413,7 +475,7 @@ export default function ActiveDeliveries() {
         if (list.length > 0 && list[0].status === "picked_up") {
           try {
             await fetch(
-              `http://localhost:5000/driver/deliveries/${list[0].delivery_id}/status`,
+              `${API_URL}/driver/deliveries/${list[0].delivery_id}/status`,
               {
                 method: "PATCH",
                 headers: {
@@ -1100,75 +1162,77 @@ function FullRouteMap({
 
   const mapCenter = calculateCenter();
 
-  // Helper: Calculate distance between two points using Haversine formula
-  const haversineDistance = (lat1, lng1, lat2, lng2) => {
-    const R = 6371000; // Earth's radius in meters
-    const dLat = ((lat2 - lat1) * Math.PI) / 180;
-    const dLng = ((lng2 - lng1) * Math.PI) / 180;
-    const a =
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos((lat1 * Math.PI) / 180) *
-        Math.cos((lat2 * Math.PI) / 180) *
-        Math.sin(dLng / 2) *
-        Math.sin(dLng / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c; // Distance in meters
+  // Helper: Get OSRM walking distance between two points (meters)
+  // Falls back to straight-line ONLY if network is completely unreachable (returns null)
+  const getOSRMDistance = async (lat1, lng1, lat2, lng2) => {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+      const url = `https://router.project-osrm.org/route/v1/foot/${lng1},${lat1};${lng2},${lat2}?overview=false`;
+      const response = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeoutId);
+      const data = await response.json();
+      if (data.code === "Ok" && data.routes?.[0]) {
+        return data.routes[0].distance; // meters
+      }
+      // OSRM returned an error code — retry once
+      const retry = await fetch(url);
+      const retryData = await retry.json();
+      if (retryData.code === "Ok" && retryData.routes?.[0]) {
+        return retryData.routes[0].distance;
+      }
+      return null;
+    } catch (e) {
+      console.warn(`[OSRM] Distance request failed: ${e.message}`);
+      return null;
+    }
   };
 
-  // Optimize restaurant pickup order: based on nearest customer distance
-  // Pickup from restaurant whose customer is farthest first, ending with nearest customer
-  const getOptimizedRestaurantOrderByShortest = (pickupsList, driverLoc) => {
+  // Optimize restaurant pickup order using OSRM road distances
+  const getOptimizedRestaurantOrderByShortest = async (
+    pickupsList,
+    driverLoc,
+  ) => {
     if (pickupsList.length <= 1) return pickupsList;
 
     console.log(
-      `📍 [SMART ROUTE] Analyzing ${pickupsList.length} deliveries for shortest total distance...`,
+      `📍 [SMART ROUTE] Analyzing ${pickupsList.length} deliveries via OSRM...`,
     );
 
-    // For each restaurant, find which customer is nearest to it
-    const restaurantCustomerMap = pickupsList.map((pickup) => {
-      const distToCustomer = haversineDistance(
-        pickup.restaurant.latitude,
-        pickup.restaurant.longitude,
-        pickup.customer.latitude,
-        pickup.customer.longitude,
-      );
+    // For each restaurant, get OSRM distance to its customer + from driver
+    const enriched = await Promise.all(
+      pickupsList.map(async (pickup) => {
+        const [distToCustomer, distFromDriver] = await Promise.all([
+          getOSRMDistance(
+            pickup.restaurant.latitude,
+            pickup.restaurant.longitude,
+            pickup.customer.latitude,
+            pickup.customer.longitude,
+          ),
+          getOSRMDistance(
+            driverLoc.latitude,
+            driverLoc.longitude,
+            pickup.restaurant.latitude,
+            pickup.restaurant.longitude,
+          ),
+        ]);
 
-      return {
-        ...pickup,
-        distToOwnCustomer: distToCustomer,
-      };
-    });
+        return {
+          ...pickup,
+          distToOwnCustomer: distToCustomer ?? Infinity,
+          distFromDriver: distFromDriver ?? Infinity,
+        };
+      }),
+    );
 
-    // Calculate distance from driver to each restaurant
-    const withDriverDist = restaurantCustomerMap.map((item) => {
-      const distFromDriver = haversineDistance(
-        driverLoc.latitude,
-        driverLoc.longitude,
-        item.restaurant.latitude,
-        item.restaurant.longitude,
-      );
-      return {
-        ...item,
-        distFromDriver,
-      };
-    });
-
-    // Sort by: restaurant whose customer is farthest from driver should be picked first
-    // This way we save distance by picking up from restaurants with far customers first
-    const sorted = [...withDriverDist].sort((a, b) => {
-      // Calculate total distance for each option
-      // For a: driver -> restaurant_a -> customer_a
+    // Sort: restaurant with largest total trip first (far customers first)
+    const sorted = [...enriched].sort((a, b) => {
       const totalA = a.distFromDriver + a.distToOwnCustomer;
-      // For b: driver -> restaurant_b -> customer_b
       const totalB = b.distFromDriver + b.distToOwnCustomer;
-
-      // Pick the one with larger total distance first (do far customers first)
       return totalB - totalA;
     });
 
-    console.log(
-      `📍 [SMART ROUTE] Pickup order (by nearest customer distance):`,
-    );
+    console.log(`📍 [SMART ROUTE] Pickup order (OSRM):`);
     sorted.forEach((item, idx) => {
       console.log(
         `📍 [SMART ROUTE]   ${idx + 1}. ${item.restaurant.name} → ${item.customer.name} (${(item.distToOwnCustomer / 1000).toFixed(2)} km to customer)`,
@@ -1178,45 +1242,48 @@ function FullRouteMap({
     return sorted;
   };
 
-  // Optimize customer delivery order based on proximity to current location after all pickups
-  const getOptimizedCustomerOrderByShortest = (pickupsList) => {
+  // Optimize customer delivery order using OSRM (nearest-neighbor)
+  const getOptimizedCustomerOrderByShortest = async (pickupsList) => {
     if (pickupsList.length <= 1) return pickupsList;
 
-    // After all pickups, driver is at the last restaurant
     const lastRestaurant = pickupsList[pickupsList.length - 1].restaurant;
-
-    // Find the order to visit all customers with shortest total distance
     const remaining = [...pickupsList];
     const ordered = [];
     let currentLat = lastRestaurant.latitude;
     let currentLng = lastRestaurant.longitude;
 
     console.log(
-      `📍 [SMART ROUTE] Delivery order (starting from last restaurant: ${lastRestaurant.name}):`,
+      `📍 [SMART ROUTE] Delivery order via OSRM (starting from: ${lastRestaurant.name}):`,
     );
 
     while (remaining.length > 0) {
-      let nearestIdx = 0;
-      let nearestDist = Infinity;
+      // Get OSRM distances from current position to all remaining customers
+      const distances = await Promise.all(
+        remaining.map(async (pickup) => {
+          const dist = await getOSRMDistance(
+            currentLat,
+            currentLng,
+            pickup.customer.latitude,
+            pickup.customer.longitude,
+          );
+          return dist ?? Infinity;
+        }),
+      );
 
-      remaining.forEach((pickup, idx) => {
-        const dist = haversineDistance(
-          currentLat,
-          currentLng,
-          pickup.customer.latitude,
-          pickup.customer.longitude,
-        );
-        if (dist < nearestDist) {
-          nearestDist = dist;
-          nearestIdx = idx;
+      let nearestIdx = 0;
+      let nearestDist = distances[0];
+      for (let i = 1; i < distances.length; i++) {
+        if (distances[i] < nearestDist) {
+          nearestDist = distances[i];
+          nearestIdx = i;
         }
-      });
+      }
 
       const nearest = remaining[nearestIdx];
       ordered.push(nearest);
 
       console.log(
-        `📍 [SMART ROUTE]   C${ordered.length}. ${nearest.customer.name} (${(nearestDist / 1000).toFixed(2)} km from current location)`,
+        `📍 [SMART ROUTE]   C${ordered.length}. ${nearest.customer.name} (${(nearestDist / 1000).toFixed(2)} km from current)`,
       );
 
       currentLat = nearest.customer.latitude;
@@ -1227,102 +1294,7 @@ function FullRouteMap({
     return ordered;
   };
 
-  // Old restaurant order function (kept for reference)
-  const getOptimizedRestaurantOrder = (pickupsList, driverLoc) => {
-    if (pickupsList.length <= 1) return pickupsList;
-
-    const remaining = [...pickupsList];
-    const ordered = [];
-
-    // Start from driver location
-    let currentLat = driverLoc.latitude;
-    let currentLng = driverLoc.longitude;
-
-    console.log(
-      `📍 [RESTAURANT ORDER] Optimizing ${remaining.length} restaurants from driver location`,
-    );
-
-    while (remaining.length > 0) {
-      let nearestIdx = 0;
-      let nearestDist = Infinity;
-
-      remaining.forEach((pickup, idx) => {
-        const dist = haversineDistance(
-          currentLat,
-          currentLng,
-          pickup.restaurant.latitude,
-          pickup.restaurant.longitude,
-        );
-        if (dist < nearestDist) {
-          nearestDist = dist;
-          nearestIdx = idx;
-        }
-      });
-
-      const nearest = remaining[nearestIdx];
-      ordered.push(nearest);
-
-      console.log(
-        `📍 [RESTAURANT ORDER]   R${ordered.length}. ${nearest.restaurant.name} (${(nearestDist / 1000).toFixed(2)} km from ${ordered.length === 1 ? "driver" : "previous restaurant"})`,
-      );
-
-      // Update current location to this restaurant
-      currentLat = nearest.restaurant.latitude;
-      currentLng = nearest.restaurant.longitude;
-
-      remaining.splice(nearestIdx, 1);
-    }
-
-    return ordered;
-  };
-
-  // Old customer order function (kept for reference)
-  const getOptimizedCustomerOrder = (pickupsList, lastRestaurant) => {
-    if (pickupsList.length <= 1) return pickupsList;
-
-    const remaining = [...pickupsList];
-    const ordered = [];
-
-    // Start from last restaurant location
-    let currentLat = lastRestaurant.latitude;
-    let currentLng = lastRestaurant.longitude;
-
-    console.log(
-      `📍 [CUSTOMER ORDER] Optimizing ${remaining.length} customers from last restaurant (${lastRestaurant.name})`,
-    );
-
-    while (remaining.length > 0) {
-      let nearestIdx = 0;
-      let nearestDist = Infinity;
-
-      remaining.forEach((pickup, idx) => {
-        const dist = haversineDistance(
-          currentLat,
-          currentLng,
-          pickup.customer.latitude,
-          pickup.customer.longitude,
-        );
-        if (dist < nearestDist) {
-          nearestDist = dist;
-          nearestIdx = idx;
-        }
-      });
-
-      const nearest = remaining[nearestIdx];
-      ordered.push(nearest);
-
-      console.log(
-        `📍 [CUSTOMER ORDER]   C${ordered.length}. ${nearest.customer.name} (${(nearestDist / 1000).toFixed(2)} km from ${ordered.length === 1 ? "last restaurant" : "previous customer"})`,
-      );
-
-      currentLat = nearest.customer.latitude;
-      currentLng = nearest.customer.longitude;
-
-      remaining.splice(nearestIdx, 1);
-    }
-
-    return ordered;
-  };
+  // (Deprecated Haversine functions removed — OSRM used above)
 
   // State for optimized orders
   const [optimizedRestaurantOrder, setOptimizedRestaurantOrder] = useState([]);
@@ -1335,16 +1307,16 @@ function FullRouteMap({
 
     hasFetchedDirections.current = true;
 
-    // STEP 1: Use SMART ROUTING - Optimize based on nearest customer distance
-    const optimizedRestaurants = getOptimizedRestaurantOrderByShortest(
+    // STEP 1: Use SMART ROUTING via OSRM - Optimize based on road distances
+    const optimizedRestaurants = await getOptimizedRestaurantOrderByShortest(
       pickups,
       driverLocation,
     );
     setOptimizedRestaurantOrder(optimizedRestaurants);
 
-    // STEP 2: Optimize customer delivery order (nearest to last restaurant first)
+    // STEP 2: Optimize customer delivery order via OSRM
     const optimizedCustomers =
-      getOptimizedCustomerOrderByShortest(optimizedRestaurants);
+      await getOptimizedCustomerOrderByShortest(optimizedRestaurants);
     setOptimizedCustomerOrder(optimizedCustomers);
 
     console.log(`📍 [FULL ROUTE] ═══════════════════════════════════════════`);

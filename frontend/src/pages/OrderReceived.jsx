@@ -10,7 +10,9 @@ import {
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { PROGRESS_STEPS } from "../config/orderStatusConfig";
+import { getFormattedETA } from "../utils/etaFormatter";
 import "./OrderReceived.css";
+import { API_URL } from "../config";
 
 // Fix Leaflet default marker icons
 delete L.Icon.Default.prototype._getIconUrl;
@@ -84,6 +86,7 @@ const OrderReceived = () => {
   const [loading, setLoading] = useState(false);
   const [viewOrderExpanded, setViewOrderExpanded] = useState(false);
   const [imageError, setImageError] = useState(false);
+  const [etaData, setEtaData] = useState(null); // Dynamic ETA from backend
 
   // State for fetched order data (with coordinates)
   const [fetchedOrder, setFetchedOrder] = useState(null);
@@ -251,12 +254,9 @@ const OrderReceived = () => {
 
       try {
         const token = localStorage.getItem("token");
-        const response = await fetch(
-          `http://localhost:5000/orders/${orderId}`,
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          },
-        );
+        const response = await fetch(`${API_URL}/orders/${orderId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
 
         if (response.ok) {
           const data = await response.json();
@@ -280,18 +280,9 @@ const OrderReceived = () => {
   // Calculate total for cash badge
   const displayTotal = order?.total_amount || totalAmount || 1599;
 
-  // Calculate arrival time (30-45 mins from now)
+  // Build arrival time display from dynamic ETA as clock time
   const getArrivalTimeRange = () => {
-    const now = new Date();
-    const start = new Date(now.getTime() + 30 * 60000);
-    const end = new Date(now.getTime() + 45 * 60000);
-    const format = (d) =>
-      d.toLocaleTimeString("en-US", {
-        hour: "numeric",
-        minute: "2-digit",
-        hour12: false,
-      });
-    return `${format(start)} – ${format(end)}`;
+    return getFormattedETA(etaData, "Calculating...");
   };
 
   // Poll for status updates
@@ -302,7 +293,7 @@ const OrderReceived = () => {
       try {
         const token = localStorage.getItem("token");
         const response = await fetch(
-          `http://localhost:5000/orders/${orderId}/delivery-status`,
+          `${API_URL}/orders/${orderId}/delivery-status`,
           {
             headers: { Authorization: `Bearer ${token}` },
           },
@@ -311,6 +302,11 @@ const OrderReceived = () => {
         if (response.ok) {
           const data = await response.json();
           const newStatus = data.status;
+
+          // Update dynamic ETA from backend
+          if (data.eta) {
+            setEtaData(data.eta);
+          }
 
           if (newStatus && newStatus !== deliveryStatus) {
             setDeliveryStatus(newStatus);
@@ -524,7 +520,7 @@ const OrderReceived = () => {
 
         {/* Arrival Time */}
         <div className="arrival-row">
-          <span className="arrival-text">Arrives</span>
+          <span className="arrival-text">Estimated arrival</span>
           <span className="arrival-time">{getArrivalTimeRange()}</span>
           <svg
             className="info-icon"

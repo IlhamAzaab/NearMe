@@ -13,6 +13,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import supabaseClient from "../supabaseClient";
 import SiteHeader from "../components/SiteHeader";
+import { API_URL } from "../config";
 
 // Shared Supabase client (singleton)
 const supabase = supabaseClient;
@@ -110,7 +111,7 @@ export default function TrackOrder() {
 
     try {
       const token = localStorage.getItem("token");
-      const response = await fetch(`http://localhost:5000/orders/${orderId}`, {
+      const response = await fetch(`${API_URL}/orders/${orderId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 

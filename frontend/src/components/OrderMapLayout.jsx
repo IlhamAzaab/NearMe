@@ -5,7 +5,7 @@ import "./OrderMapLayout.css";
 /**
  * Reusable Order Map Layout Component
  * Extracted from OrderReceived.jsx to maintain consistent UI across all order status pages
- * 
+ *
  * Features:
  * - Map background with building blocks
  * - Location pin marker
@@ -18,19 +18,19 @@ const OrderMapLayout = ({
   arrivalTimeText = null,
   stepIndex = 0,
   deliveryAddress = "Your Address",
-  
+
   // Order details for View Order
   orderDetails = null,
   showViewOrder = false,
   viewOrderExpanded = false,
   onToggleViewOrder = () => {},
-  
+
   // Callbacks
   onBack = () => {},
-  
+
   // Custom content
   children = null,
-  
+
   // Styling
   className = "",
 }) => {
@@ -79,15 +79,24 @@ const OrderMapLayout = ({
       {/* Location Pin */}
       <div className="location-pin">
         <svg className="pin-icon" viewBox="0 0 24 24" fill="#22c55e">
-          <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
+          <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
         </svg>
         <div className="pin-pulse"></div>
       </div>
 
       {/* Back Button */}
       <button className="header-back-btn" onClick={onBack}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M19 12H5M12 19l-7-7 7-7" strokeLinecap="round" strokeLinejoin="round"/>
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
+          <path
+            d="M19 12H5M12 19l-7-7 7-7"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
         </svg>
       </button>
 
@@ -102,11 +111,17 @@ const OrderMapLayout = ({
         {/* Arrival Time */}
         {arrivalTimeText && (
           <div className="arrival-row">
-            <span className="arrival-text">Arrives</span>
+            <span className="arrival-text">Estimated arrival</span>
             <span className="arrival-time">{arrivalTimeText}</span>
-            <svg className="info-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="10"/>
-              <path d="M12 16v-4M12 8h.01"/>
+            <svg
+              className="info-icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <path d="M12 16v-4M12 8h.01" />
             </svg>
           </div>
         )}
@@ -134,24 +149,37 @@ const OrderMapLayout = ({
         {/* View Order Button and Details */}
         {showViewOrder && orderDetails && (
           <div className="view-order-section">
-            <button 
-              className={`view-order-btn ${viewOrderExpanded ? 'expanded' : ''}`}
+            <button
+              className={`view-order-btn ${viewOrderExpanded ? "expanded" : ""}`}
               onClick={onToggleViewOrder}
             >
               <div className="view-order-left">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" strokeLinecap="round" strokeLinejoin="round"/>
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path
+                    d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
                 </svg>
                 <span>View Order</span>
               </div>
-              <svg 
-                className={`chevron ${viewOrderExpanded ? 'rotated' : ''}`}
-                viewBox="0 0 24 24" 
-                fill="none" 
-                stroke="currentColor" 
+              <svg
+                className={`chevron ${viewOrderExpanded ? "rotated" : ""}`}
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
                 strokeWidth="2"
               >
-                <path d="M19 9l-7 7-7-7" strokeLinecap="round" strokeLinejoin="round"/>
+                <path
+                  d="M19 9l-7 7-7-7"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
               </svg>
             </button>
 
@@ -162,7 +190,9 @@ const OrderMapLayout = ({
                 {orderDetails.restaurantName && (
                   <div className="order-detail-row">
                     <span className="detail-label-text">Restaurant</span>
-                    <span className="detail-value-text">{orderDetails.restaurantName}</span>
+                    <span className="detail-value-text">
+                      {orderDetails.restaurantName}
+                    </span>
                   </div>
                 )}
 
@@ -170,7 +200,9 @@ const OrderMapLayout = ({
                 {orderDetails.orderNumber && (
                   <div className="order-detail-row">
                     <span className="detail-label-text">Order #</span>
-                    <span className="detail-value-text">#{orderDetails.orderNumber}</span>
+                    <span className="detail-value-text">
+                      #{orderDetails.orderNumber}
+                    </span>
                   </div>
                 )}
 

@@ -23,11 +23,21 @@ import {
   getFormattedActiveDeliveries,
   removeDeliveryStops,
 } from "../utils/driverRouteContext.js";
-import { getAvailableDeliveriesForDriver } from "../utils/availableDeliveriesLogic.js";
+import {
+  getAvailableDeliveriesForDriver,
+  DRIVER_EARNINGS,
+  loadConfigConstants,
+  calculateSegmentBySegmentRouteDistance,
+  getFirstDeliveryEarningsDistance,
+} from "../utils/availableDeliveriesLogic.js";
 import {
   broadcastDeliveryTaken,
   notifyCustomer,
 } from "../utils/socketManager.js";
+import {
+  calculateCustomerETA,
+  calculateAllCustomerETAs,
+} from "../utils/etaCalculator.js";
 
 const router = express.Router();
 
@@ -567,56 +577,358 @@ router.post(
         `[ACCEPT DELIVERY] → Step 2: Update delivery status to 'accepted' (earnings stored on delivery)`,
       );
 
-      // Prepare earnings metadata fields - store calculation data but NOT actual earnings
-      // Actual earnings (base_amount, extra_earnings, bonus_amount, driver_earnings) will be
-      // calculated and stored when delivery status changes to 'delivered'
-      const deliverySequence = earnings_data?.delivery_sequence || 1;
-      const isFirstDelivery = deliverySequence === 1;
+      // ─── SERVER-SIDE: Always determine delivery_sequence from DB ───────────
+      const { data: activeDeliveries } = await supabaseAdmin
+        .from("deliveries")
+        .select("id, pending_earnings, delivery_sequence, driver_earnings")
+        .eq("driver_id", req.user.id)
+        .in("status", ["accepted", "picked_up", "on_the_way", "at_customer"]);
 
-      // Fetch tip_amount from the delivery record (set by manager, not from frontend)
+      const serverDeliverySequence = (activeDeliveries?.length || 0) + 1;
+      const isFirstDelivery = serverDeliverySequence === 1;
+
+      console.log(
+        `[ACCEPT DELIVERY]   📊 Server-calculated delivery_sequence: ${serverDeliverySequence}`,
+      );
+      console.log(
+        `[ACCEPT DELIVERY]   📊 Active deliveries: ${activeDeliveries?.length || 0}`,
+      );
+
+      // Fetch delivery with order details for earnings calculation
       const { data: deliveryRecord } = await supabaseAdmin
         .from("deliveries")
-        .select("tip_amount")
+        .select(
+          `tip_amount, orders (
+            restaurant_latitude, restaurant_longitude,
+            delivery_latitude, delivery_longitude,
+            delivery_fee, service_fee, order_number
+          )`,
+        )
         .eq("id", deliveryId)
         .single();
       const tipAmount = parseFloat(deliveryRecord?.tip_amount || 0);
 
+      // ─── EARNINGS CALCULATION ──────────────────────────────────────────────
+      let earningsData = earnings_data || null;
+
+      // If no earnings_data from frontend (e.g., WebSocket notification), calculate server-side
+      if (!earningsData) {
+        console.log(
+          `[ACCEPT DELIVERY]   ⚠️ No earnings_data from frontend, calculating server-side...`,
+        );
+
+        try {
+          // Load earnings config from DB
+          const { earnings: earningsConfig } = await loadConfigConstants();
+
+          // Determine driver location (from request body or DB fallback)
+          let driverLat = driver_latitude ? parseFloat(driver_latitude) : null;
+          let driverLng = driver_longitude
+            ? parseFloat(driver_longitude)
+            : null;
+
+          if (!driverLat || !driverLng) {
+            const { data: lastLoc } = await supabaseAdmin
+              .from("deliveries")
+              .select("current_latitude, current_longitude")
+              .eq("driver_id", req.user.id)
+              .not("status", "in", "(delivered,cancelled,failed)")
+              .order("last_location_update", { ascending: false })
+              .limit(1)
+              .maybeSingle();
+            driverLat = lastLoc?.current_latitude || null;
+            driverLng = lastLoc?.current_longitude || null;
+          }
+
+          if (!driverLat || !driverLng) {
+            // Final fallback: get from drivers table or use default
+            const { data: driverProfile } = await supabaseAdmin
+              .from("drivers")
+              .select("current_latitude, current_longitude")
+              .eq("id", req.user.id)
+              .single();
+            driverLat = driverProfile?.current_latitude || 8.5017;
+            driverLng = driverProfile?.current_longitude || 81.186;
+          }
+
+          const restaurantLat = parseFloat(
+            deliveryRecord?.orders?.restaurant_latitude,
+          );
+          const restaurantLng = parseFloat(
+            deliveryRecord?.orders?.restaurant_longitude,
+          );
+          const customerLat = parseFloat(
+            deliveryRecord?.orders?.delivery_latitude,
+          );
+          const customerLng = parseFloat(
+            deliveryRecord?.orders?.delivery_longitude,
+          );
+
+          if (isFirstDelivery) {
+            // ═══ FIRST DELIVERY: DTR + RTC earnings ═══
+            console.log(
+              `[ACCEPT DELIVERY]   🚗 Calculating FIRST delivery earnings server-side`,
+            );
+
+            const driverLocation = {
+              lat: driverLat,
+              lng: driverLng,
+              label: "Driver",
+            };
+            const restaurant = {
+              lat: restaurantLat,
+              lng: restaurantLng,
+              label: "Restaurant",
+            };
+            const customer = {
+              lat: customerLat,
+              lng: customerLng,
+              label: "Customer",
+            };
+
+            const earningsDistance = await getFirstDeliveryEarningsDistance(
+              driverLocation,
+              restaurant,
+              customer,
+              "Accept - Server Calc",
+            );
+
+            const paidDTR = Math.min(
+              earningsDistance.driverToRestaurantKm,
+              earningsConfig.MAX_DRIVER_TO_RESTAURANT_KM,
+            );
+            const dtrEarnings =
+              paidDTR * earningsConfig.MAX_DRIVER_TO_RESTAURANT_AMOUNT;
+            const rtcEarnings =
+              earningsDistance.restaurantToCustomerKm *
+              earningsConfig.RATE_PER_KM;
+            const baseAmount = dtrEarnings + rtcEarnings;
+            const totalDistKm =
+              earningsDistance.driverToRestaurantKm +
+              earningsDistance.restaurantToCustomerKm;
+
+            earningsData = {
+              delivery_sequence: serverDeliverySequence,
+              base_amount: baseAmount,
+              extra_earnings: 0,
+              bonus_amount: 0,
+              r0_distance_km: null,
+              r1_distance_km: totalDistKm,
+              extra_distance_km: 0,
+              total_distance_km: totalDistKm,
+            };
+
+            console.log(
+              `[ACCEPT DELIVERY]   ✅ 1st delivery earnings: base=Rs.${baseAmount.toFixed(2)}, total_dist=${totalDistKm.toFixed(3)}km`,
+            );
+          } else {
+            // ═══ 2nd+ DELIVERY: extra_earnings + bonus ═══
+            console.log(
+              `[ACCEPT DELIVERY]   🚗 Calculating SUBSEQUENT delivery (#${serverDeliverySequence}) earnings server-side`,
+            );
+
+            // Get route context for current deliveries
+            const routeContext = await getDriverRouteContext(
+              req.user.id,
+              driverLat,
+              driverLng,
+            );
+
+            const driverLocation = {
+              lat: driverLat,
+              lng: driverLng,
+              label: "Driver",
+            };
+            const currentRestaurants = [];
+            const currentCustomers = [];
+            const processedIds = new Set();
+
+            for (const stop of routeContext.stops || []) {
+              if (!processedIds.has(stop.delivery_id)) {
+                const rStop = routeContext.stops.find(
+                  (s) =>
+                    s.delivery_id === stop.delivery_id &&
+                    s.stop_type === "restaurant",
+                );
+                const cStop = routeContext.stops.find(
+                  (s) =>
+                    s.delivery_id === stop.delivery_id &&
+                    s.stop_type === "customer",
+                );
+                if (rStop && cStop) {
+                  currentRestaurants.push({
+                    lat: rStop.latitude,
+                    lng: rStop.longitude,
+                    label: `R${currentRestaurants.length + 1}`,
+                  });
+                  currentCustomers.push({
+                    lat: cStop.latitude,
+                    lng: cStop.longitude,
+                    label: `C${currentCustomers.length + 1}`,
+                  });
+                  processedIds.add(stop.delivery_id);
+                }
+              }
+            }
+
+            // Calculate R0 (current route without new delivery)
+            let r0Distance = 0;
+            if (currentRestaurants.length > 0) {
+              const r0Result = await calculateSegmentBySegmentRouteDistance(
+                driverLocation,
+                currentRestaurants,
+                currentCustomers,
+                "R0 - Accept Server Calc",
+              );
+              r0Distance = r0Result.totalDistance;
+            }
+
+            // Calculate R1 (combined route with new delivery)
+            const newRestaurant = {
+              lat: restaurantLat,
+              lng: restaurantLng,
+              label: "New R",
+            };
+            const newCustomer = {
+              lat: customerLat,
+              lng: customerLng,
+              label: "New C",
+            };
+            const allRestaurants = [...currentRestaurants, newRestaurant];
+            const allCustomers = [...currentCustomers, newCustomer];
+
+            const r1Result = await calculateSegmentBySegmentRouteDistance(
+              driverLocation,
+              allRestaurants,
+              allCustomers,
+              "R1 - Accept Server Calc",
+            );
+            const r1Distance = r1Result.totalDistance;
+
+            const extraDistanceKm = Math.max(
+              0,
+              (r1Distance - r0Distance) / 1000,
+            );
+            const extraEarnings = extraDistanceKm * earningsConfig.RATE_PER_KM;
+
+            let bonusAmount = 0;
+            if (serverDeliverySequence === 2) {
+              bonusAmount = earningsConfig.DELIVERY_BONUS.SECOND_DELIVERY;
+            } else if (serverDeliverySequence >= 3) {
+              bonusAmount = earningsConfig.DELIVERY_BONUS.ADDITIONAL_DELIVERY;
+            }
+
+            earningsData = {
+              delivery_sequence: serverDeliverySequence,
+              base_amount: 0,
+              extra_earnings: extraEarnings,
+              bonus_amount: bonusAmount,
+              r0_distance_km: r0Distance / 1000,
+              r1_distance_km: r1Distance / 1000,
+              extra_distance_km: extraDistanceKm,
+              total_distance_km: r1Distance / 1000,
+            };
+
+            console.log(
+              `[ACCEPT DELIVERY]   ✅ Subsequent delivery earnings: extra=Rs.${extraEarnings.toFixed(2)}, bonus=Rs.${bonusAmount.toFixed(2)}, extra_dist=${extraDistanceKm.toFixed(3)}km`,
+            );
+          }
+        } catch (calcError) {
+          console.error(
+            `[ACCEPT DELIVERY]   ❌ Earnings calculation failed:`,
+            calcError.message,
+          );
+          // Fallback: at minimum set correct delivery_sequence and bonus
+          let fallbackBonus = 0;
+          if (serverDeliverySequence === 2) fallbackBonus = 20;
+          else if (serverDeliverySequence >= 3) fallbackBonus = 30;
+
+          earningsData = {
+            delivery_sequence: serverDeliverySequence,
+            base_amount: 0,
+            extra_earnings: 0,
+            bonus_amount: fallbackBonus,
+            r0_distance_km: null,
+            r1_distance_km: null,
+            extra_distance_km: 0,
+            total_distance_km: 0,
+          };
+        }
+      } else {
+        // earnings_data provided from frontend - override delivery_sequence with server value
+        earningsData.delivery_sequence = serverDeliverySequence;
+
+        // Sanitize and cap frontend earnings values to prevent manipulation
+        earningsData.base_amount = Math.max(
+          0,
+          Math.min(parseFloat(earningsData.base_amount) || 0, 5000),
+        );
+        earningsData.extra_earnings = Math.max(
+          0,
+          Math.min(parseFloat(earningsData.extra_earnings) || 0, 5000),
+        );
+        earningsData.bonus_amount = Math.max(
+          0,
+          Math.min(parseFloat(earningsData.bonus_amount) || 0, 500),
+        );
+        earningsData.r0_distance_km = earningsData.r0_distance_km
+          ? Math.max(0, Math.min(parseFloat(earningsData.r0_distance_km), 100))
+          : null;
+        earningsData.r1_distance_km = earningsData.r1_distance_km
+          ? Math.max(0, Math.min(parseFloat(earningsData.r1_distance_km), 100))
+          : null;
+        earningsData.extra_distance_km = Math.max(
+          0,
+          Math.min(parseFloat(earningsData.extra_distance_km) || 0, 100),
+        );
+        earningsData.total_distance_km = Math.max(
+          0,
+          Math.min(parseFloat(earningsData.total_distance_km) || 0, 200),
+        );
+
+        console.log(
+          `[ACCEPT DELIVERY]   ✓ Using frontend earnings_data (sanitized), overriding delivery_sequence to ${serverDeliverySequence}`,
+        );
+      }
+
+      // ─── BUILD EARNINGS FIELDS FOR DB ────────────────────────────────────
+      const deliverySequence = earningsData.delivery_sequence;
+
       // Calculate driver_earnings based on delivery sequence
       // tip_amount is included in driver_earnings (total payout = driver_earnings)
       const driverEarningsAmount = isFirstDelivery
-        ? (earnings_data?.base_amount || 0) + tipAmount
-        : (earnings_data?.extra_earnings || 0) +
-          (earnings_data?.bonus_amount || 0) +
+        ? (earningsData.base_amount || 0) + tipAmount
+        : (earningsData.extra_earnings || 0) +
+          (earningsData.bonus_amount || 0) +
           tipAmount;
 
-      const earningsFields = earnings_data
-        ? {
-            delivery_sequence: deliverySequence,
-            // Store metadata for distance calculations
-            r0_distance_km: earnings_data.r0_distance_km || null,
-            r1_distance_km: earnings_data.r1_distance_km || null,
-            extra_distance_km: earnings_data.extra_distance_km || 0,
-            total_distance_km: earnings_data.total_distance_km || 0,
-            // Store pending earnings data as JSON for later use (when delivered)
-            // IMPORTANT: Only store base_amount for 1st delivery (delivery_sequence=1)
-            // For subsequent deliveries, base_amount is NOT stored - it will be calculated
-            // dynamically when needed based on cumulative previous earnings
-            pending_earnings: JSON.stringify({
-              // Only include base_amount for 1st delivery
-              ...(isFirstDelivery
-                ? { base_amount: earnings_data.base_amount || 0 }
-                : {}),
-              extra_earnings: earnings_data.extra_earnings || 0,
-              bonus_amount: earnings_data.bonus_amount || 0,
-              driver_earnings: driverEarningsAmount,
-            }),
-            // Set actual earnings to 0 until delivered
-            base_amount: 0,
-            extra_earnings: 0,
-            bonus_amount: 0,
-            driver_earnings: 0,
-          }
-        : {};
+      const earningsFields = {
+        delivery_sequence: deliverySequence,
+        // Store metadata for distance calculations
+        r0_distance_km: earningsData.r0_distance_km || null,
+        r1_distance_km: earningsData.r1_distance_km || null,
+        extra_distance_km: earningsData.extra_distance_km || 0,
+        total_distance_km: earningsData.total_distance_km || 0,
+        // Store pending earnings data as JSON for later use (when delivered)
+        pending_earnings: JSON.stringify({
+          // Only include base_amount for 1st delivery
+          ...(isFirstDelivery
+            ? { base_amount: earningsData.base_amount || 0 }
+            : {}),
+          extra_earnings: earningsData.extra_earnings || 0,
+          bonus_amount: earningsData.bonus_amount || 0,
+          driver_earnings: driverEarningsAmount,
+        }),
+        // Set actual earnings to 0 until delivered
+        base_amount: 0,
+        extra_earnings: 0,
+        bonus_amount: 0,
+        driver_earnings: 0,
+      };
+
+      console.log(
+        `[ACCEPT DELIVERY]   💰 Pending earnings: driver_earnings=Rs.${driverEarningsAmount.toFixed(2)}, seq=${deliverySequence}`,
+      );
 
       const { data: updated, error } = await supabaseAdmin
         .from("deliveries")
@@ -759,6 +1071,15 @@ router.post(
 
       // 📡 REAL-TIME WEBSOCKET: Notify customer that driver accepted their order
       if (updated.orders?.customer_id) {
+        // Calculate initial ETA for customer
+        let etaData = null;
+        if (driver_latitude && driver_longitude) {
+          etaData = await calculateCustomerETA(updated.order_id, {
+            latitude: parseFloat(driver_latitude),
+            longitude: parseFloat(driver_longitude),
+          });
+        }
+
         notifyCustomer(updated.orders.customer_id, "order:status_update", {
           type: "driver_assigned",
           title: "Driver Accepted!",
@@ -767,8 +1088,44 @@ router.post(
           order_number: updated.orders.order_number,
           status: "accepted",
           driver: driverInfo,
+          eta: etaData
+            ? {
+                etaMinutes: etaData.etaMinutes,
+                etaRangeMin: etaData.etaRangeMin,
+                etaRangeMax: etaData.etaRangeMax,
+                etaDisplay: etaData.etaDisplay,
+                stopsBeforeCustomer: etaData.stopsBeforeCustomer,
+              }
+            : null,
         });
-        console.log(`[ACCEPT DELIVERY]   📡 WebSocket: Customer notified`);
+
+        // If driver has other active deliveries, update those customers' ETAs too
+        if (serverDeliverySequence > 1 && driver_latitude && driver_longitude) {
+          const allETAs = await calculateAllCustomerETAs(req.user.id, {
+            latitude: parseFloat(driver_latitude),
+            longitude: parseFloat(driver_longitude),
+          });
+          for (const etaInfo of allETAs) {
+            if (etaInfo.customer_id !== updated.orders.customer_id) {
+              notifyCustomer(etaInfo.customer_id, "order:status_update", {
+                type: "eta_update",
+                title: "ETA Updated",
+                message: `Your driver accepted another delivery. Updated ETA: ${etaInfo.etaDisplay}`,
+                order_id: etaInfo.order_id,
+                order_number: etaInfo.order_number,
+                eta: {
+                  etaMinutes: etaInfo.etaMinutes,
+                  etaRangeMin: etaInfo.etaRangeMin,
+                  etaRangeMax: etaInfo.etaRangeMax,
+                  etaDisplay: etaInfo.etaDisplay,
+                },
+              });
+            }
+          }
+        }
+        console.log(
+          `[ACCEPT DELIVERY]   📡 WebSocket: Customer notified with ETA`,
+        );
       }
 
       // ======================================================================
@@ -1378,6 +1735,12 @@ router.get(
 // ============================================================================
 const proximityNotifiedDeliveries = new Set();
 
+// ============================================================================
+// ETA update throttle — only recalculate/broadcast every 30 seconds per driver
+// ============================================================================
+const lastEtaBroadcast = new Map(); // driverId -> timestamp
+const ETA_BROADCAST_INTERVAL_MS = 30000; // 30 seconds
+
 // PATCH /driver/deliveries/:id/location - Update driver location
 // ============================================================================
 
@@ -1404,14 +1767,100 @@ router.patch(
     }
 
     try {
+      // Fetch current delivery to check target stop
+      const { data: delivery, error: fetchError } = await supabaseAdmin
+        .from("deliveries")
+        .select(
+          `
+          id,
+          status,
+          driver_id,
+          order_id,
+          arrived_restaurant_at,
+          arrived_customer_at,
+          orders (
+            restaurant_latitude,
+            restaurant_longitude,
+            delivery_latitude,
+            delivery_longitude,
+            customer_id,
+            order_number
+          )
+        `,
+        )
+        .eq("id", deliveryId)
+        .eq("driver_id", req.user.id)
+        .maybeSingle();
+
+      if (fetchError || !delivery) {
+        return res
+          .status(404)
+          .json({ message: "Delivery not found or not assigned to you" });
+      }
+
+      // Check proximity to target stop (50m threshold)
+      const updateData = {
+        current_latitude: latitude,
+        current_longitude: longitude,
+        last_location_update: new Date().toISOString(),
+      };
+
+      // If driver is heading to restaurant and within 50m, set arrival timestamp
+      if (
+        delivery.status === "accepted" &&
+        !delivery.arrived_restaurant_at &&
+        delivery.orders?.restaurant_latitude &&
+        delivery.orders?.restaurant_longitude
+      ) {
+        const restaurantLat = parseFloat(delivery.orders.restaurant_latitude);
+        const restaurantLng = parseFloat(delivery.orders.restaurant_longitude);
+        const distanceToRestaurant = calculateHaversineDistance(
+          latitude,
+          longitude,
+          restaurantLat,
+          restaurantLng,
+        );
+
+        // Within 50m: driver has "arrived" at restaurant — set timestamp for overtime tracking
+        if (distanceToRestaurant <= 50) {
+          updateData.arrived_restaurant_at = new Date().toISOString();
+          console.log(
+            `📍 Driver ${req.user.id} arrived at restaurant (${Math.round(distanceToRestaurant)}m) - delivery ${deliveryId}`,
+          );
+        }
+      }
+
+      // If driver is heading to customer and within 50m, set arrival timestamp
+      if (
+        (delivery.status === "picked_up" ||
+          delivery.status === "on_the_way" ||
+          delivery.status === "at_customer") &&
+        !delivery.arrived_customer_at &&
+        delivery.orders?.delivery_latitude &&
+        delivery.orders?.delivery_longitude
+      ) {
+        const customerLat = parseFloat(delivery.orders.delivery_latitude);
+        const customerLng = parseFloat(delivery.orders.delivery_longitude);
+        const distanceToCustomer = calculateHaversineDistance(
+          latitude,
+          longitude,
+          customerLat,
+          customerLng,
+        );
+
+        // Within 50m: driver has "arrived" at customer \u2014 set timestamp for overtime tracking
+        if (distanceToCustomer <= 50) {
+          updateData.arrived_customer_at = new Date().toISOString();
+          console.log(
+            `\u{1F4CD} Driver ${req.user.id} arrived at customer (${Math.round(distanceToCustomer)}m) - delivery ${deliveryId}`,
+          );
+        }
+      }
+
       // Update driver location in deliveries table
       const { data: updated, error } = await supabaseAdmin
         .from("deliveries")
-        .update({
-          current_latitude: latitude,
-          current_longitude: longitude,
-          last_location_update: new Date().toISOString(),
-        })
+        .update(updateData)
         .eq("id", deliveryId)
         .eq("driver_id", req.user.id)
         .select(
@@ -1467,6 +1916,37 @@ router.patch(
             600000,
           );
         }
+      }
+
+      // 📡 Broadcast updated ETA to all customers (throttled: every 30s)
+      const driverId = req.user.id;
+      const now = Date.now();
+      const lastBroadcast = lastEtaBroadcast.get(driverId) || 0;
+      if (
+        now - lastBroadcast >= ETA_BROADCAST_INTERVAL_MS &&
+        ["accepted", "picked_up", "on_the_way"].includes(updated.status)
+      ) {
+        lastEtaBroadcast.set(driverId, now);
+        // Fire-and-forget: don't block response
+        calculateAllCustomerETAs(driverId, { latitude, longitude })
+          .then((allETAs) => {
+            for (const etaInfo of allETAs) {
+              notifyCustomer(etaInfo.customer_id, "order:status_update", {
+                type: "eta_update",
+                title: "ETA Updated",
+                message: `Estimated arrival: ${etaInfo.etaDisplay}`,
+                order_id: etaInfo.order_id,
+                order_number: etaInfo.order_number,
+                eta: {
+                  etaMinutes: etaInfo.etaMinutes,
+                  etaRangeMin: etaInfo.etaRangeMin,
+                  etaRangeMax: etaInfo.etaRangeMax,
+                  etaDisplay: etaInfo.etaDisplay,
+                },
+              });
+            }
+          })
+          .catch((e) => console.error("[ETA] Broadcast error:", e.message));
       }
 
       return res.json({
@@ -1707,6 +2187,23 @@ router.patch(
           delivered: "Order Delivered!",
         };
 
+        // Calculate updated ETA on status change
+        let etaData = null;
+        if (status !== "delivered") {
+          const dLat = hasLat
+            ? Number(latitude)
+            : parseFloat(currentDelivery.current_latitude);
+          const dLng = hasLng
+            ? Number(longitude)
+            : parseFloat(currentDelivery.current_longitude);
+          if (dLat && dLng) {
+            etaData = await calculateCustomerETA(delivery.order_id, {
+              latitude: dLat,
+              longitude: dLng,
+            });
+          }
+        }
+
         notifyCustomer(
           currentDelivery.orders.customer_id,
           "order:status_update",
@@ -1718,8 +2215,51 @@ router.patch(
             delivery_id: delivery.id,
             order_number: currentDelivery.orders.order_number,
             status: status,
+            eta: etaData
+              ? {
+                  etaMinutes: etaData.etaMinutes,
+                  etaRangeMin: etaData.etaRangeMin,
+                  etaRangeMax: etaData.etaRangeMax,
+                  etaDisplay: etaData.etaDisplay,
+                  stopsBeforeCustomer: etaData.stopsBeforeCustomer,
+                }
+              : null,
           },
         );
+
+        // Also broadcast updated ETAs to ALL customers of this driver
+        if (status !== "delivered") {
+          const dLat2 = hasLat
+            ? Number(latitude)
+            : parseFloat(currentDelivery.current_latitude);
+          const dLng2 = hasLng
+            ? Number(longitude)
+            : parseFloat(currentDelivery.current_longitude);
+          if (dLat2 && dLng2) {
+            const allETAs = await calculateAllCustomerETAs(req.user.id, {
+              latitude: dLat2,
+              longitude: dLng2,
+            });
+            for (const etaInfo of allETAs) {
+              if (etaInfo.customer_id !== currentDelivery.orders.customer_id) {
+                notifyCustomer(etaInfo.customer_id, "order:status_update", {
+                  type: "eta_update",
+                  title: "ETA Updated",
+                  message: `Estimated arrival: ${etaInfo.etaDisplay}`,
+                  order_id: etaInfo.order_id,
+                  order_number: etaInfo.order_number,
+                  eta: {
+                    etaMinutes: etaInfo.etaMinutes,
+                    etaRangeMin: etaInfo.etaRangeMin,
+                    etaRangeMax: etaInfo.etaRangeMax,
+                    etaDisplay: etaInfo.etaDisplay,
+                  },
+                });
+              }
+            }
+          }
+        }
+
         console.log(
           `📡 WebSocket: Customer ${currentDelivery.orders.customer_id} notified of status: ${status}`,
         );

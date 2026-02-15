@@ -295,10 +295,10 @@ const Checkout = () => {
 
       // Fetch cart data and customer profile in parallel
       const [cartResponse, profileResponse] = await Promise.all([
-        fetch("http://localhost:5000/cart", {
+        fetch(`${API_URL}/cart`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
-        fetch("http://localhost:5000/cart/customer-profile", {
+        fetch(`${API_URL}/cart/customer-profile`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
       ]);
@@ -438,7 +438,7 @@ const Checkout = () => {
 
     try {
       const token = localStorage.getItem("token");
-      const response = await fetch("http://localhost:5000/orders/place", {
+      const response = await fetch(`${API_URL}/orders/place`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -773,7 +773,7 @@ const Checkout = () => {
                     try {
                       const token = localStorage.getItem("token");
                       const response = await fetch(
-                        "http://localhost:5000/customer/address",
+                        `${API_URL}/customer/address`,
                         {
                           method: "PUT",
                           headers: {
@@ -1004,7 +1004,7 @@ const Checkout = () => {
                     try {
                       const token = localStorage.getItem("token");
                       const response = await fetch(
-                        "http://localhost:5000/customer/address",
+                        `${API_URL}/customer/address`,
                         {
                           method: "PUT",
                           headers: {

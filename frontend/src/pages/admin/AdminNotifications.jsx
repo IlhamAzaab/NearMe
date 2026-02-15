@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import supabaseClient from "../../supabaseClient";
 import AdminLayout from "../../components/AdminLayout";
+import { API_URL } from "../../config";
 
 // Initialize Supabase
 const supabase = supabaseClient;
@@ -13,7 +14,7 @@ export default function AdminNotifications() {
   const markAllAsRead = useCallback(async () => {
     try {
       const token = localStorage.getItem("token");
-      await fetch("http://localhost:5000/admin/notifications/mark-all-read", {
+      await fetch(`${API_URL}/admin/notifications/mark-all-read`, {
         method: "PATCH",
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -26,7 +27,7 @@ export default function AdminNotifications() {
     try {
       const token = localStorage.getItem("token");
       const res = await fetch(
-        "http://localhost:5000/admin/notifications?limit=100",
+        `${API_URL}/admin/notifications?limit=100`,
         {
           headers: { Authorization: `Bearer ${token}` },
         },

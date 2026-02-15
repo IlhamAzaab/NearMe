@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import SiteHeader from "../components/SiteHeader";
+import { API_URL } from "../config";
 
 function VerifyEmail() {
   const [searchParams] = useSearchParams();
@@ -11,79 +12,61 @@ function VerifyEmail() {
   useEffect(() => {
     const verifyEmail = async () => {
       try {
-        console.log("=== EMAIL VERIFICATION PAGE LOADED ===");
-        console.log("Full URL:", window.location.href);
-        console.log("Search params:", window.location.search);
-        console.log("Hash:", window.location.hash);
-
         // Get access_token and refresh_token from URL hash (Supabase redirects with tokens in hash)
         const hashParams = new URLSearchParams(
-          window.location.hash.substring(1)
+          window.location.hash.substring(1),
         );
         const accessToken = hashParams.get("access_token");
         const refreshToken = hashParams.get("refresh_token");
         const error = hashParams.get("error");
         const errorDescription = hashParams.get("error_description");
 
-        console.log("Access Token:", accessToken ? "Present" : "Missing");
-        console.log("Refresh Token:", refreshToken ? "Present" : "Missing");
-        console.log("Error:", error);
-        console.log("Error Description:", errorDescription);
-
         // Check for errors in the URL
         if (error) {
           setStatus("error");
           setMessage(
             errorDescription ||
-              "Verification failed. The link may have expired."
+              "Verification failed. The link may have expired.",
           );
           return;
         }
 
         // Check if we have the access token
         if (accessToken) {
-          console.log("✅ Access token found - verifying with backend...");
-
           // Email verification successful - verify token with backend
-          const response = await fetch(
-            "http://localhost:5000/auth/verify-token",
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({ token: accessToken }),
-            }
-          );
+          const response = await fetch(`${API_URL}/auth/verify-token`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ token: accessToken }),
+          });
 
           const data = await response.json();
-          console.log("Backend verification response:", data);
 
           if (response.ok && data.userId) {
-            console.log("✅ Email verified successfully!");
             setStatus("success");
             setMessage("Email verified successfully!");
 
             // Redirect to complete profile after 2 seconds
             setTimeout(() => {
-              navigate(`/auth/complete-profile?userId=${data.userId}`);
+              navigate(
+                `/auth/complete-profile?userId=${data.userId}&access_token=${accessToken}`,
+              );
             }, 2000);
           } else {
-            console.error("❌ Backend verification failed:", data);
             setStatus("error");
             setMessage(
-              data.message || "Failed to verify email. Please try again."
+              data.message || "Failed to verify email. Please try again.",
             );
           }
         } else {
-          console.error("❌ No access token in URL hash");
           setStatus("error");
           setMessage(
-            "Invalid verification link. Please check your email and try again."
+            "Invalid verification link. Please check your email and try again.",
           );
         }
       } catch (error) {
-        console.error("❌ Verification error:", error);
         setStatus("error");
         setMessage("An error occurred during verification. Please try again.");
       }

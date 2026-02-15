@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import AnimatedAlert, { useAlert } from "../../../components/AnimatedAlert";
+import { API_URL } from "../../../config";
 
 const CONTRACT_HTML = `
 <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
@@ -140,7 +141,7 @@ export default function AdminOnboardingStep4() {
     setLoading(true);
     try {
       const res = await fetch(
-        "http://localhost:5000/restaurant-onboarding/step-4",
+        `${API_URL}/restaurant-onboarding/step-4`,
         {
           method: "POST",
           headers: {

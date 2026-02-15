@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { API_URL } from "../../config";
 
 // Step Progress Component with animation
 const StepProgress = ({ currentStep, totalSteps = 5 }) => {
@@ -198,7 +199,7 @@ export default function OnboardingStep5() {
       );
       const ipData = await ipResponse.json();
 
-      const res = await fetch("http://localhost:5000/onboarding/step-5", {
+      const res = await fetch(`${API_URL}/onboarding/step-5`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

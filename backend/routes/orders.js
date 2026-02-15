@@ -32,6 +32,7 @@ import {
   calculateServiceFeeFromConfig,
   calculateDeliveryFeeFromConfig,
 } from "../utils/systemConfig.js";
+import { calculateCustomerETA } from "../utils/etaCalculator.js";
 
 const router = express.Router();
 
@@ -704,6 +705,8 @@ router.get("/my-orders", authenticate, async (req, res) => {
         status,
         restaurant_id,
         restaurant_name,
+        restaurant_latitude,
+        restaurant_longitude,
         subtotal,
         delivery_fee,
         service_fee,
@@ -767,8 +770,9 @@ router.get("/my-orders", authenticate, async (req, res) => {
       let effectiveStatus = order.status;
       if (deliveryStatus) {
         // Map delivery statuses to navigation statuses
-        if (
-          deliveryStatus === "pending" ||
+        if (deliveryStatus === "pending") {
+          effectiveStatus = "pending"; // Delivery created but no driver yet
+        } else if (
           deliveryStatus === "accepted" ||
           deliveryStatus === "driver_assigned"
         ) {
@@ -831,6 +835,14 @@ router.get("/:id", authenticate, async (req, res) => {
     // Verify access
     if (userRole === "customer" && order.customer_id !== userId) {
       return res.status(403).json({ message: "Access denied" });
+    }
+
+    if (userRole === "driver") {
+      // Driver can only see orders assigned to them via deliveries
+      const delivery = order.deliveries?.[0] || order.deliveries;
+      if (!delivery || delivery.driver_id !== userId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
     }
 
     if (userRole === "admin") {
@@ -921,6 +933,26 @@ router.get("/:id/delivery-status", authenticate, async (req, res) => {
       return res.status(403).json({ message: "Access denied" });
     }
 
+    // Admin can only see their own restaurant's orders
+    if (userRole === "admin") {
+      const { data: adminData } = await supabaseAdmin
+        .from("admins")
+        .select("restaurant_id")
+        .eq("id", userId)
+        .single();
+      if (!adminData || adminData.restaurant_id !== order.restaurant_id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+    }
+
+    // Driver can only track deliveries assigned to them
+    if (userRole === "driver") {
+      const delivery = order.deliveries?.[0] || order.deliveries;
+      if (!delivery || delivery.driver_id !== userId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+    }
+
     // Get delivery status
     const delivery = order.deliveries?.[0] || order.deliveries;
     const deliveryStatus = delivery?.status || "placed";
@@ -968,6 +1000,38 @@ router.get("/:id/delivery-status", authenticate, async (req, res) => {
       }
     }
 
+    // Calculate dynamic ETA for customer
+    let eta = null;
+    if (
+      delivery?.driver_id &&
+      ["accepted", "picked_up", "on_the_way", "at_customer"].includes(
+        deliveryStatus,
+      )
+    ) {
+      const driverLoc =
+        delivery?.current_latitude && delivery?.current_longitude
+          ? {
+              latitude: parseFloat(delivery.current_latitude),
+              longitude: parseFloat(delivery.current_longitude),
+            }
+          : null;
+      eta = await calculateCustomerETA(orderId, driverLoc);
+    }
+
+    // Fallback ETA from order's estimated_duration_min when no driver yet
+    if (!eta && order.estimated_duration_min) {
+      const baseMins = order.estimated_duration_min;
+      eta = {
+        etaMinutes: baseMins,
+        etaRangeMin: baseMins,
+        etaRangeMax: baseMins + 10,
+        etaDisplay: `${baseMins} - ${baseMins + 10} min`,
+        stopsBeforeCustomer: 0,
+        driverStatus: deliveryStatus,
+        isExact: false,
+      };
+    }
+
     return res.json({
       orderId: order.id,
       orderStatus: order.status,
@@ -997,6 +1061,18 @@ router.get("/:id/delivery-status", authenticate, async (req, res) => {
       restaurantName: order.restaurant_name,
       restaurantLogo: restaurantLogo,
       estimatedDuration: order.estimated_duration_min,
+      // Dynamic ETA
+      eta: eta
+        ? {
+            etaMinutes: eta.etaMinutes,
+            etaRangeMin: eta.etaRangeMin,
+            etaRangeMax: eta.etaRangeMax,
+            etaDisplay: eta.etaDisplay,
+            stopsBeforeCustomer: eta.stopsBeforeCustomer,
+            driverStatus: eta.driverStatus,
+            isExact: eta.isExact || false,
+          }
+        : null,
     });
   } catch (error) {
     console.error("Get delivery status error:", error);

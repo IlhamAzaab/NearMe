@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import ManagerPageLayout from "../../components/ManagerPageLayout";
 import { ManagerPageSkeleton } from "../../components/ManagerSkeleton";
+import { API_URL } from "../../config";
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -27,7 +28,7 @@ const Dashboard = () => {
 
       // Fetch deposit summary
       const res = await fetch(
-        "http://localhost:5000/driver/deposits/manager/summary",
+        `${API_URL}/driver/deposits/manager/summary`,
         { headers: { Authorization: `Bearer ${token}` } },
       );
       const data = await res.json();

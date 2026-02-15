@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import ManagerPageLayout from "../../../components/ManagerPageLayout";
 import { ManagerPageSkeleton } from "../../../components/ManagerSkeleton";
+import { API_URL } from "../../../config";
 
 export default function AdminPayments() {
   const navigate = useNavigate();
@@ -21,10 +22,10 @@ export default function AdminPayments() {
       const headers = { Authorization: `Bearer ${token}` };
 
       const [summaryRes, restaurantsRes] = await Promise.all([
-        fetch("http://localhost:5000/manager/admin-payments/summary", {
+        fetch(`${API_URL}/manager/admin-payments/summary`, {
           headers,
         }),
-        fetch("http://localhost:5000/manager/admin-payments/restaurants", {
+        fetch(`${API_URL}/manager/admin-payments/restaurants`, {
           headers,
         }),
       ]);

@@ -14,6 +14,8 @@ import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import supabaseClient from "../supabaseClient";
 import AnimatedAlert, { useAlert } from "../components/AnimatedAlert";
+import { formatETAClockTime } from "../utils/etaFormatter";
+import { API_URL } from "../config";
 
 // Material Symbols CSS injection
 const MaterialSymbolsCSS = () => (
@@ -76,7 +78,7 @@ export default function Orders() {
   const fetchCartCount = async () => {
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch("http://localhost:5000/cart", {
+      const res = await fetch(`${API_URL}/cart`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -102,7 +104,7 @@ export default function Orders() {
   const fetchOrders = useCallback(async () => {
     try {
       const token = localStorage.getItem("token");
-      const response = await fetch("http://localhost:5000/orders/my-orders", {
+      const response = await fetch(`${API_URL}/orders/my-orders`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -325,22 +327,49 @@ export default function Orders() {
     return `${diffDays}d ago`;
   };
 
-  const getEstimatedTime = (status) => {
-    switch (status) {
-      case "placed":
-        return "15-20 mins";
-      case "pending":
-        return "12-18 mins";
-      case "accepted":
-      case "driver_assigned":
-        return "10-15 mins";
-      case "picked_up":
-        return "5-10 mins";
-      case "on_the_way":
-        return "5-10 mins";
-      default:
-        return "";
+  const getEstimatedTime = (status, order) => {
+    // Use order's estimated_duration_min if available, adjust by delivery stage
+    const baseMins = order?.estimated_duration_min;
+    if (baseMins && baseMins > 0) {
+      let factor = 1;
+      switch (status) {
+        case "placed":
+          factor = 1;
+          break;
+        case "pending":
+          factor = 0.85;
+          break;
+        case "accepted":
+        case "driver_assigned":
+          factor = 0.65;
+          break;
+        case "picked_up":
+          factor = 0.45;
+          break;
+        case "on_the_way":
+          factor = 0.35;
+          break;
+        default:
+          return "";
+      }
+      const low = Math.max(1, Math.round(baseMins * factor));
+      const high = Math.max(low + 5, Math.round(baseMins * factor * 1.3));
+      const isOnTheWay = status === "on_the_way";
+      return formatETAClockTime(low, isOnTheWay ? low : high, { isOnTheWay });
     }
+    // Fallback static estimates as clock times
+    const fallbacks = {
+      placed: [15, 20],
+      pending: [12, 18],
+      accepted: [10, 15],
+      driver_assigned: [10, 15],
+      picked_up: [5, 10],
+      on_the_way: [5, 5],
+    };
+    const range = fallbacks[status];
+    if (!range) return "";
+    const isOnTheWay = status === "on_the_way";
+    return formatETAClockTime(range[0], range[1], { isOnTheWay });
   };
 
   // ============================================================================
@@ -713,10 +742,15 @@ export default function Orders() {
                         <div className="mt-2">
                           {getEstimatedTime(
                             order.effective_status || order.status,
+                            order,
                           ) && (
                             <p className="text-sm font-medium text-gray-900">
+                              <span className="text-gray-500">
+                                Est. arrival:{" "}
+                              </span>
                               {getEstimatedTime(
                                 order.effective_status || order.status,
+                                order,
                               )}
                             </p>
                           )}
@@ -961,7 +995,7 @@ export default function Orders() {
 
       // Add each item to cart
       for (const item of items) {
-        await fetch("http://localhost:5000/cart/add", {
+        await fetch(`${API_URL}/cart/add`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",

@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import BottomNavbar from "../components/BottomNavbar";
 import supabaseClient from "../supabaseClient";
+import { API_URL } from "../config";
 
 // Initialize Supabase
 const supabase = supabaseClient;
@@ -15,12 +16,9 @@ export default function CustomerNotifications() {
   const fetchNotifications = useCallback(async () => {
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(
-        "http://localhost:5000/customer/notifications?limit=100",
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
-      );
+      const res = await fetch(`${API_URL}/customer/notifications?limit=100`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const data = await res.json();
       setNotifications(data.notifications || []);
     } catch (e) {
@@ -127,8 +125,18 @@ export default function CustomerNotifications() {
                 onClick={() => navigate(-1)}
                 className="p-2 -ml-2 hover:bg-gray-100 rounded-full transition-colors"
               >
-                <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                <svg
+                  className="w-5 h-5 text-gray-700"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M15 19l-7-7 7-7"
+                  />
                 </svg>
               </button>
               <div className="flex items-center gap-2">
@@ -136,7 +144,9 @@ export default function CustomerNotifications() {
                   <span className="text-white text-lg font-bold">N</span>
                 </div>
                 <div>
-                  <h1 className="text-xl font-bold text-gray-900">Notifications</h1>
+                  <h1 className="text-xl font-bold text-gray-900">
+                    Notifications
+                  </h1>
                   <p className="text-xs text-gray-500">
                     {notifications.length > 0
                       ? `${notifications.length} update${notifications.length > 1 ? "s" : ""}`
@@ -145,7 +155,7 @@ export default function CustomerNotifications() {
                 </div>
               </div>
             </div>
-            
+
             {/* Bell Icon */}
             <div className="w-10 h-10 bg-orange-50 rounded-full flex items-center justify-center">
               <span className="text-xl">🔔</span>
@@ -193,8 +203,12 @@ export default function CustomerNotifications() {
             <div className="w-24 h-24 bg-orange-50 rounded-full flex items-center justify-center mx-auto mb-6">
               <span className="text-5xl">🔔</span>
             </div>
-            <h3 className="text-xl font-bold text-gray-900 mb-2">No notifications yet</h3>
-            <p className="text-gray-500 text-sm">Place an order to get started</p>
+            <h3 className="text-xl font-bold text-gray-900 mb-2">
+              No notifications yet
+            </h3>
+            <p className="text-gray-500 text-sm">
+              Place an order to get started
+            </p>
           </div>
         ) : (
           <div className="space-y-3">
@@ -208,11 +222,16 @@ export default function CustomerNotifications() {
 
               const getNotificationColor = (type) => {
                 switch (type) {
-                  case "order_accepted": return "bg-green-500";
-                  case "order_rejected": return "bg-red-500";
-                  case "driver_assigned": return "bg-blue-500";
-                  case "order_delivered": return "bg-green-500";
-                  default: return "bg-[#FF7A00]";
+                  case "order_accepted":
+                    return "bg-green-500";
+                  case "order_rejected":
+                    return "bg-red-500";
+                  case "driver_assigned":
+                    return "bg-blue-500";
+                  case "order_delivered":
+                    return "bg-green-500";
+                  default:
+                    return "bg-[#FF7A00]";
                 }
               };
 
@@ -223,7 +242,9 @@ export default function CustomerNotifications() {
                 >
                   <div className="flex items-start gap-4">
                     {/* Icon */}
-                    <div className={`w-12 h-12 ${getNotificationColor(n.type)} rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg`}>
+                    <div
+                      className={`w-12 h-12 ${getNotificationColor(n.type)} rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg`}
+                    >
                       <span className="text-xl">
                         {getNotificationIcon(n.type)}
                       </span>
@@ -234,7 +255,9 @@ export default function CustomerNotifications() {
                       <div className="flex items-start justify-between gap-2">
                         <div>
                           <p className="font-bold text-gray-900">{n.title}</p>
-                          <p className="text-gray-600 text-sm mt-1">{n.message}</p>
+                          <p className="text-gray-600 text-sm mt-1">
+                            {n.message}
+                          </p>
                         </div>
                         <span className="text-xs text-gray-400 whitespace-nowrap">
                           {getTimeAgo(n.created_at)}

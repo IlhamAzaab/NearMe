@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import DriverLayout from "../../components/DriverLayout";
+import { API_URL } from "../../config";
 
 export default function DeliveryHistory() {
   const navigate = useNavigate();
@@ -25,7 +26,7 @@ export default function DeliveryHistory() {
     try {
       const token = localStorage.getItem("token");
       const response = await fetch(
-        "http://localhost:5000/driver/deliveries/history",
+        `${API_URL}/driver/deliveries/history`,
         {
           headers: { Authorization: `Bearer ${token}` },
         },

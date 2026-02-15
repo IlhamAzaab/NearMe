@@ -140,6 +140,11 @@ export default function AdminNotificationBanner({
       const orderId = notification.order_id;
       if (acceptingId || acceptedIds.has(orderId)) return;
 
+      // IMMEDIATELY stop sound on click (before async process)
+      if (alertSoundRef.current) {
+        alertSoundRef.current.stop();
+      }
+
       setAcceptingId(orderId);
 
       try {
@@ -169,15 +174,35 @@ export default function AdminNotificationBanner({
           const data = await res.json().catch(() => ({}));
           console.error("Accept order failed:", data.message);
           alert(data.message || "Failed to accept order");
+          // Restart sound if there are remaining unhandled notifications
+          const remaining = notifications.filter(
+            (n) =>
+              !acceptedIds.has(n.order_id) &&
+              !n.isMilestone &&
+              n.order_id !== orderId,
+          );
+          if (remaining.length > 0 && alertSoundRef.current) {
+            alertSoundRef.current.start();
+          }
         }
       } catch (err) {
         console.error("Accept order error:", err);
         alert("Network error. Please try again.");
+        // Restart sound if there are remaining unhandled notifications
+        const remaining = notifications.filter(
+          (n) =>
+            !acceptedIds.has(n.order_id) &&
+            !n.isMilestone &&
+            n.order_id !== orderId,
+        );
+        if (remaining.length > 0 && alertSoundRef.current) {
+          alertSoundRef.current.start();
+        }
       } finally {
         setAcceptingId(null);
       }
     },
-    [acceptingId, acceptedIds, onAccepted, onDismiss],
+    [acceptingId, acceptedIds, notifications, onAccepted, onDismiss],
   );
 
   const handleViewDetails = useCallback(
@@ -196,6 +221,10 @@ export default function AdminNotificationBanner({
 
   const handleClose = useCallback(
     (orderId) => {
+      // IMMEDIATELY stop sound on dismiss
+      if (alertSoundRef.current) {
+        alertSoundRef.current.stop();
+      }
       onDismiss?.(orderId);
     },
     [onDismiss],

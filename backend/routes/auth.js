@@ -1,10 +1,28 @@
 import express from "express";
+import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "../supabaseAdmin.js";
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
 import { sendVerificationEmail } from "../utils/email.js";
+import { authenticate } from "../middleware/authenticate.js";
 
 dotenv.config();
+
+// Separate Supabase client ONLY for signInWithPassword.
+// signInWithPassword sets a user-session on the client it is called on,
+// which would cause subsequent DB queries on that client to run under the
+// "authenticated" Postgres role instead of "service_role", triggering RLS
+// violations. Isolating it here keeps supabaseAdmin clean for DB ops.
+const supabaseAuthOnly = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY,
+  {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  },
+);
 
 const router = express.Router();
 
@@ -13,44 +31,21 @@ const router = express.Router();
  * Register new customer with email verification
  */
 router.post("/signup", async (req, res) => {
-  console.log(
-    "\n╔══════════════════════════════════════════════════════════════╗",
-  );
-  console.log(
-    "║           NEW SIGNUP REQUEST RECEIVED                        ║",
-  );
-  console.log(
-    "╚══════════════════════════════════════════════════════════════╝",
-  );
-
   try {
     const { email, password } = req.body;
 
-    console.log("Request body received:");
-    console.log("  Email:", email);
-    console.log(
-      "  Password:",
-      password ? "***" + password.slice(-3) : "not provided",
-    );
-    console.log("  Password length:", password?.length || 0);
-
     // Validate input
     if (!email || !password) {
-      console.log("❌ Validation failed: Missing email or password");
       return res.status(400).json({
         message: "Email and password are required",
       });
     }
 
     if (password.length < 6) {
-      console.log("❌ Validation failed: Password too short");
       return res.status(400).json({
         message: "Password must be at least 6 characters",
       });
     }
-
-    console.log("✅ Basic validation passed");
-    console.log("\nChecking email availability across all tables...");
 
     // Check if email already exists in users table
     const { data: existingUser } = await supabaseAdmin
@@ -60,15 +55,10 @@ router.post("/signup", async (req, res) => {
       .maybeSingle();
 
     if (existingUser) {
-      console.log(
-        "❌ Email already exists in users table as:",
-        existingUser.role,
-      );
       return res.status(400).json({
         message: `This email is already registered as ${existingUser.role}`,
       });
     }
-    console.log("✅ Email not in users table");
 
     // Check in admins table
     const { data: adminCheck } = await supabaseAdmin
@@ -78,12 +68,10 @@ router.post("/signup", async (req, res) => {
       .maybeSingle();
 
     if (adminCheck) {
-      console.log("❌ Email already exists in admins table");
       return res.status(400).json({
         message: "This email is already registered as admin",
       });
     }
-    console.log("✅ Email not in admins table");
 
     // Check in drivers table
     const { data: driverCheck } = await supabaseAdmin
@@ -93,15 +81,11 @@ router.post("/signup", async (req, res) => {
       .maybeSingle();
 
     if (driverCheck) {
-      console.log("❌ Email already exists in drivers table");
       return res.status(400).json({
         message: "This email is already registered as driver",
       });
     }
-    console.log("✅ Email not in drivers table");
-    console.log("✅ Email is available!\n");
 
-    console.log("Creating user in Supabase Auth...");
     // Create user in Supabase Auth with email confirmation required
     const { data: authData, error: authError } =
       await supabaseAdmin.auth.admin.createUser({
@@ -114,21 +98,12 @@ router.post("/signup", async (req, res) => {
       });
 
     if (authError) {
-      console.error("❌ Supabase Auth user creation failed!");
-      console.error("Auth error:", authError);
+      console.error("Auth user creation failed:", authError.message);
       return res.status(400).json({
         message: authError.message,
       });
     }
 
-    console.log("✅ Supabase Auth user created successfully");
-    console.log("  User ID:", authData.user.id);
-    console.log(
-      "  Email confirmed:",
-      authData.user.email_confirmed_at ? "Yes" : "No (needs verification)",
-    );
-
-    console.log("\nInserting user record into users table...");
     // Create user record in users table
     const { error: userError } = await supabaseAdmin.from("users").insert({
       id: authData.user.id,
@@ -138,31 +113,19 @@ router.post("/signup", async (req, res) => {
     });
 
     if (userError) {
-      console.error("❌ Users table insert failed!");
-      console.error("User table insert error:", userError);
+      console.error("Users table insert failed:", userError.message);
       // Rollback: delete auth user
-      console.log("Rolling back: Deleting auth user...");
       await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
       return res.status(500).json({
         message: "Failed to create user record",
       });
     }
 
-    console.log("✅ Users table record created successfully");
-
     // Generate email verification link and send email
-    console.log("\n========== EMAIL VERIFICATION PROCESS START ==========");
-    console.log("Step 1: User created successfully");
-    console.log("User ID:", authData.user.id);
-    console.log("User Email:", email);
-    console.log("Step 2: Attempting to generate verification link...");
-
     try {
       const redirectUrl = `${
         process.env.FRONTEND_URL || "http://localhost:5174"
       }/auth/verify-email`;
-      console.log("Redirect URL:", redirectUrl);
-      console.log("FRONTEND_URL from .env:", process.env.FRONTEND_URL);
 
       const { data: linkData, error: linkError } =
         await supabaseAdmin.auth.admin.generateLink({
@@ -173,24 +136,8 @@ router.post("/signup", async (req, res) => {
           },
         });
 
-      console.log("\nStep 3: generateLink() response received");
-      console.log(
-        "Link Error:",
-        linkError ? JSON.stringify(linkError, null, 2) : "null",
-      );
-      console.log(
-        "Link Data:",
-        linkData ? JSON.stringify(linkData, null, 2) : "null",
-      );
-
       if (linkError) {
-        console.error("\n❌ EMAIL GENERATION FAILED!");
-        console.error("Error details:", JSON.stringify(linkError, null, 2));
-        console.log(
-          "========== EMAIL VERIFICATION PROCESS END (FAILED) ==========\n",
-        );
-        // User is created but email failed - still return success
-        // User can request resend later
+        console.error("Email link generation failed:", linkError.message);
         return res.status(201).json({
           message:
             "Account created but email sending failed. Please contact support.",
@@ -199,29 +146,10 @@ router.post("/signup", async (req, res) => {
         });
       }
 
-      console.log("\n✅ EMAIL LINK GENERATED SUCCESSFULLY!");
-      console.log(
-        "Action Link:",
-        linkData.properties?.action_link || "Not provided",
-      );
-      console.log(
-        "Hashed Token:",
-        linkData.properties?.hashed_token || "Not provided",
-      );
-      console.log(
-        "Redirect URL:",
-        linkData.properties?.redirect_to || "Not provided",
-      );
-
-      // Step 4: Actually SEND the verification email
-      console.log("\nStep 4: Sending verification email via SMTP...");
       const actionLink = linkData.properties?.action_link;
 
       if (!actionLink) {
-        console.error("\n❌ No action link returned from generateLink()");
-        console.log(
-          "========== EMAIL VERIFICATION PROCESS END (FAILED) ==========\n",
-        );
+        console.error("No action link returned from generateLink()");
         return res.status(201).json({
           message:
             "Account created but email sending failed. Please contact support.",
@@ -237,14 +165,6 @@ router.post("/signup", async (req, res) => {
           verificationLink: actionLink,
         });
 
-        console.log("\n✅ VERIFICATION EMAIL SENT SUCCESSFULLY!");
-        console.log("Email sent to:", email);
-        console.log("Expected delivery time: 1-5 minutes");
-        console.log("\n⚠️ IMPORTANT: Check your email inbox and spam folder!");
-        console.log(
-          "========== EMAIL VERIFICATION PROCESS END (SUCCESS) ==========\n",
-        );
-
         res.status(201).json({
           message:
             "Signup successful! Please check your email to verify your account.",
@@ -252,12 +172,7 @@ router.post("/signup", async (req, res) => {
           emailSent: true,
         });
       } catch (smtpError) {
-        console.error("\n❌ SMTP EMAIL SENDING FAILED!");
-        console.error("SMTP Error:", smtpError.message);
-        console.error("Full error:", smtpError);
-        console.log(
-          "========== EMAIL VERIFICATION PROCESS END (FAILED) ==========\n",
-        );
+        console.error("SMTP email send failed:", smtpError.message);
 
         res.status(201).json({
           message:
@@ -267,13 +182,7 @@ router.post("/signup", async (req, res) => {
         });
       }
     } catch (emailError) {
-      console.error("\n❌ EXCEPTION DURING EMAIL VERIFICATION PROCESS!");
-      console.error("Exception details:", emailError);
-      console.error("Error message:", emailError.message);
-      console.error("Error stack:", emailError.stack);
-      console.log(
-        "========== EMAIL VERIFICATION PROCESS END (EXCEPTION) ==========\n",
-      );
+      console.error("Email verification process error:", emailError.message);
       // User is created but email failed
       res.status(201).json({
         message:
@@ -283,21 +192,7 @@ router.post("/signup", async (req, res) => {
       });
     }
   } catch (error) {
-    console.error(
-      "\n╔══════════════════════════════════════════════════════════════╗",
-    );
-    console.error(
-      "║           SIGNUP ERROR - UNEXPECTED EXCEPTION                ║",
-    );
-    console.error(
-      "╚══════════════════════════════════════════════════════════════╝",
-    );
-    console.error("Signup error:", error);
-    console.error("Error message:", error.message);
-    console.error("Error stack:", error.stack);
-    console.error(
-      "╚══════════════════════════════════════════════════════════════╝\n",
-    );
+    console.error("Signup error:", error.message);
     res.status(500).json({
       message: "Server error during signup",
     });
@@ -439,14 +334,35 @@ router.post("/check-availability", async (req, res) => {
 
 /**
  * GET /auth/user-email
- * Get user email by userId
+ * Get user email by userId (requires either JWT auth or Supabase access_token)
  */
 router.get("/user-email", async (req, res) => {
   try {
     const { userId } = req.query;
-
     if (!userId) {
       return res.status(400).json({ message: "UserId is required" });
+    }
+
+    // Require either a valid JWT (from authenticate) or a Supabase access_token
+    const auth = req.headers.authorization || "";
+    let authorized = false;
+
+    if (auth.startsWith("Bearer ")) {
+      const token = auth.split(" ")[1];
+      try {
+        // Try JWT first (for logged-in users)
+        const jwt = await import("jsonwebtoken");
+        jwt.default.verify(token, process.env.JWT_SECRET);
+        authorized = true;
+      } catch {
+        // Not a valid JWT — try as Supabase access_token
+        const { data: tokenUser } = await supabaseAdmin.auth.getUser(token);
+        if (tokenUser?.user?.id === userId) authorized = true;
+      }
+    }
+
+    if (!authorized) {
+      return res.status(401).json({ message: "Unauthorized" });
     }
 
     // Get user from auth
@@ -466,7 +382,8 @@ router.get("/user-email", async (req, res) => {
 
 /**
  * POST /auth/complete-profile
- * Complete customer profile after email verification
+ * Complete customer profile after email verification (requires Supabase access token)
+ * Protected: validates the userId matches a real Supabase user via access_token
  */
 router.post("/complete-profile", async (req, res) => {
   try {
@@ -480,6 +397,7 @@ router.post("/complete-profile", async (req, res) => {
       city,
       latitude,
       longitude,
+      access_token,
     } = req.body;
 
     // Validate required fields
@@ -487,6 +405,18 @@ router.post("/complete-profile", async (req, res) => {
       return res.status(400).json({
         message: "Username, email, and phone are required",
       });
+    }
+
+    // Verify the caller owns this userId via Supabase access token
+    if (!access_token) {
+      return res.status(401).json({ message: "Access token is required" });
+    }
+    const { data: tokenUser, error: tokenError } =
+      await supabaseAdmin.auth.getUser(access_token);
+    if (tokenError || !tokenUser?.user || tokenUser.user.id !== userId) {
+      return res
+        .status(403)
+        .json({ message: "Access denied — token does not match userId" });
     }
 
     // Validate location
@@ -581,11 +511,11 @@ router.post("/complete-profile", async (req, res) => {
     // Update users table with phone
     await supabaseAdmin.from("users").update({ phone }).eq("id", userId);
 
-    // Generate JWT token for the customer (1 year expiration)
+    // Generate JWT token for the customer
     const token = jwt.sign(
       { id: userId, role: "customer" },
       process.env.JWT_SECRET,
-      { expiresIn: "1y" },
+      { expiresIn: "7d" },
     );
 
     res.json({
@@ -619,8 +549,10 @@ router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Authenticate with Supabase
-    const { data, error } = await supabaseAdmin.auth.signInWithPassword({
+    // Authenticate with Supabase — use the isolated auth client so the
+    // user session does NOT leak into supabaseAdmin (which must stay
+    // service_role for all subsequent DB queries).
+    const { data, error } = await supabaseAuthOnly.auth.signInWithPassword({
       email,
       password,
     });
@@ -651,17 +583,110 @@ router.post("/login", async (req, res) => {
     }
 
     // Get user role
-    const { data: roleData, error: roleError } = await supabaseAdmin
+    let { data: roleData, error: roleError } = await supabaseAdmin
       .from("users")
       .select("role")
       .eq("id", userId)
       .maybeSingle();
 
-    if (roleError || !roleData) {
-      console.error("Role fetch error:", roleError);
-      return res.status(404).json({
-        message: "User role not found. Please contact support.",
+    if (roleError) {
+      console.error(
+        "Role fetch DB error for userId:",
+        userId,
+        "dbError:",
+        roleError,
+      );
+      return res.status(500).json({
+        message: "Database error fetching user role. Please try again.",
       });
+    }
+
+    // Self-healing: if user exists in auth but not in public.users table,
+    // detect role from other tables or auth metadata and create the missing record
+    if (!roleData) {
+      console.warn(
+        "⚠️ User",
+        userId,
+        "exists in auth but NOT in users table. Attempting auto-repair...",
+      );
+
+      let detectedRole = null;
+
+      // Check drivers table
+      const { data: driverCheck } = await supabaseAdmin
+        .from("drivers")
+        .select("id")
+        .eq("id", userId)
+        .maybeSingle();
+      if (driverCheck) {
+        detectedRole = "driver";
+        console.log("  → Found in drivers table, role = driver");
+      }
+
+      // Check admins table
+      if (!detectedRole) {
+        const { data: adminCheck } = await supabaseAdmin
+          .from("admins")
+          .select("user_id")
+          .eq("user_id", userId)
+          .maybeSingle();
+        if (adminCheck) {
+          detectedRole = "admin";
+          console.log("  → Found in admins table, role = admin");
+        }
+      }
+
+      // Check managers table
+      if (!detectedRole) {
+        const { data: managerCheck } = await supabaseAdmin
+          .from("managers")
+          .select("user_id")
+          .eq("user_id", userId)
+          .maybeSingle();
+        if (managerCheck) {
+          detectedRole = "manager";
+          console.log("  → Found in managers table, role = manager");
+        }
+      }
+
+      // Fallback: check auth user metadata
+      if (!detectedRole) {
+        const authRole = data.user?.user_metadata?.role;
+        if (
+          authRole &&
+          ["customer", "admin", "driver", "manager"].includes(authRole)
+        ) {
+          detectedRole = authRole;
+          console.log("  → Detected from auth metadata, role =", authRole);
+        } else {
+          // Default to customer
+          detectedRole = "customer";
+          console.log("  → No role found anywhere, defaulting to customer");
+        }
+      }
+
+      // Insert the missing users record
+      const { error: insertError } = await supabaseAdmin.from("users").insert({
+        id: userId,
+        role: detectedRole,
+        email: data.user.email,
+        created_at: new Date().toISOString(),
+      });
+
+      if (insertError) {
+        console.error("❌ Failed to auto-create users record:", insertError);
+        return res.status(500).json({
+          message: "Failed to repair user record. Please contact support.",
+        });
+      }
+
+      console.log(
+        "✅ Auto-created users record for",
+        userId,
+        "with role =",
+        detectedRole,
+      );
+      roleData = { role: detectedRole };
     }
 
     // For customers, check if profile is completed
@@ -673,21 +698,23 @@ router.post("/login", async (req, res) => {
         .maybeSingle();
 
       if (!customerProfile) {
-        // Profile not completed yet
+        // Profile not completed yet — include Supabase access_token so frontend
+        // can prove identity when calling /auth/complete-profile
         return res.json({
           token: null,
           role: roleData.role,
           profileCompleted: false,
           userId: userId,
+          access_token: data.session?.access_token || null,
           message: "Please complete your profile",
         });
       }
 
-      // Generate JWT token (1 year expiration)
+      // Generate JWT token
       const token = jwt.sign(
         { id: userId, role: roleData.role },
         process.env.JWT_SECRET,
-        { expiresIn: "1y" },
+        { expiresIn: "7d" },
       );
 
       return res.json({
@@ -699,11 +726,11 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    // Generate JWT token for non-customer roles (1 year expiration)
+    // Generate JWT token for non-customer roles
     const token = jwt.sign(
       { id: userId, role: roleData.role },
       process.env.JWT_SECRET,
-      { expiresIn: "1y" },
+      { expiresIn: "7d" },
     );
 
     res.json({

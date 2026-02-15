@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import DriverLayout from "../../components/DriverLayout";
+import { API_URL } from "../../config";
 
 export default function DriverWithdrawals() {
   const navigate = useNavigate();
@@ -22,10 +23,10 @@ export default function DriverWithdrawals() {
       const headers = { Authorization: `Bearer ${token}` };
 
       const [summaryRes, historyRes] = await Promise.all([
-        fetch("http://localhost:5000/driver/withdrawals/my/summary", {
+        fetch(`${API_URL}/driver/withdrawals/my/summary`, {
           headers,
         }),
-        fetch("http://localhost:5000/driver/withdrawals/my/history", {
+        fetch(`${API_URL}/driver/withdrawals/my/history`, {
           headers,
         }),
       ]);

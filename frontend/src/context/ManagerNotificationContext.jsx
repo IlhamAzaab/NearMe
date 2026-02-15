@@ -44,7 +44,7 @@ function createAlertSound() {
     isPlaying = true;
 
     try {
-      audioElement = new Audio("/delivery-alert.wav");
+      audioElement = new Audio("/notification-tone.wav");
       audioElement.loop = true;
       audioElement.volume = 0.7;
       audioElement.play().catch(() => tryWebAudioFallback());
@@ -218,13 +218,26 @@ export function ManagerNotificationProvider({ children }) {
     }
   }, []);
 
-  // Dismiss a single notification
+  // Dismiss a single notification - stop sound immediately
   const dismissNotification = useCallback((notificationId) => {
-    setNotifications((prev) => prev.filter((n) => n.id !== notificationId));
+    // Stop sound IMMEDIATELY on dismiss click
+    const remaining = notificationsRef.current.filter(
+      (n) => n.id !== notificationId,
+    );
+    const hasUnassigned = remaining.some(
+      (n) => n.type === "unassigned_delivery",
+    );
+    if (!hasUnassigned && alertSoundRef.current) {
+      alertSoundRef.current.stop();
+    }
+    setNotifications(remaining);
   }, []);
 
-  // Dismiss all notifications
+  // Dismiss all notifications - stop sound immediately
   const dismissAll = useCallback(() => {
+    if (alertSoundRef.current) {
+      alertSoundRef.current.stop();
+    }
     setNotifications([]);
   }, []);
 

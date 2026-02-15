@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import BottomNavbar from "../components/BottomNavbar";
 import AnimatedAlert, { useAlert } from "../components/AnimatedAlert";
+import { API_URL } from "../config";
 
 const FoodDetail = () => {
   const { restaurantId, foodId } = useParams();
@@ -47,7 +48,7 @@ const FoodDetail = () => {
 
       // Fetch restaurant
       const restaurantRes = await fetch(
-        `http://localhost:5000/public/restaurants/${restaurantId}`,
+        `${API_URL}/public/restaurants/${restaurantId}`,
       );
       const restaurantData = await restaurantRes.json();
 
@@ -59,7 +60,7 @@ const FoodDetail = () => {
 
       // Fetch food
       const foodRes = await fetch(
-        `http://localhost:5000/public/restaurants/${restaurantId}/foods/${foodId}`,
+        `${API_URL}/public/restaurants/${restaurantId}/foods/${foodId}`,
       );
       const foodData = await foodRes.json();
 
@@ -95,17 +96,8 @@ const FoodDetail = () => {
 
   const addToCart = async ({ goToCheckout = false } = {}) => {
     try {
-      // Debug: Check localStorage values
       const currentToken = localStorage.getItem("token");
       const currentRole = localStorage.getItem("role");
-      console.log(" addToCart called");
-      console.log(
-        " localStorage token:",
-        currentToken ? `${currentToken.substring(0, 20)}...` : "NULL",
-      );
-      console.log(" localStorage role:", currentRole);
-      console.log(" isLoggedIn state:", isLoggedIn);
-      console.log("role state:", role);
 
       // Check real-time token instead of state
       if (
@@ -133,7 +125,7 @@ const FoodDetail = () => {
       setAddingToCart(true);
 
       const token = currentToken;
-      const response = await fetch("http://localhost:5000/cart/add", {
+      const response = await fetch(`${API_URL}/cart/add`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

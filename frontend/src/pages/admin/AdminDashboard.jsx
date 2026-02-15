@@ -1,86 +1,90 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import AdminLayout from "../../components/AdminLayout";
 import { API_URL } from "../../config";
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
 
 export default function AdminDashboard() {
-  const [stats, setStats] = useState({
-    totalOrders: 0,
-    totalRevenue: 0,
-    totalProducts: 0,
-    availableProducts: 0,
-    activeCustomers: 0,
-    todayOrders: 0,
-    todayRevenue: 0,
-    avgOrderValue: 0,
-  });
+  const [dashboardData, setDashboardData] = useState(null);
   const [recentOrders, setRecentOrders] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [greeting, setGreeting] = useState("");
   const [slideIn, setSlideIn] = useState(false);
   const [restaurant, setRestaurant] = useState(null);
   const [toggling, setToggling] = useState(false);
+  const [chartPeriod, setChartPeriod] = useState("week");
   const navigate = useNavigate();
 
   const token = localStorage.getItem("token");
 
+  // Fetch dashboard stats (can be called separately for chart period changes)
+  const fetchDashboardStats = useCallback(
+    async (period) => {
+      if (!token) return;
+      try {
+        const res = await fetch(
+          `${API_URL}/admin/dashboard-stats?chartPeriod=${period}`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        const data = await res.json();
+        if (res.ok) setDashboardData(data);
+      } catch (err) {
+        console.error("Dashboard stats error:", err);
+      }
+    },
+    [token],
+  );
+
   useEffect(() => {
-    // Trigger slide-in animation
     setTimeout(() => setSlideIn(true), 50);
 
-    // Set greeting based on time
-    const hour = new Date().getHours();
-    if (hour < 12) setGreeting("Good Morning ☀️");
-    else if (hour < 17) setGreeting("Good Afternoon 🌤️");
-    else setGreeting("Good Evening 🌙");
-
-    fetchDashboardData();
+    const fetchAll = async () => {
+      if (!token) return;
+      setLoading(true);
+      try {
+        await Promise.all([
+          fetchDashboardStats(chartPeriod),
+          fetch(`${API_URL}/admin/orders?limit=5`, {
+            headers: { Authorization: `Bearer ${token}` },
+          })
+            .then((r) => r.json())
+            .then((d) => {
+              if (d.orders) setRecentOrders(d.orders);
+            }),
+          fetch(`${API_URL}/admin/restaurant`, {
+            headers: { Authorization: `Bearer ${token}` },
+          })
+            .then((r) => r.json())
+            .then((d) => {
+              if (d.restaurant) setRestaurant(d.restaurant);
+            }),
+        ]);
+      } catch (err) {
+        console.error("Dashboard fetch error:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchAll();
   }, []);
 
-  const fetchDashboardData = async () => {
-    if (!token) return;
-
-    setLoading(true);
-    try {
-      // Fetch stats
-      const statsRes = await fetch(`${API_URL}/admin/stats`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const statsData = await statsRes.json();
-
-      if (statsRes.ok && statsData.stats) {
-        setStats(statsData.stats);
-      }
-
-      // Fetch recent orders
-      const ordersRes = await fetch(`${API_URL}/admin/orders?limit=5`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const ordersData = await ordersRes.json();
-
-      if (ordersRes.ok && ordersData.orders) {
-        setRecentOrders(ordersData.orders);
-      }
-
-      // Fetch restaurant details (for is_open status)
-      const restaurantRes = await fetch(`${API_URL}/admin/restaurant`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const restaurantData = await restaurantRes.json();
-      if (restaurantRes.ok && restaurantData.restaurant) {
-        setRestaurant(restaurantData.restaurant);
-      }
-    } catch (error) {
-      console.error("Error fetching dashboard data:", error);
-    } finally {
-      setLoading(false);
+  // Re-fetch chart data when period changes (skip initial load)
+  useEffect(() => {
+    if (!loading && token) {
+      fetchDashboardStats(chartPeriod);
     }
-  };
+  }, [chartPeriod]);
 
   const toggleRestaurantOpen = async () => {
     if (toggling) return;
     setToggling(true);
-    // Optimistic update
     setRestaurant((prev) =>
       prev ? { ...prev, is_open: !prev.is_open } : prev,
     );
@@ -96,7 +100,6 @@ export default function AdminDashboard() {
       if (res.ok && data.restaurant) {
         setRestaurant(data.restaurant);
       } else {
-        // Revert on failure
         setRestaurant((prev) =>
           prev ? { ...prev, is_open: !prev.is_open } : prev,
         );
@@ -110,107 +113,76 @@ export default function AdminDashboard() {
     }
   };
 
-  const StatCard = ({ title, value, change, icon, color, delay }) => (
-    <div
-      className={`bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-500 transform hover:-translate-y-2 hover:scale-105 p-4 sm:p-6 relative overflow-hidden group border border-green-100 ${delay ? `animate-fadeInUp` : ""}`}
-      style={{ animationDelay: delay }}
-    >
-      {/* Animated background */}
-      <div
-        className={`absolute top-0 right-0 w-32 h-32 rounded-full bg-gradient-to-br from-green-50 to-green-100 opacity-50 -translate-y-16 translate-x-16 group-hover:scale-125 group-hover:opacity-70 transition-all duration-500`}
-      ></div>
+  // Helpers
+  const formatCurrency = (val) => `Rs. ${(val || 0).toLocaleString()}`;
 
-      <div className="relative z-10">
-        <div className="flex items-start justify-between">
-          <div className="flex-1">
-            <p className="text-sm text-gray-600 font-semibold uppercase tracking-wide">
-              {title}
-            </p>
-            <p className={`text-3xl font-bold mt-3 ${color} drop-shadow-sm`}>
-              {title.includes("Revenue") || title.includes("Avg") ? "Rs. " : ""}
-              {(value || 0).toLocaleString()}
-            </p>
-            {change !== 0 && (
-              <p className="text-xs mt-2 flex items-center">
-                <span
-                  className={`${change > 0 ? "text-green-600" : "text-red-600"} font-semibold`}
-                >
-                  {change > 0 ? "↗" : "↘"} {Math.abs(change)}%
-                </span>
-                <span className="text-gray-500 ml-2">vs last period</span>
-              </p>
-            )}
-          </div>
-          <div
-            className={`p-4 rounded-xl bg-gradient-to-br ${color.replace("text-", "from-").replace("-500", "-100")} to-orange-50 shadow-sm group-hover:scale-110 group-hover:shadow-md transition-all duration-500`}
-          >
-            {icon}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-
-  const StatusBadge = ({ status }) => {
-    const colors = {
-      Delivered: "bg-green-100 text-green-800",
-      Preparing: "bg-blue-100 text-blue-800",
-      Pending: "bg-yellow-100 text-yellow-800",
-      "On the way": "bg-purple-100 text-purple-800",
-    };
+  const ChangeIndicator = ({ value }) => {
+    if (value === 0 || value === undefined)
+      return (
+        <span className="text-xs text-gray-400 font-medium">No change</span>
+      );
+    const isPositive = value > 0;
     return (
       <span
-        className={`px-3 py-1 rounded-full text-xs font-medium ${colors[status] || "bg-gray-100 text-gray-800"}`}
+        className={`text-xs font-semibold flex items-center gap-1 ${isPositive ? "text-green-600" : "text-red-500"}`}
       >
-        {status}
+        <span
+          className={`inline-flex items-center justify-center w-4 h-4 rounded-full ${isPositive ? "bg-green-100" : "bg-red-100"}`}
+        >
+          {isPositive ? "↗" : "↘"}
+        </span>
+        {Math.abs(value)}%
+        <span className="text-gray-400 font-normal">vs yesterday</span>
       </span>
     );
   };
 
+  // Loading skeleton
   if (loading) {
     return (
       <AdminLayout>
-        <div className="space-y-6">
+        <div className="min-h-screen bg-gradient-to-br from-green-50 via-green-50 to-green-100 p-4 sm:p-6 md:p-8 space-y-6">
           {/* Header skeleton */}
-          <div className="animate-pulse space-y-3">
-            <div className="h-8 bg-gray-200 rounded w-1/3" />
-            <div className="flex items-center gap-2">
+          <div className="animate-pulse flex items-center gap-4">
+            <div className="w-14 h-14 bg-gray-200 rounded-2xl" />
+            <div className="space-y-2">
+              <div className="h-7 w-48 bg-gray-200 rounded" />
               <div className="h-4 w-32 bg-gray-200 rounded" />
-              <div className="w-2.5 h-2.5 bg-gray-200 rounded-full" />
-              <div className="h-4 w-28 bg-gray-200 rounded" />
             </div>
           </div>
-          {/* Stats grid skeleton */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            {[...Array(4)].map((_, i) => (
-              <div
-                key={i}
-                className="bg-white rounded-2xl p-5 border border-gray-100 animate-pulse"
-              >
-                <div className="flex items-start justify-between">
-                  <div className="space-y-3 flex-1">
-                    <div className="h-3 w-20 bg-gray-200 rounded" />
-                    <div className="h-8 w-24 bg-gray-200 rounded" />
-                  </div>
-                  <div className="w-12 h-12 bg-gray-200 rounded-xl" />
-                </div>
-              </div>
-            ))}
+          {/* Toggle skeleton */}
+          <div className="animate-pulse">
+            <div className="h-12 w-56 bg-gray-200 rounded-2xl" />
           </div>
-          {/* Content skeleton */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {[...Array(2)].map((_, i) => (
+          {/* Today performance skeleton */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {[...Array(3)].map((_, i) => (
               <div
                 key={i}
                 className="bg-white rounded-2xl p-6 border border-gray-100 animate-pulse"
               >
-                <div className="h-5 w-40 bg-gray-200 rounded mb-6" />
-                <div className="space-y-4">
-                  <div className="h-20 bg-gray-100 rounded-xl" />
-                  <div className="h-20 bg-gray-100 rounded-xl" />
+                <div className="flex items-center justify-between mb-4">
+                  <div className="h-3 w-24 bg-gray-200 rounded" />
+                  <div className="w-10 h-10 bg-gray-200 rounded-xl" />
                 </div>
+                <div className="h-8 w-28 bg-gray-200 rounded mb-2" />
+                <div className="h-3 w-20 bg-gray-200 rounded" />
               </div>
             ))}
+          </div>
+          {/* Lifetime skeleton */}
+          <div className="grid grid-cols-2 gap-4">
+            {[...Array(2)].map((_, i) => (
+              <div
+                key={i}
+                className="h-28 bg-gray-200 rounded-2xl animate-pulse"
+              />
+            ))}
+          </div>
+          {/* Chart skeleton */}
+          <div className="bg-white rounded-2xl p-6 border border-gray-100 animate-pulse">
+            <div className="h-5 w-40 bg-gray-200 rounded mb-6" />
+            <div className="h-64 bg-gray-100 rounded-xl" />
           </div>
         </div>
       </AdminLayout>
@@ -223,249 +195,127 @@ export default function AdminDashboard() {
         className={`min-h-screen bg-gradient-to-br from-green-50 via-green-50 to-green-100 transition-all duration-500 ease-in-out ${slideIn ? "translate-x-0 opacity-100" : "translate-x-full opacity-0"}`}
       >
         <div className="space-y-6 sm:space-y-8 p-4 sm:p-6 md:p-8">
-          {/* Header with greeting */}
-          <div className="flex flex-col gap-4 sm:gap-4 animate-slideDown">
+          {/* ═══════════ Block 1: Header — Restaurant name + logo ═══════════ */}
+          <div className="flex items-center gap-4 animate-slideDown">
+            {restaurant?.logo_url ? (
+              <img
+                src={restaurant.logo_url}
+                alt={restaurant.restaurant_name}
+                className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl object-cover shadow-md border-2 border-green-200"
+              />
+            ) : (
+              <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center text-white text-2xl font-bold shadow-md">
+                {restaurant?.restaurant_name?.charAt(0) || "R"}
+              </div>
+            )}
             <div>
-              <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold bg-gradient-to-r from-green-600 via-green-500 to-green-600 bg-clip-text text-transparent drop-shadow-sm">
-                Dashboard
+              <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-green-600 via-green-500 to-green-600 bg-clip-text text-transparent drop-shadow-sm">
+                {restaurant?.restaurant_name || "Dashboard"}
               </h1>
-              <div className="flex items-center gap-2 sm:gap-3 mt-3">
-                <p className="text-gray-700 text-lg font-medium">{greeting}</p>
-                <button
-                  onClick={toggleRestaurantOpen}
-                  disabled={toggling}
-                  className="flex items-center gap-2 ml-2 px-3 py-1.5 rounded-full border transition-all duration-300 select-none"
-                  style={{
-                    borderColor: restaurant?.is_open ? "#22c55e" : "#ef4444",
-                    backgroundColor: restaurant?.is_open
-                      ? "#f0fdf4"
-                      : "#fef2f2",
-                  }}
-                >
-                  <div
-                    className={`relative w-10 h-[22px] rounded-full transition-colors duration-300 ${
-                      restaurant?.is_open ? "bg-green-500" : "bg-red-400"
-                    }`}
-                  >
-                    <div
-                      className={`absolute top-[3px] left-[3px] w-4 h-4 bg-white rounded-full shadow transition-transform duration-300 ${
-                        restaurant?.is_open
-                          ? "translate-x-[18px]"
-                          : "translate-x-0"
-                      }`}
-                    />
-                  </div>
-                  <span
-                    className={`text-sm font-semibold ${restaurant?.is_open ? "text-green-700" : "text-red-600"}`}
-                  >
-                    {restaurant?.is_open ? "Open" : "Closed"}
-                  </span>
-                </button>
-                {restaurant?.is_manually_overridden && (
-                  <span className="text-[11px] text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full font-medium">
-                    Manual
-                  </span>
-                )}
-              </div>
-            </div>
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
-              <div className="px-4 sm:px-5 py-2.5 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-xl font-semibold shadow-md hover:shadow-lg hover:scale-105 transition-all duration-300 text-center">
-                Today: {stats.todayOrders} orders
-              </div>
-              <button className="px-4 sm:px-5 py-2.5 bg-white border-2 border-green-200 text-gray-700 rounded-xl hover:bg-green-50 hover:border-green-300 transition-all duration-300 shadow-sm text-center">
-                📅 {new Date().toLocaleDateString("en-IN")}
-              </button>
+              <p className="text-sm text-gray-500 mt-0.5">
+                Dashboard Overview •{" "}
+                {new Date().toLocaleDateString("en-IN", {
+                  weekday: "long",
+                  day: "numeric",
+                  month: "short",
+                  year: "numeric",
+                })}
+              </p>
             </div>
           </div>
 
-          {/* Stats Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            <StatCard
-              title="Total Orders"
-              value={stats.totalOrders}
-              change={0}
-              color="text-blue-500"
-              delay="0s"
-              icon={
-                <svg
-                  className="w-7 h-7 text-blue-500"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"
-                  />
-                </svg>
-              }
-            />
-            <StatCard
-              title="Total Revenue"
-              value={stats.totalRevenue}
-              change={0}
-              color="text-green-500"
-              delay="0.1s"
-              icon={
-                <svg
-                  className="w-7 h-7 text-green-500"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
-                </svg>
-              }
-            />
-            <StatCard
-              title="Active Customers"
-              value={stats.activeCustomers}
-              change={0}
-              color="text-purple-500"
-              delay="0.2s"
-              icon={
-                <svg
-                  className="w-7 h-7 text-purple-500"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5 1.5c0 .276-.224.5-.5.5s-.5-.224-.5-.5.224-.5.5-.5.5.224.5.5z"
-                  />
-                </svg>
-              }
-            />
-            <StatCard
-              title="Avg Order Value"
-              value={stats.avgOrderValue}
-              change={0}
-              color="text-green-500"
-              delay="0.3s"
-              icon={
-                <svg
-                  className="w-7 h-7 text-green-500"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
-                </svg>
-              }
-            />
+          {/* ═══════════ Block 2: Open / Close Toggle ═══════════ */}
+          <div
+            className="animate-slideDown"
+            style={{ animationDelay: "0.05s" }}
+          >
+            <button
+              onClick={toggleRestaurantOpen}
+              disabled={toggling}
+              className={`flex items-center gap-3 px-5 py-3 rounded-2xl border-2 transition-all duration-300 shadow-sm hover:shadow-md ${
+                restaurant?.is_open
+                  ? "border-green-300 bg-green-50 hover:bg-green-100"
+                  : "border-red-300 bg-red-50 hover:bg-red-100"
+              }`}
+            >
+              <div
+                className={`relative w-12 h-6 rounded-full transition-colors duration-300 ${
+                  restaurant?.is_open ? "bg-green-500" : "bg-red-400"
+                }`}
+              >
+                <div
+                  className={`absolute top-[3px] left-[3px] w-[18px] h-[18px] bg-white rounded-full shadow transition-transform duration-300 ${
+                    restaurant?.is_open ? "translate-x-6" : "translate-x-0"
+                  }`}
+                />
+              </div>
+              <span
+                className={`text-sm font-bold ${restaurant?.is_open ? "text-green-700" : "text-red-600"}`}
+              >
+                Restaurant is {restaurant?.is_open ? "Open" : "Closed"}
+              </span>
+              {restaurant?.is_manually_overridden && (
+                <span className="text-[11px] text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full font-medium">
+                  Manual
+                </span>
+              )}
+            </button>
           </div>
 
-          {/* Quick Stats & Recent Orders */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
-            {/* Today's Performance */}
-            <div className="bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-500 p-4 sm:p-6 border border-green-100 animate-fadeInUp">
-              <h3 className="text-lg sm:text-xl font-bold text-gray-800 mb-4 sm:mb-6 flex items-center gap-2">
-                <span className="w-1 h-6 bg-gradient-to-b from-green-500 to-green-600 rounded-full"></span>
-                Today's Performance
-              </h3>
-              <div className="space-y-3 sm:space-y-4">
-                <div className="flex justify-between items-center p-5 bg-gradient-to-br from-blue-50 to-blue-100/50 rounded-xl hover:shadow-md transition-all duration-300 border border-blue-100">
-                  <div>
-                    <p className="text-sm text-gray-600 font-semibold uppercase tracking-wide">
-                      Today's Orders
-                    </p>
-                    <p className="text-3xl font-bold text-blue-600 mt-1">
-                      {stats.todayOrders || 0}
-                    </p>
+          {/* ═══════════ Block 3: Today Performance — 3 cards with % change ═══════════ */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
+            {/* Today Sales */}
+            <div className="bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-500 transform hover:-translate-y-1 p-5 sm:p-6 relative overflow-hidden group border border-green-100 animate-fadeInUp">
+              <div className="absolute top-0 right-0 w-28 h-28 rounded-full bg-gradient-to-br from-green-50 to-green-100 opacity-50 -translate-y-14 translate-x-14 group-hover:scale-125 transition-all duration-500" />
+              <div className="relative z-10">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm text-gray-500 font-semibold uppercase tracking-wide">
+                    Today Sales
+                  </p>
+                  <div className="p-2.5 rounded-xl bg-gradient-to-br from-green-100 to-green-50 shadow-sm group-hover:scale-110 transition-all duration-500">
+                    <svg
+                      className="w-5 h-5 text-green-600"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                      />
+                    </svg>
                   </div>
-                  <div className="text-4xl">📦</div>
                 </div>
-                <div className="flex justify-between items-center p-5 bg-gradient-to-br from-green-50 to-green-100/50 rounded-xl hover:shadow-md transition-all duration-300 border border-green-100">
-                  <div>
-                    <p className="text-sm text-gray-600 font-semibold uppercase tracking-wide">
-                      Today's Revenue
-                    </p>
-                    <p className="text-3xl font-bold text-green-600 mt-1">
-                      Rs. {(stats.todayRevenue || 0).toLocaleString()}
-                    </p>
-                  </div>
-                  <div className="text-4xl">💰</div>
+                <p className="text-3xl font-bold text-green-600 drop-shadow-sm">
+                  {formatCurrency(dashboardData?.today?.sales)}
+                </p>
+                <div className="mt-2">
+                  <ChangeIndicator
+                    value={dashboardData?.changes?.salesChange}
+                  />
                 </div>
               </div>
             </div>
 
-            {/* Restaurant Info */}
+            {/* Today Orders */}
             <div
-              className="bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-500 p-4 sm:p-6 border border-green-100 animate-fadeInUp"
+              className="bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-500 transform hover:-translate-y-1 p-5 sm:p-6 relative overflow-hidden group border border-green-100 animate-fadeInUp"
               style={{ animationDelay: "0.1s" }}
             >
-              <h3 className="text-lg sm:text-xl font-bold text-gray-800 mb-4 sm:mb-6 flex items-center gap-2">
-                <span className="w-1 h-6 bg-gradient-to-b from-green-500 to-green-600 rounded-full"></span>
-                Restaurant Info
-              </h3>
-              <div className="space-y-3 sm:space-y-4">
-                <div className="flex justify-between items-center p-4 sm:p-5 bg-gradient-to-br from-green-50 to-green-100/50 rounded-xl hover:shadow-md transition-all duration-300 border border-green-100">
-                  <div>
-                    <p className="text-sm text-gray-600 font-semibold uppercase tracking-wide">
-                      Total Products
-                    </p>
-                    <p className="text-3xl font-bold text-orange-600 mt-1">
-                      {stats.totalProducts}
-                    </p>
-                  </div>
-                  <div className="text-4xl">🍽️</div>
-                </div>
-                <div className="flex justify-between items-center p-5 bg-gradient-to-br from-purple-50 to-purple-100/50 rounded-xl hover:shadow-md transition-all duration-300 border border-purple-100">
-                  <div>
-                    <p className="text-sm text-gray-600 font-semibold uppercase tracking-wide">
-                      Available Now
-                    </p>
-                    <p className="text-3xl font-bold text-purple-600 mt-1">
-                      {stats.availableProducts}
-                    </p>
-                  </div>
-                  <div className="text-4xl">✅</div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Recent Orders & Quick Actions */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
-            {/* Recent Orders */}
-            <div
-              className="lg:col-span-2 bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-500 p-4 sm:p-6 border border-green-100 animate-fadeInUp"
-              style={{ animationDelay: "0.2s" }}
-            >
-              <div className="flex items-center justify-between mb-4 sm:mb-6">
-                <div>
-                  <h3 className="text-xl sm:text-2xl font-bold text-gray-800 flex items-center gap-2">
-                    <span className="w-1 h-6 bg-gradient-to-b from-green-500 to-green-600 rounded-full"></span>
-                    Recent Orders
-                  </h3>
-                  <p className="text-gray-600 text-xs sm:text-sm mt-1 ml-3">
-                    Latest customer orders
+              <div className="absolute top-0 right-0 w-28 h-28 rounded-full bg-gradient-to-br from-blue-50 to-blue-100 opacity-50 -translate-y-14 translate-x-14 group-hover:scale-125 transition-all duration-500" />
+              <div className="relative z-10">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm text-gray-500 font-semibold uppercase tracking-wide">
+                    Today Orders
                   </p>
-                </div>
-              </div>
-              {recentOrders.length === 0 ? (
-                <div className="text-center py-12 sm:py-16 text-gray-500">
-                  <div className="w-16 sm:w-20 h-16 sm:h-20 mx-auto mb-4 bg-gradient-to-br from-green-100 to-green-200 rounded-2xl flex items-center justify-center">
+                  <div className="p-2.5 rounded-xl bg-gradient-to-br from-blue-100 to-blue-50 shadow-sm group-hover:scale-110 transition-all duration-500">
                     <svg
-                      className="w-8 sm:w-10 h-8 sm:h-10 text-green-500"
+                      className="w-5 h-5 text-blue-600"
                       fill="none"
-                      viewBox="0 0 24 24"
                       stroke="currentColor"
+                      viewBox="0 0 24 24"
                     >
                       <path
                         strokeLinecap="round"
@@ -475,316 +325,412 @@ export default function AdminDashboard() {
                       />
                     </svg>
                   </div>
-                  <p className="text-lg font-semibold text-gray-700">
-                    No orders yet
-                  </p>
-                  <p className="text-sm mt-2 text-gray-500">
-                    Orders will appear here once customers start ordering
-                  </p>
                 </div>
-              ) : (
-                <div className="overflow-x-auto -mx-4 sm:mx-0">
-                  <div className="inline-block min-w-full align-middle">
-                    <div className="overflow-hidden">
-                      <table className="min-w-full">
-                        <thead>
-                          <tr className="border-b-2 border-green-100">
-                            <th className="text-left py-3 sm:py-4 px-3 sm:px-0 text-gray-700 font-bold text-xs uppercase tracking-wider">
-                              Order ID
-                            </th>
-                            <th className="text-left py-3 sm:py-4 px-3 sm:px-0 text-gray-700 font-bold text-xs uppercase tracking-wider">
-                              Customer
-                            </th>
-                            <th className="text-left py-3 sm:py-4 px-3 sm:px-0 text-gray-700 font-bold text-xs uppercase tracking-wider hidden sm:table-cell">
-                              Items
-                            </th>
-                            <th className="text-left py-3 sm:py-4 px-3 sm:px-0 text-gray-700 font-bold text-xs uppercase tracking-wider">
-                              Amount
-                            </th>
-                            <th className="text-left py-3 sm:py-4 px-3 sm:px-0 text-gray-700 font-bold text-xs uppercase tracking-wider hidden md:table-cell">
-                              Time
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {recentOrders.map((order, index) => (
-                            <tr
-                              key={order.id}
-                              className="border-b border-green-50 hover:bg-green-50/50 transition-all duration-300 group"
-                              style={{ animationDelay: `${index * 50}ms` }}
-                            >
-                              <td className="py-4 sm:py-5 px-3 sm:px-0">
-                                <div className="font-bold text-green-600 text-sm">
-                                  #{order.id.slice(0, 8)}
-                                </div>
-                              </td>
-                              <td className="py-4 sm:py-5 px-3 sm:px-0">
-                                <div className="flex items-center">
-                                  <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-green-400 to-green-500 flex items-center justify-center text-white text-xs sm:text-sm font-bold mr-2 sm:mr-3 shadow-sm">
-                                    {order.customer.charAt(0).toUpperCase()}
-                                  </div>
-                                  <span className="font-medium text-gray-700 text-sm">
-                                    {order.customer}
-                                  </span>
-                                </div>
-                              </td>
-                              <td className="py-4 sm:py-5 px-3 sm:px-0 text-xs sm:text-sm text-gray-600 hidden sm:table-cell">
-                                <div className="max-w-xs truncate">
-                                  {order.items}
-                                </div>
-                              </td>
-                              <td className="py-4 sm:py-5 px-3 sm:px-0 font-bold text-green-600 text-sm">
-                                Rs. {order.amount.toLocaleString()}
-                              </td>
-                              <td className="py-4 sm:py-5 px-3 sm:px-0 text-gray-500 text-xs sm:text-sm hidden md:table-cell">
-                                {order.time}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Quick Actions & Info */}
-            <div className="space-y-4 sm:space-y-6">
-              {/* Quick Actions */}
-              <div
-                className="bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-500 p-4 sm:p-6 border border-green-100 animate-fadeInUp"
-                style={{ animationDelay: "0.3s" }}
-              >
-                <h3 className="text-lg sm:text-xl font-bold text-gray-800 mb-4 sm:mb-5 flex items-center gap-2">
-                  <span className="w-1 h-6 bg-gradient-to-b from-green-500 to-green-600 rounded-full"></span>
-                  Quick Actions
-                </h3>
-                <div className="grid grid-cols-2 gap-2 sm:gap-3">
-                  <button
-                    onClick={() => navigate("/admin/products")}
-                    className="p-4 bg-gradient-to-br from-blue-50 to-blue-100/50 hover:from-blue-100 hover:to-blue-200/50 rounded-xl transition-all duration-300 group hover:scale-105 hover:shadow-md border border-blue-100"
-                  >
-                    <div className="text-blue-600 mb-2 group-hover:scale-110 transition-transform duration-300">
-                      <svg
-                        className="w-6 h-6 mx-auto"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M12 6v6m0 0v6m0-6h6m-6 0H6"
-                        />
-                      </svg>
-                    </div>
-                    <p className="text-sm font-semibold text-center text-gray-700">
-                      Add Product
-                    </p>
-                  </button>
-                  <button
-                    onClick={() => navigate("/admin/products")}
-                    className="p-4 bg-gradient-to-br from-green-50 to-green-100/50 hover:from-green-100 hover:to-green-200/50 rounded-xl transition-all duration-300 group hover:scale-105 hover:shadow-md border border-green-100"
-                  >
-                    <div className="text-green-600 mb-2 group-hover:scale-110 transition-transform duration-300">
-                      <svg
-                        className="w-6 h-6 mx-auto"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                        />
-                      </svg>
-                    </div>
-                    <p className="text-sm font-semibold text-center text-gray-700">
-                      Manage Menu
-                    </p>
-                  </button>
-                  <button
-                    onClick={() => navigate("/admin/restaurant-detail")}
-                    className="p-3 sm:p-4 bg-gradient-to-br from-green-50 to-green-100/50 hover:from-green-100 hover:to-green-200/50 rounded-xl transition-all duration-300 group hover:scale-105 hover:shadow-md border border-green-100"
-                  >
-                    <div className="text-green-600 mb-1 sm:mb-2 group-hover:scale-110 transition-transform duration-300">
-                      <svg
-                        className="w-6 h-6 mx-auto"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
-                        />
-                      </svg>
-                    </div>
-                    <p className="text-sm font-semibold text-center text-gray-700">
-                      Restaurant Info
-                    </p>
-                  </button>
-                  <button
-                    onClick={() => navigate("/admin/profile")}
-                    className="p-4 bg-gradient-to-br from-purple-50 to-purple-100/50 hover:from-purple-100 hover:to-purple-200/50 rounded-xl transition-all duration-300 group hover:scale-105 hover:shadow-md border border-purple-100"
-                  >
-                    <div className="text-purple-600 mb-2 group-hover:scale-110 transition-transform duration-300">
-                      <svg
-                        className="w-6 h-6 mx-auto"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-                        />
-                      </svg>
-                    </div>
-                    <p className="text-sm font-semibold text-center text-gray-700">
-                      My Profile
-                    </p>
-                  </button>
+                <p className="text-3xl font-bold text-blue-600 drop-shadow-sm">
+                  {dashboardData?.today?.orders || 0}
+                </p>
+                <div className="mt-2">
+                  <ChangeIndicator
+                    value={dashboardData?.changes?.ordersChange}
+                  />
                 </div>
               </div>
+            </div>
 
-              {/* Business Status */}
-              <div
-                className="bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-500 p-4 sm:p-6 border border-green-100 animate-fadeInUp"
-                style={{ animationDelay: "0.4s" }}
-              >
-                <h3 className="text-lg sm:text-xl font-bold text-gray-800 mb-4 sm:mb-5 flex items-center gap-2">
-                  <span className="w-1 h-6 bg-gradient-to-b from-green-500 to-green-600 rounded-full"></span>
-                  Business Status
-                </h3>
-                <div className="space-y-2 sm:space-y-3">
-                  <div className="flex items-center justify-between p-4 bg-gradient-to-br from-green-50 to-green-100/50 rounded-xl border border-green-100 hover:shadow-md transition-all duration-300">
-                    <div className="flex items-center gap-3">
-                      <div className="w-2.5 h-2.5 bg-green-500 rounded-full animate-pulse shadow-lg shadow-green-500/50"></div>
-                      <p className="text-sm font-semibold text-gray-700">
-                        Restaurant Open
-                      </p>
-                    </div>
-                    <span className="text-xs text-green-700 font-bold uppercase tracking-wider">
-                      Active
-                    </span>
+            {/* Avg Order Value */}
+            <div
+              className="bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-500 transform hover:-translate-y-1 p-5 sm:p-6 relative overflow-hidden group border border-green-100 animate-fadeInUp"
+              style={{ animationDelay: "0.2s" }}
+            >
+              <div className="absolute top-0 right-0 w-28 h-28 rounded-full bg-gradient-to-br from-purple-50 to-purple-100 opacity-50 -translate-y-14 translate-x-14 group-hover:scale-125 transition-all duration-500" />
+              <div className="relative z-10">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm text-gray-500 font-semibold uppercase tracking-wide">
+                    Avg Order Value
+                  </p>
+                  <div className="p-2.5 rounded-xl bg-gradient-to-br from-purple-100 to-purple-50 shadow-sm group-hover:scale-110 transition-all duration-500">
+                    <svg
+                      className="w-5 h-5 text-purple-600"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                      />
+                    </svg>
                   </div>
-                  <div className="flex items-center justify-between p-4 bg-gradient-to-br from-blue-50 to-blue-100/50 rounded-xl border border-blue-100 hover:shadow-md transition-all duration-300">
-                    <div className="flex items-center gap-3">
-                      <div className="w-2.5 h-2.5 bg-blue-500 rounded-full shadow-md shadow-blue-500/50"></div>
-                      <p className="text-sm font-semibold text-gray-700">
-                        Menu Available
-                      </p>
-                    </div>
-                    <span className="text-xs text-blue-700 font-bold">
-                      {stats.availableProducts} items
-                    </span>
-                  </div>
+                </div>
+                <p className="text-3xl font-bold text-purple-600 drop-shadow-sm">
+                  {formatCurrency(dashboardData?.today?.avgOrderValue)}
+                </p>
+                <div className="mt-2">
+                  <ChangeIndicator value={dashboardData?.changes?.avgChange} />
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Footer Stats */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 pb-4 sm:pb-6">
+          {/* ═══════════ Block 4: Lifetime — Total Revenue + Total Orders ═══════════ */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
             <div
-              className="bg-gradient-to-br from-green-500 via-green-600 to-green-700 text-white rounded-2xl p-4 sm:p-6 shadow-lg hover:shadow-2xl hover:scale-105 transition-all duration-500 animate-fadeInUp"
-              style={{ animationDelay: "0.5s" }}
+              className="bg-gradient-to-br from-green-500 via-green-600 to-green-700 text-white rounded-2xl p-5 sm:p-6 shadow-lg hover:shadow-2xl hover:scale-[1.02] transition-all duration-500 animate-fadeInUp"
+              style={{ animationDelay: "0.25s" }}
             >
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-semibold uppercase tracking-wider opacity-90">
                     Total Revenue
                   </p>
-                  <p className="text-3xl font-bold mt-3 drop-shadow-md">
-                    Rs. {stats.totalRevenue.toLocaleString()}
+                  <p className="text-3xl sm:text-4xl font-bold mt-2 drop-shadow-md">
+                    {formatCurrency(dashboardData?.lifetime?.totalRevenue)}
                   </p>
-                  <p className="text-xs opacity-80 mt-2">All time earnings</p>
+                  <p className="text-xs opacity-80 mt-1.5">
+                    Lifetime admin earnings
+                  </p>
                 </div>
-                <div className="text-5xl opacity-90">💰</div>
+                <div className="text-5xl opacity-80">💰</div>
               </div>
             </div>
             <div
-              className="bg-gradient-to-br from-blue-500 via-blue-600 to-blue-700 text-white rounded-2xl p-6 shadow-lg hover:shadow-2xl hover:scale-105 transition-all duration-500 animate-fadeInUp"
-              style={{ animationDelay: "0.6s" }}
+              className="bg-gradient-to-br from-blue-500 via-blue-600 to-blue-700 text-white rounded-2xl p-5 sm:p-6 shadow-lg hover:shadow-2xl hover:scale-[1.02] transition-all duration-500 animate-fadeInUp"
+              style={{ animationDelay: "0.3s" }}
             >
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-semibold uppercase tracking-wider opacity-90">
-                    Total Customers
+                    Total Orders
                   </p>
-                  <p className="text-3xl font-bold mt-3 drop-shadow-md">
-                    {stats.activeCustomers}
+                  <p className="text-3xl sm:text-4xl font-bold mt-2 drop-shadow-md">
+                    {(
+                      dashboardData?.lifetime?.totalOrders || 0
+                    ).toLocaleString()}
                   </p>
-                  <p className="text-xs opacity-80 mt-2">
-                    Customers who ordered
+                  <p className="text-xs opacity-80 mt-1.5">
+                    All time orders fulfilled
                   </p>
                 </div>
-                <div className="text-5xl opacity-90">👥</div>
+                <div className="text-5xl opacity-80">📦</div>
               </div>
             </div>
+          </div>
+
+          {/* ═══════════ Block 5: Sales Performance Graph ═══════════ */}
+          <div
+            className="bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-500 p-4 sm:p-6 border border-green-100 animate-fadeInUp"
+            style={{ animationDelay: "0.35s" }}
+          >
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 gap-3">
+              <h3 className="text-lg sm:text-xl font-bold text-gray-800 flex items-center gap-2">
+                <span className="w-1 h-6 bg-gradient-to-b from-green-500 to-green-600 rounded-full"></span>
+                Sales Performance
+              </h3>
+              <div className="flex gap-2">
+                {["week", "month", "year"].map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setChartPeriod(p)}
+                    className={`px-4 py-1.5 rounded-xl text-sm font-semibold transition-all duration-300 ${
+                      chartPeriod === p
+                        ? "bg-gradient-to-r from-green-500 to-green-600 text-white shadow-md"
+                        : "bg-green-50 text-green-700 hover:bg-green-100 border border-green-200"
+                    }`}
+                  >
+                    {p === "week"
+                      ? "Weekly"
+                      : p === "month"
+                        ? "Monthly"
+                        : "Yearly"}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {dashboardData?.chartData?.length > 0 ? (
+              <div className="h-64 sm:h-80">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart
+                    data={dashboardData.chartData}
+                    margin={{ top: 10, right: 10, left: -10, bottom: 0 }}
+                  >
+                    <defs>
+                      <linearGradient
+                        id="colorAmount"
+                        x1="0"
+                        y1="0"
+                        x2="0"
+                        y2="1"
+                      >
+                        <stop
+                          offset="5%"
+                          stopColor="#22c55e"
+                          stopOpacity={0.3}
+                        />
+                        <stop
+                          offset="95%"
+                          stopColor="#22c55e"
+                          stopOpacity={0}
+                        />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                    <XAxis
+                      dataKey="date"
+                      tick={{ fontSize: 12, fill: "#6b7280" }}
+                      tickFormatter={(val) => {
+                        if (chartPeriod === "year") {
+                          const [y, m] = val.split("-");
+                          const months = [
+                            "Jan",
+                            "Feb",
+                            "Mar",
+                            "Apr",
+                            "May",
+                            "Jun",
+                            "Jul",
+                            "Aug",
+                            "Sep",
+                            "Oct",
+                            "Nov",
+                            "Dec",
+                          ];
+                          return months[parseInt(m) - 1] || val;
+                        }
+                        const d = new Date(val);
+                        return `${d.getDate()}/${d.getMonth() + 1}`;
+                      }}
+                    />
+                    <YAxis
+                      tick={{ fontSize: 12, fill: "#6b7280" }}
+                      tickFormatter={(val) => `Rs.${val}`}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        borderRadius: "12px",
+                        border: "1px solid #dcfce7",
+                        boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
+                      }}
+                      formatter={(value) => [
+                        `Rs. ${value.toLocaleString()}`,
+                        "Earnings",
+                      ]}
+                      labelFormatter={(label) => {
+                        if (chartPeriod === "year") return label;
+                        return new Date(label).toLocaleDateString("en-IN", {
+                          weekday: "short",
+                          day: "numeric",
+                          month: "short",
+                        });
+                      }}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="amount"
+                      stroke="#22c55e"
+                      strokeWidth={2.5}
+                      fill="url(#colorAmount)"
+                      dot={{ r: 3, fill: "#22c55e" }}
+                      activeDot={{ r: 6, fill: "#16a34a" }}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <div className="h-64 sm:h-80 flex items-center justify-center text-gray-400">
+                <div className="text-center">
+                  <svg
+                    className="w-12 h-12 mx-auto mb-3 text-gray-300"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={1.5}
+                      d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                    />
+                  </svg>
+                  <p className="text-sm font-medium">
+                    No sales data for this period
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ═══════════ Block 6: Restaurant Food Info ═══════════ */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+            <div
+              className="bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-500 p-5 sm:p-6 border border-green-100 animate-fadeInUp"
+              style={{ animationDelay: "0.4s" }}
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-500 font-semibold uppercase tracking-wide">
+                    Total Products
+                  </p>
+                  <p className="text-3xl font-bold text-orange-600 mt-2">
+                    {dashboardData?.products?.total || 0}
+                  </p>
+                  <p className="text-xs text-gray-400 mt-1">All menu items</p>
+                </div>
+                <div className="p-3 rounded-xl bg-gradient-to-br from-orange-100 to-orange-50 text-3xl shadow-sm">
+                  🍽️
+                </div>
+              </div>
+            </div>
+            <div
+              className="bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-500 p-5 sm:p-6 border border-green-100 animate-fadeInUp"
+              style={{ animationDelay: "0.45s" }}
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-500 font-semibold uppercase tracking-wide">
+                    Available Products
+                  </p>
+                  <p className="text-3xl font-bold text-green-600 mt-2">
+                    {dashboardData?.products?.available || 0}
+                  </p>
+                  <p className="text-xs text-gray-400 mt-1">Currently active</p>
+                </div>
+                <div className="p-3 rounded-xl bg-gradient-to-br from-green-100 to-green-50 text-3xl shadow-sm">
+                  ✅
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* ═══════════ Block 7: Recent Orders ═══════════ */}
+          <div
+            className="bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-500 p-4 sm:p-6 border border-green-100 animate-fadeInUp"
+            style={{ animationDelay: "0.5s" }}
+          >
+            <div className="flex items-center justify-between mb-4 sm:mb-6">
+              <div>
+                <h3 className="text-lg sm:text-xl font-bold text-gray-800 flex items-center gap-2">
+                  <span className="w-1 h-6 bg-gradient-to-b from-green-500 to-green-600 rounded-full"></span>
+                  Recent Orders
+                </h3>
+                <p className="text-gray-500 text-xs sm:text-sm mt-1 ml-3">
+                  Latest customer orders
+                </p>
+              </div>
+            </div>
+
+            {recentOrders.length === 0 ? (
+              <div className="text-center py-12 sm:py-16 text-gray-500">
+                <div className="w-16 sm:w-20 h-16 sm:h-20 mx-auto mb-4 bg-gradient-to-br from-green-100 to-green-200 rounded-2xl flex items-center justify-center">
+                  <svg
+                    className="w-8 sm:w-10 h-8 sm:h-10 text-green-500"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"
+                    />
+                  </svg>
+                </div>
+                <p className="text-lg font-semibold text-gray-700">
+                  No orders yet
+                </p>
+                <p className="text-sm mt-2 text-gray-500">
+                  Orders will appear here once customers start ordering
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto -mx-4 sm:mx-0">
+                <div className="inline-block min-w-full align-middle">
+                  <div className="overflow-hidden">
+                    <table className="min-w-full">
+                      <thead>
+                        <tr className="border-b-2 border-green-100">
+                          <th className="text-left py-3 sm:py-4 px-3 sm:px-0 text-gray-700 font-bold text-xs uppercase tracking-wider">
+                            Order ID
+                          </th>
+                          <th className="text-left py-3 sm:py-4 px-3 sm:px-0 text-gray-700 font-bold text-xs uppercase tracking-wider">
+                            Customer
+                          </th>
+                          <th className="text-left py-3 sm:py-4 px-3 sm:px-0 text-gray-700 font-bold text-xs uppercase tracking-wider hidden sm:table-cell">
+                            Items
+                          </th>
+                          <th className="text-left py-3 sm:py-4 px-3 sm:px-0 text-gray-700 font-bold text-xs uppercase tracking-wider">
+                            Amount
+                          </th>
+                          <th className="text-left py-3 sm:py-4 px-3 sm:px-0 text-gray-700 font-bold text-xs uppercase tracking-wider hidden md:table-cell">
+                            Time
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {recentOrders.map((order, index) => (
+                          <tr
+                            key={order.id}
+                            className="border-b border-green-50 hover:bg-green-50/50 transition-all duration-300 group"
+                            style={{ animationDelay: `${index * 50}ms` }}
+                          >
+                            <td className="py-4 sm:py-5 px-3 sm:px-0">
+                              <div className="font-bold text-green-600 text-sm">
+                                #{order.id.slice(0, 8)}
+                              </div>
+                            </td>
+                            <td className="py-4 sm:py-5 px-3 sm:px-0">
+                              <div className="flex items-center">
+                                <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-green-400 to-green-500 flex items-center justify-center text-white text-xs sm:text-sm font-bold mr-2 sm:mr-3 shadow-sm">
+                                  {order.customer.charAt(0).toUpperCase()}
+                                </div>
+                                <span className="font-medium text-gray-700 text-sm">
+                                  {order.customer}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="py-4 sm:py-5 px-3 sm:px-0 text-xs sm:text-sm text-gray-600 hidden sm:table-cell">
+                              <div className="max-w-xs truncate">
+                                {order.items}
+                              </div>
+                            </td>
+                            <td className="py-4 sm:py-5 px-3 sm:px-0 font-bold text-green-600 text-sm">
+                              Rs. {order.amount.toLocaleString()}
+                            </td>
+                            <td className="py-4 sm:py-5 px-3 sm:px-0 text-gray-500 text-xs sm:text-sm hidden md:table-cell">
+                              {order.time}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Add animations to global CSS */}
+      {/* Animations */}
       <style>{`
         @keyframes fadeIn {
-          from {
-            opacity: 0;
-          }
-          to {
-            opacity: 1;
-          }
+          from { opacity: 0; }
+          to { opacity: 1; }
         }
         @keyframes fadeInUp {
-          from {
-            opacity: 0;
-            transform: translateY(30px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
+          from { opacity: 0; transform: translateY(30px); }
+          to { opacity: 1; transform: translateY(0); }
         }
         @keyframes slideDown {
-          from {
-            opacity: 0;
-            transform: translateY(-20px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
+          from { opacity: 0; transform: translateY(-20px); }
+          to { opacity: 1; transform: translateY(0); }
         }
-        .animate-fadeIn {
-          animation: fadeIn 0.8s ease-out;
-        }
-        .animate-fadeInUp {
-          animation: fadeInUp 0.8s ease-out forwards;
-        }
-        .animate-slideDown {
-          animation: slideDown 0.6s ease-out;
-        }
-        @keyframes spin-slow {
-          from {
-            transform: rotate(0deg);
-          }
-          to {
-            transform: rotate(360deg);
-          }
-        }
-        .animate-spin-slow {
-          animation: spin-slow 2s linear infinite;
-        }
+        .animate-fadeIn { animation: fadeIn 0.8s ease-out; }
+        .animate-fadeInUp { animation: fadeInUp 0.8s ease-out forwards; }
+        .animate-slideDown { animation: slideDown 0.6s ease-out; }
       `}</style>
     </AdminLayout>
   );

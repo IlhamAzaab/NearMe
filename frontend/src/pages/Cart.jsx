@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import BottomNavbar from "../components/BottomNavbar";
 import AnimatedAlert, { useAlert } from "../components/AnimatedAlert";
+import { API_URL } from "../config";
 
 const Cart = () => {
   const navigate = useNavigate();
@@ -51,7 +52,7 @@ const Cart = () => {
       setError(null);
 
       const token = localStorage.getItem("token");
-      const response = await fetch("http://localhost:5000/cart", {
+      const response = await fetch(`${API_URL}/cart`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -101,17 +102,14 @@ const Cart = () => {
       setUpdatingItem(itemId);
 
       const token = localStorage.getItem("token");
-      const response = await fetch(
-        `http://localhost:5000/cart/item/${itemId}`,
-        {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ quantity: newQuantity }),
+      const response = await fetch(`${API_URL}/cart/item/${itemId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
-      );
+        body: JSON.stringify({ quantity: newQuantity }),
+      });
 
       const data = await response.json();
 
@@ -134,15 +132,12 @@ const Cart = () => {
 
     try {
       const token = localStorage.getItem("token");
-      const response = await fetch(
-        `http://localhost:5000/cart/item/${itemId}`,
-        {
-          method: "DELETE",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+      const response = await fetch(`${API_URL}/cart/item/${itemId}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
         },
-      );
+      });
 
       const data = await response.json();
 
@@ -163,7 +158,7 @@ const Cart = () => {
 
     try {
       const token = localStorage.getItem("token");
-      const response = await fetch(`http://localhost:5000/cart/${cartId}`, {
+      const response = await fetch(`${API_URL}/cart/${cartId}`, {
         method: "DELETE",
         headers: {
           Authorization: `Bearer ${token}`,

@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
 import ManagerPageLayout from "../../components/ManagerPageLayout";
 import { ManagerPageSkeleton } from "../../components/ManagerSkeleton";
+import { API_URL } from "../../config";
 
 export default function VerifyDeposit() {
   const navigate = useNavigate();
@@ -36,7 +37,7 @@ export default function VerifyDeposit() {
     try {
       const token = localStorage.getItem("token");
       const res = await fetch(
-        `http://localhost:5000/driver/deposits/manager/deposit/${depositId}`,
+        `${API_URL}/driver/deposits/manager/deposit/${depositId}`,
         {
           headers: { Authorization: `Bearer ${token}` },
         },
@@ -74,7 +75,7 @@ export default function VerifyDeposit() {
     try {
       const token = localStorage.getItem("token");
       const res = await fetch(
-        `http://localhost:5000/driver/deposits/manager/review/${depositId}`,
+        `${API_URL}/driver/deposits/manager/review/${depositId}`,
         {
           method: "POST",
           headers: {
@@ -114,7 +115,7 @@ export default function VerifyDeposit() {
     try {
       const token = localStorage.getItem("token");
       const res = await fetch(
-        `http://localhost:5000/driver/deposits/manager/review/${depositId}`,
+        `${API_URL}/driver/deposits/manager/review/${depositId}`,
         {
           method: "POST",
           headers: {

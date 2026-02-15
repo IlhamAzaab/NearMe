@@ -3,7 +3,9 @@
  * API calls for delivery-related operations
  */
 
-const API_BASE = "http://localhost:5000";
+import { API_URL } from "../config";
+
+const API_BASE = API_URL;
 
 /**
  * Submit route calculation to backend for earnings calculation

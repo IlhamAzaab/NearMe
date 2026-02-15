@@ -6,6 +6,7 @@ import L from "leaflet";
 import ManagerPageLayout from "../../../components/ManagerPageLayout";
 import { ManagerPageSkeleton } from "../../../components/ManagerSkeleton";
 import AnimatedAlert, { useAlert } from "../../../components/AnimatedAlert";
+import { API_URL } from "../../../config";
 
 // Fix Leaflet default marker icon issue
 delete L.Icon.Default.prototype._getIconUrl;
@@ -43,7 +44,7 @@ export default function PendingRestaurants() {
     const fetchRestaurants = async () => {
       try {
         const res = await fetch(
-          "http://localhost:5000/manager/pending-restaurants",
+          `${API_URL}/manager/pending-restaurants`,
           {
             headers: { Authorization: `Bearer ${token}` },
           },
@@ -67,7 +68,7 @@ export default function PendingRestaurants() {
     setDetailsLoading(true);
     try {
       const res = await fetch(
-        `http://localhost:5000/manager/restaurant-details/${restaurantId}`,
+        `${API_URL}/manager/restaurant-details/${restaurantId}`,
         {
           headers: { Authorization: `Bearer ${token}` },
         },
@@ -89,7 +90,7 @@ export default function PendingRestaurants() {
     setApproving(true);
     try {
       const res = await fetch(
-        `http://localhost:5000/manager/verify-restaurant/${selectedRestaurant}`,
+        `${API_URL}/manager/verify-restaurant/${selectedRestaurant}`,
         {
           method: "POST",
           headers: {
@@ -131,7 +132,7 @@ export default function PendingRestaurants() {
     setRejecting(true);
     try {
       const res = await fetch(
-        `http://localhost:5000/manager/verify-restaurant/${selectedRestaurant}`,
+        `${API_URL}/manager/verify-restaurant/${selectedRestaurant}`,
         {
           method: "POST",
           headers: {

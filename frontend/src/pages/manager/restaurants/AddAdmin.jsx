@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import ManagerPageLayout from "../../../components/ManagerPageLayout";
 import AnimatedAlert, { useAlert } from "../../../components/AnimatedAlert";
+import { API_URL } from "../../../config";
 
 export default function AddAdmin() {
   const [email, setEmail] = useState("");
@@ -42,7 +43,7 @@ export default function AddAdmin() {
 
     setLoading(true);
     try {
-      const res = await fetch("http://localhost:5000/manager/add-admin", {
+      const res = await fetch(`${API_URL}/manager/add-admin`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

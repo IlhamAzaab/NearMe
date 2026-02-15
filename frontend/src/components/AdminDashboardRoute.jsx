@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
+import { API_URL } from "../config";
 
 export default function AdminDashboardRoute({ children }) {
   const [allowed, setAllowed] = useState(true); // Start optimistic
@@ -17,12 +18,9 @@ export default function AdminDashboardRoute({ children }) {
 
     const checkProfile = async () => {
       try {
-        const res = await fetch(
-          "http://localhost:5000/restaurant-onboarding/status",
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          },
-        );
+        const res = await fetch(`${API_URL}/restaurant-onboarding/status`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
         const data = await res.json();
 
         if (res.ok) {

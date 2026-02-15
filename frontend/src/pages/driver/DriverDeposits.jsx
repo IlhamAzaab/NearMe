@@ -10,6 +10,7 @@ import {
 import supabaseClient from "../../supabaseClient";
 import { useNotification } from "../../contexts/NotificationContext";
 import DriverLayout from "../../components/DriverLayout";
+import { API_URL } from "../../config";
 
 export default function DriverDeposits() {
   const navigate = useNavigate();
@@ -132,7 +133,7 @@ export default function DriverDeposits() {
   const fetchBalance = async () => {
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch("http://localhost:5000/driver/deposits/balance", {
+      const res = await fetch(`${API_URL}/driver/deposits/balance`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -147,7 +148,7 @@ export default function DriverDeposits() {
   const fetchHistory = async () => {
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch("http://localhost:5000/driver/deposits/history", {
+      const res = await fetch(`${API_URL}/driver/deposits/history`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -180,7 +181,7 @@ export default function DriverDeposits() {
       formData.append("proof", selectedFile);
       formData.append("amount", submitForm.amount);
 
-      const res = await fetch("http://localhost:5000/driver/deposits/submit", {
+      const res = await fetch(`${API_URL}/driver/deposits/submit`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
         body: formData,

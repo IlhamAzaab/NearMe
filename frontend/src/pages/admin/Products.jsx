@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import AdminLayout from "../../components/AdminLayout";
 import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
+import { API_URL } from "../../config";
 
 export default function Products() {
   const [foods, setFoods] = useState([]);
@@ -33,7 +34,7 @@ export default function Products() {
     setError(null);
 
     try {
-      const res = await fetch("http://localhost:5000/admin/foods", {
+      const res = await fetch(`${API_URL}/admin/foods`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -56,7 +57,7 @@ export default function Products() {
       return;
 
     try {
-      const res = await fetch(`http://localhost:5000/admin/foods/${foodId}`, {
+      const res = await fetch(`${API_URL}/admin/foods/${foodId}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -88,7 +89,7 @@ export default function Products() {
       ),
     );
     try {
-      const res = await fetch(`http://localhost:5000/admin/foods/${food.id}`, {
+      const res = await fetch(`${API_URL}/admin/foods/${food.id}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -592,7 +593,7 @@ function AddProductModal({ food, onClose, onSave }) {
           const imageData = event.target.result;
 
           // Upload to Cloudinary via backend
-          const res = await fetch("http://localhost:5000/admin/upload-image", {
+          const res = await fetch(`${API_URL}/admin/upload-image`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -649,8 +650,8 @@ function AddProductModal({ food, onClose, onSave }) {
 
     try {
       const url = food
-        ? `http://localhost:5000/admin/foods/${food.id}`
-        : "http://localhost:5000/admin/foods";
+        ? `${API_URL}/admin/foods/${food.id}`
+        : `${API_URL}/admin/foods`;
 
       const method = food ? "PATCH" : "POST";
 

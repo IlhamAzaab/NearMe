@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import ManagerPageLayout from "../../../components/ManagerPageLayout";
 import { ManagerPageSkeleton } from "../../../components/ManagerSkeleton";
 import AnimatedAlert, { useAlert } from "../../../components/AnimatedAlert";
+import { API_URL } from "../../../config";
 
 export default function DriverVerification() {
   const navigate = useNavigate();
@@ -33,7 +34,7 @@ export default function DriverVerification() {
   const fetchPendingDrivers = async () => {
     const token = localStorage.getItem("token");
     try {
-      const res = await fetch("http://localhost:5000/manager/pending-drivers", {
+      const res = await fetch(`${API_URL}/manager/pending-drivers`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -55,7 +56,7 @@ export default function DriverVerification() {
     setError(null);
     try {
       const res = await fetch(
-        `http://localhost:5000/manager/driver-details/${driverId}`,
+        `${API_URL}/manager/driver-details/${driverId}`,
         {
           headers: { Authorization: `Bearer ${token}` },
         },
@@ -86,7 +87,7 @@ export default function DriverVerification() {
 
     try {
       const res = await fetch(
-        `http://localhost:5000/manager/verify-driver/${selectedDriver}`,
+        `${API_URL}/manager/verify-driver/${selectedDriver}`,
         {
           method: "POST",
           headers: {

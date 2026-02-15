@@ -22,7 +22,7 @@ const driverOnly = (req, res, next) => {
 };
 
 const managerOnly = (req, res, next) => {
-  if (req.user.role !== "manager" && req.user.role !== "admin") {
+  if (req.user.role !== "manager") {
     return res.status(403).json({ message: "Access denied. Managers only." });
   }
   next();
@@ -925,9 +925,9 @@ router.get(
 router.post("/cron/daily-snapshot", async (req, res) => {
   const { secret } = req.body;
 
-  // Simple secret key validation (use proper authentication in production)
-  const cronSecret = process.env.CRON_SECRET || "nearme-cron-secret";
-  if (secret !== cronSecret) {
+  // Require CRON_SECRET env var — no fallback default
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret || secret !== cronSecret) {
     return res.status(401).json({ success: false, message: "Unauthorized" });
   }
 

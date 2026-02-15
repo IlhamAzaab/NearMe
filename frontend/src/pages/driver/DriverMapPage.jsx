@@ -13,6 +13,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import DriverLayout from "../../components/DriverLayout";
 import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
+import { API_URL } from "../../config";
 
 // Fix Leaflet default marker icons
 delete L.Icon.Default.prototype._getIconUrl;
@@ -79,10 +80,26 @@ function MapBounds({
   return null;
 }
 
+// Minimum distance (meters) the driver must move before we consider it a real movement
+const MOVEMENT_THRESHOLD_METERS = 10;
+
+function getDistanceMeters(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 export default function DriverMapPage() {
   const { deliveryId } = useParams();
   const navigate = useNavigate();
-  const locationUpdateInterval = useRef(null);
+  const watchIdRef = useRef(null);
 
   const [mode, setMode] = useState("pickup"); // "pickup" or "delivery"
   const [pickups, setPickups] = useState([]);
@@ -92,6 +109,10 @@ export default function DriverMapPage() {
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
   const [isTracking, setIsTracking] = useState(false);
+
+  // Refs for movement-based logic
+  const lastLocationRef = useRef(null);
+  const lastBackendLocationRef = useRef(null);
 
   // New state for controlling map auto-fit behavior
   const [shouldFitBounds, setShouldFitBounds] = useState(true);
@@ -135,7 +156,7 @@ export default function DriverMapPage() {
     };
   }, [navigate]);
 
-  // Fetch data only on initial mount or when explicitly needed (not on every location update)
+  // Fetch data only on initial mount (once we have a location)
   const hasFetchedRef = useRef(false);
   useEffect(() => {
     if (driverLocation && !hasFetchedRef.current) {
@@ -144,23 +165,7 @@ export default function DriverMapPage() {
     }
   }, [driverLocation]);
 
-  // Periodic data refresh every 10 seconds (separate from location updates)
-  const dataRefreshIntervalRef = useRef(null);
-  useEffect(() => {
-    if (!driverLocation) return;
-
-    dataRefreshIntervalRef.current = setInterval(() => {
-      console.log("[DATA REFRESH] Refreshing pickups and deliveries...");
-      fetchPickupsAndDeliveries();
-    }, 10000); // Refresh data every 10 seconds
-
-    return () => {
-      if (dataRefreshIntervalRef.current) {
-        clearInterval(dataRefreshIntervalRef.current);
-        dataRefreshIntervalRef.current = null;
-      }
-    };
-  }, [driverLocation]);
+  // NO periodic polling — data is refreshed only on driver movement or explicit actions
 
   const startLocationTracking = () => {
     if (!navigator.geolocation) {
@@ -169,53 +174,77 @@ export default function DriverMapPage() {
     }
 
     setIsTracking(true);
-    console.log("[LOCATION] Starting location tracking with 3s interval");
+    console.log("[LOCATION] Starting watchPosition (event-driven, no polling)");
 
-    // Get initial location
-    navigator.geolocation.getCurrentPosition(
+    // watchPosition fires ONLY when the device detects actual movement
+    watchIdRef.current = navigator.geolocation.watchPosition(
       (position) => {
-        const location = {
+        const newLoc = {
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
         };
-        console.log(
-          `[LOCATION] Initial: (${location.latitude.toFixed(6)}, ${location.longitude.toFixed(6)})`,
+
+        const prev = lastLocationRef.current;
+
+        // First location — always accept
+        if (!prev) {
+          console.log(
+            `[LOCATION] Initial: (${newLoc.latitude.toFixed(6)}, ${newLoc.longitude.toFixed(6)})`,
+          );
+          lastLocationRef.current = newLoc;
+          lastBackendLocationRef.current = newLoc;
+          setDriverLocation(newLoc);
+          updateLocationOnBackend(deliveryId, newLoc);
+          return;
+        }
+
+        // Only update state if the driver actually moved beyond threshold
+        const moved = getDistanceMeters(
+          prev.latitude,
+          prev.longitude,
+          newLoc.latitude,
+          newLoc.longitude,
         );
-        setDriverLocation(location);
-        updateLocationOnBackend(deliveryId, location);
+
+        if (moved >= MOVEMENT_THRESHOLD_METERS) {
+          console.log(
+            `[LOCATION] Moved ${moved.toFixed(0)}m → updating`,
+          );
+          lastLocationRef.current = newLoc;
+          setDriverLocation(newLoc);
+
+          // Send to backend & refresh data when driver moves significantly (>30m since last backend update)
+          const movedSinceBackend = lastBackendLocationRef.current
+            ? getDistanceMeters(
+                lastBackendLocationRef.current.latitude,
+                lastBackendLocationRef.current.longitude,
+                newLoc.latitude,
+                newLoc.longitude,
+              )
+            : Infinity;
+
+          if (movedSinceBackend >= 30) {
+            lastBackendLocationRef.current = newLoc;
+            updateLocationOnBackend(deliveryId, newLoc);
+            // Refresh delivery data when driver has moved significantly
+            fetchPickupsAndDeliveries();
+          }
+        }
+        // else: no significant movement — do nothing (no re-render, no requests)
       },
       (error) => {
-        console.error("Location error:", error);
+        console.error("Location watch error:", error);
         setIsTracking(false);
       },
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 },
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 },
     );
-
-    // Update every 3 seconds for live tracking
-    locationUpdateInterval.current = setInterval(() => {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const location = {
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-          };
-          console.log(
-            `[LOCATION] Updated: (${location.latitude.toFixed(6)}, ${location.longitude.toFixed(6)})`,
-          );
-          setDriverLocation(location);
-          updateLocationOnBackend(deliveryId, location);
-        },
-        (error) => console.error("Location update error:", error),
-        { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 },
-      );
-    }, 3000);
   };
 
   const stopLocationTracking = () => {
     setIsTracking(false);
-    if (locationUpdateInterval.current) {
-      clearInterval(locationUpdateInterval.current);
-      locationUpdateInterval.current = null;
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
     }
   };
 
@@ -223,7 +252,7 @@ export default function DriverMapPage() {
     try {
       const token = localStorage.getItem("token");
       await fetch(
-        `http://localhost:5000/driver/deliveries/${delivId}/location`,
+        `${API_URL}/driver/deliveries/${delivId}/location`,
         {
           method: "PATCH",
           headers: {
@@ -246,14 +275,14 @@ export default function DriverMapPage() {
       const token = localStorage.getItem("token");
 
       // Fetch pickups (accepted status)
-      const pickupsUrl = `http://localhost:5000/driver/deliveries/pickups?driver_latitude=${driverLocation.latitude}&driver_longitude=${driverLocation.longitude}`;
+      const pickupsUrl = `${API_URL}/driver/deliveries/pickups?driver_latitude=${driverLocation.latitude}&driver_longitude=${driverLocation.longitude}`;
       const pickupsRes = await fetch(pickupsUrl, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const pickupsData = await pickupsRes.json();
 
       // Fetch deliveries (picked_up, on_the_way, at_customer)
-      const deliveriesUrl = `http://localhost:5000/driver/deliveries/deliveries-route?driver_latitude=${driverLocation.latitude}&driver_longitude=${driverLocation.longitude}`;
+      const deliveriesUrl = `${API_URL}/driver/deliveries/deliveries-route?driver_latitude=${driverLocation.latitude}&driver_longitude=${driverLocation.longitude}`;
       const deliveriesRes = await fetch(deliveriesUrl, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -292,7 +321,7 @@ export default function DriverMapPage() {
         );
         try {
           const fallbackRes = await fetch(
-            "http://localhost:5000/driver/deliveries/active",
+            `${API_URL}/driver/deliveries/active`,
             { headers: { Authorization: `Bearer ${token}` } },
           );
           if (fallbackRes.ok) {
@@ -354,7 +383,7 @@ export default function DriverMapPage() {
       try {
         const token = localStorage.getItem("token");
         const fallbackRes = await fetch(
-          "http://localhost:5000/driver/deliveries/active",
+          `${API_URL}/driver/deliveries/active`,
           { headers: { Authorization: `Bearer ${token}` } },
         );
         if (fallbackRes.ok) {
@@ -403,7 +432,7 @@ export default function DriverMapPage() {
     try {
       const token = localStorage.getItem("token");
       const res = await fetch(
-        `http://localhost:5000/driver/deliveries/${currentTarget.delivery_id}/status`,
+        `${API_URL}/driver/deliveries/${currentTarget.delivery_id}/status`,
         {
           method: "PATCH",
           headers: {
@@ -461,7 +490,7 @@ export default function DriverMapPage() {
       // First update to on_the_way if not already
       if (currentTarget.status === "picked_up") {
         await fetch(
-          `http://localhost:5000/driver/deliveries/${currentTarget.delivery_id}/status`,
+          `${API_URL}/driver/deliveries/${currentTarget.delivery_id}/status`,
           {
             method: "PATCH",
             headers: {
@@ -479,7 +508,7 @@ export default function DriverMapPage() {
         currentTarget.status === "on_the_way"
       ) {
         await fetch(
-          `http://localhost:5000/driver/deliveries/${currentTarget.delivery_id}/status`,
+          `${API_URL}/driver/deliveries/${currentTarget.delivery_id}/status`,
           {
             method: "PATCH",
             headers: {
@@ -493,7 +522,7 @@ export default function DriverMapPage() {
 
       // Finally mark as delivered
       const res = await fetch(
-        `http://localhost:5000/driver/deliveries/${currentTarget.delivery_id}/status`,
+        `${API_URL}/driver/deliveries/${currentTarget.delivery_id}/status`,
         {
           method: "PATCH",
           headers: {
@@ -709,7 +738,7 @@ export default function DriverMapPage() {
                 }`}
               ></div>
               <span className="text-sm font-semibold text-gray-700">
-                {isTracking ? "Live (3s)" : "Not Tracking"}
+                {isTracking ? "Live" : "Not Tracking"}
               </span>
             </div>
           </div>

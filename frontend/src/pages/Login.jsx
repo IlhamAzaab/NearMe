@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import foodBg from "../assets/food-bg.jpg";
 import mdImage from "../assets/md.jpg";
 import AnimatedAlert, { useAlert } from "../components/AnimatedAlert";
+import { API_URL } from "../config";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -23,7 +24,7 @@ export default function Login() {
     setIsLoading(true);
 
     try {
-      const res = await fetch("http://localhost:5000/auth/login", {
+      const res = await fetch(`${API_URL}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
@@ -31,13 +32,17 @@ export default function Login() {
       const data = await res.json();
 
       // Debug login response
-      console.log("🔐 Login response:", {
-        token: data.token ? `${data.token.substring(0, 20)}...` : "NULL",
-        role: data.role,
-        profileCompleted: data.profileCompleted,
-        userId: data.userId,
-        userName: data.userName,
-      });
+      if (res.ok) {
+        console.log("🔐 Login response:", {
+          token: data.token ? `${data.token.substring(0, 20)}...` : "NULL",
+          role: data.role,
+          profileCompleted: data.profileCompleted,
+          userId: data.userId,
+          userName: data.userName,
+        });
+      } else {
+        console.log("🔐 Login failed:", res.status, data.message);
+      }
 
       // Check if email verification is required (403 response)
       if (res.status === 403) {
@@ -73,7 +78,9 @@ export default function Login() {
 
       setTimeout(() => {
         if (data.role === "customer" && !data.profileCompleted) {
-          navigate("/auth/complete-profile");
+          const params = new URLSearchParams({ userId: data.userId });
+          if (data.access_token) params.set("access_token", data.access_token);
+          navigate(`/auth/complete-profile?${params.toString()}`);
           return;
         }
 

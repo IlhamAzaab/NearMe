@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import DriverLayout from "../components/DriverLayout";
+import { API_URL } from "../config";
 
 export default function DriverDeliveries() {
   const navigate = useNavigate();
@@ -12,12 +13,9 @@ export default function DriverDeliveries() {
   /* ================= AVAILABLE ================= */
   const fetchAvailable = useCallback(async () => {
     try {
-      const res = await fetch(
-        "http://localhost:5000/driver/deliveries/pending",
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
+      const res = await fetch(`${API_URL}/driver/deliveries/pending`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const data = await res.json();
       setAvailable(res.ok ? data.deliveries || [] : []);
     } catch (err) {
@@ -29,12 +27,9 @@ export default function DriverDeliveries() {
   /* ================= ACTIVE ================= */
   const fetchActive = useCallback(async () => {
     try {
-      const res = await fetch(
-        "http://localhost:5000/driver/deliveries/active",
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
+      const res = await fetch(`${API_URL}/driver/deliveries/active`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const data = await res.json();
       setActive(res.ok ? data.deliveries || [] : []);
     } catch (err) {
@@ -46,16 +41,13 @@ export default function DriverDeliveries() {
   /* ================= ACCEPT ================= */
   const acceptDelivery = async (deliveryId) => {
     try {
-      await fetch(
-        `http://localhost:5000/driver/deliveries/${deliveryId}/accept`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-        }
-      );
+      await fetch(`${API_URL}/driver/deliveries/${deliveryId}/accept`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      });
 
       // refresh both lists
       fetchAvailable();
@@ -68,7 +60,7 @@ export default function DriverDeliveries() {
   useEffect(() => {
     setLoading(true);
     Promise.all([fetchAvailable(), fetchActive()]).finally(() =>
-      setLoading(false)
+      setLoading(false),
     );
 
     const interval = setInterval(() => {
@@ -81,35 +73,46 @@ export default function DriverDeliveries() {
 
   if (loading) return <p>Loading deliveries...</p>;
 
-return (
-  <DriverLayout>
-    <div>
-      <h2>Active Deliveries</h2>
-      {active.length === 0 && <p>No active deliveries</p>}
+  return (
+    <DriverLayout>
+      <div>
+        <h2>Active Deliveries</h2>
+        {active.length === 0 && <p>No active deliveries</p>}
 
-      {active.map(d => (
-        <div key={d.delivery_id} style={{ border: "1px solid #4caf50", margin: 8, padding: 8 }}>
-          <p><b>Order:</b> {d.order.order_number}</p>
-          <p><b>Status:</b> {d.delivery_status}</p>
-          <p><b>Restaurant:</b> {d.order.restaurant_name}</p>
-          <p><b>Delivery:</b> {d.order.total_amount}</p>
-          <button
-            onClick={() => navigate(`/driver/delivery/active/${d.id}/map`)}
-            style={{
-              marginTop: 8,
-              padding: "6px 12px",
-              backgroundColor: "#2563eb",
-              color: "#fff",
-              border: "none",
-              borderRadius: 4,
-              cursor: "pointer",
-            }}
+        {active.map((d) => (
+          <div
+            key={d.delivery_id}
+            style={{ border: "1px solid #4caf50", margin: 8, padding: 8 }}
+          >
+            <p>
+              <b>Order:</b> {d.order.order_number}
+            </p>
+            <p>
+              <b>Status:</b> {d.delivery_status}
+            </p>
+            <p>
+              <b>Restaurant:</b> {d.order.restaurant_name}
+            </p>
+            <p>
+              <b>Delivery:</b> {d.order.total_amount}
+            </p>
+            <button
+              onClick={() => navigate(`/driver/delivery/active/${d.id}/map`)}
+              style={{
+                marginTop: 8,
+                padding: "6px 12px",
+                backgroundColor: "#2563eb",
+                color: "#fff",
+                border: "none",
+                borderRadius: 4,
+                cursor: "pointer",
+              }}
             >
               🗺️ Find Route
             </button>
-        </div>
-      ))}
-    </div>
-  </DriverLayout>
-);
+          </div>
+        ))}
+      </div>
+    </DriverLayout>
+  );
 }

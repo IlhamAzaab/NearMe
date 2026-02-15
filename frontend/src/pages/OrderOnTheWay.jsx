@@ -12,6 +12,8 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "./OrderOnTheWay.css";
 import "./DriverAccepted.css";
+import { API_URL } from "../config";
+import { formatETAClockTime } from "../utils/etaFormatter";
 
 // Fix Leaflet default marker icons
 delete L.Icon.Default.prototype._getIconUrl;
@@ -118,7 +120,7 @@ const OrderOnTheWay = () => {
   const orderId = paramOrderId || stateOrderId;
   const [deliveryStatus, setDeliveryStatus] = useState("on_the_way");
   const [driverInfo, setDriverInfo] = useState(driver || null);
-  const [estimatedTime, setEstimatedTime] = useState("10-15 min");
+  const [estimatedTime, setEstimatedTime] = useState("Calculating...");
   const [driverLocation, setDriverLocation] = useState(null);
   const [deliveryAddress, setDeliveryAddress] = useState(null); // Customer's delivery address (not live location)
   const [deliveryAddressText, setDeliveryAddressText] = useState(address);
@@ -126,6 +128,30 @@ const OrderOnTheWay = () => {
   const [mapReady, setMapReady] = useState(false);
   const { alert, visible, showSuccess } = useAlert();
   const prevDriverLocRef = useRef(null);
+
+  // Fetch order data if state is incomplete (e.g. navigated from Orders or refreshed)
+  useEffect(() => {
+    if (!orderId || orderData.address) return;
+    const fetchOrder = async () => {
+      try {
+        const token = localStorage.getItem("token");
+        const res = await fetch(`${API_URL}/orders/${orderId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.order) {
+            if (data.order.delivery_address) {
+              setDeliveryAddressText(data.order.delivery_address);
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Error fetching order:", err);
+      }
+    };
+    fetchOrder();
+  }, [orderId, orderData]);
 
   // Fetch route from OSRM
   const fetchRoute = useCallback(async (driverLoc, customerLoc) => {
@@ -140,24 +166,13 @@ const OrderOnTheWay = () => {
         const decoded = decodePolyline(data.routes[0].geometry);
         setRoutePath(decoded);
 
-        // Update estimated time based on OSRM duration
+        // Update estimated time based on OSRM duration (clock-time format for on_the_way)
         if (data.routes[0].duration) {
-          const minutes = Math.ceil(data.routes[0].duration / 60);
-          if (minutes <= 1) {
-            setEstimatedTime("< 1 min");
-          } else if (minutes <= 3) {
-            setEstimatedTime("1-3 min");
-          } else if (minutes <= 5) {
-            setEstimatedTime("3-5 min");
-          } else if (minutes <= 10) {
-            setEstimatedTime("5-10 min");
-          } else if (minutes <= 15) {
-            setEstimatedTime("10-15 min");
-          } else if (minutes <= 20) {
-            setEstimatedTime("15-20 min");
-          } else {
-            setEstimatedTime(`~${minutes} min`);
-          }
+          const minutes = Math.max(1, Math.ceil(data.routes[0].duration / 60));
+          // On the way = exact OSRM time, shown as clock arrival + Insha Allah
+          setEstimatedTime(
+            formatETAClockTime(minutes, minutes, { isOnTheWay: true }),
+          );
         }
       } else {
         // Fallback to straight line
@@ -184,7 +199,7 @@ const OrderOnTheWay = () => {
       try {
         const token = localStorage.getItem("token");
         const response = await fetch(
-          `http://localhost:5000/orders/${orderId}/delivery-status`,
+          `${API_URL}/orders/${orderId}/delivery-status`,
           {
             headers: { Authorization: `Bearer ${token}` },
           },
@@ -232,8 +247,24 @@ const OrderOnTheWay = () => {
             }
           }
 
-          if (data.estimatedDuration) {
-            setEstimatedTime(`${data.estimatedDuration} min`);
+          // Prefer backend dynamic ETA — format as clock time
+          if (data.eta?.etaRangeMin != null && data.eta?.etaRangeMax != null) {
+            const isOnTheWay =
+              data.eta.driverStatus === "on_the_way" ||
+              data.eta.driverStatus === "at_customer";
+            setEstimatedTime(
+              formatETAClockTime(data.eta.etaRangeMin, data.eta.etaRangeMax, {
+                isOnTheWay,
+              }),
+            );
+          } else if (data.estimatedDuration) {
+            setEstimatedTime(
+              formatETAClockTime(
+                data.estimatedDuration,
+                data.estimatedDuration,
+                { isOnTheWay: true },
+              ),
+            );
           }
 
           if (newStatus && newStatus !== deliveryStatus) {

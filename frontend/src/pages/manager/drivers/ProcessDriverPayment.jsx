@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import ManagerPageLayout from "../../../components/ManagerPageLayout";
 import { ManagerPageSkeleton } from "../../../components/ManagerSkeleton";
 import AnimatedAlert, { useAlert } from "../../../components/AnimatedAlert";
+import { API_URL } from "../../../config";
 
 export default function ProcessDriverPayment() {
   const navigate = useNavigate();
@@ -42,11 +43,11 @@ export default function ProcessDriverPayment() {
 
       const [driverRes, historyRes] = await Promise.all([
         fetch(
-          `http://localhost:5000/manager/driver-payments/driver/${driverId}`,
+          `${API_URL}/manager/driver-payments/driver/${driverId}`,
           { headers },
         ),
         fetch(
-          `http://localhost:5000/manager/driver-payments/driver/${driverId}/history`,
+          `${API_URL}/manager/driver-payments/driver/${driverId}/history`,
           { headers },
         ),
       ]);
@@ -140,7 +141,7 @@ export default function ProcessDriverPayment() {
       if (note) formData.append("note", note);
 
       const res = await fetch(
-        `http://localhost:5000/manager/driver-payments/pay/${driverId}`,
+        `${API_URL}/manager/driver-payments/pay/${driverId}`,
         {
           method: "POST",
           headers: { Authorization: `Bearer ${token}` },

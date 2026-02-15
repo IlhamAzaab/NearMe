@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import ManagerPageLayout from "../../../components/ManagerPageLayout";
 import { ManagerPageSkeleton } from "../../../components/ManagerSkeleton";
 import AnimatedAlert, { useAlert } from "../../../components/AnimatedAlert";
+import { API_URL } from "../../../config";
 
 const statusColors = {
   active: "bg-green-100 text-green-700",
@@ -58,7 +59,7 @@ export default function RestaurantManagement() {
 
     try {
       const res = await fetch(
-        `http://localhost:5000/manager/restaurants?${params.toString()}`,
+        `${API_URL}/manager/restaurants?${params.toString()}`,
         {
           headers: { Authorization: `Bearer ${token}` },
           signal,
@@ -91,7 +92,7 @@ export default function RestaurantManagement() {
 
     try {
       const res = await fetch(
-        `http://localhost:5000/manager/restaurants/${restaurantId}/status`,
+        `${API_URL}/manager/restaurants/${restaurantId}/status`,
         {
           method: "PATCH",
           headers: {

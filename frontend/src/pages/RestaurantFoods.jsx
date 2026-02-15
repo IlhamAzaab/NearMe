@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import BottomNavbar from "../components/BottomNavbar";
 import AnimatedAlert, { useAlert } from "../components/AnimatedAlert";
+import { API_URL } from "../config";
 
 const RestaurantFoods = () => {
   const { restaurantId } = useParams();
@@ -49,7 +50,7 @@ const RestaurantFoods = () => {
   const fetchCartCount = async () => {
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch("http://localhost:5000/cart", {
+      const res = await fetch(`${API_URL}/cart`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -75,7 +76,7 @@ const RestaurantFoods = () => {
       setError(null);
 
       const restaurantResponse = await fetch(
-        `http://localhost:5000/public/restaurants/${restaurantId}`,
+        `${API_URL}/public/restaurants/${restaurantId}`,
       );
       const restaurantData = await restaurantResponse.json();
 
@@ -101,7 +102,7 @@ const RestaurantFoods = () => {
       setFoodsError(null);
 
       const foodsUrl = new URL(
-        `http://localhost:5000/public/restaurants/${restaurantId}/foods`,
+        `${API_URL}/public/restaurants/${restaurantId}/foods`,
       );
       if (search) {
         foodsUrl.searchParams.append("search", search);
@@ -178,7 +179,7 @@ const RestaurantFoods = () => {
       setAddingToCart(food.id);
 
       const token = localStorage.getItem("token");
-      const response = await fetch("http://localhost:5000/cart/add", {
+      const response = await fetch(`${API_URL}/cart/add`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -231,7 +232,7 @@ const RestaurantFoods = () => {
       setAddingToCart(food.id);
 
       const token = localStorage.getItem("token");
-      const response = await fetch("http://localhost:5000/cart/add", {
+      const response = await fetch(`${API_URL}/cart/add`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

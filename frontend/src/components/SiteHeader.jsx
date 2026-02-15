@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { API_URL } from "../config";
 
 export default function SiteHeader({
   isLoggedIn,
@@ -19,7 +20,7 @@ export default function SiteHeader({
     if (!isLoggedIn || role !== "manager" || !token) return;
     (async () => {
       try {
-        const res = await fetch("http://localhost:5000/manager/me", {
+        const res = await fetch(`${API_URL}/manager/me`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         const data = await res.json();
@@ -42,14 +43,14 @@ export default function SiteHeader({
     const fetchCartCount = async () => {
       try {
         const token = localStorage.getItem("token");
-        const res = await fetch("http://localhost:5000/cart", {
+        const res = await fetch(`${API_URL}/cart`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         const data = await res.json();
         if (res.ok && data.carts) {
           const totalItems = data.carts.reduce(
             (sum, cart) => sum + (cart.total_items || 0),
-            0
+            0,
           );
           setCartCount(totalItems);
         }
@@ -90,8 +91,18 @@ export default function SiteHeader({
               onClick={() => navigate("/?tab=menu")}
               className="hidden md:flex items-center gap-1 text-sm font-medium text-gray-600 hover:text-indigo-600 transition"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 6h16M4 12h16M4 18h16"
+                />
               </svg>
               Menu
             </button>

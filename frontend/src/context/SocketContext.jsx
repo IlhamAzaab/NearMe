@@ -212,6 +212,13 @@ export function SocketProvider({ children }) {
       console.log(`[Socket] 📋 Status: ${data.status}`);
       console.log(`[Socket] 💬 Message: ${data.message}`);
 
+      // Play notification sound (single ring)
+      try {
+        const audio = new Audio("/notification-tone.wav");
+        audio.volume = 0.7;
+        audio.play().catch(() => {});
+      } catch {}
+
       const notification = {
         ...data,
         id: Date.now(),
@@ -301,10 +308,17 @@ export function SocketProvider({ children }) {
       console.log(`[Socket] \u2705 Registered as admin:`, data);
     });
 
-    // \ud83d\udea8 NEW ORDER - Real-time notification for restaurant admins
+    // 🚨 NEW ORDER - Real-time notification for restaurant admins
     newSocket.on("order:new_order", (data) => {
       console.log(`[Socket] \ud83d\udea8 NEW ORDER FOR ADMIN:`, data);
       console.log(`[Socket] \u23f0 Received at: ${new Date().toISOString()}`);
+
+      // Play notification sound (single ring)
+      try {
+        const audio = new Audio("/notification-tone.wav");
+        audio.volume = 0.7;
+        audio.play().catch(() => {});
+      } catch {}
 
       const notification = {
         ...data,
