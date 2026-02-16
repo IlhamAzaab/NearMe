@@ -165,5 +165,12 @@ function getDefaults() {
     day_shift_end: 19.0,
     night_shift_start: 18.0,
     night_shift_end: 6.0,
+    order_distance_constraints: [
+      { min_km: 0, max_km: 5, min_subtotal: 300 },
+      { min_km: 5, max_km: 10, min_subtotal: 1000 },
+      { min_km: 10, max_km: 15, min_subtotal: 2000 },
+      { min_km: 15, max_km: 25, min_subtotal: 3000 },
+    ],
+    max_order_distance_km: 25,
   };
 }

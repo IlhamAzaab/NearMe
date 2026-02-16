@@ -195,180 +195,171 @@ export default function AdminDashboard() {
         className={`min-h-screen bg-gradient-to-br from-green-50 via-green-50 to-green-100 transition-all duration-500 ease-in-out ${slideIn ? "translate-x-0 opacity-100" : "translate-x-full opacity-0"}`}
       >
         <div className="space-y-6 sm:space-y-8 p-4 sm:p-6 md:p-8">
-          {/* ═══════════ Block 1: Header — Restaurant name + logo ═══════════ */}
-          <div className="flex items-center gap-4 animate-slideDown">
-            {restaurant?.logo_url ? (
-              <img
-                src={restaurant.logo_url}
-                alt={restaurant.restaurant_name}
-                className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl object-cover shadow-md border-2 border-green-200"
-              />
-            ) : (
-              <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center text-white text-2xl font-bold shadow-md">
-                {restaurant?.restaurant_name?.charAt(0) || "R"}
+          {/* ═══════════ Block 1: Restaurant Header Card ═══════════ */}
+          <div className="bg-white rounded-2xl shadow-md border border-green-100 p-6 animate-slideDown">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              {/* Restaurant Info */}
+              <div className="flex items-center gap-4">
+                {restaurant?.logo_url ? (
+                  <img
+                    src={restaurant.logo_url}
+                    alt={restaurant.restaurant_name}
+                    className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl object-cover shadow-md border-2 border-green-200"
+                  />
+                ) : (
+                  <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center text-white text-2xl font-bold shadow-md">
+                    {restaurant?.restaurant_name?.charAt(0) || "R"}
+                  </div>
+                )}
+                <div>
+                  <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-green-600 via-green-500 to-green-600 bg-clip-text text-transparent drop-shadow-sm">
+                    {restaurant?.restaurant_name || "Dashboard"}
+                  </h1>
+                  <p className="text-sm text-gray-500 mt-0.5">
+                    Dashboard Overview •{" "}
+                    {new Date().toLocaleDateString("en-IN", {
+                      weekday: "long",
+                      day: "numeric",
+                      month: "short",
+                      year: "numeric",
+                    })}
+                  </p>
+                </div>
               </div>
-            )}
-            <div>
-              <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-green-600 via-green-500 to-green-600 bg-clip-text text-transparent drop-shadow-sm">
-                {restaurant?.restaurant_name || "Dashboard"}
-              </h1>
-              <p className="text-sm text-gray-500 mt-0.5">
-                Dashboard Overview •{" "}
-                {new Date().toLocaleDateString("en-IN", {
-                  weekday: "long",
-                  day: "numeric",
-                  month: "short",
-                  year: "numeric",
-                })}
-              </p>
-            </div>
-          </div>
 
-          {/* ═══════════ Block 2: Open / Close Toggle ═══════════ */}
-          <div
-            className="animate-slideDown"
-            style={{ animationDelay: "0.05s" }}
-          >
-            <button
-              onClick={toggleRestaurantOpen}
-              disabled={toggling}
-              className={`flex items-center gap-3 px-5 py-3 rounded-2xl border-2 transition-all duration-300 shadow-sm hover:shadow-md ${
-                restaurant?.is_open
-                  ? "border-green-300 bg-green-50 hover:bg-green-100"
-                  : "border-red-300 bg-red-50 hover:bg-red-100"
-              }`}
-            >
-              <div
-                className={`relative w-12 h-6 rounded-full transition-colors duration-300 ${
-                  restaurant?.is_open ? "bg-green-500" : "bg-red-400"
+              {/* Open/Close Toggle */}
+              <button
+                onClick={toggleRestaurantOpen}
+                disabled={toggling}
+                className={`flex items-center gap-3 px-5 py-3 rounded-2xl border-2 transition-all duration-300 shadow-sm hover:shadow-md ${
+                  restaurant?.is_open
+                    ? "border-green-300 bg-green-50 hover:bg-green-100"
+                    : "border-red-300 bg-red-50 hover:bg-red-100"
                 }`}
               >
                 <div
-                  className={`absolute top-[3px] left-[3px] w-[18px] h-[18px] bg-white rounded-full shadow transition-transform duration-300 ${
-                    restaurant?.is_open ? "translate-x-6" : "translate-x-0"
+                  className={`relative w-12 h-6 rounded-full transition-colors duration-300 ${
+                    restaurant?.is_open ? "bg-green-500" : "bg-red-400"
                   }`}
-                />
-              </div>
-              <span
-                className={`text-sm font-bold ${restaurant?.is_open ? "text-green-700" : "text-red-600"}`}
-              >
-                Restaurant is {restaurant?.is_open ? "Open" : "Closed"}
-              </span>
-              {restaurant?.is_manually_overridden && (
-                <span className="text-[11px] text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full font-medium">
-                  Manual
+                >
+                  <div
+                    className={`absolute top-[3px] left-[3px] w-[18px] h-[18px] bg-white rounded-full shadow transition-transform duration-300 ${
+                      restaurant?.is_open ? "translate-x-6" : "translate-x-0"
+                    }`}
+                  />
+                </div>
+                <span
+                  className={`text-sm font-bold ${restaurant?.is_open ? "text-green-700" : "text-red-600"}`}
+                >
+                  Restaurant is {restaurant?.is_open ? "Open" : "Closed"}
                 </span>
-              )}
-            </button>
+                {restaurant?.is_manually_overridden && (
+                  <span className="text-[11px] text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full font-medium">
+                    Manual
+                  </span>
+                )}
+              </button>
+            </div>
           </div>
 
-          {/* ═══════════ Block 3: Today Performance — 3 cards with % change ═══════════ */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
-            {/* Today Sales */}
-            <div className="bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-500 transform hover:-translate-y-1 p-5 sm:p-6 relative overflow-hidden group border border-green-100 animate-fadeInUp">
-              <div className="absolute top-0 right-0 w-28 h-28 rounded-full bg-gradient-to-br from-green-50 to-green-100 opacity-50 -translate-y-14 translate-x-14 group-hover:scale-125 transition-all duration-500" />
-              <div className="relative z-10">
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-sm text-gray-500 font-semibold uppercase tracking-wide">
+          {/* ═══════════ Block 2: Today Performance — Combined Box ═══════════ */}
+          <div className="bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-500 p-6 border border-green-100 animate-fadeInUp">
+            <h3 className="text-lg font-bold text-gray-800 mb-6 flex items-center gap-2">
+              <span className="w-1 h-6 bg-gradient-to-b from-green-500 to-green-600 rounded-full"></span>
+              Today's Performance
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+              {/* Today Sales */}
+              <div className="flex items-start gap-4">
+                <div className="p-3 rounded-xl bg-gradient-to-br from-green-100 to-green-50 shadow-sm">
+                  <svg
+                    className="w-6 h-6 text-green-600"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-1">
                     Today Sales
                   </p>
-                  <div className="p-2.5 rounded-xl bg-gradient-to-br from-green-100 to-green-50 shadow-sm group-hover:scale-110 transition-all duration-500">
-                    <svg
-                      className="w-5 h-5 text-green-600"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                      />
-                    </svg>
+                  <p className="text-2xl font-bold text-green-600">
+                    {formatCurrency(dashboardData?.today?.sales)}
+                  </p>
+                  <div className="mt-1">
+                    <ChangeIndicator
+                      value={dashboardData?.changes?.salesChange}
+                    />
                   </div>
                 </div>
-                <p className="text-3xl font-bold text-green-600 drop-shadow-sm">
-                  {formatCurrency(dashboardData?.today?.sales)}
-                </p>
-                <div className="mt-2">
-                  <ChangeIndicator
-                    value={dashboardData?.changes?.salesChange}
-                  />
-                </div>
               </div>
-            </div>
 
-            {/* Today Orders */}
-            <div
-              className="bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-500 transform hover:-translate-y-1 p-5 sm:p-6 relative overflow-hidden group border border-green-100 animate-fadeInUp"
-              style={{ animationDelay: "0.1s" }}
-            >
-              <div className="absolute top-0 right-0 w-28 h-28 rounded-full bg-gradient-to-br from-blue-50 to-blue-100 opacity-50 -translate-y-14 translate-x-14 group-hover:scale-125 transition-all duration-500" />
-              <div className="relative z-10">
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-sm text-gray-500 font-semibold uppercase tracking-wide">
+              {/* Today Orders */}
+              <div className="flex items-start gap-4">
+                <div className="p-3 rounded-xl bg-gradient-to-br from-blue-100 to-blue-50 shadow-sm">
+                  <svg
+                    className="w-6 h-6 text-blue-600"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"
+                    />
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-1">
                     Today Orders
                   </p>
-                  <div className="p-2.5 rounded-xl bg-gradient-to-br from-blue-100 to-blue-50 shadow-sm group-hover:scale-110 transition-all duration-500">
-                    <svg
-                      className="w-5 h-5 text-blue-600"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"
-                      />
-                    </svg>
+                  <p className="text-2xl font-bold text-blue-600">
+                    {dashboardData?.today?.orders || 0}
+                  </p>
+                  <div className="mt-1">
+                    <ChangeIndicator
+                      value={dashboardData?.changes?.ordersChange}
+                    />
                   </div>
-                </div>
-                <p className="text-3xl font-bold text-blue-600 drop-shadow-sm">
-                  {dashboardData?.today?.orders || 0}
-                </p>
-                <div className="mt-2">
-                  <ChangeIndicator
-                    value={dashboardData?.changes?.ordersChange}
-                  />
                 </div>
               </div>
-            </div>
 
-            {/* Avg Order Value */}
-            <div
-              className="bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-500 transform hover:-translate-y-1 p-5 sm:p-6 relative overflow-hidden group border border-green-100 animate-fadeInUp"
-              style={{ animationDelay: "0.2s" }}
-            >
-              <div className="absolute top-0 right-0 w-28 h-28 rounded-full bg-gradient-to-br from-purple-50 to-purple-100 opacity-50 -translate-y-14 translate-x-14 group-hover:scale-125 transition-all duration-500" />
-              <div className="relative z-10">
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-sm text-gray-500 font-semibold uppercase tracking-wide">
+              {/* Avg Order Value */}
+              <div className="flex items-start gap-4">
+                <div className="p-3 rounded-xl bg-gradient-to-br from-purple-100 to-purple-50 shadow-sm">
+                  <svg
+                    className="w-6 h-6 text-purple-600"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                    />
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-1">
                     Avg Order Value
                   </p>
-                  <div className="p-2.5 rounded-xl bg-gradient-to-br from-purple-100 to-purple-50 shadow-sm group-hover:scale-110 transition-all duration-500">
-                    <svg
-                      className="w-5 h-5 text-purple-600"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-                      />
-                    </svg>
+                  <p className="text-2xl font-bold text-purple-600">
+                    {formatCurrency(dashboardData?.today?.avgOrderValue)}
+                  </p>
+                  <div className="mt-1">
+                    <ChangeIndicator value={dashboardData?.changes?.avgChange} />
                   </div>
-                </div>
-                <p className="text-3xl font-bold text-purple-600 drop-shadow-sm">
-                  {formatCurrency(dashboardData?.today?.avgOrderValue)}
-                </p>
-                <div className="mt-2">
-                  <ChangeIndicator value={dashboardData?.changes?.avgChange} />
                 </div>
               </div>
             </div>
@@ -653,9 +644,6 @@ export default function AdminDashboard() {
                       <thead>
                         <tr className="border-b-2 border-green-100">
                           <th className="text-left py-3 sm:py-4 px-3 sm:px-0 text-gray-700 font-bold text-xs uppercase tracking-wider">
-                            Order ID
-                          </th>
-                          <th className="text-left py-3 sm:py-4 px-3 sm:px-0 text-gray-700 font-bold text-xs uppercase tracking-wider">
                             Customer
                           </th>
                           <th className="text-left py-3 sm:py-4 px-3 sm:px-0 text-gray-700 font-bold text-xs uppercase tracking-wider hidden sm:table-cell">
@@ -677,18 +665,18 @@ export default function AdminDashboard() {
                             style={{ animationDelay: `${index * 50}ms` }}
                           >
                             <td className="py-4 sm:py-5 px-3 sm:px-0">
-                              <div className="font-bold text-green-600 text-sm">
-                                #{order.id.slice(0, 8)}
-                              </div>
-                            </td>
-                            <td className="py-4 sm:py-5 px-3 sm:px-0">
                               <div className="flex items-center">
                                 <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-green-400 to-green-500 flex items-center justify-center text-white text-xs sm:text-sm font-bold mr-2 sm:mr-3 shadow-sm">
                                   {order.customer.charAt(0).toUpperCase()}
                                 </div>
-                                <span className="font-medium text-gray-700 text-sm">
-                                  {order.customer}
-                                </span>
+                                <div>
+                                  <span className="font-medium text-gray-700 text-sm block">
+                                    {order.customer}
+                                  </span>
+                                  <span className="text-xs text-green-600 font-semibold">
+                                    #{order.order_number}
+                                  </span>
+                                </div>
                               </div>
                             </td>
                             <td className="py-4 sm:py-5 px-3 sm:px-0 text-xs sm:text-sm text-gray-600 hidden sm:table-cell">

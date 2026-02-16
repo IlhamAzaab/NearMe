@@ -699,7 +699,7 @@ router.get("/manager/summary", authenticate, managerOnly, async (req, res) => {
       console.log(`[DEPOSITS] ✅ Summary (today):`, summary);
       return res.json({ success: true, summary });
     } else if (period === "yesterday") {
-      // ===== YESTERDAY: From the snapshot data =====
+      // ===== YESTERDAY: Try snapshot first, fallback to calculating from data =====
       const yesterdayDate = new Date(sriLankaDate);
       yesterdayDate.setDate(yesterdayDate.getDate() - 1);
       const yesterdayStr = yesterdayDate.toISOString().split("T")[0];
@@ -711,41 +711,130 @@ router.get("/manager/summary", authenticate, managerOnly, async (req, res) => {
         .eq("snapshot_date", yesterdayStr)
         .single();
 
-      // Get the day-before-yesterday snapshot for prev_pending
-      const dayBefore = new Date(sriLankaDate);
-      dayBefore.setDate(dayBefore.getDate() - 2);
-      const dayBeforeStr = dayBefore.toISOString().split("T")[0];
+      if (snapshot) {
+        // Snapshot exists - use snapshot data
+        // Get the day-before-yesterday snapshot for prev_pending
+        const dayBefore = new Date(sriLankaDate);
+        dayBefore.setDate(dayBefore.getDate() - 2);
+        const dayBeforeStr = dayBefore.toISOString().split("T")[0];
 
-      const { data: olderSnapshot } = await supabaseAdmin
+        const { data: olderSnapshot } = await supabaseAdmin
+          .from("daily_deposit_snapshots")
+          .select("ending_pending")
+          .eq("snapshot_date", dayBeforeStr)
+          .single();
+
+        const prevPending = olderSnapshot
+          ? parseFloat(olderSnapshot.ending_pending || 0)
+          : 0;
+        const todaysSales = parseFloat(snapshot.total_sales || 0);
+        const paidAmount = parseFloat(snapshot.total_approved || 0);
+        const totalSales = todaysSales + prevPending;
+        const pendingAmount = parseFloat(snapshot.ending_pending || 0);
+
+        const summary = {
+          total_sales_today: totalSales,
+          todays_sales: todaysSales,
+          prev_pending: prevPending,
+          pending: pendingAmount,
+          paid: paidAmount,
+          pending_deposits_count: 0,
+          period: "yesterday",
+          snapshot_date: yesterdayStr,
+        };
+
+        console.log(
+          `[DEPOSITS] ✅ Summary (yesterday from snapshot):`,
+          summary,
+        );
+        return res.json({ success: true, summary });
+      }
+
+      // No snapshot for yesterday - calculate from actual data
+      console.log(
+        `[DEPOSITS] ⚠️ No snapshot for ${yesterdayStr}, calculating from data...`,
+      );
+
+      // Yesterday's time boundaries in Sri Lanka time
+      const yesterdayStart = new Date(`${yesterdayStr}T00:00:00+05:30`);
+      const yesterdayEnd = new Date(yesterdayStr + "T23:59:59.999+05:30");
+
+      // Get the snapshot before yesterday for prev_pending and as boundary
+      const { data: prevSnapshot } = await supabaseAdmin
         .from("daily_deposit_snapshots")
-        .select("ending_pending")
-        .eq("snapshot_date", dayBeforeStr)
+        .select("*")
+        .lt("snapshot_date", yesterdayStr)
+        .order("snapshot_date", { ascending: false })
+        .limit(1)
         .single();
 
-      const prevPending = olderSnapshot
-        ? parseFloat(olderSnapshot.ending_pending || 0)
-        : 0;
-      const todaysSales = snapshot ? parseFloat(snapshot.total_sales || 0) : 0;
-      const paidAmount = snapshot
-        ? parseFloat(snapshot.total_approved || 0)
-        : 0;
-      const totalSales = todaysSales + prevPending;
-      const pendingAmount = snapshot
-        ? parseFloat(snapshot.ending_pending || 0)
-        : 0;
+      let prevPending = 0;
+      let snapshotBoundary = null;
+
+      if (prevSnapshot) {
+        prevPending = parseFloat(prevSnapshot.ending_pending || 0);
+        snapshotBoundary = prevSnapshot.created_at;
+      }
+
+      // Yesterday's cash sales: delivered cash orders within yesterday's date range
+      // Use the later of snapshotBoundary and yesterdayStart as the lower bound
+      let salesQuery = supabaseAdmin
+        .from("deliveries")
+        .select(`id, order_id, orders!inner(total_amount, payment_method)`)
+        .eq("status", "delivered")
+        .eq("orders.payment_method", "cash")
+        .lte("updated_at", yesterdayEnd.toISOString());
+
+      if (snapshotBoundary && new Date(snapshotBoundary) > yesterdayStart) {
+        salesQuery = salesQuery.gt("updated_at", snapshotBoundary);
+      } else {
+        salesQuery = salesQuery.gte("updated_at", yesterdayStart.toISOString());
+      }
+
+      const { data: yesterdayCashDeliveries } = await salesQuery;
+      const yesterdaySales = (yesterdayCashDeliveries || []).reduce(
+        (sum, d) => sum + parseFloat(d.orders?.total_amount || 0),
+        0,
+      );
+
+      // Yesterday's approved deposits
+      let approvedQuery = supabaseAdmin
+        .from("driver_deposits")
+        .select("approved_amount")
+        .eq("status", "approved")
+        .lte("reviewed_at", yesterdayEnd.toISOString());
+
+      if (snapshotBoundary && new Date(snapshotBoundary) > yesterdayStart) {
+        approvedQuery = approvedQuery.gt("reviewed_at", snapshotBoundary);
+      } else {
+        approvedQuery = approvedQuery.gte(
+          "reviewed_at",
+          yesterdayStart.toISOString(),
+        );
+      }
+
+      const { data: yesterdayApproved } = await approvedQuery;
+      const paidYesterday = (yesterdayApproved || []).reduce(
+        (sum, d) => sum + parseFloat(d.approved_amount || 0),
+        0,
+      );
+
+      const totalSalesYesterday = yesterdaySales + prevPending;
+      const pendingYesterday = Math.max(0, totalSalesYesterday - paidYesterday);
 
       const summary = {
-        total_sales_today: totalSales,
-        todays_sales: todaysSales,
+        total_sales_today: totalSalesYesterday,
+        todays_sales: yesterdaySales,
         prev_pending: prevPending,
-        pending: pendingAmount,
-        paid: paidAmount,
+        pending: pendingYesterday,
+        paid: paidYesterday,
         pending_deposits_count: 0,
         period: "yesterday",
         snapshot_date: yesterdayStr,
+        calculated_from_data: true,
       };
 
-      console.log(`[DEPOSITS] ✅ Summary (yesterday):`, summary);
+      console.log(`[DEPOSITS] ✅ Summary (yesterday calculated):`, summary);
       return res.json({ success: true, summary });
     } else if (
       period === "this_week" ||

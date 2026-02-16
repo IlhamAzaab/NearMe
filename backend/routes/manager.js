@@ -508,19 +508,6 @@ router.patch("/drivers/:driverId/status", authenticate, async (req, res) => {
       return res.status(500).json({ message: "Failed to update driver" });
     }
 
-    try {
-      await supabaseAdmin.from("driver_status_log").insert({
-        driver_id: driverId,
-        old_status: oldStatus,
-        new_status: status,
-        changed_by: req.user.id,
-        change_reason:
-          reason || (status === "active" ? "Activated by manager" : null),
-      });
-    } catch (logError) {
-      console.warn("Status log insert skipped:", logError.message);
-    }
-
     return res.json({
       message: "Driver status updated",
       newStatus: status,
@@ -845,17 +832,6 @@ router.post("/verify-driver/:driverId", authenticate, async (req, res) => {
       }
     }
 
-    // Log the status change
-    await supabaseAdmin.from("driver_status_log").insert({
-      driver_id: driverId,
-      old_status: "pending",
-      new_status: newStatus,
-      changed_by: req.user.id,
-      change_reason:
-        reason ||
-        (action === "approve" ? "Manager approved" : "Manager rejected"),
-    });
-
     return res.json({
       message: `Driver ${
         action === "approve" ? "approved" : "rejected"
@@ -1111,6 +1087,214 @@ router.post(
     }
   },
 );
+
+// ============================================================================
+// MANAGER DASHBOARD STATS
+// ============================================================================
+
+/**
+ * GET /manager/dashboard-stats
+ * All-in-one dashboard data: today earnings, sales, orders, driver/restaurant payments, graphs
+ */
+router.get("/dashboard-stats", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "manager") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const now = new Date();
+    const todayStart = new Date(now);
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(now);
+    todayEnd.setHours(23, 59, 59, 999);
+
+    // ---- 1. Today's delivered orders with earnings ----
+    const { data: todayDeliveries, error: delErr } = await supabaseAdmin
+      .from("deliveries")
+      .select("order_id, driver_earnings, status, driver_id")
+      .eq("status", "delivered");
+
+    if (delErr) {
+      console.error("Dashboard deliveries error:", delErr);
+      return res.status(500).json({ message: "Failed to fetch deliveries" });
+    }
+
+    const allOrderIds = (todayDeliveries || []).map((d) => d.order_id);
+    const deliveriesMap = {};
+    for (const d of todayDeliveries || []) {
+      deliveriesMap[d.order_id] = {
+        driver_earnings: parseFloat(d.driver_earnings || 0),
+        driver_id: d.driver_id,
+      };
+    }
+
+    // Get today's orders (placed today with delivered status)
+    let todayOrders = [];
+    if (allOrderIds.length > 0) {
+      const { data: ordersData } = await supabaseAdmin
+        .from("orders")
+        .select(
+          "id, subtotal, admin_subtotal, commission_total, delivery_fee, service_fee, total_amount, placed_at, restaurant_id, restaurant_name",
+        )
+        .in("id", allOrderIds)
+        .gte("placed_at", todayStart.toISOString())
+        .lte("placed_at", todayEnd.toISOString());
+      todayOrders = ordersData || [];
+    }
+
+    // Calculate today's totals
+    let todaySales = 0;
+    let todayEarnings = 0;
+    let todayDriverPayTotal = 0;
+    let todayRestaurantPayTotal = 0;
+    const todayDriverSet = new Set();
+    const todayRestaurantMap = {};
+
+    for (const order of todayOrders) {
+      const totalCollected = parseFloat(order.total_amount || 0);
+      const restaurantPay = parseFloat(order.admin_subtotal || 0);
+      const driverPay = deliveriesMap[order.id]?.driver_earnings || 0;
+      const driverId = deliveriesMap[order.id]?.driver_id;
+      const managerEarning = totalCollected - restaurantPay - driverPay;
+
+      todaySales += totalCollected;
+      todayEarnings += managerEarning;
+      todayDriverPayTotal += driverPay;
+      todayRestaurantPayTotal += restaurantPay;
+
+      if (driverId) todayDriverSet.add(driverId);
+      if (order.restaurant_id) {
+        todayRestaurantMap[order.restaurant_id] =
+          (todayRestaurantMap[order.restaurant_id] || 0) + restaurantPay;
+      }
+    }
+
+    // ---- 2. Pending amount from drivers (cash collected not yet deposited) ----
+    // Use the same logic as deposits/manager/summary
+    const { data: latestSnapshot } = await supabaseAdmin
+      .from("daily_deposit_snapshots")
+      .select("*")
+      .order("snapshot_date", { ascending: false })
+      .limit(1)
+      .single();
+
+    let prevPending = 0;
+    let snapshotBoundary = null;
+    if (latestSnapshot) {
+      prevPending = parseFloat(latestSnapshot.ending_pending || 0);
+      snapshotBoundary = latestSnapshot.created_at;
+    }
+
+    // Cash deliveries after snapshot
+    let cashQuery = supabaseAdmin
+      .from("deliveries")
+      .select("id, order_id, orders!inner(total_amount, payment_method)")
+      .eq("status", "delivered")
+      .eq("orders.payment_method", "cash");
+    if (snapshotBoundary) {
+      cashQuery = cashQuery.gt("updated_at", snapshotBoundary);
+    }
+    const { data: cashDeliveries } = await cashQuery;
+    const cashSales = (cashDeliveries || []).reduce(
+      (sum, d) => sum + parseFloat(d.orders?.total_amount || 0),
+      0,
+    );
+
+    // Approved deposits after snapshot
+    let approvedQuery = supabaseAdmin
+      .from("driver_deposits")
+      .select("approved_amount")
+      .eq("status", "approved");
+    if (snapshotBoundary) {
+      approvedQuery = approvedQuery.gt("reviewed_at", snapshotBoundary);
+    }
+    const { data: approvedDeposits } = await approvedQuery;
+    const paidAmount = (approvedDeposits || []).reduce(
+      (sum, d) => sum + parseFloat(d.approved_amount || 0),
+      0,
+    );
+
+    const totalPendingFromDrivers = Math.max(
+      0,
+      cashSales + prevPending - paidAmount,
+    );
+
+    // ---- 3. Last 7 days graph data ----
+    const graphDays = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      d.setHours(0, 0, 0, 0);
+      graphDays.push({
+        date: d.toISOString().split("T")[0],
+        label: d.toLocaleDateString("en-US", { weekday: "short" }),
+        start: new Date(d),
+        end: new Date(
+          d.getFullYear(),
+          d.getMonth(),
+          d.getDate(),
+          23,
+          59,
+          59,
+          999,
+        ),
+      });
+    }
+
+    // Fetch all delivered orders for the last 7 days
+    const weekStart = graphDays[0].start;
+    let weekOrders = [];
+    if (allOrderIds.length > 0) {
+      const { data: weekData } = await supabaseAdmin
+        .from("orders")
+        .select("id, total_amount, admin_subtotal, placed_at")
+        .in("id", allOrderIds)
+        .gte("placed_at", weekStart.toISOString())
+        .lte("placed_at", todayEnd.toISOString());
+      weekOrders = weekData || [];
+    }
+
+    const earningsGraph = graphDays.map((day) => {
+      const dayOrders = weekOrders.filter((o) => {
+        const placed = new Date(o.placed_at);
+        return placed >= day.start && placed <= day.end;
+      });
+      let sales = 0;
+      let earnings = 0;
+      for (const order of dayOrders) {
+        const total = parseFloat(order.total_amount || 0);
+        const restPay = parseFloat(order.admin_subtotal || 0);
+        const driverPay = deliveriesMap[order.id]?.driver_earnings || 0;
+        sales += total;
+        earnings += total - restPay - driverPay;
+      }
+      return {
+        label: day.label,
+        date: day.date,
+        earnings: parseFloat(earnings.toFixed(2)),
+        sales: parseFloat(sales.toFixed(2)),
+        orders: dayOrders.length,
+      };
+    });
+
+    // ---- Respond ----
+    return res.json({
+      success: true,
+      todayEarnings: parseFloat(todayEarnings.toFixed(2)),
+      todaySales: parseFloat(todaySales.toFixed(2)),
+      todayOrders: todayOrders.length,
+      totalPendingFromDrivers: parseFloat(totalPendingFromDrivers.toFixed(2)),
+      driverPayment: parseFloat(todayDriverPayTotal.toFixed(2)),
+      driverCount: todayDriverSet.size,
+      restaurantPayment: parseFloat(todayRestaurantPayTotal.toFixed(2)),
+      restaurantCount: Object.keys(todayRestaurantMap).length,
+      earningsGraph,
+    });
+  } catch (e) {
+    console.error("/manager/dashboard-stats error:", e);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
 
 // ============================================================================
 // MANAGER EARNINGS & FINANCIAL REPORTS
@@ -1784,6 +1968,8 @@ router.put("/system-config", authenticate, async (req, res) => {
       day_shift_end,
       night_shift_start,
       night_shift_end,
+      order_distance_constraints,
+      max_order_distance_km,
     } = req.body;
 
     const updatePayload = {
@@ -1803,6 +1989,8 @@ router.put("/system-config", authenticate, async (req, res) => {
       day_shift_end,
       night_shift_start,
       night_shift_end,
+      order_distance_constraints,
+      max_order_distance_km,
       updated_by: req.user.id,
     };
 

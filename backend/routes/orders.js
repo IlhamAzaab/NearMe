@@ -452,10 +452,56 @@ router.post("/place", authenticate, async (req, res) => {
 
     const subtotal = customerSubtotal; // Customer subtotal includes commission
 
-    // Validate minimum order
-    if (subtotal < 300) {
+    // Validate distance and minimum order based on distance constraints from config
+    const config = await getSystemConfig();
+    let orderDistanceConstraints;
+    try {
+      orderDistanceConstraints =
+        typeof config.order_distance_constraints === "string"
+          ? JSON.parse(config.order_distance_constraints)
+          : config.order_distance_constraints || [];
+    } catch {
+      orderDistanceConstraints = [
+        { min_km: 0, max_km: 5, min_subtotal: 300 },
+        { min_km: 5, max_km: 10, min_subtotal: 1000 },
+        { min_km: 10, max_km: 15, min_subtotal: 2000 },
+        { min_km: 15, max_km: 25, min_subtotal: 3000 },
+      ];
+    }
+    const maxOrderDistanceKm = parseFloat(config.max_order_distance_km || 25);
+
+    // Check if restaurant is too far
+    if (distance_km > maxOrderDistanceKm) {
       return res.status(400).json({
-        message: "Minimum order amount is Rs. 300",
+        message: `Restaurant is too far away (${distance_km.toFixed(1)} km). Maximum ordering distance is ${maxOrderDistanceKm} km.`,
+        error_type: "distance_exceeded",
+        distance_km: parseFloat(distance_km.toFixed(2)),
+        max_distance_km: maxOrderDistanceKm,
+      });
+    }
+
+    // Find the matching constraint tier for this distance
+    const sortedConstraints = [...orderDistanceConstraints].sort(
+      (a, b) => a.min_km - b.min_km,
+    );
+    let requiredMinSubtotal = 300; // default fallback
+    for (const constraint of sortedConstraints) {
+      if (
+        distance_km >= constraint.min_km &&
+        distance_km <= constraint.max_km
+      ) {
+        requiredMinSubtotal = constraint.min_subtotal;
+        break;
+      }
+    }
+
+    if (subtotal < requiredMinSubtotal) {
+      return res.status(400).json({
+        message: `Minimum order amount is Rs. ${requiredMinSubtotal} for distance ${distance_km.toFixed(1)} km`,
+        error_type: "min_subtotal",
+        required_subtotal: requiredMinSubtotal,
+        current_subtotal: parseFloat(subtotal.toFixed(2)),
+        distance_km: parseFloat(distance_km.toFixed(2)),
       });
     }
 

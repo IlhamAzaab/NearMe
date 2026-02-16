@@ -192,30 +192,6 @@ TO service_role
 USING (true)
 WITH CHECK (true);
 
--- 6. DRIVER STATUS AUDIT LOG (Track all status changes)
-CREATE TABLE IF NOT EXISTS driver_status_log (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  driver_id UUID NOT NULL REFERENCES drivers(id) ON DELETE CASCADE,
-  old_status TEXT,
-  new_status TEXT NOT NULL,
-  changed_by UUID REFERENCES users(id),
-  change_reason TEXT,
-  changed_at TIMESTAMP DEFAULT now()
-);
-
--- Index for audit queries
-CREATE INDEX IF NOT EXISTS idx_status_log_driver ON driver_status_log(driver_id);
-CREATE INDEX IF NOT EXISTS idx_status_log_date ON driver_status_log(changed_at);
-
--- RLS Policies for driver_status_log
-ALTER TABLE driver_status_log ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Service role full access to status log"
-ON driver_status_log FOR ALL
-TO service_role
-USING (true)
-WITH CHECK (true);
-
 -- 7. UPDATE DRIVERS RLS POLICIES
 ALTER TABLE drivers ENABLE ROW LEVEL SECURITY;
 
@@ -265,33 +241,6 @@ CREATE TRIGGER update_bank_accounts_updated_at
 BEFORE UPDATE ON driver_bank_accounts
 FOR EACH ROW
 EXECUTE FUNCTION update_updated_at();
-
--- 9. FUNCTION TO LOG STATUS CHANGES (Automatic audit trail)
-CREATE OR REPLACE FUNCTION log_driver_status_change()
-RETURNS TRIGGER AS $$
-BEGIN
-  IF OLD.driver_status IS DISTINCT FROM NEW.driver_status THEN
-    INSERT INTO driver_status_log (
-      driver_id,
-      old_status,
-      new_status,
-      change_reason
-    ) VALUES (
-      NEW.id,
-      OLD.driver_status,
-      NEW.driver_status,
-      'System change'
-    );
-  END IF;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS log_driver_status ON drivers;
-CREATE TRIGGER log_driver_status
-AFTER UPDATE ON drivers
-FOR EACH ROW
-EXECUTE FUNCTION log_driver_status_change();
 
 -- 10. VALIDATION CONSTRAINTS
 -- Ensure NIC is unique and non-null when onboarding is completed
@@ -357,7 +306,6 @@ AND table_name IN (
   'driver_vehicle_license',
   'driver_documents',
   'driver_bank_accounts',
-  'driver_contracts',
-  'driver_status_log'
+  'driver_contracts'
 )
 ORDER BY table_name, ordinal_position;

@@ -2,6 +2,12 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import BottomNavbar from "../components/BottomNavbar";
 import { API_URL } from "../config";
+import {
+  calculateRestaurantDistances,
+  formatDistance,
+  hasCustomerDeliveryLocation,
+} from "../services/restaurantDistanceService";
+import { formatRestaurantHours } from "../utils/locationUtils";
 
 // Category Icons
 const CategoryIcon = ({ type }) => {
@@ -113,6 +119,8 @@ const Home = () => {
   ];
 
   const [selectedCategory, setSelectedCategory] = useState(null);
+  const [restaurantsWithDistances, setRestaurantsWithDistances] = useState([]);
+  const [showDistances, setShowDistances] = useState(false);
 
   // Check auth and fetch notifications/cart count
   useEffect(() => {
@@ -123,8 +131,48 @@ const Home = () => {
       setIsLoggedIn(true);
       fetchNotificationCount();
       fetchCartCount();
+      checkCustomerLocation();
     }
   }, []);
+
+  // Check if customer has delivery location for distance calculations
+  const checkCustomerLocation = async () => {
+    try {
+      const hasLocation = await hasCustomerDeliveryLocation();
+      setShowDistances(hasLocation);
+    } catch (error) {
+      console.warn("Could not check customer location:", error);
+      setShowDistances(false);
+    }
+  };
+
+  // Calculate distances when restaurants are loaded and customer is logged in
+  useEffect(() => {
+    if (restaurants.length > 0 && showDistances) {
+      calculateDistances();
+    }
+  }, [restaurants, showDistances]);
+
+  const calculateDistances = async () => {
+    try {
+      const restaurantsWithDist =
+        await calculateRestaurantDistances(restaurants);
+      setRestaurantsWithDistances(restaurantsWithDist);
+    } catch (error) {
+      console.error("Failed to calculate distances:", error);
+      setRestaurantsWithDistances(
+        restaurants.map((r) => ({ ...r, distance: null })),
+      );
+    }
+  };
+
+  // Helper function to get restaurant with distance
+  const getRestaurantWithDistance = (restaurantId) => {
+    return (
+      restaurantsWithDistances.find((r) => r.id === restaurantId) ||
+      restaurants.find((r) => r.id === restaurantId)
+    );
+  };
 
   const fetchNotificationCount = async () => {
     try {
@@ -362,7 +410,7 @@ const Home = () => {
                 : "bg-white text-[#FF7A00] border-2 border-[#FF7A00] hover:bg-orange-50"
             }`}
           >
-            🍽️ Restaurants
+            Restaurants
           </button>
           <button
             onClick={() => setActiveTab("food")}
@@ -372,7 +420,7 @@ const Home = () => {
                 : "bg-white text-[#FF7A00] border-2 border-[#FF7A00] hover:bg-orange-50"
             }`}
           >
-            🍕 Food Items
+            Food Items
           </button>
         </div>
 
@@ -540,6 +588,56 @@ const Home = () => {
                       <p className="text-xs text-gray-500 truncate mb-2">
                         {r.cuisine || "Multi-cuisine"}
                       </p>
+                      <div className="flex items-center gap-2 text-xs text-gray-400 mb-1">
+                        {showDistances &&
+                          getRestaurantWithDistance(r.id)?.distance && (
+                            <span className="flex items-center gap-1">
+                              <svg
+                                className="w-3 h-3"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+                                />
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+                                />
+                              </svg>
+                              {formatDistance(
+                                getRestaurantWithDistance(r.id).distance,
+                              )}
+                            </span>
+                          )}
+                        {r.opening_time && r.close_time && (
+                          <span className="flex items-center gap-1">
+                            <svg
+                              className="w-3 h-3"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                              />
+                            </svg>
+                            {formatRestaurantHours(
+                              r.opening_time,
+                              r.close_time,
+                            )}
+                          </span>
+                        )}
+                      </div>
                       <div className="flex items-center gap-2 text-xs text-gray-400">
                         {r.delivery_time && (
                           <span className="flex items-center gap-1">
@@ -622,6 +720,56 @@ const Home = () => {
                         <p className="text-sm text-gray-500 mb-2 truncate">
                           {r.cuisine || "Multi-cuisine"}
                         </p>
+                        <div className="flex items-center gap-3 text-sm mb-1">
+                          {showDistances &&
+                            getRestaurantWithDistance(r.id)?.distance && (
+                              <span className="text-gray-400 flex items-center gap-1 text-xs">
+                                <svg
+                                  className="w-3.5 h-3.5"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  viewBox="0 0 24 24"
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+                                  />
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+                                  />
+                                </svg>
+                                {formatDistance(
+                                  getRestaurantWithDistance(r.id).distance,
+                                )}
+                              </span>
+                            )}
+                          {r.opening_time && r.close_time && (
+                            <span className="text-gray-400 flex items-center gap-1 text-xs">
+                              <svg
+                                className="w-3.5 h-3.5"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                                />
+                              </svg>
+                              {formatRestaurantHours(
+                                r.opening_time,
+                                r.close_time,
+                              )}
+                            </span>
+                          )}
+                        </div>
                         <div className="flex items-center gap-3 text-sm">
                           {r.rating && (
                             <span className="flex items-center gap-1 bg-green-600 text-white px-2 py-0.5 rounded text-xs font-medium">
@@ -690,12 +838,7 @@ const Home = () => {
                       alt={food.name}
                       className="w-full h-36 object-cover"
                     />
-                    {food.stars && (
-                      <div className="absolute top-2 left-2 px-2 py-0.5 bg-green-600 rounded text-xs font-semibold text-white flex items-center gap-1">
-                        <span>★</span>
-                        <span>{food.stars}</span>
-                      </div>
-                    )}
+                   
                     <button
                       className="absolute bottom-2 right-2 w-9 h-9 bg-white text-[#FF7A00] rounded-full flex items-center justify-center shadow-lg hover:bg-[#FF7A00] hover:text-white transition-colors"
                       onClick={(e) => {
@@ -722,7 +865,7 @@ const Home = () => {
                     <h4 className="font-semibold text-gray-900 text-sm truncate mb-1">
                       {food.name}
                     </h4>
-                    <p className="text-xs text-gray-500 truncate mb-2">
+                    <p className="text-xs text-teal-500 truncate mb-2">
                       {food.restaurants?.restaurant_name || "Restaurant"}
                     </p>
                     <div className="flex items-center justify-between">

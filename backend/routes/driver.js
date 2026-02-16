@@ -19,7 +19,7 @@ router.get("/me", authenticate, async (req, res) => {
     const { data, error } = await supabaseAdmin
       .from("drivers")
       .select(
-        "id, full_name, user_name, email, phone, nic_number, driver_status, driver_type, city, address, force_password_change, profile_completed, onboarding_completed, onboarding_step",
+        "id, full_name, user_name, email, phone, nic_number, driver_status, driver_type, city, address, working_time, force_password_change, profile_completed, onboarding_completed, onboarding_step",
       )
       .eq("id", userId)
       .maybeSingle();
@@ -35,7 +35,20 @@ router.get("/me", authenticate, async (req, res) => {
       return res.status(404).json({ message: "Driver profile not found" });
     }
 
-    return res.json({ driver: data });
+    // Fetch vehicle number from driver_vehicle_license table
+    let vehicleNumber = null;
+    try {
+      const { data: vehicleData } = await supabaseAdmin
+        .from("driver_vehicle_license")
+        .select("vehicle_number")
+        .eq("driver_id", userId)
+        .maybeSingle();
+      vehicleNumber = vehicleData?.vehicle_number || null;
+    } catch (vErr) {
+      console.error("Vehicle fetch error:", vErr);
+    }
+
+    return res.json({ driver: { ...data, vehicle_number: vehicleNumber } });
   } catch (e) {
     console.error("/driver/me error:", e);
     return res.status(500).json({ message: "Server error" });
@@ -216,6 +229,109 @@ router.get("/profile", authenticate, async (req, res) => {
     });
   } catch (e) {
     console.error("/driver/profile error:", e);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
+/**
+ * GET /driver/stats/monthly
+ * Get current month's stats (earnings and deliveries)
+ */
+router.get("/stats/monthly", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "driver") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const driverId = req.user.id;
+    const now = new Date();
+    const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    firstDayOfMonth.setHours(0, 0, 0, 0);
+
+    const { data: deliveries, error } = await supabaseAdmin
+      .from("deliveries")
+      .select(
+        "driver_earnings, tip_amount, base_amount, extra_earnings, bonus_amount",
+      )
+      .eq("driver_id", driverId)
+      .eq("status", "delivered")
+      .gte("delivered_at", firstDayOfMonth.toISOString());
+
+    if (error) {
+      console.error("Fetch monthly stats error:", error);
+      return res.status(500).json({ message: "Failed to fetch monthly stats" });
+    }
+
+    const totalEarnings = (deliveries || []).reduce((sum, d) => {
+      const earnings =
+        parseFloat(d.driver_earnings || 0) ||
+        parseFloat(d.base_amount || 0) +
+          parseFloat(d.extra_earnings || 0) +
+          parseFloat(d.bonus_amount || 0) +
+          parseFloat(d.tip_amount || 0);
+      return sum + earnings;
+    }, 0);
+
+    return res.json({
+      earnings: totalEarnings,
+      deliveries: deliveries?.length || 0,
+    });
+  } catch (e) {
+    console.error("/driver/stats/monthly error:", e);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
+/**
+ * GET /driver/deliveries/recent
+ * Get recent completed deliveries for the driver
+ */
+router.get("/deliveries/recent", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "driver") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const driverId = req.user.id;
+    const limit = parseInt(req.query.limit || "5", 10);
+
+    const { data: deliveries, error } = await supabaseAdmin
+      .from("deliveries")
+      .select(
+        `id, status, driver_earnings, tip_amount, base_amount, extra_earnings, bonus_amount, delivered_at, created_at,
+        orders!inner ( order_number, restaurant_name )`,
+      )
+      .eq("driver_id", driverId)
+      .eq("status", "delivered")
+      .order("delivered_at", { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      console.error("Fetch recent deliveries error:", error);
+      return res
+        .status(500)
+        .json({ message: "Failed to fetch recent deliveries" });
+    }
+
+    const formatted = (deliveries || []).map((d) => {
+      const earnings =
+        parseFloat(d.driver_earnings || 0) ||
+        parseFloat(d.base_amount || 0) +
+          parseFloat(d.extra_earnings || 0) +
+          parseFloat(d.bonus_amount || 0) +
+          parseFloat(d.tip_amount || 0);
+      return {
+        id: d.id,
+        order_number: d.orders?.order_number || "N/A",
+        restaurant_name: d.orders?.restaurant_name || "Restaurant",
+        driver_earnings: earnings,
+        delivered_at: d.delivered_at || d.created_at,
+      };
+    });
+
+    return res.json({ deliveries: formatted });
+  } catch (e) {
+    console.error("/driver/deliveries/recent error:", e);
     return res.status(500).json({ message: "Server error" });
   }
 });

@@ -11,8 +11,10 @@ import {
 } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { X, Phone, ChevronDown } from "lucide-react";
 import DriverLayout from "../../components/DriverLayout";
 import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
+import SwipeToDeliver from "../../components/SwipeToDeliver";
 import { API_URL } from "../../config";
 
 // Fix Leaflet default marker icons
@@ -207,9 +209,7 @@ export default function DriverMapPage() {
         );
 
         if (moved >= MOVEMENT_THRESHOLD_METERS) {
-          console.log(
-            `[LOCATION] Moved ${moved.toFixed(0)}m → updating`,
-          );
+          console.log(`[LOCATION] Moved ${moved.toFixed(0)}m → updating`);
           lastLocationRef.current = newLoc;
           setDriverLocation(newLoc);
 
@@ -251,20 +251,17 @@ export default function DriverMapPage() {
   const updateLocationOnBackend = async (delivId, location) => {
     try {
       const token = localStorage.getItem("token");
-      await fetch(
-        `${API_URL}/driver/deliveries/${delivId}/location`,
-        {
-          method: "PATCH",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            latitude: location.latitude,
-            longitude: location.longitude,
-          }),
+      await fetch(`${API_URL}/driver/deliveries/${delivId}/location`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
         },
-      );
+        body: JSON.stringify({
+          latitude: location.latitude,
+          longitude: location.longitude,
+        }),
+      });
     } catch (e) {
       console.error("Location update error:", e);
     }
@@ -382,10 +379,9 @@ export default function DriverMapPage() {
       // On error, try the fallback endpoint
       try {
         const token = localStorage.getItem("token");
-        const fallbackRes = await fetch(
-          `${API_URL}/driver/deliveries/active`,
-          { headers: { Authorization: `Bearer ${token}` } },
-        );
+        const fallbackRes = await fetch(`${API_URL}/driver/deliveries/active`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
         if (fallbackRes.ok) {
           const fallbackData = await fallbackRes.json();
           const activeList = fallbackData.deliveries || [];
@@ -722,8 +718,17 @@ export default function DriverMapPage() {
             </MapContainer>
           )}
 
+          {/* X Close Button - Top Left */}
+          <button
+            onClick={() => navigate("/driver/dashboard")}
+            className="absolute top-4 left-4 z-[1000] bg-white rounded-full p-2 shadow-lg hover:bg-gray-100 transition-colors"
+            title="Back to Dashboard"
+          >
+            <X className="w-6 h-6 text-gray-700" />
+          </button>
+
           {/* Mode Badge */}
-          <div className="absolute top-4 left-4 bg-white px-4 py-2 rounded-full shadow-lg">
+          <div className="absolute top-4 left-16 bg-white px-4 py-2 rounded-full shadow-lg">
             <span className="font-bold text-gray-700">
               {mode === "pickup" ? "🏪 PICKUP MODE" : "📦 DELIVERY MODE"}
             </span>
@@ -838,25 +843,29 @@ export default function DriverMapPage() {
 }
 
 function PickupInfo({ pickup, onPickedUp, updating }) {
-  const { order_number, restaurant, distance_km, estimated_time_minutes } =
-    pickup;
+  const {
+    order_number,
+    restaurant,
+    distance_km,
+    estimated_time_minutes,
+    order_items = [],
+  } = pickup;
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <p className="text-sm text-gray-500 uppercase font-semibold">
-            Order #{order_number}
-          </p>
-          <h2 className="text-2xl font-bold text-gray-800">
-            {restaurant.name}
-          </h2>
-        </div>
-        <div className="text-right">
-          <div className="flex items-center gap-3 text-sm">
-            <div className="flex items-center gap-1">
+    <div className="space-y-3">
+      {/* Block 1: Order ID with Distance and Time */}
+      <div className="bg-white p-4 rounded-lg border border-gray-300">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs text-gray-500 uppercase font-semibold mb-1">
+              ORDER ID
+            </p>
+            <p className="text-base font-bold text-gray-800">#{order_number}</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1 bg-green-50 px-2 py-1 rounded">
               <svg
-                className="w-5 h-5"
+                className="w-4 h-4 text-green-600"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -868,11 +877,13 @@ function PickupInfo({ pickup, onPickedUp, updating }) {
                   d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"
                 />
               </svg>
-              <span className="font-bold">{distance_km} km</span>
+              <span className="text-sm font-bold text-green-700">
+                {distance_km} km
+              </span>
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1 bg-green-50 px-2 py-1 rounded">
               <svg
-                className="w-5 h-5"
+                className="w-4 h-4 text-green-600"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -884,42 +895,74 @@ function PickupInfo({ pickup, onPickedUp, updating }) {
                   d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
                 />
               </svg>
-              <span className="font-bold">{estimated_time_minutes} min</span>
+              <span className="text-sm font-bold text-green-700">
+                {estimated_time_minutes} min
+              </span>
             </div>
           </div>
         </div>
       </div>
 
-      <p className="text-gray-600 mb-2">{restaurant.address}</p>
-      {restaurant.phone && (
-        <a
-          href={`tel:${restaurant.phone}`}
-          className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700 font-semibold mb-4"
-        >
-          <svg
-            className="w-5 h-5"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
-            />
-          </svg>
-          <span>{restaurant.phone}</span>
-        </a>
-      )}
+      {/* Block 2: Restaurant Name, Address, and Phone */}
+      <div className="bg-white p-4 rounded-lg border border-gray-300">
+        <div className="flex items-start justify-between mb-2">
+          <h2 className="text-xl font-bold text-green-600">
+            {restaurant.name}
+          </h2>
+          {restaurant.phone && (
+            <a
+              href={`tel:${restaurant.phone}`}
+              className="shrink-0 w-10 h-10 bg-green-500 rounded-full flex items-center justify-center hover:bg-green-600 transition-colors"
+            >
+              <Phone className="w-5 h-5 text-white" />
+            </a>
+          )}
+        </div>
+        <p className="text-gray-700 text-sm leading-relaxed">
+          {restaurant.address}
+        </p>
+      </div>
 
-      <button
-        onClick={onPickedUp}
-        disabled={updating}
-        className="w-full py-4 bg-green-600 text-white rounded-xl font-bold text-lg hover:bg-green-700 transition disabled:opacity-50 mt-4"
-      >
-        {updating ? "Updating..." : "MARK AS PICKED UP"}
-      </button>
+      {/* Block 3: Order Items */}
+      <div className="bg-white p-4 rounded-lg border border-gray-300">
+        <h3 className="text-xs text-gray-500 uppercase font-semibold mb-3">
+          ORDER ITEMS
+        </h3>
+        <div className="space-y-3">
+          {order_items.length > 0 ? (
+            order_items.map((item, index) => (
+              <div key={index} className="flex items-start gap-3">
+                <div className="shrink-0 w-8 h-8 bg-green-500 rounded flex items-center justify-center">
+                  <span className="text-white font-bold text-sm">
+                    {item.quantity}x
+                  </span>
+                </div>
+                <div className="flex-1">
+                  <p className="font-semibold text-gray-800 text-base">
+                    {item.food_name}
+                  </p>
+                  {item.size && (
+                    <p className="text-sm text-gray-500 mt-0.5">
+                      {item.size.charAt(0).toUpperCase() + item.size.slice(1)}
+                    </p>
+                  )}
+                </div>
+              </div>
+            ))
+          ) : (
+            <p className="text-gray-500 text-sm">No items found</p>
+          )}
+        </div>
+      </div>
+
+      {/* Block 4: Swipe to Pick Up */}
+      <div className="pt-2">
+        <SwipeToDeliver
+          onSwipe={onPickedUp}
+          disabled={updating}
+          buttonText="SWIPE TO PICK UP"
+        />
+      </div>
     </div>
   );
 }
@@ -931,23 +974,24 @@ function DeliveryInfo({ delivery, onDelivered, updating }) {
     pricing,
     distance_km,
     estimated_time_minutes,
-    restaurant_name,
+    items = [],
   } = delivery;
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <p className="text-sm text-gray-500 uppercase font-semibold">
-            Order #{order_number}
-          </p>
-          <h2 className="text-2xl font-bold text-gray-800">{customer.name}</h2>
-        </div>
-        <div className="text-right">
-          <div className="flex items-center gap-3 text-sm">
-            <div className="flex items-center gap-1">
+    <div className="space-y-3">
+      {/* Block 1: Order ID with Distance and Time */}
+      <div className="bg-white p-4 rounded-lg border border-gray-300">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs text-gray-500 uppercase font-semibold mb-1">
+              ORDER ID
+            </p>
+            <p className="text-base font-bold text-gray-800">#{order_number}</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1 bg-green-50 px-2 py-1 rounded">
               <svg
-                className="w-5 h-5"
+                className="w-4 h-4 text-green-600"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -959,11 +1003,13 @@ function DeliveryInfo({ delivery, onDelivered, updating }) {
                   d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"
                 />
               </svg>
-              <span className="font-bold">{distance_km} km</span>
+              <span className="text-sm font-bold text-green-700">
+                {distance_km} km
+              </span>
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1 bg-green-50 px-2 py-1 rounded">
               <svg
-                className="w-5 h-5"
+                className="w-4 h-4 text-green-600"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -975,66 +1021,90 @@ function DeliveryInfo({ delivery, onDelivered, updating }) {
                   d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
                 />
               </svg>
-              <span className="font-bold">{estimated_time_minutes} min</span>
+              <span className="text-sm font-bold text-green-700">
+                {estimated_time_minutes} min
+              </span>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="mb-4 p-4 bg-gray-50 rounded-lg">
-        <p className="text-sm text-gray-500 mb-2">From: {restaurant_name}</p>
-        <div className="grid grid-cols-2 gap-2 text-sm">
+      {/* Block 2: Customer Name, Address, and Phone */}
+      <div className="bg-white p-4 rounded-lg border border-gray-300">
+        <div className="flex items-start justify-between mb-2">
+          <h2 className="text-xl font-bold text-green-600">{customer.name}</h2>
+          
+          {customer.phone && (
+            <a
+              href={`tel:${customer.phone}`}
+              className="shrink-0 w-10 h-10 rounded-full flex items-center justify-center hover:bg-green-600 transition-colors"
+            >
+              <Phone className="w-8 h-8 text-green-500" />
+            </a>
+          )}
+        </div>
+        <p className="text-gray-700 text-sm leading-relaxed">
+          {customer.address}
+          {customer.city && (
+            <span className="block text-gray-500 mt-1">{customer.city}</span>
+          )}
+        </p>
+      </div>
+
+      {/* Block 3: Order Items */}
+      <div className="bg-white p-4 rounded-lg border border-gray-300">
+        <h3 className="text-xs text-gray-500 uppercase font-semibold mb-3">
+          ORDER ITEMS
+        </h3>
+        <div className="space-y-3">
+          {items.length > 0 ? (
+            items.map((item, index) => (
+              <div key={index} className="flex items-start gap-3">
+                <div className="shrink-0 w-8 h-8 bg-green-50 rounded-xl flex items-center justify-center">
+                  <span className="text-green-500 font-bold text-sm">
+                    {item.quantity}x
+                  </span>
+                </div>
+                <div className="flex-1">
+                  <p className="font-semibold text-gray-800 text-base">
+                    {item.food_name}
+                  </p>
+                  {item.size && (
+                    <p className="text-sm text-gray-500 mt-0.5">
+                      {item.size.charAt(0).toUpperCase() + item.size.slice(1)}
+                    </p>
+                  )}
+                </div>
+              </div>
+            ))
+          ) : (
+            <p className="text-gray-500 text-sm">No items found</p>
+          )}
+        </div>
+      </div>
+
+      {/* Block 4: Total Amount to Collect */}
+      <div className="bg-white p-4 rounded-lg border border-gray-300">
+        <div className="flex items-center justify-between">
           <div>
-            <p className="text-gray-500">Subtotal</p>
-            <p className="font-bold">${pricing.subtotal.toFixed(2)}</p>
-          </div>
-          <div>
-            <p className="text-gray-500">Delivery Fee</p>
-            <p className="font-bold">${pricing.delivery_fee.toFixed(2)}</p>
-          </div>
-          <div>
-            <p className="text-gray-500">Service Fee</p>
-            <p className="font-bold">${pricing.service_fee.toFixed(2)}</p>
-          </div>
-          <div>
-            <p className="text-gray-500">Total</p>
-            <p className="font-bold text-lg text-green-600">
-              ${pricing.total.toFixed(2)}
+            <p className="text-xs text-gray-500 uppercase font-semibold mb-1">
+              TOTAL AMOUNT
+            </p>
+            <p className="text-2xl font-bold text-green-600">
+              Rs. {pricing?.total?.toFixed(2) || "0.00"}
             </p>
           </div>
         </div>
       </div>
 
-      <p className="text-gray-600 mb-2">{customer.address}</p>
-      {customer.phone && (
-        <a
-          href={`tel:${customer.phone}`}
-          className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700 font-semibold mb-4"
-        >
-          <svg
-            className="w-5 h-5"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
-            />
-          </svg>
-          <span>{customer.phone}</span>
-        </a>
-      )}
-
-      <button
-        onClick={onDelivered}
-        disabled={updating}
-        className="w-full py-4 bg-green-600 text-white rounded-xl font-bold text-lg hover:bg-green-700 transition disabled:opacity-50 mt-4"
-      >
-        {updating ? "Updating..." : "MARK AS DELIVERED"}
-      </button>
+      {/* Block 5: Swipe to Deliver */}
+      <div className="pt-2">
+        <SwipeToDeliver
+          onSwipe={onDelivered}
+          disabled={updating}
+          buttonText="SWIPE TO DELIVER"
+        />
+      </div>
     </div>
   );
 }

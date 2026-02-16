@@ -3,6 +3,12 @@ import { useParams, useNavigate } from "react-router-dom";
 import BottomNavbar from "../components/BottomNavbar";
 import AnimatedAlert, { useAlert } from "../components/AnimatedAlert";
 import { API_URL } from "../config";
+import {
+  calculateRestaurantDistance,
+  formatDistance,
+  hasCustomerDeliveryLocation,
+} from "../services/restaurantDistanceService";
+import { formatRestaurantHours } from "../utils/locationUtils";
 
 const RestaurantFoods = () => {
   const { restaurantId } = useParams();
@@ -26,6 +32,10 @@ const RestaurantFoods = () => {
   const [addingToCart, setAddingToCart] = useState(null);
   const { alert, visible, showSuccess, showError } = useAlert();
 
+  // Location state for distance calculation
+  const [restaurantDistance, setRestaurantDistance] = useState(null);
+  const [showDistance, setShowDistance] = useState(false);
+
   useEffect(() => {
     const token = localStorage.getItem("token");
     const storedRole = localStorage.getItem("role");
@@ -46,6 +56,29 @@ const RestaurantFoods = () => {
 
     fetchRestaurant();
   }, [restaurantId]);
+
+  // Check if customer has delivery location and calculate distance
+  useEffect(() => {
+    if (isLoggedIn && restaurant) {
+      checkAndCalculateDistance();
+    }
+  }, [isLoggedIn, restaurant]);
+
+  const checkAndCalculateDistance = async () => {
+    try {
+      const hasLocation = await hasCustomerDeliveryLocation();
+      if (hasLocation) {
+        const distance = await calculateRestaurantDistance(restaurant);
+        setRestaurantDistance(distance);
+        setShowDistance(true);
+      } else {
+        setShowDistance(false);
+      }
+    } catch (error) {
+      console.warn("Failed to calculate distance:", error);
+      setShowDistance(false);
+    }
+  };
 
   const fetchCartCount = async () => {
     try {
@@ -417,6 +450,30 @@ const RestaurantFoods = () => {
                               {restaurant.restaurant_name}
                             </h2>
                             <div className="flex flex-wrap items-center gap-3 text-sm text-gray-500">
+                              {showDistance && restaurantDistance && (
+                                <span className="flex items-center gap-1 text-[#FF7A00] font-medium">
+                                  <svg
+                                    className="w-4 h-4"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+                                    />
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+                                    />
+                                  </svg>
+                                  {formatDistance(restaurantDistance)} away
+                                </span>
+                              )}
                               {restaurant.city && (
                                 <span className="flex items-center gap-1">
                                   <svg
@@ -441,26 +498,28 @@ const RestaurantFoods = () => {
                                   {restaurant.city}
                                 </span>
                               )}
-                              {(restaurant.opening_time ||
-                                restaurant.close_time) && (
-                                <span className="flex items-center gap-1">
-                                  <svg
-                                    className="w-4 h-4"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    viewBox="0 0 24 24"
-                                  >
-                                    <path
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      strokeWidth={2}
-                                      d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                                    />
-                                  </svg>
-                                  {restaurant.opening_time || "N/A"} -{" "}
-                                  {restaurant.close_time || "N/A"}
-                                </span>
-                              )}
+                              {restaurant.opening_time &&
+                                restaurant.close_time && (
+                                  <span className="flex items-center gap-1">
+                                    <svg
+                                      className="w-4 h-4"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      viewBox="0 0 24 24"
+                                    >
+                                      <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        strokeWidth={2}
+                                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                                      />
+                                    </svg>
+                                    {formatRestaurantHours(
+                                      restaurant.opening_time,
+                                      restaurant.close_time,
+                                    )}
+                                  </span>
+                                )}
                             </div>
                           </div>
 

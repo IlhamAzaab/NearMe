@@ -39,7 +39,6 @@ ALTER TABLE public.driver_vehicle_license ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.driver_documents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.driver_bank_accounts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.driver_contracts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.driver_status_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.driver_balances ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.driver_deposits ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.driver_payments ENABLE ROW LEVEL SECURITY;
@@ -168,7 +167,7 @@ DECLARE
   tables TEXT[] := ARRAY[
     'users', 'managers', 'admins', 'customers',
     'drivers', 'driver_vehicle_license', 'driver_documents', 
-    'driver_bank_accounts', 'driver_contracts', 'driver_status_log',
+    'driver_bank_accounts', 'driver_contracts',
     'driver_balances', 'driver_deposits', 'driver_payments',
     'restaurants', 'restaurant_bank_accounts', 'restaurant_contracts',
     'foods', 'food_reviews', 'carts', 'cart_items',
@@ -497,7 +496,6 @@ REVOKE ALL ON public.drivers FROM anon;
 REVOKE ALL ON public.driver_vehicle_license FROM anon;
 REVOKE ALL ON public.driver_documents FROM anon;
 REVOKE ALL ON public.driver_contracts FROM anon;
-REVOKE ALL ON public.driver_status_log FROM anon;
 REVOKE ALL ON public.restaurant_contracts FROM anon;
 REVOKE ALL ON public.order_status_history FROM anon;
 REVOKE ALL ON public.delivery_stops FROM anon;

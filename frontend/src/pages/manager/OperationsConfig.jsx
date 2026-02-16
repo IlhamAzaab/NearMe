@@ -73,6 +73,15 @@ export default function OperationsConfig() {
   const [nightStart, setNightStart] = useState("6:00 PM");
   const [nightEnd, setNightEnd] = useState("6:00 AM");
 
+  // Section 7: Order Distance Constraints
+  const [orderDistanceConstraints, setOrderDistanceConstraints] = useState([
+    { min_km: 0, max_km: 5, min_subtotal: 300 },
+    { min_km: 5, max_km: 10, min_subtotal: 1000 },
+    { min_km: 10, max_km: 15, min_subtotal: 2000 },
+    { min_km: 15, max_km: 25, min_subtotal: 3000 },
+  ]);
+  const [maxOrderDistanceKm, setMaxOrderDistanceKm] = useState(25);
+
   const fetchConfig = useCallback(async () => {
     try {
       const token = localStorage.getItem("token");
@@ -127,6 +136,18 @@ export default function OperationsConfig() {
       setDayEnd(formatTime(parseFloat(config.day_shift_end)));
       setNightStart(formatTime(parseFloat(config.night_shift_start)));
       setNightEnd(formatTime(parseFloat(config.night_shift_end)));
+
+      // Section 7
+      if (config.order_distance_constraints) {
+        const odc =
+          typeof config.order_distance_constraints === "string"
+            ? JSON.parse(config.order_distance_constraints)
+            : config.order_distance_constraints;
+        setOrderDistanceConstraints(odc);
+      }
+      if (config.max_order_distance_km !== undefined) {
+        setMaxOrderDistanceKm(parseFloat(config.max_order_distance_km));
+      }
     } catch (err) {
       console.error(err);
       setError("Failed to load configuration");
@@ -185,6 +206,12 @@ export default function OperationsConfig() {
         day_shift_end: parseTimeToDecimal(dayEnd),
         night_shift_start: parseTimeToDecimal(nightStart),
         night_shift_end: parseTimeToDecimal(nightEnd),
+        order_distance_constraints: orderDistanceConstraints.map((c) => ({
+          min_km: parseFloat(c.min_km) || 0,
+          max_km: parseFloat(c.max_km) || 0,
+          min_subtotal: parseFloat(c.min_subtotal) || 0,
+        })),
+        max_order_distance_km: parseFloat(maxOrderDistanceKm) || 25,
       };
 
       // validate times
@@ -250,6 +277,24 @@ export default function OperationsConfig() {
   };
   const removeDeliveryTier = (idx) => {
     setDeliveryFeeTiers((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  // Order distance constraint handlers
+  const updateConstraint = (idx, field, value) => {
+    setOrderDistanceConstraints((prev) => {
+      const copy = [...prev];
+      copy[idx] = { ...copy[idx], [field]: value };
+      return copy;
+    });
+  };
+  const addConstraint = () => {
+    setOrderDistanceConstraints((prev) => [
+      ...prev,
+      { min_km: "", max_km: "", min_subtotal: "" },
+    ]);
+  };
+  const removeConstraint = (idx) => {
+    setOrderDistanceConstraints((prev) => prev.filter((_, i) => i !== idx));
   };
 
   if (loading) {
@@ -765,6 +810,107 @@ export default function OperationsConfig() {
               Format: HH:MM AM/PM (e.g. 5:00 AM, 7:00 PM). Full-time drivers are
               always active.
             </p>
+          </div>
+        </div>
+
+        {/* ========== SECTION 7: Order Distance Constraints ========== */}
+        <div className="bg-white rounded-xl border border-[#dbe6e3] overflow-hidden">
+          <div className="px-4 py-3 bg-gradient-to-r from-orange-50 to-transparent border-b border-[#dbe6e3]">
+            <div className="flex items-center gap-2">
+              <span className="material-symbols-outlined text-orange-600">
+                straighten
+              </span>
+              <h3 className="text-[#111816] font-bold text-sm">
+                Order Distance Constraints
+              </h3>
+              <span className="text-[10px] bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-medium">
+                Customer Facing
+              </span>
+            </div>
+            <p className="text-[#618980] text-xs mt-0.5">
+              Minimum order subtotal based on customer-to-restaurant distance
+            </p>
+          </div>
+          <div className="p-4 space-y-3">
+            {/* Max distance */}
+            <div className="max-w-xs">
+              <label className={labelClass}>Max Order Distance (km)</label>
+              <input
+                type="number"
+                step="0.1"
+                value={maxOrderDistanceKm}
+                onChange={(e) => setMaxOrderDistanceKm(e.target.value)}
+                className={inputClass}
+              />
+              <p className="text-[10px] text-[#618980] mt-0.5">
+                Customers beyond this distance cannot place orders
+              </p>
+            </div>
+
+            {/* Constraint tiers */}
+            <div className="mt-3 pt-3 border-t border-[#dbe6e3]">
+              <p className="text-[10px] font-semibold text-[#618980] uppercase tracking-wider mb-2">
+                Distance-based minimum subtotal tiers
+              </p>
+              <div className="grid grid-cols-[1fr_1fr_1fr_40px] gap-2 text-[10px] font-semibold text-[#618980] uppercase tracking-wider mb-1">
+                <span>From (km)</span>
+                <span>To (km)</span>
+                <span>Min Subtotal (Rs.)</span>
+                <span></span>
+              </div>
+              {orderDistanceConstraints.map((c, idx) => (
+                <div
+                  key={idx}
+                  className="grid grid-cols-[1fr_1fr_1fr_40px] gap-2 items-center mb-1"
+                >
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={c.min_km}
+                    onChange={(e) =>
+                      updateConstraint(idx, "min_km", e.target.value)
+                    }
+                    className={inputClass}
+                    placeholder="0"
+                  />
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={c.max_km}
+                    onChange={(e) =>
+                      updateConstraint(idx, "max_km", e.target.value)
+                    }
+                    className={inputClass}
+                    placeholder="5"
+                  />
+                  <input
+                    type="number"
+                    step="1"
+                    value={c.min_subtotal}
+                    onChange={(e) =>
+                      updateConstraint(idx, "min_subtotal", e.target.value)
+                    }
+                    className={inputClass}
+                    placeholder="300"
+                  />
+                  <button
+                    onClick={() => removeConstraint(idx)}
+                    className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center hover:bg-red-100 transition"
+                  >
+                    <span className="material-symbols-outlined text-red-500 text-lg">
+                      delete
+                    </span>
+                  </button>
+                </div>
+              ))}
+              <button
+                onClick={addConstraint}
+                className="flex items-center gap-1 text-[#13ecb9] text-xs font-medium hover:underline mt-1"
+              >
+                <span className="material-symbols-outlined text-sm">add</span>
+                Add Constraint
+              </button>
+            </div>
           </div>
         </div>
 

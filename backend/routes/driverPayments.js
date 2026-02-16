@@ -433,7 +433,7 @@ router.post(
         const uploadResult = await cloudinary.uploader.upload(dataURI, {
           folder: `nearme/driver-payments/${driverId}`,
           public_id: `payment_${Date.now()}`,
-          resource_type: isPdf ? "raw" : "image",
+          resource_type: "image", // Use "image" for both - enables PDF rendering as image preview
           overwrite: true,
           access_mode: "public",
         });

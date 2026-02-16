@@ -241,8 +241,12 @@ export default function DriverDashboard() {
   const [stats, setStats] = useState({
     todayEarnings: 0,
     todayDeliveries: 0,
-    activeTime: "0.0",
   });
+  const [monthlyStats, setMonthlyStats] = useState({
+    earnings: 0,
+    deliveries: 0,
+  });
+  const [recentDeliveries, setRecentDeliveries] = useState([]);
   const [availableDeliveries, setAvailableDeliveries] = useState([]);
   const [activeDeliveries, setActiveDeliveries] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -263,9 +267,6 @@ export default function DriverDashboard() {
   // Driver notification context - to sync online status
   const { setDriverOnline } = useDriverDeliveryNotifications();
 
-  // Active time tracking
-  const [activeStartTime, setActiveStartTime] = useState(null);
-  const activeTimeRef = useRef(null);
   const workingHoursCheckRef = useRef(null);
   const driverLocationRef = useRef(null); // Ref to avoid infinite loop in fetchDashboardData
 
@@ -401,11 +402,36 @@ export default function DriverDashboard() {
 
       if (statsRes.ok) {
         const statsData = await statsRes.json();
-        setStats((prev) => ({
-          ...prev,
+        setStats({
           todayEarnings: statsData.earnings || 0,
           todayDeliveries: statsData.deliveries || 0,
-        }));
+        });
+      }
+
+      // Fetch monthly stats
+      const monthlyStatsRes = await fetch(`${API_URL}/driver/stats/monthly`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (monthlyStatsRes.ok) {
+        const monthlyData = await monthlyStatsRes.json();
+        setMonthlyStats({
+          earnings: monthlyData.earnings || 0,
+          deliveries: monthlyData.deliveries || 0,
+        });
+      }
+
+      // Fetch recent deliveries (last 5 completed)
+      const recentRes = await fetch(
+        `${API_URL}/driver/deliveries/recent?limit=5`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+
+      if (recentRes.ok) {
+        const recentData = await recentRes.json();
+        setRecentDeliveries(recentData.deliveries || []);
       }
 
       // Fetch available deliveries using v2 endpoint with driver location
@@ -466,36 +492,6 @@ export default function DriverDashboard() {
       }
     };
   }, [checkWorkingHoursStatus]);
-
-  // ============================================================================
-  // ACTIVE TIME TRACKING
-  // ============================================================================
-
-  useEffect(() => {
-    if (isOnline && !activeStartTime) {
-      setActiveStartTime(Date.now());
-    } else if (!isOnline && activeStartTime) {
-      setActiveStartTime(null);
-    }
-  }, [isOnline]);
-
-  useEffect(() => {
-    if (isOnline && activeStartTime) {
-      activeTimeRef.current = setInterval(() => {
-        const elapsed = (Date.now() - activeStartTime) / 1000 / 60 / 60; // hours
-        setStats((prev) => ({
-          ...prev,
-          activeTime: elapsed.toFixed(1),
-        }));
-      }, 60000); // Update every minute
-    }
-
-    return () => {
-      if (activeTimeRef.current) {
-        clearInterval(activeTimeRef.current);
-      }
-    };
-  }, [isOnline, activeStartTime]);
 
   // ============================================================================
   // TOGGLE ONLINE STATUS
@@ -718,32 +714,37 @@ export default function DriverDashboard() {
         <div className="relative flex h-auto min-h-screen w-full flex-col max-w-md mx-auto overflow-x-hidden border-x border-slate-200 bg-[#fdfdfd]">
           {/* Top App Bar */}
           <div className="flex items-center bg-white/90 p-4 pb-2 justify-between sticky top-0 z-50 border-b border-slate-100 backdrop-blur-md">
-            <div className="flex size-10 shrink-0 items-center overflow-hidden">
-              <div
-                className="bg-center bg-no-repeat aspect-square bg-cover rounded-full size-9 ring-2 ring-primary/10 bg-slate-200"
-                style={{
-                  backgroundImage: driverProfile?.profile_picture
-                    ? `url("${driverProfile.profile_picture}")`
-                    : "none",
-                }}
-              >
-                {!driverProfile?.profile_picture && (
-                  <div className="w-full h-full flex items-center justify-center text-slate-500">
-                    <span className="material-symbols-outlined text-xl">
-                      person
-                    </span>
-                  </div>
-                )}
+            <button
+              onClick={() => navigate("/driver/profile")}
+              className="flex items-center flex-1 active:opacity-60 transition-opacity"
+            >
+              <div className="flex size-10 shrink-0 items-center overflow-hidden">
+                <div
+                  className="bg-center bg-no-repeat aspect-square bg-cover rounded-full size-9 ring-2 ring-primary/10 bg-slate-200"
+                  style={{
+                    backgroundImage: driverProfile?.profile_picture
+                      ? `url("${driverProfile.profile_picture}")`
+                      : "none",
+                  }}
+                >
+                  {!driverProfile?.profile_picture && (
+                    <div className="w-full h-full flex items-center justify-center text-slate-500">
+                      <span className="material-symbols-outlined text-xl">
+                        person
+                      </span>
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-            <div className="flex-1 ml-3">
-              <h2 className="text-slate-900 text-[17px] font-bold leading-tight tracking-tight">
-                {driverProfile?.user_name || "Driver"}
-              </h2>
-              <p className="text-slate-500 text-xs">
-                {WORKING_TIME_LABELS[driverProfile?.working_time] || ""}
-              </p>
-            </div>
+              <div className="flex-1 ml-3 text-left">
+                <h2 className="text-slate-900 text-[17px] font-bold leading-tight tracking-tight">
+                  {driverProfile?.user_name || "Driver"}
+                </h2>
+                <p className="text-slate-500 text-xs">
+                  {WORKING_TIME_LABELS[driverProfile?.working_time] || ""}
+                </p>
+              </div>
+            </button>
             <div className="flex w-10 items-center justify-end">
               <button
                 onClick={() => navigate("/driver/notifications")}
@@ -831,11 +832,11 @@ export default function DriverDashboard() {
 
           {/* Stats Cards */}
           <div className="px-4">
-            <div className="flex gap-3 overflow-x-auto no-scrollbar py-2">
+            <div className="flex gap-3 py-2">
               {/* Earnings Card */}
-              <div className="flex min-w-[145px] flex-1 flex-col gap-2 rounded-xl p-5 bg-white border border-slate-100 shadow-sm">
+              <div className="flex flex-1 flex-col gap-2 rounded-xl p-5 bg-white border border-slate-100 shadow-sm">
                 <p className="text-slate-400 text-[11px] font-bold uppercase tracking-wider">
-                  Earnings
+                  Today's Earnings
                 </p>
                 <p className="text-[#22c55e] tracking-tight text-2xl font-bold leading-tight">
                   Rs. {stats.todayEarnings.toFixed(0)}
@@ -843,22 +844,12 @@ export default function DriverDashboard() {
               </div>
 
               {/* Deliveries Card */}
-              <div className="flex min-w-[145px] flex-1 flex-col gap-2 rounded-xl p-5 bg-white border border-slate-100 shadow-sm">
+              <div className="flex flex-1 flex-col gap-2 rounded-xl p-5 bg-white border border-slate-100 shadow-sm">
                 <p className="text-slate-400 text-[11px] font-bold uppercase tracking-wider">
-                  Deliveries
+                  Today's Deliveries
                 </p>
                 <p className="text-slate-900 tracking-tight text-2xl font-bold leading-tight">
                   {stats.todayDeliveries}
-                </p>
-              </div>
-
-              {/* Active Time Card */}
-              <div className="flex min-w-[145px] flex-1 flex-col gap-2 rounded-xl p-5 bg-white border border-slate-100 shadow-sm">
-                <p className="text-slate-400 text-[11px] font-bold uppercase tracking-wider">
-                  Active
-                </p>
-                <p className="text-slate-900 tracking-tight text-2xl font-bold leading-tight">
-                  {stats.activeTime}h
                 </p>
               </div>
             </div>
@@ -1064,6 +1055,89 @@ export default function DriverDashboard() {
               ))
             )}
           </div>
+
+          {/* Monthly Performance Section */}
+          <div className="px-4 pt-6 pb-2">
+            <h2 className="text-slate-900 text-[18px] font-bold leading-tight mb-3">
+              Monthly Performance
+            </h2>
+            <div className="flex gap-3">
+              {/* Monthly Earnings */}
+              <div className="flex flex-1 flex-col gap-2 rounded-xl p-5 bg-gradient-to-br from-green-50 to-green-100 border border-green-200 shadow-sm">
+                <p className="text-green-700 text-[11px] font-bold uppercase tracking-wider">
+                  Month Earnings
+                </p>
+                <p className="text-green-700 tracking-tight text-2xl font-bold leading-tight">
+                  Rs. {monthlyStats.earnings.toFixed(0)}
+                </p>
+              </div>
+
+              {/* Monthly Deliveries */}
+              <div className="flex flex-1 flex-col gap-2 rounded-xl p-5 bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200 shadow-sm">
+                <p className="text-blue-700 text-[11px] font-bold uppercase tracking-wider">
+                  Month Deliveries
+                </p>
+                <p className="text-blue-700 tracking-tight text-2xl font-bold leading-tight">
+                  {monthlyStats.deliveries}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Recent Deliveries Section */}
+          {recentDeliveries.length > 0 && (
+            <>
+              <div className="flex items-center justify-between px-4 pt-6 pb-2">
+                <h2 className="text-slate-900 text-[18px] font-bold leading-tight">
+                  Recent Deliveries
+                </h2>
+              </div>
+              <div className="flex flex-col gap-3 px-4 pb-28">
+                {recentDeliveries.map((delivery) => (
+                  <div
+                    key={delivery.id}
+                    className="flex items-center gap-4 rounded-xl bg-white border border-slate-100 p-4 shadow-sm"
+                  >
+                    <div className="flex items-center justify-center w-12 h-12 rounded-full bg-green-100">
+                      <span className="material-symbols-outlined text-green-600">
+                        check_circle
+                      </span>
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-slate-900 font-semibold text-sm">
+                        {delivery.restaurant_name || "Restaurant"}
+                      </p>
+                      <p className="text-slate-500 text-xs mt-0.5">
+                        Order #{delivery.order_number || "N/A"}
+                      </p>
+                      <p className="text-green-600 text-xs font-medium mt-1">
+                        Rs.{" "}
+                        {parseFloat(delivery.driver_earnings || 0).toFixed(0)}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-slate-400 text-xs">
+                        {delivery.delivered_at
+                          ? new Date(delivery.delivered_at).toLocaleDateString(
+                              "en-US",
+                              { month: "short", day: "numeric" },
+                            )
+                          : ""}
+                      </p>
+                      <p className="text-slate-400 text-xs">
+                        {delivery.delivered_at
+                          ? new Date(delivery.delivered_at).toLocaleTimeString(
+                              "en-US",
+                              { hour: "2-digit", minute: "2-digit" },
+                            )
+                          : ""}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
 
           {/* Bottom Navigation removed - provided by DriverLayout */}
         </div>

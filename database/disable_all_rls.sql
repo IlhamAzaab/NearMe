@@ -27,7 +27,6 @@ ALTER TABLE public.driver_vehicle_license DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.driver_documents DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.driver_bank_accounts DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.driver_contracts DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.driver_status_log DISABLE ROW LEVEL SECURITY;
 
 -- Optional: Verify RLS is disabled (should return 'f' for all)
 -- SELECT 
@@ -40,6 +39,6 @@ ALTER TABLE public.driver_status_log DISABLE ROW LEVEL SECURITY;
 --     'users', 'managers', 'admins', 'restaurants', 
 --     'restaurant_bank_accounts', 'restaurant_contracts',
 --     'drivers', 'driver_vehicle_license', 'driver_documents',
---     'driver_bank_accounts', 'driver_contracts', 'driver_status_log'
+--     'driver_bank_accounts', 'driver_contracts'
 --   )
 -- ORDER BY tablename;

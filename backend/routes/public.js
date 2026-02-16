@@ -247,9 +247,28 @@ router.get("/restaurants/:restaurantId/foods/:foodId", async (req, res) => {
 router.get("/fee-config", async (req, res) => {
   try {
     const config = await getSystemConfig();
+
+    // Parse order distance constraints
+    let orderDistanceConstraints;
+    try {
+      orderDistanceConstraints =
+        typeof config.order_distance_constraints === "string"
+          ? JSON.parse(config.order_distance_constraints)
+          : config.order_distance_constraints || [];
+    } catch {
+      orderDistanceConstraints = [
+        { min_km: 0, max_km: 5, min_subtotal: 300 },
+        { min_km: 5, max_km: 10, min_subtotal: 1000 },
+        { min_km: 10, max_km: 15, min_subtotal: 2000 },
+        { min_km: 15, max_km: 25, min_subtotal: 3000 },
+      ];
+    }
+
     return res.json({
       service_fee_tiers: getServiceFeeTiers(config),
       delivery_fee_tiers: getDeliveryFeeTiers(config),
+      order_distance_constraints: orderDistanceConstraints,
+      max_order_distance_km: parseFloat(config.max_order_distance_km || 25),
     });
   } catch (err) {
     console.error("Fee config fetch error:", err);

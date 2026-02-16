@@ -14,6 +14,7 @@ export default function DriverProfile() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState(null);
   const [message, setMessage] = useState(null);
+  const [isProfileCompleted, setIsProfileCompleted] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -35,11 +36,8 @@ export default function DriverProfile() {
       });
       const data = await res.json();
       if (res.ok && data.driver) {
-        if (data.driver.profile_completed) {
-          navigate("/driver/dashboard");
-          return;
-        }
         setProfile(data.driver);
+        setIsProfileCompleted(data.driver.profile_completed);
       } else {
         setError("Failed to load profile");
       }
@@ -48,6 +46,12 @@ export default function DriverProfile() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem("token");
+    localStorage.removeItem("role");
+    navigate("/login");
   };
 
   const handleSubmit = async (e) => {
@@ -116,9 +120,24 @@ export default function DriverProfile() {
         {/* Background */}
         <div className="absolute inset-0 bg-gradient-to-br from-[#f0fdf4] via-[#dcfce7] to-[#bbf7d0]"></div>
         <div className="relative z-10 flex items-center gap-3">
-          <svg className="w-6 h-6 animate-spin text-[#1db95b]" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          <svg
+            className="w-6 h-6 animate-spin text-[#1db95b]"
+            fill="none"
+            viewBox="0 0 24 24"
+          >
+            <circle
+              className="opacity-25"
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              strokeWidth="4"
+            ></circle>
+            <path
+              className="opacity-75"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+            ></path>
           </svg>
           <p className="text-[#166534] font-medium">Loading...</p>
         </div>
@@ -126,15 +145,213 @@ export default function DriverProfile() {
     );
   }
 
+  // If profile is completed, show account details view
+  if (isProfileCompleted) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-[#f0fdf4] via-[#dcfce7] to-[#bbf7d0] font-display pb-20">
+        {/* Header */}
+        <div className="bg-gradient-to-r from-[#1db95b] to-[#16a34a] text-white px-6 py-6 shadow-lg">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => navigate("/driver/dashboard")}
+              className="h-10 w-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all active:scale-95"
+            >
+              <span className="material-symbols-outlined text-white">
+                arrow_back
+              </span>
+            </button>
+            <div>
+              <h1 className="text-2xl font-bold">My Profile</h1>
+              <p className="text-white/80 text-sm mt-0.5">Account Details</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Profile Content */}
+        <div className="px-6 py-6 space-y-5">
+          {/* Profile Header Card */}
+          <div className="bg-white rounded-3xl shadow-lg p-6">
+            <div className="flex items-center gap-4">
+              <div className="h-20 w-20 rounded-full bg-gradient-to-br from-[#1db95b] to-[#16a34a] flex items-center justify-center shadow-lg">
+                <span className="material-symbols-outlined text-white text-[42px]">
+                  person
+                </span>
+              </div>
+              <div className="flex-1">
+                <h2 className="text-xl font-bold text-gray-900">
+                  {profile?.full_name || "Driver"}
+                </h2>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="material-symbols-outlined text-[#1db95b] text-base">
+                    alternate_email
+                  </span>
+                  <p className="text-gray-600 text-sm">
+                    @{profile?.user_name || "username"}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Personal Information */}
+          <div className="bg-white rounded-3xl shadow-lg p-6">
+            <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+              <span className="material-symbols-outlined text-[#1db95b]">
+                badge
+              </span>
+              Personal Information
+            </h3>
+            <div className="space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="h-10 w-10 rounded-xl bg-[#dcfce7] flex items-center justify-center flex-shrink-0">
+                  <span className="material-symbols-outlined text-[#1db95b]">
+                    person
+                  </span>
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs text-gray-500 font-medium">Full Name</p>
+                  <p className="text-base font-semibold text-gray-900">
+                    {profile?.full_name || "N/A"}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-3">
+                <div className="h-10 w-10 rounded-xl bg-[#dbeafe] flex items-center justify-center flex-shrink-0">
+                  <span className="material-symbols-outlined text-[#3b82f6]">
+                    mail
+                  </span>
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs text-gray-500 font-medium">
+                    Email Address
+                  </p>
+                  <p className="text-base font-semibold text-gray-900 break-all">
+                    {profile?.email || "N/A"}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-3">
+                <div className="h-10 w-10 rounded-xl bg-[#fef3c7] flex items-center justify-center flex-shrink-0">
+                  <span className="material-symbols-outlined text-[#f59e0b]">
+                    phone
+                  </span>
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs text-gray-500 font-medium">
+                    Phone Number
+                  </p>
+                  <p className="text-base font-semibold text-gray-900">
+                    {profile?.phone || "N/A"}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Work Information */}
+          <div className="bg-white rounded-3xl shadow-lg p-6">
+            <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+              <span className="material-symbols-outlined text-[#1db95b]">
+                work
+              </span>
+              Work Information
+            </h3>
+            <div className="space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="h-10 w-10 rounded-xl bg-[#e0e7ff] flex items-center justify-center flex-shrink-0">
+                  <span className="material-symbols-outlined text-[#6366f1]">
+                    schedule
+                  </span>
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs text-gray-500 font-medium">
+                    Working Time
+                  </p>
+                  <p className="text-base font-semibold text-gray-900">
+                    {profile?.working_time
+                      ? profile.working_time === "full_time"
+                        ? "Full Time"
+                        : profile.working_time === "day"
+                          ? "Day Shift (5AM - 7PM)"
+                          : profile.working_time === "night"
+                            ? "Night Shift (6PM - 6AM)"
+                            : profile.working_time
+                      : "Not Set"}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-3">
+                <div className="h-10 w-10 rounded-xl bg-[#dcfce7] flex items-center justify-center flex-shrink-0">
+                  <span className="material-symbols-outlined text-[#1db95b]">
+                    pending_actions
+                  </span>
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs text-gray-500 font-medium">Status</p>
+                  <div className="mt-1">
+                    <span
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold ${
+                        profile?.driver_status === "active"
+                          ? "bg-[#dcfce7] text-[#166534]"
+                          : profile?.driver_status === "inactive"
+                            ? "bg-gray-100 text-gray-600"
+                            : "bg-[#fef3c7] text-[#92400e]"
+                      }`}
+                    >
+                      <span className="h-1.5 w-1.5 rounded-full bg-current"></span>
+                      {(profile?.driver_status || "inactive").toUpperCase()}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-3">
+                <div className="h-10 w-10 rounded-xl bg-[#fce7f3] flex items-center justify-center flex-shrink-0">
+                  <span className="material-symbols-outlined text-[#ec4899]">
+                    two_wheeler
+                  </span>
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs text-gray-500 font-medium">
+                    Vehicle Number
+                  </p>
+                  <p className="text-base font-semibold text-gray-900">
+                    {profile?.vehicle_number || "N/A"}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Logout Button */}
+          <button
+            onClick={handleLogout}
+            className="w-full h-14 bg-gradient-to-r from-red-500 to-red-600 text-white font-bold rounded-2xl hover:from-red-600 hover:to-red-700 active:scale-[0.98] transition-all shadow-lg shadow-red-500/30 flex items-center justify-center gap-2"
+          >
+            <span className="material-symbols-outlined">logout</span>
+            <span>Logout</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // If profile is not completed, show profile setup form
   return (
     <div className="min-h-screen flex flex-col items-center justify-center relative font-display">
       {/* Gradient background - Green at top fading to light at bottom */}
       <div className="absolute inset-0 bg-gradient-to-b from-[#1db95b] via-[#34d399] via-40% to-[#f0fdf4]"></div>
-      
+
       {/* Subtle pattern overlay */}
-      <div 
+      <div
         className="absolute inset-0 opacity-20 pointer-events-none"
-        style={{ backgroundImage: "url('https://grainy-gradients.vercel.app/noise.svg')" }}
+        style={{
+          backgroundImage:
+            "url('https://grainy-gradients.vercel.app/noise.svg')",
+        }}
       ></div>
 
       {/* Main content */}
@@ -142,7 +359,9 @@ export default function DriverProfile() {
         {/* Logo/Icon */}
         <div className="flex flex-col items-center mb-6">
           <div className="h-16 w-16 bg-white rounded-full shadow-lg shadow-[#1db95b]/20 flex items-center justify-center mb-4">
-            <span className="material-symbols-outlined text-[#1db95b] text-[32px]">person_add</span>
+            <span className="material-symbols-outlined text-[#1db95b] text-[32px]">
+              person_add
+            </span>
           </div>
         </div>
 
@@ -150,8 +369,12 @@ export default function DriverProfile() {
         <div className="bg-white rounded-3xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.15)] p-8 sm:p-10">
           {/* Header */}
           <div className="text-center mb-8">
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">Complete Your Profile</h1>
-            <p className="text-gray-500 text-sm">Choose a username and set your password to continue</p>
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">
+              Complete Your Profile
+            </h1>
+            <p className="text-gray-500 text-sm">
+              Choose a username and set your password to continue
+            </p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-5">
@@ -211,7 +434,7 @@ export default function DriverProfile() {
                 <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#1db95b]">
                   <span className="material-symbols-outlined">lock</span>
                 </div>
-                <div 
+                <div
                   className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#1db95b] cursor-pointer transition-colors"
                   onClick={() => setShowPassword(!showPassword)}
                 >
@@ -239,7 +462,7 @@ export default function DriverProfile() {
                 <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#1db95b]">
                   <span className="material-symbols-outlined">shield</span>
                 </div>
-                <div 
+                <div
                   className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#1db95b] cursor-pointer transition-colors"
                   onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                 >
@@ -253,7 +476,9 @@ export default function DriverProfile() {
             {/* Error message */}
             {error && (
               <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm flex items-start gap-2">
-                <span className="material-symbols-outlined text-red-500 text-lg">error</span>
+                <span className="material-symbols-outlined text-red-500 text-lg">
+                  error
+                </span>
                 <span>{error}</span>
               </div>
             )}
@@ -261,7 +486,9 @@ export default function DriverProfile() {
             {/* Success message */}
             {message && (
               <div className="p-4 bg-green-50 border border-green-200 text-green-700 rounded-xl text-sm flex items-start gap-2">
-                <span className="material-symbols-outlined text-green-500 text-lg">check_circle</span>
+                <span className="material-symbols-outlined text-green-500 text-lg">
+                  check_circle
+                </span>
                 <span>{message}</span>
               </div>
             )}
@@ -269,9 +496,12 @@ export default function DriverProfile() {
             {/* Warning note */}
             <div className="p-4 bg-[#dcfce7] border border-[#86efac] rounded-xl">
               <div className="flex items-start gap-2">
-                <span className="material-symbols-outlined text-[#16a34a] text-lg mt-0.5">info</span>
+                <span className="material-symbols-outlined text-[#16a34a] text-lg mt-0.5">
+                  info
+                </span>
                 <p className="text-sm text-[#166534]">
-                  <strong>Note:</strong> Username and password cannot be changed later. Your onboarding details will be collected next.
+                  <strong>Note:</strong> Username and password cannot be changed
+                  later. Your onboarding details will be collected next.
                 </p>
               </div>
             </div>
@@ -284,9 +514,24 @@ export default function DriverProfile() {
             >
               {saving ? (
                 <>
-                  <svg className="w-5 h-5 animate-spin text-white" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  <svg
+                    className="w-5 h-5 animate-spin text-white"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    ></circle>
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                    ></path>
                   </svg>
                   <span>Saving...</span>
                 </>

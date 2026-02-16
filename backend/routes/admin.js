@@ -663,50 +663,49 @@ router.get("/orders", authenticate, async (req, res) => {
       return res.json({ orders: [] });
     }
 
+    // Fetch orders with financial details including restaurant_payment
     const { data: orders, error } = await supabaseAdmin
-      .from("orders")
-      .select(
-        `
-        id,
-        order_number,
-        customer_id,
-        customer_name,
-        restaurant_id,
-        total_amount,
-        status,
-        created_at,
-        updated_at,
-        order_items (
-          food_name,
-          quantity
-        )
-      `,
-      )
+      .from("order_financial_details")
+      .select("*")
       .eq("restaurant_id", admin.restaurant_id)
-      .order("created_at", { ascending: false })
+      .order("placed_at", { ascending: false })
       .limit(limit);
 
     if (error) throw error;
 
+    // Get order items for each order
+    const orderIds = (orders || []).map((o) => o.order_id);
+    const { data: orderItems } = await supabaseAdmin
+      .from("order_items")
+      .select("order_id, food_name, quantity")
+      .in("order_id", orderIds);
+
+    // Group items by order_id
+    const itemsByOrder = (orderItems || []).reduce((acc, item) => {
+      if (!acc[item.order_id]) acc[item.order_id] = [];
+      acc[item.order_id].push(item);
+      return acc;
+    }, {});
+
     // Transform orders for dashboard display
     const transformed = (orders || []).map((o) => ({
-      id: o.id,
+      id: o.order_id,
       order_number: o.order_number,
       customer: o.customer_name || "Unknown",
       items:
-        (o.order_items || [])
+        (itemsByOrder[o.order_id] || [])
           .map((item) => `${item.quantity}x ${item.food_name}`)
           .join(", ") || "No items",
-      amount: parseFloat(o.total_amount || 0),
+      amount: parseFloat(o.restaurant_payment || 0),
       status: o.status,
-      time: new Date(o.created_at).toLocaleString("en-US", {
+      time: new Date(o.placed_at).toLocaleString("en-US", {
         month: "short",
         day: "numeric",
         hour: "2-digit",
         minute: "2-digit",
         hour12: true,
       }),
-      created_at: o.created_at,
+      created_at: o.placed_at,
     }));
 
     return res.json({ orders: transformed });

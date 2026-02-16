@@ -69,9 +69,6 @@ DROP POLICY IF EXISTS "Drivers can view own contracts" ON public.driver_contract
 DROP POLICY IF EXISTS "Drivers can insert own contracts" ON public.driver_contracts;
 DROP POLICY IF EXISTS "Service role full access to contracts" ON public.driver_contracts;
 
--- driver_status_log
-DROP POLICY IF EXISTS "Service role full access to status log" ON public.driver_status_log;
-
 
 -- ============================================================================
 -- SECTION 4: DROP OLD POLICIES ON ADMINS

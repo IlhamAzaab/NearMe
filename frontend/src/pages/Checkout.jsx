@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import AnimatedAlert, { useAlert } from "../components/AnimatedAlert";
 import { API_URL } from "../config";
+import { formatRestaurantHours } from "../utils/locationUtils";
 import {
   MapContainer,
   TileLayer,
@@ -163,8 +164,14 @@ const Checkout = () => {
     return null;
   }
 
-  // Minimum order amount
-  const MINIMUM_SUBTOTAL = 300;
+  // Default distance constraints (overridden by API config)
+  const DEFAULT_DISTANCE_CONSTRAINTS = [
+    { min_km: 0, max_km: 5, min_subtotal: 300 },
+    { min_km: 5, max_km: 10, min_subtotal: 1000 },
+    { min_km: 10, max_km: 15, min_subtotal: 2000 },
+    { min_km: 15, max_km: 25, min_subtotal: 3000 },
+  ];
+  const DEFAULT_MAX_ORDER_DISTANCE = 25;
 
   // Fee config from API (loaded dynamically)
   const [feeConfig, setFeeConfig] = useState(null);
@@ -394,7 +401,30 @@ const Checkout = () => {
   const deliveryFee = routeInfo
     ? calculateDeliveryFee(routeInfo.distance)
     : null;
-  const isSubtotalValid = subtotal >= MINIMUM_SUBTOTAL;
+
+  // Distance-based minimum subtotal validation
+  const distanceConstraints =
+    feeConfig?.order_distance_constraints || DEFAULT_DISTANCE_CONSTRAINTS;
+  const maxOrderDistance =
+    feeConfig?.max_order_distance_km ?? DEFAULT_MAX_ORDER_DISTANCE;
+  const currentDistance = routeInfo?.distance ?? null;
+
+  const getRequiredMinSubtotal = () => {
+    if (currentDistance === null) return 300; // default while loading
+    const sorted = [...distanceConstraints].sort((a, b) => a.min_km - b.min_km);
+    for (const c of sorted) {
+      if (currentDistance >= c.min_km && currentDistance <= c.max_km) {
+        return c.min_subtotal;
+      }
+    }
+    return 300; // fallback
+  };
+
+  const requiredMinSubtotal = getRequiredMinSubtotal();
+  const isTooFar =
+    currentDistance !== null && currentDistance > maxOrderDistance;
+  const isSubtotalValid = !isTooFar && subtotal >= requiredMinSubtotal;
+
   const totalAmount =
     isSubtotalValid && deliveryFee !== null
       ? subtotal + serviceFee + deliveryFee
@@ -422,7 +452,15 @@ const Checkout = () => {
     }
 
     if (!isSubtotalValid) {
-      setError(`Minimum order amount is Rs. ${MINIMUM_SUBTOTAL}`);
+      if (isTooFar) {
+        setError(
+          `Restaurant is too far away (${currentDistance?.toFixed(1)} km). Maximum ordering distance is ${maxOrderDistance} km.`,
+        );
+      } else {
+        setError(
+          `Minimum order amount is Rs. ${requiredMinSubtotal} for your distance (${currentDistance?.toFixed(1)} km)`,
+        );
+      }
       return;
     }
 
@@ -1168,7 +1206,53 @@ const Checkout = () => {
                 <p className="font-semibold text-gray-900">
                   {cart?.restaurant?.restaurant_name || "Restaurant"}
                 </p>
-                <p className="text-sm text-gray-500">
+                {routeInfo && (
+                  <p className="text-xs text-[#FF7A00] font-medium flex items-center gap-1">
+                    <svg
+                      className="w-3 h-3"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+                      />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+                      />
+                    </svg>
+                    {routeInfo.distance.toFixed(1)} km away
+                  </p>
+                )}
+                {cart?.restaurant?.opening_time &&
+                  cart?.restaurant?.close_time && (
+                    <p className="text-xs text-gray-500 flex items-center gap-1">
+                      <svg
+                        className="w-3 h-3"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                        />
+                      </svg>
+                      {formatRestaurantHours(
+                        cart.restaurant.opening_time,
+                        cart.restaurant.close_time,
+                      )}
+                    </p>
+                  )}
+                <p className="text-sm text-gray-500 mt-1">
                   {cart?.total_items || 0} item
                   {cart?.total_items !== 1 ? "s" : ""} • {formatPrice(subtotal)}
                 </p>
@@ -1306,14 +1390,7 @@ const Checkout = () => {
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-600">
-                Delivery fee
-                {routeInfo && (
-                  <span className="text-gray-400 ml-1">
-                    ({routeInfo.distance.toFixed(1)} km)
-                  </span>
-                )}
-              </span>
+              Delivery fee
               <span className="font-medium text-gray-900">
                 {routeLoading
                   ? "..."
@@ -1345,27 +1422,86 @@ const Checkout = () => {
           </div>
         </div>
 
-        {/* Minimum Order Warning */}
-        {!isSubtotalValid && (
-          <div className="mx-4 mb-4 bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center gap-2">
-            <svg
-              className="w-5 h-5 text-amber-600 flex-shrink-0"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-              />
-            </svg>
-            <p className="text-sm text-amber-800">
-              <span className="font-medium">Minimum order:</span> Rs.{" "}
-              {MINIMUM_SUBTOTAL}. Add Rs.{" "}
-              {(MINIMUM_SUBTOTAL - subtotal).toFixed(0)} more.
-            </p>
+        {/* Distance / Minimum Order Warning */}
+        {isTooFar && (
+          <div className="mx-4 mb-4 bg-red-50 border border-red-200 rounded-xl p-4">
+            <div className="flex items-start gap-2">
+              <svg
+                className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"
+                />
+              </svg>
+              <div>
+                <p className="text-sm font-semibold text-red-800">
+                  Restaurant is too far away
+                </p>
+                <p className="text-xs text-red-600 mt-1">
+                  Distance: {currentDistance?.toFixed(1)} km. Maximum ordering
+                  distance is {maxOrderDistance} km. Please choose a closer
+                  restaurant.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {!isTooFar && !isSubtotalValid && (
+          <div className="mx-4 mb-4 bg-amber-50 border border-amber-200 rounded-xl p-4">
+            <div className="flex items-start gap-2">
+              <svg
+                className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                />
+              </svg>
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-amber-800">
+                  Minimum order: Rs. {requiredMinSubtotal}
+                </p>
+                <p className="text-xs text-amber-700 mt-0.5">
+                  For distance {currentDistance?.toFixed(1)} km, you need Rs.{" "}
+                  {(requiredMinSubtotal - subtotal).toFixed(0)} more.
+                </p>
+                {cart?.restaurant?.id && (
+                  <button
+                    onClick={() =>
+                      navigate(`/restaurant/${cart.restaurant.id}/foods`)
+                    }
+                    className="mt-2 inline-flex items-center gap-1.5 px-4 py-2 bg-[#FF7A00] text-white text-xs font-bold rounded-full hover:bg-orange-600 active:scale-[0.97] transition-all shadow-sm"
+                  >
+                    <svg
+                      className="w-4 h-4"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 6v6m0 0v6m0-6h6m-6 0H6"
+                      />
+                    </svg>
+                    Add Items
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         )}
 
@@ -1406,8 +1542,10 @@ const Checkout = () => {
                 <div className="w-5 h-5 border-2 border-[#FF7A00] border-t-transparent rounded-full animate-spin"></div>
                 Calculating...
               </>
+            ) : isTooFar ? (
+              "Restaurant too far"
             ) : !isSubtotalValid ? (
-              `Add Rs. ${(MINIMUM_SUBTOTAL - subtotal).toFixed(0)} more`
+              `Add Rs. ${(requiredMinSubtotal - subtotal).toFixed(0)} more`
             ) : finalTotal !== null ? (
               <>
                 <svg
