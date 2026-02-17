@@ -185,14 +185,14 @@ export default function AdminOnboardingStep2() {
   const handleFileChange = (fieldKey, e) => {
     const file = e.target.files[0];
     if (file) {
-      // Validate file size (max 5MB)
-      if (file.size > 5 * 1024 * 1024) {
-        setError(`${fieldKey} must be less than 5MB`);
+      // Validate file size (max 15MB for iOS images)
+      if (file.size > 15 * 1024 * 1024) {
+        setError(`${fieldKey} must be less than 15MB`);
         return;
       }
-      // Validate file type
-      if (!["image/jpeg", "image/jpg", "image/png"].includes(file.type)) {
-        setError(`${fieldKey} must be JPG or PNG`);
+      // Validate file type (including HEIC for iOS)
+      if (!["image/jpeg", "image/jpg", "image/png", "image/heic", "image/heif"].includes(file.type)) {
+        setError(`${fieldKey} must be JPG, PNG, or HEIC`);
         return;
       }
       setFiles((prev) => ({ ...prev, [fieldKey]: file }));
@@ -740,7 +740,7 @@ export default function AdminOnboardingStep2() {
             </label>
             <input
               type="file"
-              accept="image/jpeg,image/jpg,image/png"
+              accept="image/jpeg,image/jpg,image/png,image/heic,image/heif"
               className="w-full border-2 border-gray-200 rounded-xl p-3 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-gradient-to-r file:from-lime-50 file:to-green-50 file:text-lime-700 hover:file:bg-lime-100 file:cursor-pointer cursor-pointer transition-all"
               onChange={(e) => handleFileChange("logo", e)}
             />
@@ -754,7 +754,7 @@ export default function AdminOnboardingStep2() {
             <div className="flex items-center gap-3">
               <input
                 type="file"
-                accept="image/jpeg,image/jpg,image/png"
+                accept="image/jpeg,image/jpg,image/png,image/heic,image/heif"
                 className="flex-1 border-2 border-gray-200 rounded-xl p-3 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-gradient-to-r file:from-lime-50 file:to-green-50 file:text-lime-700 hover:file:bg-lime-100 file:cursor-pointer cursor-pointer transition-all"
                 onChange={(e) => handleFileChange("coverImage", e)}
                 required
@@ -766,7 +766,7 @@ export default function AdminOnboardingStep2() {
                 <div className="text-blue-600 font-semibold">⟳</div>
               )}
             </div>
-            <p className="text-xs text-gray-500 mt-1">JPG or PNG, max 5MB</p>
+            <p className="text-xs text-gray-500 mt-1">JPG, PNG or HEIC, max 15MB</p>
           </div>
 
           {/* Error Display */}

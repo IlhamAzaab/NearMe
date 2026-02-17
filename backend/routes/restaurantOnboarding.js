@@ -17,17 +17,32 @@ cloudinary.config({
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit
+    fileSize: 15 * 1024 * 1024, // 15MB limit for iOS images
   },
   fileFilter: (req, file, cb) => {
-    const allowedTypes = ["image/jpeg", "image/jpg", "image/png"];
+    const allowedTypes = ["image/jpeg", "image/jpg", "image/png", "image/heic", "image/heif"];
     if (allowedTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error("Invalid file type. Only JPG and PNG allowed."));
+      cb(new Error("Invalid file type. Only JPG, PNG, and HEIC allowed."));
     }
   },
 });
+
+// Multer error handler middleware
+const handleMulterError = (err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ 
+        message: "File too large. Maximum size is 15MB. Please compress your image or use a smaller file." 
+      });
+    }
+    return res.status(400).json({ message: err.message });
+  } else if (err) {
+    return res.status(400).json({ message: err.message });
+  }
+  next();
+};
 
 /**
  * GET /restaurant-onboarding/status
@@ -93,6 +108,7 @@ router.post(
   "/upload-image",
   authenticate,
   upload.single("file"),
+  handleMulterError,
   async (req, res) => {
     try {
       if (req.user.role !== "admin") {

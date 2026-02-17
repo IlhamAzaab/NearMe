@@ -12,7 +12,7 @@ export default function AdminDashboardRoute({ children }) {
 
     if (!token || role !== "admin") {
       setAllowed(false);
-      setRedirectTo("/admin/profile");
+      setRedirectTo("login");
       return;
     }
 
