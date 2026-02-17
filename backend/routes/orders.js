@@ -33,6 +33,11 @@ import {
   calculateDeliveryFeeFromConfig,
 } from "../utils/systemConfig.js";
 import { calculateCustomerETA } from "../utils/etaCalculator.js";
+import {
+  sendNewOrderNotification,
+  sendOrderStatusNotification,
+  sendNewDeliveryNotificationToDrivers,
+} from "../utils/pushNotificationService.js";
 
 const router = express.Router();
 
@@ -698,6 +703,24 @@ router.post("/place", authenticate, async (req, res) => {
           restaurant_id: restaurant.id,
         });
       }
+
+      // 📱 PUSH NOTIFICATION: Notify admin even when app is closed/phone locked
+      // Pass admin IDs directly to avoid redundant DB lookup
+      const adminIds = admins.map(a => a.id);
+      console.log('📱 Calling sendNewOrderNotification for restaurant:', restaurant.id, 'admins:', adminIds);
+      sendNewOrderNotification(restaurant.id, {
+        orderId: order.id,
+        orderNumber,
+        customerName: customer.username,
+        itemsCount: processedItems.length,
+        totalAmount,
+        itemsSummary,
+      }, adminIds).then(result => {
+        console.log('✅ Push notification result:', JSON.stringify(result));
+      }).catch(err => {
+        console.error('❌ Push notify error (non-fatal):', err);
+      });
+
     } else {
       console.log("⚠️ No admins found for restaurant");
     }
@@ -1438,6 +1461,14 @@ router.patch(
           console.log(
             `📡 WebSocket: Customer ${order.customer_id} notified of status: ${status}`,
           );
+
+          // 📱 PUSH NOTIFICATION: Reach customer even when app is closed/locked
+          sendOrderStatusNotification(order.customer_id, {
+            orderId,
+            orderNumber: order.order_number,
+            status,
+            restaurantName: order.restaurant_name,
+          }).catch(err => console.error("Push order status error (non-fatal):", err));
         }
       }
 
@@ -1591,6 +1622,15 @@ router.patch(
             console.log(
               `📡 WebSocket broadcast result: ${broadcastResult.driversNotified} drivers notified instantly`,
             );
+
+            // 📱 PUSH: Also notify drivers who are offline / app closed
+            sendNewDeliveryNotificationToDrivers({
+              deliveryId: delivery.id,
+              orderNumber: order.order_number,
+              restaurantName: order.restaurant_name,
+              totalAmount: parseFloat(order.total_amount || 0),
+            }).catch(err => console.error("Push driver broadcast error (non-fatal):", err));
+
           } else {
             console.log("⚠️ No active drivers found");
           }

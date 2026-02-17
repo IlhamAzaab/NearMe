@@ -69,6 +69,7 @@ import cartRoutes from "./routes/cart.js";
 import ordersRoutes from "./routes/orders.js";
 import customerRoutes from "./routes/customer.js";
 import reportsRoutes from "./routes/reports.js";
+import pushNotificationRoutes from "./routes/pushNotification.js";
 
 const app = express();
 
@@ -161,6 +162,7 @@ app.use("/cart", cartRoutes);
 app.use("/orders", ordersRoutes);
 app.use("/customer", customerRoutes);
 app.use("/manager/reports", reportsRoutes);
+app.use("/push", pushNotificationRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

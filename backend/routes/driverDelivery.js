@@ -38,6 +38,11 @@ import {
   calculateCustomerETA,
   calculateAllCustomerETAs,
 } from "../utils/etaCalculator.js";
+import {
+  sendDriverAssignedNotification,
+  sendDeliveryStatusNotification,
+  sendDeliveryStatusToAdmin,
+} from "../utils/pushNotificationService.js";
 
 const router = express.Router();
 
@@ -1126,6 +1131,12 @@ router.post(
         console.log(
           `[ACCEPT DELIVERY]   📡 WebSocket: Customer notified with ETA`,
         );
+
+        // 📱 PUSH: Reach customer even when app is closed/locked
+        sendDriverAssignedNotification(updated.orders.customer_id, {
+          orderNumber: updated.orders.order_number,
+          driverName: driverInfo.driver_name,
+        }).catch(err => console.error("Push driver assigned error (non-fatal):", err));
       }
 
       // ======================================================================
@@ -2263,6 +2274,21 @@ router.patch(
         console.log(
           `📡 WebSocket: Customer ${currentDelivery.orders.customer_id} notified of status: ${status}`,
         );
+
+        // 📱 PUSH: Reach customer even when app is closed/phone locked
+        sendDeliveryStatusNotification(currentDelivery.orders.customer_id, {
+          orderId: delivery.order_id,
+          orderNumber: currentDelivery.orders.order_number,
+          status,
+        }).catch(err => console.error("Push delivery status error (non-fatal):", err));
+
+        // 📱 PUSH: Also notify restaurant admin of key delivery events
+        if (['picked_up', 'delivered'].includes(status) && currentDelivery.orders.restaurant_id) {
+          sendDeliveryStatusToAdmin(currentDelivery.orders.restaurant_id, {
+            orderNumber: currentDelivery.orders.order_number,
+            status,
+          }).catch(err => console.error("Push admin delivery error (non-fatal):", err));
+        }
       }
 
       // Helper: promote the nearest picked_up delivery to on_the_way when no active on_the_way/at_customer exists

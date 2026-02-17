@@ -23,6 +23,10 @@ import {
   notifyDriver,
   notifyAdmin,
 } from "./socketManager.js";
+import {
+  sendUnassignedDeliveryAlertToManagers,
+  sendMilestoneNotification,
+} from "./pushNotificationService.js";
 
 // ── State tracking ──────────────────────────────────────────────────────
 const sentUnassignedAlerts = new Set();
@@ -127,6 +131,14 @@ async function checkUnassignedDeliveries() {
         created_at: delivery.created_at,
       });
 
+      // 📱 PUSH NOTIFICATION: Alert managers with persistent alarm
+      sendUnassignedDeliveryAlertToManagers({
+        deliveryId: delivery.id,
+        orderNumber: delivery.orders?.order_number || "N/A",
+        restaurantName: delivery.orders?.restaurant_name || "Restaurant",
+        waitingMinutes: waitMinutes,
+      }).catch(err => console.error('[NotifChecker] Push alert error:', err));
+
       sentUnassignedAlerts.add(delivery.id);
     }
 
@@ -191,6 +203,24 @@ async function checkManagerOrderMilestone() {
         message: `🎉 ${milestone} Orders Completed Today!`,
         redirect: "/manager/reports/deliveries",
       });
+
+      // 📱 PUSH NOTIFICATION: Notify all managers about milestone
+      // Get all manager user IDs
+      const { data: managers } = await supabaseAdmin
+        .from('users')
+        .select('id')
+        .eq('role', 'manager');
+
+      if (managers && managers.length > 0) {
+        for (const mgr of managers) {
+          sendMilestoneNotification(mgr.id, 'manager', {
+            milestone,
+            todayCount: total,
+            todayRevenue: parseFloat(todayRevenue.toFixed(2)),
+            message: `🎉 ${milestone} Orders Completed Today! Total revenue: Rs. ${todayRevenue.toFixed(2)}`,
+          }).catch(err => console.error('[NotifChecker] Manager milestone push error:', err));
+        }
+      }
 
       managerOrderMilestone = milestone;
     }
@@ -304,6 +334,13 @@ async function checkDriverMilestones() {
           message: `🎉 You completed ${milestone} deliveries today!`,
         });
 
+        // 📱 PUSH NOTIFICATION: Notify driver about milestone
+        sendMilestoneNotification(driverId, 'driver', {
+          milestone,
+          todayCount: count,
+          message: `🎉 You completed ${milestone} deliveries today! Keep it up!`,
+        }).catch(err => console.error('[NotifChecker] Driver milestone push error:', err));
+
         driverMilestones.set(driverId, milestone);
       }
     }
@@ -364,6 +401,14 @@ async function checkRestaurantMilestones() {
               today_revenue: parseFloat(data.revenue.toFixed(2)),
               message: `🎉 ${milestone} Orders Completed Today!`,
             });
+
+            // 📱 PUSH NOTIFICATION: Notify admin about restaurant milestone
+            sendMilestoneNotification(admin.id, 'admin', {
+              milestone,
+              todayCount: data.count,
+              todayRevenue: parseFloat(data.revenue.toFixed(2)),
+              message: `🎉 ${milestone} Orders Completed Today! Revenue: Rs. ${data.revenue.toFixed(2)}`,
+            }).catch(err => console.error('[NotifChecker] Admin milestone push error:', err));
           }
         }
 

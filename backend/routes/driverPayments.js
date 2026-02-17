@@ -3,6 +3,7 @@ import { authenticate } from "../middleware/authenticate.js";
 import { supabaseAdmin } from "../supabaseAdmin.js";
 import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
+import { sendDriverPaymentNotification } from "../utils/pushNotificationService.js";
 
 const router = express.Router();
 
@@ -475,6 +476,13 @@ router.post(
       console.log(
         `[DRIVER-PAYMENTS] ✅ Paid Rs.${payAmount} to ${driver.full_name}. New balance: Rs.${newBalance.toFixed(2)}`,
       );
+
+      // 📱 PUSH NOTIFICATION: Notify driver about payment received
+      sendDriverPaymentNotification(driverId, {
+        amount: payAmount,
+        driverName: driver.full_name,
+        note: note || null,
+      }).catch(err => console.error('[DRIVER-PAYMENTS] Push notification error:', err));
 
       return res.json({
         success: true,

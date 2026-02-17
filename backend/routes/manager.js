@@ -8,6 +8,11 @@ import {
   invalidateConfigCache,
 } from "../utils/systemConfig.js";
 import { broadcastNewDelivery } from "../utils/socketManager.js";
+import { 
+  sendAdminApprovalNotification, 
+  sendDriverApprovalNotification,
+  sendTipDeliveryNotificationToDrivers 
+} from "../utils/pushNotificationService.js";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -832,6 +837,25 @@ router.post("/verify-driver/:driverId", authenticate, async (req, res) => {
       }
     }
 
+    // Send push notification to driver's mobile device
+    try {
+      // Get driver name for notification
+      const { data: driverData } = await supabaseAdmin
+        .from("drivers")
+        .select("full_name")
+        .eq("id", driverId)
+        .single();
+      
+      const driverName = driverData?.full_name || "Driver";
+      const isApproved = action === "approve";
+      
+      await sendDriverApprovalNotification(driverId, driverName, isApproved);
+      console.log(`📱 Push notification sent to driver ${driverId} (${isApproved ? 'approved' : 'rejected'})`);
+    } catch (pushError) {
+      console.error("Push notification error (non-fatal):", pushError.message);
+      // Don't fail the request if push notification fails
+    }
+
     return res.json({
       message: `Driver ${
         action === "approve" ? "approved" : "rejected"
@@ -1073,6 +1097,25 @@ router.post(
       } catch (logError) {
         // Ignore if table doesn't exist
         console.log("Status log insert skipped (table may not exist)");
+      }
+
+      // Send push notification to admin's mobile device
+      try {
+        // Get restaurant name for notification
+        const { data: restaurantDetails } = await supabaseAdmin
+          .from("restaurants")
+          .select("restaurant_name")
+          .eq("id", restaurantId)
+          .single();
+        
+        const restaurantName = restaurantDetails?.restaurant_name || "Your Restaurant";
+        const isApproved = action === "approve";
+        
+        await sendAdminApprovalNotification(restaurant.admin_id, restaurantName, isApproved);
+        console.log(`📱 Push notification sent to admin ${restaurant.admin_id} (${isApproved ? 'approved' : 'rejected'})`);
+      } catch (pushError) {
+        console.error("Push notification error (non-fatal):", pushError.message);
+        // Don't fail the request if push notification fails
       }
 
       return res.json({
@@ -1897,6 +1940,15 @@ router.patch(
               total_amount: parseFloat(orderData.total_amount || 0),
               tip_amount: tipValue,
             });
+
+            // 📱 PUSH NOTIFICATION: Notify all drivers about tipped delivery (persistent)
+            sendTipDeliveryNotificationToDrivers({
+              deliveryId,
+              orderNumber: orderData.order_number,
+              restaurantName: orderData.restaurant_name,
+              totalAmount: parseFloat(orderData.total_amount || 0),
+              tipAmount: tipValue,
+            }).catch(err => console.error('Push tip notification error:', err));
           }
         } catch (broadcastErr) {
           console.error("Tip broadcast error:", broadcastErr);
