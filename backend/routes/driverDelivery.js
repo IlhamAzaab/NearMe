@@ -1136,7 +1136,9 @@ router.post(
         sendDriverAssignedNotification(updated.orders.customer_id, {
           orderNumber: updated.orders.order_number,
           driverName: driverInfo.driver_name,
-        }).catch(err => console.error("Push driver assigned error (non-fatal):", err));
+        }).catch((err) =>
+          console.error("Push driver assigned error (non-fatal):", err),
+        );
       }
 
       // ======================================================================
@@ -2071,11 +2073,14 @@ router.patch(
         return res.status(404).json({ message: "Delivery not found" });
       }
 
-      // Update order status if delivered
+      // Update order payment status when delivered
       if (status === "delivered") {
         await supabaseAdmin
           .from("orders")
-          .update({ status: "delivered", delivered_at: timestamp })
+          .update({
+            delivered_at: timestamp,
+            payment_status: "paid", // mark payment settled on delivery
+          })
           .eq("id", delivery.order_id);
 
         // NOW store the actual driver earnings from pending_earnings
@@ -2280,14 +2285,21 @@ router.patch(
           orderId: delivery.order_id,
           orderNumber: currentDelivery.orders.order_number,
           status,
-        }).catch(err => console.error("Push delivery status error (non-fatal):", err));
+        }).catch((err) =>
+          console.error("Push delivery status error (non-fatal):", err),
+        );
 
         // 📱 PUSH: Also notify restaurant admin of key delivery events
-        if (['picked_up', 'delivered'].includes(status) && currentDelivery.orders.restaurant_id) {
+        if (
+          ["picked_up", "delivered"].includes(status) &&
+          currentDelivery.orders.restaurant_id
+        ) {
           sendDeliveryStatusToAdmin(currentDelivery.orders.restaurant_id, {
             orderNumber: currentDelivery.orders.order_number,
             status,
-          }).catch(err => console.error("Push admin delivery error (non-fatal):", err));
+          }).catch((err) =>
+            console.error("Push admin delivery error (non-fatal):", err),
+          );
         }
       }
 

@@ -1,13 +1,13 @@
-import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import express from "express";
+import rateLimit from "express-rate-limit";
 import { createServer } from "http";
 import cron from "node-cron";
-import rateLimit from "express-rate-limit";
 import { supabaseAdmin } from "./supabaseAdmin.js";
-import { initializeSocket } from "./utils/socketManager.js";
 import { runManagerChecks } from "./utils/managerNotificationChecker.js";
 import { runRestaurantScheduler } from "./utils/restaurantScheduler.js";
+import { initializeSocket } from "./utils/socketManager.js";
 
 // Load .env file only if NODE_ENV is not production and .env exists
 if (process.env.NODE_ENV !== "production") {
@@ -54,22 +54,22 @@ console.log(
 })();
 
 // Import routes
-import authRoutes from "./routes/auth.js";
-import managerRoutes from "./routes/manager.js";
 import adminRoutes from "./routes/admin.js";
+import adminPaymentsRoutes from "./routes/adminPayments.js";
+import authRoutes from "./routes/auth.js";
+import cartRoutes from "./routes/cart.js";
+import customerRoutes from "./routes/customer.js";
 import driverRoutes from "./routes/driver.js";
 import driverDeliveryRoutes from "./routes/driverDelivery.js";
 import driverDepositsRoutes from "./routes/driverDeposits.js";
 import driverPaymentsRoutes from "./routes/driverPayments.js";
-import adminPaymentsRoutes from "./routes/adminPayments.js";
+import managerRoutes from "./routes/manager.js";
 import onboardingRoutes from "./routes/onboarding.js";
-import restaurantOnboardingRoutes from "./routes/restaurantOnboarding.js";
-import publicRoutes from "./routes/public.js";
-import cartRoutes from "./routes/cart.js";
 import ordersRoutes from "./routes/orders.js";
-import customerRoutes from "./routes/customer.js";
-import reportsRoutes from "./routes/reports.js";
+import publicRoutes from "./routes/public.js";
 import pushNotificationRoutes from "./routes/pushNotification.js";
+import reportsRoutes from "./routes/reports.js";
+import restaurantOnboardingRoutes from "./routes/restaurantOnboarding.js";
 
 const app = express();
 
@@ -251,6 +251,46 @@ const server = httpServer.listen(PORT, () => {
   }, 8000);
   console.log(
     `🕐 Restaurant auto open/close scheduler active (runs every 60s)`,
+  );
+
+  // ============================================================================
+  // NOTIFICATION LOG CLEANUP — Auto-delete records older than 24 hours
+  // Runs every hour at minute 0 (Sri Lanka timezone = UTC+5:30)
+  // ============================================================================
+  cron.schedule(
+    "0 * * * *",
+    async () => {
+      console.log(
+        `\n[CRON] 🧹 Running notification_log cleanup (delete records older than 24 hours)`,
+      );
+      try {
+        // Calculate 24 hours ago in UTC (Supabase stores timestamps in UTC)
+        const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+        const { data, error, count } = await supabaseAdmin
+          .from("notification_log")
+          .delete()
+          .lt("sent_at", cutoff)
+          .select("id", { count: "exact" });
+
+        if (error) {
+          console.error(`[CRON] ❌ Notification cleanup error:`, error.message);
+        } else {
+          const deletedCount = data?.length || count || 0;
+          console.log(
+            `[CRON] ✅ Notification cleanup complete: ${deletedCount} old record(s) deleted (cutoff: ${cutoff})`,
+          );
+        }
+      } catch (err) {
+        console.error(`[CRON] ❌ Notification cleanup failed:`, err.message);
+      }
+    },
+    {
+      timezone: "UTC",
+    },
+  );
+  console.log(
+    `🧹 Notification log cleanup active (runs hourly, deletes records older than 24 hours)`,
   );
 
   // On startup, check if we missed a snapshot and create one if needed

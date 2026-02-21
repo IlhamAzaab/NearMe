@@ -64,7 +64,7 @@ router.get("/sales", authenticate, async (req, res) => {
     const { data: orders, error } = await supabaseAdmin
       .from("orders")
       .select(
-        "id, order_number, restaurant_id, restaurant_name, subtotal, admin_subtotal, commission_total, delivery_fee, service_fee, total_amount, status, placed_at, delivered_at, payment_method",
+        "id, order_number, restaurant_id, restaurant_name, subtotal, admin_subtotal, commission_total, delivery_fee, service_fee, total_amount, placed_at, delivered_at, payment_method, deliveries!inner(status)",
       )
       .gte("placed_at", startDate.toISOString())
       .lte("placed_at", endDate.toISOString())
@@ -82,7 +82,7 @@ router.get("/sales", authenticate, async (req, res) => {
 
     const { data: prevOrders } = await supabaseAdmin
       .from("orders")
-      .select("id, total_amount, status, placed_at")
+      .select("id, total_amount, placed_at, deliveries!inner(status)")
       .gte("placed_at", prevStart.toISOString())
       .lt("placed_at", startDate.toISOString());
 
@@ -173,10 +173,11 @@ router.get("/sales", authenticate, async (req, res) => {
       .sort((a, b) => b.sales - a.sales)
       .slice(0, 10);
 
-    // Order status breakdown
+    // Order status breakdown (from deliveries)
     const statusBreakdown = {};
     for (const order of allOrders) {
-      const s = order.status || "unknown";
+      const delivery = order.deliveries?.[0] || order.deliveries;
+      const s = delivery?.status || "unknown";
       statusBreakdown[s] = (statusBreakdown[s] || 0) + 1;
     }
 
@@ -433,8 +434,11 @@ router.get("/restaurants", authenticate, async (req, res) => {
       perfMap[rid].total_sales += parseFloat(order.total_amount || 0);
       perfMap[rid].commission_earned += parseFloat(order.commission_total || 0);
       perfMap[rid].restaurant_payout += parseFloat(order.admin_subtotal || 0);
-      if (order.status === "delivered") perfMap[rid].delivered_orders += 1;
-      if (order.status === "cancelled" || order.status === "rejected")
+
+      const delivery = order.deliveries?.[0] || order.deliveries;
+      const deliveryStatus = delivery?.status || "unknown";
+      if (deliveryStatus === "delivered") perfMap[rid].delivered_orders += 1;
+      if (deliveryStatus === "cancelled" || deliveryStatus === "failed")
         perfMap[rid].cancelled_orders += 1;
     }
 

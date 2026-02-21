@@ -807,12 +807,19 @@ export default function Orders() {
                               <span className="text-xs">🍽️</span>
                             </div>
                           )}
-                          <span className="text-xs font-semibold text-gray-700">
-                            {item.quantity}x{" "}
-                            {item.food_name?.length > 12
-                              ? item.food_name.slice(0, 12) + "..."
-                              : item.food_name}
-                          </span>
+                          <div className="flex flex-col">
+                            <span className="text-xs font-semibold text-gray-700">
+                              {item.quantity}x{" "}
+                              {item.food_name?.length > 12
+                                ? item.food_name.slice(0, 12) + "..."
+                                : item.food_name}
+                            </span>
+                            {item.size && (
+                              <span className="text-[10px] font-bold uppercase tracking-wide text-emerald-600 bg-emerald-50 rounded px-1 mt-0.5 leading-tight">
+                                {item.size}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       ))}
                       {items.length > 4 && (

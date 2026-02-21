@@ -8,10 +8,10 @@ import {
   invalidateConfigCache,
 } from "../utils/systemConfig.js";
 import { broadcastNewDelivery } from "../utils/socketManager.js";
-import { 
-  sendAdminApprovalNotification, 
+import {
+  sendAdminApprovalNotification,
   sendDriverApprovalNotification,
-  sendTipDeliveryNotificationToDrivers 
+  sendTipDeliveryNotificationToDrivers,
 } from "../utils/pushNotificationService.js";
 import dotenv from "dotenv";
 
@@ -845,12 +845,14 @@ router.post("/verify-driver/:driverId", authenticate, async (req, res) => {
         .select("full_name")
         .eq("id", driverId)
         .single();
-      
+
       const driverName = driverData?.full_name || "Driver";
       const isApproved = action === "approve";
-      
+
       await sendDriverApprovalNotification(driverId, driverName, isApproved);
-      console.log(`📱 Push notification sent to driver ${driverId} (${isApproved ? 'approved' : 'rejected'})`);
+      console.log(
+        `📱 Push notification sent to driver ${driverId} (${isApproved ? "approved" : "rejected"})`,
+      );
     } catch (pushError) {
       console.error("Push notification error (non-fatal):", pushError.message);
       // Don't fail the request if push notification fails
@@ -1107,14 +1109,24 @@ router.post(
           .select("restaurant_name")
           .eq("id", restaurantId)
           .single();
-        
-        const restaurantName = restaurantDetails?.restaurant_name || "Your Restaurant";
+
+        const restaurantName =
+          restaurantDetails?.restaurant_name || "Your Restaurant";
         const isApproved = action === "approve";
-        
-        await sendAdminApprovalNotification(restaurant.admin_id, restaurantName, isApproved);
-        console.log(`📱 Push notification sent to admin ${restaurant.admin_id} (${isApproved ? 'approved' : 'rejected'})`);
+
+        await sendAdminApprovalNotification(
+          restaurant.admin_id,
+          restaurantName,
+          isApproved,
+        );
+        console.log(
+          `📱 Push notification sent to admin ${restaurant.admin_id} (${isApproved ? "approved" : "rejected"})`,
+        );
       } catch (pushError) {
-        console.error("Push notification error (non-fatal):", pushError.message);
+        console.error(
+          "Push notification error (non-fatal):",
+          pushError.message,
+        );
         // Don't fail the request if push notification fails
       }
 
@@ -1730,7 +1742,7 @@ router.get("/pending-deliveries", authenticate, async (req, res) => {
       .from("deliveries")
       .select(
         `
-        id, order_id, status, tip_amount, created_at,
+        id, order_id, status, tip_amount, created_at, res_accepted_at,
         orders (
           id, order_number, customer_name, customer_phone,
           restaurant_name, restaurant_address, restaurant_phone,
@@ -1740,7 +1752,7 @@ router.get("/pending-deliveries", authenticate, async (req, res) => {
           subtotal, delivery_fee, service_fee, total_amount,
           admin_subtotal, commission_total, distance_km,
           estimated_duration_min, payment_method,
-          accepted_at, placed_at, status,
+          placed_at,
           order_items (
             id, food_name, food_image_url, size, quantity, unit_price, total_price
           )
@@ -1762,10 +1774,13 @@ router.get("/pending-deliveries", authenticate, async (req, res) => {
     const pendingMinutes = config.pending_alert_minutes || 10;
     const thresholdAgo = new Date(Date.now() - pendingMinutes * 60 * 1000);
     const filtered = (data || []).filter((d) => {
-      if (!d.orders || !d.orders.accepted_at) return false;
-      if (!["accepted", "preparing", "ready"].includes(d.orders.status))
+      // Use deliveries.res_accepted_at (restaurant acceptance time)
+      if (!d.res_accepted_at) return false;
+      // Check delivery status (deliveries.status is source of truth)
+      const deliveryStatus = d.status;
+      if (!["preparing", "ready", "pending"].includes(deliveryStatus))
         return false;
-      return new Date(d.orders.accepted_at) < thresholdAgo;
+      return new Date(d.res_accepted_at) < thresholdAgo;
     });
 
     // Sort: tipped deliveries first, then by longest waiting
@@ -1775,8 +1790,8 @@ router.get("/pending-deliveries", authenticate, async (req, res) => {
       // Tipped first
       if (tipA > 0 && tipB <= 0) return -1;
       if (tipB > 0 && tipA <= 0) return 1;
-      // Then by accepted_at ascending (longest waiting first)
-      return new Date(a.orders.accepted_at) - new Date(b.orders.accepted_at);
+      // Then by res_accepted_at ascending (longest waiting first)
+      return new Date(a.res_accepted_at) - new Date(b.res_accepted_at);
     });
 
     // Enrich with computed fields
@@ -1784,7 +1799,7 @@ router.get("/pending-deliveries", authenticate, async (req, res) => {
       const totalAmount = parseFloat(d.orders.total_amount || 0);
       const adminSubtotal = parseFloat(d.orders.admin_subtotal || 0);
       const tipAmount = parseFloat(d.tip_amount || 0);
-      const waitingMs = Date.now() - new Date(d.orders.accepted_at).getTime();
+      const waitingMs = Date.now() - new Date(d.res_accepted_at).getTime();
 
       return {
         ...d,
@@ -1818,7 +1833,7 @@ router.get("/pending-deliveries/count", authenticate, async (req, res) => {
 
     const { data, error } = await supabaseAdmin
       .from("deliveries")
-      .select("id, orders!inner ( accepted_at, status )")
+      .select("id, status, res_accepted_at")
       .eq("status", "pending")
       .is("driver_id", null);
 
@@ -1828,10 +1843,12 @@ router.get("/pending-deliveries/count", authenticate, async (req, res) => {
 
     const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
     const count = (data || []).filter((d) => {
-      if (!d.orders || !d.orders.accepted_at) return false;
-      if (!["accepted", "preparing", "ready"].includes(d.orders.status))
+      if (!d.res_accepted_at) return false;
+      // Check delivery status (deliveries.status is source of truth)
+      const deliveryStatus = d.status;
+      if (!["preparing", "ready", "pending"].includes(deliveryStatus))
         return false;
-      return new Date(d.orders.accepted_at) < tenMinutesAgo;
+      return new Date(d.res_accepted_at) < tenMinutesAgo;
     }).length;
 
     return res.json({ success: true, count });
@@ -1948,7 +1965,9 @@ router.patch(
               restaurantName: orderData.restaurant_name,
               totalAmount: parseFloat(orderData.total_amount || 0),
               tipAmount: tipValue,
-            }).catch(err => console.error('Push tip notification error:', err));
+            }).catch((err) =>
+              console.error("Push tip notification error:", err),
+            );
           }
         } catch (broadcastErr) {
           console.error("Tip broadcast error:", broadcastErr);

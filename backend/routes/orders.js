@@ -13,31 +13,27 @@
  * - PATCH /orders/restaurant/orders/:id/status - Update order status (admin)
  */
 
-import express from "express";
 import { createClient } from "@supabase/supabase-js";
-import { supabaseAdmin } from "../supabaseAdmin.js";
+import express from "express";
 import { authenticate } from "../middleware/authenticate.js";
-import {
-  getCartItemPrices,
-  calculateCustomerPrice,
-} from "../utils/commission.js";
-import {
-  broadcastNewDelivery,
-  broadcastDeliveryTaken,
-  notifyCustomer,
-  notifyAdmin,
-} from "../utils/socketManager.js";
-import {
-  getSystemConfig,
-  calculateServiceFeeFromConfig,
-  calculateDeliveryFeeFromConfig,
-} from "../utils/systemConfig.js";
+import { supabaseAdmin } from "../supabaseAdmin.js";
+import { getCartItemPrices } from "../utils/commission.js";
 import { calculateCustomerETA } from "../utils/etaCalculator.js";
 import {
+  sendNewDeliveryNotificationToDrivers,
   sendNewOrderNotification,
   sendOrderStatusNotification,
-  sendNewDeliveryNotificationToDrivers,
 } from "../utils/pushNotificationService.js";
+import {
+  broadcastNewDelivery,
+  notifyAdmin,
+  notifyCustomer,
+} from "../utils/socketManager.js";
+import {
+  calculateDeliveryFeeFromConfig,
+  calculateServiceFeeFromConfig,
+  getSystemConfig,
+} from "../utils/systemConfig.js";
 
 const router = express.Router();
 
@@ -158,15 +154,26 @@ async function calculateRouteDistance(lat1, lon1, lat2, lon2) {
 }
 
 /**
- * Valid order status transitions
+ * Valid delivery status transitions (deliveries table is source of truth)
+ * Timestamp meanings:
+ *   - res_accepted_at: Admin/restaurant accepted (status → pending)
+ *   - accepted_at: Driver accepted (status → accepted)
+ *   - rejected_at: Admin rejected (status → failed)
+ *   - picked_up_at: Driver picked up (status → picked_up)
+ *   - on_the_way_at: Driver on the way (status → on_the_way)
+ *   - arrived_customer_at: Driver at customer (status → at_customer)
+ *   - delivered_at: Delivered (status → delivered)
+ *   - cancelled_at: Cancelled (status → cancelled)
  */
-const VALID_TRANSITIONS = {
-  placed: ["accepted", "rejected"],
-  accepted: ["preparing", "cancelled"],
-  preparing: ["ready", "cancelled"],
-  ready: ["picked_up"],
-  picked_up: ["on_the_way"],
-  on_the_way: ["delivered"],
+const VALID_DELIVERY_TRANSITIONS = {
+  placed: ["pending", "failed", "cancelled"], // admin accepts → pending (not accepted!)
+  pending: ["accepted", "failed", "cancelled"], // waiting for driver; driver can accept
+  accepted: ["picked_up", "failed", "cancelled"], // driver accepted, can pick up or fail
+  picked_up: ["on_the_way", "failed"],
+  on_the_way: ["at_customer", "delivered", "failed"],
+  at_customer: ["delivered", "failed"],
+  preparing: ["ready", "failed", "cancelled"], // restaurant is preparing
+  ready: ["pending", "failed", "cancelled"], // ready for driver assignment
 };
 
 // ============================================================================
@@ -551,7 +558,6 @@ router.post("/place", authenticate, async (req, res) => {
         estimated_duration_min: Math.ceil(estimated_duration_min),
         payment_method: payment_method,
         payment_status: payment_method === "cash" ? "pending" : "pending",
-        status: "placed",
         placed_at: new Date().toISOString(),
       })
       .select()
@@ -684,7 +690,11 @@ router.post("/place", authenticate, async (req, res) => {
 
       // 🔔 WebSocket: Notify each online admin in real-time
       const itemsSummary = processedItems
-        .map((item) => `${item.quantity}x ${item.food_name}`)
+        .map((item) => {
+          const size =
+            item.size && item.size !== "regular" ? ` (${item.size})` : "";
+          return `${item.quantity}x ${item.food_name}${size}`;
+        })
         .join(", ");
       const firstItemImage = processedItems[0]?.food_image_url || null;
 
@@ -706,21 +716,32 @@ router.post("/place", authenticate, async (req, res) => {
 
       // 📱 PUSH NOTIFICATION: Notify admin even when app is closed/phone locked
       // Pass admin IDs directly to avoid redundant DB lookup
-      const adminIds = admins.map(a => a.id);
-      console.log('📱 Calling sendNewOrderNotification for restaurant:', restaurant.id, 'admins:', adminIds);
-      sendNewOrderNotification(restaurant.id, {
-        orderId: order.id,
-        orderNumber,
-        customerName: customer.username,
-        itemsCount: processedItems.length,
-        totalAmount,
-        itemsSummary,
-      }, adminIds).then(result => {
-        console.log('✅ Push notification result:', JSON.stringify(result));
-      }).catch(err => {
-        console.error('❌ Push notify error (non-fatal):', err);
-      });
-
+      const adminIds = admins.map((a) => a.id);
+      console.log(
+        "📱 Calling sendNewOrderNotification for restaurant:",
+        restaurant.id,
+        "admins:",
+        adminIds,
+      );
+      sendNewOrderNotification(
+        restaurant.id,
+        {
+          orderId: order.id,
+          orderNumber,
+          customerName: customer.username,
+          itemsCount: processedItems.length,
+          totalAmount,
+          restaurantAmount: adminSubtotal, // restaurant's share (excl. commission/fees)
+          itemsSummary,
+        },
+        adminIds,
+      )
+        .then((result) => {
+          console.log("✅ Push notification result:", JSON.stringify(result));
+        })
+        .catch((err) => {
+          console.error("❌ Push notify error (non-fatal):", err);
+        });
     } else {
       console.log("⚠️ No admins found for restaurant");
     }
@@ -734,7 +755,6 @@ router.post("/place", authenticate, async (req, res) => {
       order: {
         id: order.id,
         order_number: order.order_number,
-        status: order.status,
         restaurant_name: restaurant.restaurant_name,
         items_count: cartItems.length,
         subtotal: parseFloat(order.subtotal),
@@ -771,7 +791,6 @@ router.get("/my-orders", authenticate, async (req, res) => {
         `
         id,
         order_number,
-        status,
         restaurant_id,
         restaurant_name,
         restaurant_latitude,
@@ -789,10 +808,6 @@ router.get("/my-orders", authenticate, async (req, res) => {
         delivery_latitude,
         delivery_longitude,
         placed_at,
-        accepted_at,
-        preparing_at,
-        ready_at,
-        picked_up_at,
         delivered_at,
         order_items (
           id,
@@ -832,30 +847,31 @@ router.get("/my-orders", authenticate, async (req, res) => {
     // Transform orders to include delivery status and combined status for navigation
     const transformedOrders = (orders || []).map((order) => {
       const delivery = order.deliveries?.[0] || order.deliveries;
-      const deliveryStatus = delivery?.status || null;
+      const deliveryStatus = delivery?.status || "placed";
 
       // Determine the effective status for UI navigation
-      // Priority: delivery status (if exists) > order status
-      let effectiveStatus = order.status;
-      if (deliveryStatus) {
-        // Map delivery statuses to navigation statuses
-        if (deliveryStatus === "pending") {
-          effectiveStatus = "pending"; // Delivery created but no driver yet
-        } else if (
-          deliveryStatus === "accepted" ||
-          deliveryStatus === "driver_assigned"
-        ) {
-          effectiveStatus = "accepted"; // Driver assigned/accepted
-        } else if (deliveryStatus === "picked_up") {
-          effectiveStatus = "picked_up";
-        } else if (
-          deliveryStatus === "on_the_way" ||
-          deliveryStatus === "at_customer"
-        ) {
-          effectiveStatus = "on_the_way";
-        } else if (deliveryStatus === "delivered") {
-          effectiveStatus = "delivered";
-        }
+      // Map delivery statuses to navigation statuses
+      let effectiveStatus = deliveryStatus;
+      if (deliveryStatus === "pending") {
+        effectiveStatus = "pending"; // Delivery created but no driver yet
+      } else if (
+        deliveryStatus === "accepted" ||
+        deliveryStatus === "driver_assigned"
+      ) {
+        effectiveStatus = "accepted"; // Driver assigned/accepted
+      } else if (deliveryStatus === "picked_up") {
+        effectiveStatus = "picked_up";
+      } else if (
+        deliveryStatus === "on_the_way" ||
+        deliveryStatus === "at_customer"
+      ) {
+        effectiveStatus = "on_the_way";
+      } else if (deliveryStatus === "delivered") {
+        effectiveStatus = "delivered";
+      } else if (deliveryStatus === "failed") {
+        effectiveStatus = "rejected";
+      } else if (deliveryStatus === "cancelled") {
+        effectiveStatus = "cancelled";
       }
 
       return {
@@ -970,7 +986,6 @@ router.get("/:id/delivery-status", authenticate, async (req, res) => {
         customer_id,
         restaurant_id,
         restaurant_name,
-        status,
         delivery_address,
         delivery_latitude,
         delivery_longitude,
@@ -1103,7 +1118,7 @@ router.get("/:id/delivery-status", authenticate, async (req, res) => {
 
     return res.json({
       orderId: order.id,
-      orderStatus: order.status,
+      orderStatus: deliveryStatus,
       status: deliveryStatus,
       driverId: delivery?.driver_id || null,
       pickedUpAt: delivery?.picked_up_at || null,
@@ -1181,7 +1196,6 @@ router.get("/restaurant/orders", authenticate, async (req, res) => {
         `
         id,
         order_number,
-        status,
         customer_name,
         customer_phone,
         delivery_address,
@@ -1198,10 +1212,6 @@ router.get("/restaurant/orders", authenticate, async (req, res) => {
         payment_method,
         payment_status,
         placed_at,
-        accepted_at,
-        preparing_at,
-        ready_at,
-        picked_up_at,
         delivered_at,
         order_items (
           id,
@@ -1334,10 +1344,14 @@ router.patch(
         return res.status(404).json({ message: "Restaurant not found" });
       }
 
-      // Get current order
+      // Get current order with its delivery status
       const { data: order, error: orderError } = await supabaseAdmin
         .from("orders")
-        .select("id, status, customer_id, order_number")
+        .select(
+          `id, customer_id, order_number,
+          deliveries!inner(id, status)
+        `,
+        )
         .eq("id", orderId)
         .eq("restaurant_id", admin.restaurant_id)
         .single();
@@ -1346,62 +1360,96 @@ router.patch(
         return res.status(404).json({ message: "Order not found" });
       }
 
-      // Validate status transition
-      const validTransitions = VALID_TRANSITIONS[order.status];
-      if (!validTransitions || !validTransitions.includes(status)) {
+      const delivery = order.deliveries?.[0] || order.deliveries;
+      if (!delivery) {
+        return res.status(404).json({ message: "Delivery record not found" });
+      }
+
+      const currentDeliveryStatus = delivery.status;
+      const deliveryId = delivery.id;
+
+      // Map admin's status names to deliveries table status
+      // Admin "accepted" → deliveries "pending" (waiting for driver)
+      // Admin "rejected" → deliveries "failed"
+      let targetDeliveryStatus = status;
+      if (status === "rejected") {
+        targetDeliveryStatus = "failed";
+      } else if (status === "accepted") {
+        targetDeliveryStatus = "pending"; // Admin accepts → pending (not accepted!)
+      }
+
+      // Validate status transition using delivery status
+      const validTransitions =
+        VALID_DELIVERY_TRANSITIONS[currentDeliveryStatus];
+      if (
+        !validTransitions ||
+        !validTransitions.includes(targetDeliveryStatus)
+      ) {
         return res.status(400).json({
-          message: `Cannot transition from '${order.status}' to '${status}'`,
+          message: `Cannot transition from '${currentDeliveryStatus}' to '${targetDeliveryStatus}'`,
           valid_transitions: validTransitions || [],
+          current_status: currentDeliveryStatus,
         });
       }
 
-      // Prepare update data
-      const updateData = { status };
+      // ═══════════════════════════════════════════════════════════════════
+      // PRIMARY: Update deliveries table (single source of truth)
+      // ═══════════════════════════════════════════════════════════════════
       const now = new Date().toISOString();
+      const deliveryUpdate = {
+        status: targetDeliveryStatus,
+        updated_at: now,
+      };
 
-      switch (status) {
-        case "accepted":
-          updateData.accepted_at = now;
+      // Set timestamps for status transitions
+      // Each timestamp corresponds to when that status is reached
+      switch (targetDeliveryStatus) {
+        case "pending":
+          // Admin/restaurant accepted the order
+          deliveryUpdate.res_accepted_at = now;
           break;
-        case "rejected":
-          updateData.rejected_at = now;
-          break;
-        case "preparing":
-          updateData.preparing_at = now;
-          break;
-        case "ready":
-          updateData.ready_at = now;
+        case "failed":
+          // Admin rejected the order
+          deliveryUpdate.rejected_at = now;
+          if (reason) deliveryUpdate.rejection_reason = reason;
           break;
         case "cancelled":
-          updateData.cancelled_at = now;
+          // Order was cancelled
+          deliveryUpdate.cancelled_at = now;
           break;
+        // Note: Driver status transitions (accepted, picked_up, etc.) are handled in driverDelivery.js
+        // Note: preparing_at and ready_at are not needed per requirements
       }
 
-      // Update order
       const { error: updateError } = await supabaseAdmin
-        .from("orders")
-        .update(updateData)
-        .eq("id", orderId);
+        .from("deliveries")
+        .update(deliveryUpdate)
+        .eq("id", deliveryId);
 
       if (updateError) {
-        console.error("Order update error:", updateError);
-        return res.status(500).json({ message: "Failed to update order" });
+        console.error("Delivery update error:", updateError);
+        return res.status(500).json({ message: "Failed to update status" });
       }
 
-      // Log status change
+      console.log(
+        `✅ Delivery ${deliveryId} status updated: ${currentDeliveryStatus} → ${targetDeliveryStatus}`,
+      );
+
+      // Log status change (using delivery status)
       await supabaseAdmin.from("order_status_history").insert({
         order_id: orderId,
-        from_status: order.status,
-        to_status: status,
+        from_status: currentDeliveryStatus,
+        to_status: targetDeliveryStatus,
         changed_by: adminId,
         changed_by_role: "admin",
         reason: reason || null,
       });
 
-      // Create notification for customer using RPC (SECURITY DEFINER)
+      // Create notification for customer
+      // Map back to user-friendly status names
       const notificationTypes = {
         accepted: "order_accepted",
-        rejected: "order_rejected",
+        failed: "order_rejected",
         preparing: "order_preparing",
         ready: "order_ready",
         cancelled: "order_cancelled",
@@ -1409,15 +1457,15 @@ router.patch(
 
       const notificationTitles = {
         accepted: "Order Accepted",
-        rejected: "Order Update",
+        failed: "Order Rejected",
         preparing: "Order Being Prepared",
         ready: "Order Ready",
-        cancelled: "Order Update",
+        cancelled: "Order Cancelled",
       };
 
       const notificationMessages = {
         accepted: `Your order has been accepted by the restaurant and is being prepared.`,
-        rejected: `Your order ${order.order_number} was rejected. ${
+        failed: `Your order ${order.order_number} was rejected. ${
           reason || ""
         }`,
         preparing: `Your order ${order.order_number} is being prepared!`,
@@ -1425,7 +1473,7 @@ router.patch(
         cancelled: `Your order ${order.order_number} was cancelled.`,
       };
 
-      if (notificationTypes[status]) {
+      if (notificationTypes[targetDeliveryStatus]) {
         const { error: notifError } = await supabaseAdmin
           .from("notifications")
           .insert({
@@ -1433,12 +1481,12 @@ router.patch(
             recipient_role: "customer",
             order_id: orderId,
             restaurant_id: admin.restaurant_id,
-            type: notificationTypes[status],
-            title: notificationTitles[status],
-            message: notificationMessages[status],
+            type: notificationTypes[targetDeliveryStatus],
+            title: notificationTitles[targetDeliveryStatus],
+            message: notificationMessages[targetDeliveryStatus],
             metadata: {
               order_number: order.order_number,
-              status: status,
+              status: targetDeliveryStatus,
             },
           });
 
@@ -1451,89 +1499,39 @@ router.patch(
         // 📡 REAL-TIME WEBSOCKET: Notify customer instantly
         if (order.customer_id) {
           notifyCustomer(order.customer_id, "order:status_update", {
-            type: notificationTypes[status],
-            title: notificationTitles[status],
-            message: notificationMessages[status],
+            type: notificationTypes[targetDeliveryStatus],
+            title: notificationTitles[targetDeliveryStatus],
+            message: notificationMessages[targetDeliveryStatus],
             order_id: orderId,
             order_number: order.order_number,
-            status: status,
+            status: targetDeliveryStatus,
           });
           console.log(
-            `📡 WebSocket: Customer ${order.customer_id} notified of status: ${status}`,
+            `📡 WebSocket: Customer ${order.customer_id} notified of status: ${targetDeliveryStatus}`,
           );
 
           // 📱 PUSH NOTIFICATION: Reach customer even when app is closed/locked
           sendOrderStatusNotification(order.customer_id, {
             orderId,
             orderNumber: order.order_number,
-            status,
+            status:
+              targetDeliveryStatus === "failed"
+                ? "rejected"
+                : targetDeliveryStatus, // map back for push
             restaurantName: order.restaurant_name,
-          }).catch(err => console.error("Push order status error (non-fatal):", err));
+          }).catch((err) =>
+            console.error("Push order status error (non-fatal):", err),
+          );
         }
       }
 
       // ====================================================================
-      // NOTIFY ALL ACTIVE DRIVERS when order is accepted
+      // NOTIFY ALL ACTIVE DRIVERS when admin accepts order (status=pending)
       // ====================================================================
-      if (status === "accepted") {
+      if (targetDeliveryStatus === "pending") {
         try {
-          // Check if delivery already exists
-          const { data: existingDelivery } = await supabaseAdmin
-            .from("deliveries")
-            .select("id")
-            .eq("order_id", orderId)
-            .maybeSingle();
-
-          let delivery = existingDelivery;
-
-          // Create delivery record only if it doesn't exist
-          if (!existingDelivery) {
-            const { data: newDelivery, error: deliveryError } =
-              await supabaseAdmin
-                .from("deliveries")
-                .insert({
-                  order_id: orderId,
-                  status: "pending",
-                  res_accepted_at: new Date().toISOString(), // Restaurant acceptance timestamp
-                })
-                .select("id")
-                .single();
-
-            if (deliveryError) {
-              console.error("❌ Delivery creation error:", deliveryError);
-              return res.json({
-                message: "Order status updated but delivery creation failed",
-                order: { id: orderId, status: status },
-              });
-            }
-            delivery = newDelivery;
-            console.log("✅ Delivery record created:", delivery.id);
-          } else {
-            console.log("ℹ️ Delivery already exists:", delivery.id);
-            // Ensure delivery resets to pending (waiting for driver assignment)
-            const { error: deliveryUpdateError } = await supabaseAdmin
-              .from("deliveries")
-              .update({
-                status: "pending",
-                driver_id: null,
-                res_accepted_at: new Date().toISOString(), // Restaurant acceptance timestamp
-                accepted_at: null,
-                rejected_at: null,
-                picked_up_at: null,
-                on_the_way_at: null,
-                arrived_customer_at: null,
-                delivered_at: null,
-                updated_at: new Date().toISOString(),
-              })
-              .eq("order_id", orderId);
-
-            if (deliveryUpdateError) {
-              console.error(
-                "❌ Failed to reset delivery to pending:",
-                deliveryUpdateError,
-              );
-            }
-          }
+          // Delivery record should already exist and was just updated above
+          // This block just handles driver notifications
 
           // Get all active drivers
           const { data: activeDrivers, error: driversError } =
@@ -1629,8 +1627,9 @@ router.patch(
               orderNumber: order.order_number,
               restaurantName: order.restaurant_name,
               totalAmount: parseFloat(order.total_amount || 0),
-            }).catch(err => console.error("Push driver broadcast error (non-fatal):", err));
-
+            }).catch((err) =>
+              console.error("Push driver broadcast error (non-fatal):", err),
+            );
           } else {
             console.log("⚠️ No active drivers found");
           }
@@ -1644,8 +1643,8 @@ router.patch(
         message: "Order status updated",
         order: {
           id: orderId,
-          status: status,
-          previous_status: order.status,
+          status: targetDeliveryStatus,
+          previous_status: currentDeliveryStatus,
         },
       });
     } catch (error) {
