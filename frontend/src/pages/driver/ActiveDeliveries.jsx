@@ -116,6 +116,7 @@ const mapContainerStyle = {
 
 // Minimum movement threshold
 const MOVEMENT_THRESHOLD_METERS = 10;
+const FETCH_MOVEMENT_THRESHOLD_METERS = 100; // Only re-fetch data when moved 100m+
 
 function getDistanceMeters(lat1, lng1, lat2, lng2) {
   const R = 6371000;
@@ -256,7 +257,7 @@ export default function ActiveDeliveries() {
           lastLocationRef.current = newLoc;
           setDriverLocation(newLoc);
 
-          // Refresh data when driver has moved 30+ meters since last fetch
+          // Refresh data when driver has moved 100+ meters since last fetch
           const movedSinceFetch = lastFetchLocationRef.current
             ? getDistanceMeters(
                 lastFetchLocationRef.current.latitude,
@@ -266,7 +267,7 @@ export default function ActiveDeliveries() {
               )
             : Infinity;
 
-          if (movedSinceFetch >= 30) {
+          if (movedSinceFetch >= FETCH_MOVEMENT_THRESHOLD_METERS) {
             console.log(
               `[LOCATION] Moved ${movedSinceFetch.toFixed(0)}m since last fetch → refreshing data`,
             );

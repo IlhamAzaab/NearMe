@@ -259,7 +259,7 @@ export default function AvailableDeliveries() {
   const hasFetchedInitialRef = useRef(false);
 
   // Minimum distance (in meters) driver must move before triggering a data refresh
-  const MOVEMENT_THRESHOLD_METERS = 50;
+  const MOVEMENT_THRESHOLD_METERS = 100;
 
   // Function to update location only - uses watchPosition (event-driven)
   // Only triggers data refresh if driver moved significantly

@@ -269,6 +269,7 @@ export default function DriverDashboard() {
 
   const workingHoursCheckRef = useRef(null);
   const driverLocationRef = useRef(null); // Ref to avoid infinite loop in fetchDashboardData
+  const isBackgroundRefreshRef = useRef(false); // Track if this is a background poll (skip heavy OSRM calls)
 
   // ============================================================================
   // SYNC ONLINE STATUS TO NOTIFICATION CONTEXT
@@ -434,21 +435,27 @@ export default function DriverDashboard() {
         setRecentDeliveries(recentData.deliveries || []);
       }
 
-      // Fetch available deliveries using v2 endpoint with driver location
-      // This endpoint returns route_impact data with accurate earnings
-      const deliveriesUrl = `${API_URL}/driver/deliveries/available/v2?driver_latitude=${currentLocation.latitude}&driver_longitude=${currentLocation.longitude}`;
-      const deliveriesRes = await fetch(deliveriesUrl, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      // Fetch available deliveries - use lightweight count endpoint for periodic polls
+      // Only call the heavy /available/v2 on initial load (not on 30s interval)
+      // The AvailableDeliveries page handles its own OSRM-based data fetching
+      if (!isBackgroundRefreshRef.current) {
+        // Initial load: call full endpoint once
+        const deliveriesUrl = `${API_URL}/driver/deliveries/available/v2?driver_latitude=${currentLocation.latitude}&driver_longitude=${currentLocation.longitude}`;
+        const deliveriesRes = await fetch(deliveriesUrl, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
 
-      if (deliveriesRes.ok) {
-        const deliveriesData = await deliveriesRes.json();
-        setAvailableDeliveries(
-          deliveriesData.available_deliveries ||
-            deliveriesData.deliveries ||
-            [],
-        );
+        if (deliveriesRes.ok) {
+          const deliveriesData = await deliveriesRes.json();
+          setAvailableDeliveries(
+            deliveriesData.available_deliveries ||
+              deliveriesData.deliveries ||
+              [],
+          );
+        }
       }
+      // On subsequent polls, skip the heavy OSRM-based endpoint
+      // Available deliveries count is refreshed via WebSocket events
 
       // Fetch active deliveries (always fetch - inactive drivers can still have active deliveries)
       const activeDeliveriesRes = await fetch(
@@ -473,7 +480,10 @@ export default function DriverDashboard() {
     fetchDriverProfile();
     fetchDashboardData();
 
-    // Refresh data every 30 seconds
+    // Mark subsequent calls as background refresh (skip heavy OSRM calls)
+    isBackgroundRefreshRef.current = true;
+
+    // Refresh lightweight data every 30 seconds (stats, active deliveries — NOT available/v2)
     const interval = setInterval(fetchDashboardData, 30000);
     return () => clearInterval(interval);
   }, [fetchDriverProfile, fetchDashboardData]);

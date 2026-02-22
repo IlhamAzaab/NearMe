@@ -11,11 +11,47 @@ import {
 } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { X, Phone, ChevronDown } from "lucide-react";
+import { X, Phone, ChevronDown, Navigation } from "lucide-react";
 import DriverLayout from "../../components/DriverLayout";
 import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
 import SwipeToDeliver from "../../components/SwipeToDeliver";
 import { API_URL } from "../../config";
+
+// Open Google Maps for navigation (works on both web and mobile apps)
+function openGoogleMapsNavigation(destLat, destLng, destLabel = "Destination") {
+  // google.navigation intent works on Android Google Maps app
+  // On iOS it opens Google Maps app if installed, otherwise web
+  // On web it opens Google Maps in browser
+  const isAndroid = /android/i.test(navigator.userAgent);
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+
+  if (isAndroid) {
+    // Android: use google.navigation intent (opens Google Maps app directly in navigation mode)
+    window.location.href = `google.navigation:q=${destLat},${destLng}&mode=d`;
+    // Fallback to web after a short delay if the app doesn't open
+    setTimeout(() => {
+      window.open(
+        `https://www.google.com/maps/dir/?api=1&destination=${destLat},${destLng}&travelmode=driving`,
+        "_blank",
+      );
+    }, 1500);
+  } else if (isIOS) {
+    // iOS: try Google Maps app first, fallback to Apple Maps
+    window.location.href = `comgooglemaps://?daddr=${destLat},${destLng}&directionsmode=driving`;
+    setTimeout(() => {
+      window.open(
+        `https://maps.apple.com/?daddr=${destLat},${destLng}&dirflg=d`,
+        "_blank",
+      );
+    }, 1500);
+  } else {
+    // Web: open Google Maps in new tab
+    window.open(
+      `https://www.google.com/maps/dir/?api=1&destination=${destLat},${destLng}&travelmode=driving`,
+      "_blank",
+    );
+  }
+}
 
 // Fix Leaflet default marker icons
 delete L.Icon.Default.prototype._getIconUrl;
@@ -84,6 +120,7 @@ function MapBounds({
 
 // Minimum distance (meters) the driver must move before we consider it a real movement
 const MOVEMENT_THRESHOLD_METERS = 10;
+const FETCH_MOVEMENT_THRESHOLD_METERS = 100; // Only re-fetch OSRM/data when moved 100m+
 
 function getDistanceMeters(lat1, lng1, lat2, lng2) {
   const R = 6371000;
@@ -213,7 +250,7 @@ export default function DriverMapPage() {
           lastLocationRef.current = newLoc;
           setDriverLocation(newLoc);
 
-          // Send to backend & refresh data when driver moves significantly (>30m since last backend update)
+          // Send to backend & refresh data when driver moves significantly (>100m since last backend update)
           const movedSinceBackend = lastBackendLocationRef.current
             ? getDistanceMeters(
                 lastBackendLocationRef.current.latitude,
@@ -223,7 +260,7 @@ export default function DriverMapPage() {
               )
             : Infinity;
 
-          if (movedSinceBackend >= 30) {
+          if (movedSinceBackend >= FETCH_MOVEMENT_THRESHOLD_METERS) {
             lastBackendLocationRef.current = newLoc;
             updateLocationOnBackend(deliveryId, newLoc);
             // Refresh delivery data when driver has moved significantly
@@ -909,14 +946,30 @@ function PickupInfo({ pickup, onPickedUp, updating }) {
           <h2 className="text-xl font-bold text-green-600">
             {restaurant.name}
           </h2>
-          {restaurant.phone && (
-            <a
-              href={`tel:${restaurant.phone}`}
-              className="shrink-0 w-10 h-10 bg-green-500 rounded-full flex items-center justify-center hover:bg-green-600 transition-colors"
+          <div className="flex items-center gap-2">
+            {/* Navigate to Restaurant in Google Maps */}
+            <button
+              onClick={() =>
+                openGoogleMapsNavigation(
+                  restaurant.latitude,
+                  restaurant.longitude,
+                  restaurant.name,
+                )
+              }
+              className="shrink-0 w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center hover:bg-blue-600 transition-colors"
+              title="Navigate in Google Maps"
             >
-              <Phone className="w-5 h-5 text-white" />
-            </a>
-          )}
+              <Navigation className="w-5 h-5 text-white" />
+            </button>
+            {restaurant.phone && (
+              <a
+                href={`tel:${restaurant.phone}`}
+                className="shrink-0 w-10 h-10 bg-green-500 rounded-full flex items-center justify-center hover:bg-green-600 transition-colors"
+              >
+                <Phone className="w-5 h-5 text-white" />
+              </a>
+            )}
+          </div>
         </div>
         <p className="text-gray-700 text-sm leading-relaxed">
           {restaurant.address}
@@ -1033,15 +1086,30 @@ function DeliveryInfo({ delivery, onDelivered, updating }) {
       <div className="bg-white p-4 rounded-lg border border-gray-300">
         <div className="flex items-start justify-between mb-2">
           <h2 className="text-xl font-bold text-green-600">{customer.name}</h2>
-          
-          {customer.phone && (
-            <a
-              href={`tel:${customer.phone}`}
-              className="shrink-0 w-10 h-10 rounded-full flex items-center justify-center hover:bg-green-600 transition-colors"
+          <div className="flex items-center gap-2">
+            {/* Navigate to Customer in Google Maps */}
+            <button
+              onClick={() =>
+                openGoogleMapsNavigation(
+                  customer.latitude,
+                  customer.longitude,
+                  customer.name,
+                )
+              }
+              className="shrink-0 w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center hover:bg-blue-600 transition-colors"
+              title="Navigate in Google Maps"
             >
-              <Phone className="w-8 h-8 text-green-500" />
-            </a>
-          )}
+              <Navigation className="w-5 h-5 text-white" />
+            </button>
+            {customer.phone && (
+              <a
+                href={`tel:${customer.phone}`}
+                className="shrink-0 w-10 h-10 rounded-full flex items-center justify-center hover:bg-green-600 transition-colors"
+              >
+                <Phone className="w-8 h-8 text-green-500" />
+              </a>
+            )}
+          </div>
         </div>
         <p className="text-gray-700 text-sm leading-relaxed">
           {customer.address}

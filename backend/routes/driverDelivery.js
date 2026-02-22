@@ -89,13 +89,50 @@ function setCache(key, data) {
 }
 
 // ============================================================================
-// Helper: Fetch with timeout and improved retry logic
+// OSRM Circuit Breaker: Skip OSRM entirely when it's consistently failing
+// ============================================================================
+let osrmCircuitOpen = false;
+let osrmLastFailTime = 0;
+const OSRM_CIRCUIT_COOLDOWN = 60000; // 60s before retrying OSRM after circuit opens
+let osrmConsecutiveFailures = 0;
+const OSRM_FAILURE_THRESHOLD = 3; // Open circuit after 3 consecutive failures
+
+function isOsrmAvailable() {
+  if (!osrmCircuitOpen) return true;
+  // Check if cooldown has elapsed
+  if (Date.now() - osrmLastFailTime > OSRM_CIRCUIT_COOLDOWN) {
+    console.log("[OSRM] Circuit breaker: cooldown elapsed, retrying OSRM");
+    osrmCircuitOpen = false;
+    osrmConsecutiveFailures = 0;
+    return true;
+  }
+  return false;
+}
+
+function recordOsrmFailure() {
+  osrmConsecutiveFailures++;
+  if (osrmConsecutiveFailures >= OSRM_FAILURE_THRESHOLD) {
+    osrmCircuitOpen = true;
+    osrmLastFailTime = Date.now();
+    console.log(
+      `[OSRM] Circuit breaker OPEN: ${osrmConsecutiveFailures} consecutive failures. Will retry in ${OSRM_CIRCUIT_COOLDOWN / 1000}s`,
+    );
+  }
+}
+
+function recordOsrmSuccess() {
+  osrmConsecutiveFailures = 0;
+  osrmCircuitOpen = false;
+}
+
+// ============================================================================
+// Helper: Fetch with timeout and retry (reduced: 5s timeout, 1 retry)
 // ============================================================================
 async function fetchWithTimeout(
   url,
   options = {},
-  timeout = 15000,
-  retries = 3,
+  timeout = 5000,
+  retries = 1,
 ) {
   let lastError;
 
@@ -118,8 +155,7 @@ async function fetchWithTimeout(
         throw lastError;
       }
 
-      // Exponential backoff: 1s, 2s, 4s
-      const delay = Math.pow(2, i) * 1000;
+      const delay = 1000; // Single 1s retry
       console.log(
         `[OSRM] Retry ${i + 1}/${retries} after ${delay}ms - Error: ${error.message}`,
       );
@@ -148,57 +184,42 @@ async function getRouteDistance(
       return cached;
     }
 
-    // Use FOOT profile for shortest distance (motorcycles can use walking paths in town)
+    // Circuit breaker: skip OSRM entirely when it's consistently failing
+    if (!isOsrmAvailable()) {
+      throw new Error("OSRM circuit breaker open");
+    }
+
+    // Use FOOT profile for shortest distance
     const url = `https://router.project-osrm.org/route/v1/foot/${startLng},${startLat};${endLng},${endLat}?overview=${overview}${
       overview === "full" ? "&geometries=geojson" : ""
     }`;
 
-    console.log(
-      `[OSRM] Requesting route: (${startLng},${startLat}) → (${endLng},${endLat})`,
-    );
-
-    // Use public OSRM with 15 second timeout and 3 retries
-    const response = await fetchWithTimeout(url, {}, 15000, 3);
+    // Use public OSRM with 5s timeout and 1 retry
+    const response = await fetchWithTimeout(url, {}, 5000, 1);
 
     if (!response.ok) {
-      console.error(
-        `[OSRM] HTTP Error: ${response.status} ${response.statusText}`,
-      );
       throw new Error(`OSRM HTTP ${response.status}`);
     }
 
     const data = await response.json();
 
     if (data.code === "Ok" && data.routes?.[0]) {
-      console.log(
-        `[OSRM] ✅ Success: Distance=${(data.routes[0].distance / 1000).toFixed(2)}km, Duration=${(data.routes[0].duration / 60).toFixed(0)}min`,
-      );
-
       // Cache the result
       setCache(cacheKey, data.routes[0]);
-
+      recordOsrmSuccess();
       return data.routes[0];
     }
 
-    console.warn(
-      `[OSRM] ⚠️ Invalid response: code=${data.code}, message=${data.message}`,
-    );
     throw new Error(`OSRM code: ${data.code} - ${data.message}`);
   } catch (error) {
-    console.error(`[OSRM] ❌ All retries failed - Error: ${error.message}`);
+    recordOsrmFailure();
 
-    // Fallback to Haversine only if OSRM completely fails
-    console.log(`[HAVERSINE] Using fallback calculation...`);
-
+    // Fallback to Haversine
     const distance = calculateHaversineDistance(
       startLat,
       startLng,
       endLat,
       endLng,
-    );
-
-    console.log(
-      `[HAVERSINE] Distance=${(distance / 1000).toFixed(2)}km (estimated)`,
     );
 
     return {
@@ -295,7 +316,6 @@ router.get(
           orders!inner (
             id,
             order_number,
-            status,
             restaurant_id,
             restaurant_name,
             restaurant_address,
@@ -992,6 +1012,9 @@ router.post(
         `[ACCEPT DELIVERY]   💰 Earnings pending (will be stored on delivery completion)`,
       );
 
+      // Invalidate available deliveries cache for ALL drivers (this delivery is no longer available)
+      availableDeliveriesCache.clear();
+
       // Step 3: Insert delivery stops into driver's route
       console.log(
         `[ACCEPT DELIVERY] → Step 3: Insert stops into driver's route`,
@@ -1236,7 +1259,6 @@ router.get(
           orders (
             id,
             order_number,
-            status,
             restaurant_id,
             restaurant_name,
             restaurant_address,
@@ -1433,7 +1455,6 @@ router.get(
           orders (
             id,
             order_number,
-            status,
             restaurant_name,
             delivery_address,
             delivery_city,
@@ -2517,7 +2538,6 @@ router.get("/deliveries/active", authenticate, driverOnly, async (req, res) => {
         orders (
           id,
           order_number,
-          status,
           restaurant_name,
           restaurant_address,
           restaurant_latitude,
@@ -2557,102 +2577,70 @@ router.get("/deliveries/active", authenticate, driverOnly, async (req, res) => {
       return res.json({ deliveries: [] });
     }
 
-    // Calculate total distance for each delivery
-    const formattedDeliveries = await Promise.all(
-      deliveries.map(async (d) => {
-        let totalDistance = 0;
+    // Use Haversine only (no OSRM) — this is a fast overview endpoint.
+    // Detailed OSRM routes are fetched by /pickups and /deliveries-route endpoints.
+    const formattedDeliveries = deliveries.map((d) => {
+      const driverLat = d.current_latitude || d.orders.restaurant_latitude;
+      const driverLng = d.current_longitude || d.orders.restaurant_longitude;
+      const restaurantLat = parseFloat(d.orders.restaurant_latitude);
+      const restaurantLng = parseFloat(d.orders.restaurant_longitude);
+      const customerLat = parseFloat(d.orders.delivery_latitude);
+      const customerLng = parseFloat(d.orders.delivery_longitude);
 
-        try {
-          // Use driver's initial location (when accepted) or restaurant as fallback
-          const driverLat = d.current_latitude || d.orders.restaurant_latitude;
-          const driverLng =
-            d.current_longitude || d.orders.restaurant_longitude;
-          const restaurantLat = parseFloat(d.orders.restaurant_latitude);
-          const restaurantLng = parseFloat(d.orders.restaurant_longitude);
-          const customerLat = parseFloat(d.orders.delivery_latitude);
-          const customerLng = parseFloat(d.orders.delivery_longitude);
+      // Fast Haversine calculation (no network calls)
+      const restaurantDist = calculateHaversineDistance(
+        driverLat,
+        driverLng,
+        restaurantLat,
+        restaurantLng,
+      );
+      const customerDist = calculateHaversineDistance(
+        restaurantLat,
+        restaurantLng,
+        customerLat,
+        customerLng,
+      );
+      const totalDistance = (restaurantDist + customerDist) * 1.3;
 
-          // Fetch driver → restaurant distance
-          const restaurantRoute = await getRouteDistance(
-            driverLng,
-            driverLat,
-            restaurantLng,
-            restaurantLat,
-            "false",
-          );
-          if (restaurantRoute) {
-            totalDistance += restaurantRoute.distance;
-          }
-
-          // Fetch restaurant → customer distance
-          const customerRoute = await getRouteDistance(
-            restaurantLng,
-            restaurantLat,
-            customerLng,
-            customerLat,
-            "false",
-          );
-          if (customerRoute) {
-            totalDistance += customerRoute.distance;
-          }
-        } catch (error) {
-          console.error("Error calculating total distance:", error);
-          // Use fallback calculation even on error
-          const restaurantDist = calculateHaversineDistance(
-            driverLat,
-            driverLng,
-            restaurantLat,
-            restaurantLng,
-          );
-          const customerDist = calculateHaversineDistance(
-            restaurantLat,
-            restaurantLng,
-            customerLat,
-            customerLng,
-          );
-          totalDistance = (restaurantDist + customerDist) * 1.3; // Add 30% for road routing
-        }
-
-        return {
-          id: d.id,
-          order_id: d.order_id,
+      return {
+        id: d.id,
+        order_id: d.order_id,
+        status: d.status,
+        driver_location: {
+          latitude: d.current_latitude,
+          longitude: d.current_longitude,
+        },
+        accepted_at: d.accepted_at,
+        picked_up_at: d.picked_up_at,
+        total_distance: totalDistance, // in meters (estimated)
+        order: {
+          order_number: d.orders.order_number,
           status: d.status,
-          driver_location: {
-            latitude: d.current_latitude,
-            longitude: d.current_longitude,
+          restaurant: {
+            name: d.orders.restaurant_name,
+            address: d.orders.restaurant_address,
+            latitude: restaurantLat,
+            longitude: restaurantLng,
           },
-          accepted_at: d.accepted_at,
-          picked_up_at: d.picked_up_at,
-          total_distance: totalDistance, // in meters
-          order: {
-            order_number: d.orders.order_number,
-            status: d.status,
-            restaurant: {
-              name: d.orders.restaurant_name,
-              address: d.orders.restaurant_address,
-              latitude: parseFloat(d.orders.restaurant_latitude),
-              longitude: parseFloat(d.orders.restaurant_longitude),
-            },
-            delivery: {
-              address: d.orders.delivery_address,
-              city: d.orders.delivery_city,
-              latitude: parseFloat(d.orders.delivery_latitude),
-              longitude: parseFloat(d.orders.delivery_longitude),
-            },
-            customer: {
-              id: d.orders.customer_id,
-              name: d.orders.customer_name,
-              phone: d.orders.customer_phone,
-            },
-            restaurant_id: d.orders.restaurant_id,
-            total_amount: parseFloat(d.orders.total_amount),
-            distance_km: parseFloat(d.orders.distance_km),
-            payment_method: d.orders.payment_method,
-            items: d.orders.order_items,
+          delivery: {
+            address: d.orders.delivery_address,
+            city: d.orders.delivery_city,
+            latitude: customerLat,
+            longitude: customerLng,
           },
-        };
-      }),
-    );
+          customer: {
+            id: d.orders.customer_id,
+            name: d.orders.customer_name,
+            phone: d.orders.customer_phone,
+          },
+          restaurant_id: d.orders.restaurant_id,
+          total_amount: parseFloat(d.orders.total_amount),
+          distance_km: parseFloat(d.orders.distance_km),
+          payment_method: d.orders.payment_method,
+          items: d.orders.order_items,
+        },
+      };
+    });
 
     return res.json({ deliveries: formattedDeliveries });
   } catch (error) {
@@ -2675,7 +2663,7 @@ router.get("/deliveries/:id", authenticate, driverOnly, async (req, res) => {
       .select(
         `
           id,
-          delivery_status,
+          status,
           driver_id,
           current_latitude,
           current_longitude,
@@ -2695,7 +2683,7 @@ router.get("/deliveries/:id", authenticate, driverOnly, async (req, res) => {
       )
       .eq("id", deliveryId)
       .eq("driver_id", driverId)
-      .eq("delivery_status", "accepted") // ✅ IMPORTANT
+      .eq("status", "accepted")
       .single();
 
     if (error || !data) {
@@ -2707,7 +2695,7 @@ router.get("/deliveries/:id", authenticate, driverOnly, async (req, res) => {
     return res.json({
       delivery: {
         id: data.id,
-        delivery_status: data.delivery_status,
+        status: data.status,
         driver_location: {
           latitude: data.current_latitude,
           longitude: data.current_longitude,
@@ -2954,6 +2942,32 @@ router.get("/stats", authenticate, driverOnly, async (req, res) => {
 //   current_route
 // }
 
+// ============================================================================
+// AVAILABLE DELIVERIES RESPONSE CACHE
+// ============================================================================
+// Caches per-driver results for 30 seconds. Invalidated when:
+//   - Driver moves >200m from cached position
+//   - Cache TTL expires (30s)
+//   - Pending delivery count changes
+// This prevents repeated OSRM calls when frontend polls frequently.
+// ============================================================================
+const availableDeliveriesCache = new Map();
+const AVAILABLE_CACHE_TTL_MS = 30 * 1000; // 30 seconds
+const AVAILABLE_CACHE_MOVE_THRESHOLD_M = 200; // Only recalculate if driver moved 200m+
+
+function haversineDistanceSimple(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 router.get(
   "/deliveries/available/v2",
   authenticate,
@@ -2961,6 +2975,24 @@ router.get(
   async (req, res) => {
     const driverId = req.user.id;
     const { driver_latitude, driver_longitude } = req.query;
+    const lat = driver_latitude ? parseFloat(driver_latitude) : null;
+    const lng = driver_longitude ? parseFloat(driver_longitude) : null;
+
+    // Check response cache first
+    const cached = availableDeliveriesCache.get(driverId);
+    if (cached && lat && lng) {
+      const age = Date.now() - cached.timestamp;
+      const moved = haversineDistanceSimple(cached.lat, cached.lng, lat, lng);
+      if (
+        age < AVAILABLE_CACHE_TTL_MS &&
+        moved < AVAILABLE_CACHE_MOVE_THRESHOLD_M
+      ) {
+        console.log(
+          `[ENDPOINT] GET /available/v2 → CACHED (age=${Math.round(age / 1000)}s, moved=${Math.round(moved)}m)`,
+        );
+        return res.json(cached.result);
+      }
+    }
 
     console.log(`\n\n${"=".repeat(100)}`);
     console.log(`[ENDPOINT] GET /driver/deliveries/available/v2`);
@@ -2971,10 +3003,20 @@ router.get(
     try {
       const availableDeliveries = await getAvailableDeliveriesForDriver(
         driverId,
-        driver_latitude ? parseFloat(driver_latitude) : null,
-        driver_longitude ? parseFloat(driver_longitude) : null,
+        lat,
+        lng,
         getRouteDistance, // Pass the OSRM helper function
       );
+
+      // Store in cache
+      if (lat && lng) {
+        availableDeliveriesCache.set(driverId, {
+          result: availableDeliveries,
+          lat,
+          lng,
+          timestamp: Date.now(),
+        });
+      }
 
       console.log(
         `[ENDPOINT] ✅ Returning ${availableDeliveries.available_deliveries?.length || 0} available deliveries`,
