@@ -32,26 +32,14 @@ export default function DriverNotifications() {
   const fetchNotifications = useCallback(async () => {
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(
-        `${API_URL}/driver/notifications?limit=50`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
-      );
+      const res = await fetch(`${API_URL}/driver/notifications?limit=50`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const data = await res.json();
       setNotifications(data.notifications || []);
 
-      // Mark all as read after fetching
+      // Mark all as read (no-op, notification_log is read-only)
       await markAllAsRead();
-
-      // Update local state to reflect read status
-      setNotifications((prev) =>
-        prev.map((notif) => ({
-          ...notif,
-          is_read: true,
-          read_at: new Date().toISOString(),
-        })),
-      );
     } catch (e) {
       console.error("Fetch notifications error:", e);
       setNotifications([]);
@@ -89,8 +77,8 @@ export default function DriverNotifications() {
         {
           event: "INSERT",
           schema: "public",
-          table: "notifications",
-          filter: `recipient_id=eq.${driverId}`,
+          table: "notification_log",
+          filter: `user_id=eq.${driverId}`,
         },
         (payload) => {
           console.log("New driver notification:", payload);
@@ -178,13 +166,11 @@ export default function DriverNotifications() {
                   metadata = {};
                 }
 
-                const isUnread = !n.is_read;
-                const bgColor = isUnread ? "bg-blue-50" : "bg-white";
-                const borderColor = isUnread
-                  ? "border-blue-600"
-                  : "border-gray-300";
-                const iconBg = isUnread ? "bg-blue-200" : "bg-gray-100";
-                const shadowClass = isUnread ? "shadow-md" : "shadow";
+                // All notifications in notification_log are informational (no read status)
+                const bgColor = "bg-white";
+                const borderColor = "border-gray-300";
+                const iconBg = "bg-gray-100";
+                const shadowClass = "shadow";
 
                 return (
                   <div
@@ -205,21 +191,8 @@ export default function DriverNotifications() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-start justify-between gap-2">
                           <div>
-                            <div className="flex items-center gap-2">
-                              <p
-                                className={`font-bold ${isUnread ? "text-gray-900" : "text-gray-700"}`}
-                              >
-                                {n.title}
-                              </p>
-                              {isUnread && (
-                                <span className="w-2 h-2 bg-blue-600 rounded-full animate-pulse"></span>
-                              )}
-                            </div>
-                            <p
-                              className={`mt-1 ${isUnread ? "text-gray-800" : "text-gray-600"}`}
-                            >
-                              {n.message}
-                            </p>
+                            <p className="font-bold text-gray-900">{n.title}</p>
+                            <p className="mt-1 text-gray-800">{n.message}</p>
                           </div>
                         </div>
 

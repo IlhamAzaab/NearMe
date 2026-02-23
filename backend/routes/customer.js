@@ -18,9 +18,9 @@ router.get("/notifications", authenticate, async (req, res) => {
     const limit = parseInt(req.query.limit) || 50;
 
     const { data, error } = await supabaseAdmin
-      .from("notifications")
+      .from("notification_log")
       .select("*")
-      .eq("recipient_id", customerId)
+      .eq("user_id", customerId)
       .order("created_at", { ascending: false })
       .limit(limit);
 
@@ -46,23 +46,9 @@ router.patch("/notifications/:id/read", authenticate, async (req, res) => {
       return res.status(403).json({ message: "Forbidden" });
     }
 
-    const notifId = req.params.id;
-    const customerId = req.user.id;
-
-    const { data, error } = await supabaseAdmin
-      .from("notifications")
-      .update({ is_read: true, read_at: new Date().toISOString() })
-      .eq("id", notifId)
-      .eq("recipient_id", customerId)
-      .select()
-      .single();
-
-    if (error) {
-      console.error("Mark read error:", error);
-      return res.status(500).json({ message: "Failed to mark as read" });
-    }
-
-    return res.json({ notification: data });
+    // notification_log table doesn't have is_read field - it's read-only
+    // Just return success since notifications are auto-read when fetched
+    return res.json({ message: "Notification marked as read" });
   } catch (e) {
     console.error("/customer/notifications/:id/read error:", e);
     return res.status(500).json({ message: "Server error" });
@@ -79,19 +65,8 @@ router.patch("/notifications/mark-all-read", authenticate, async (req, res) => {
       return res.status(403).json({ message: "Forbidden" });
     }
 
-    const customerId = req.user.id;
-
-    const { error } = await supabaseAdmin
-      .from("notifications")
-      .update({ is_read: true, read_at: new Date().toISOString() })
-      .eq("recipient_id", customerId)
-      .eq("is_read", false);
-
-    if (error) {
-      console.error("Mark all read error:", error);
-      return res.status(500).json({ message: "Failed to mark all as read" });
-    }
-
+    // notification_log table doesn't have is_read field - it's read-only
+    // Just return success since notifications are auto-read when fetched
     return res.json({ message: "All notifications marked as read" });
   } catch (e) {
     console.error("/customer/notifications/mark-all-read error:", e);
@@ -139,9 +114,9 @@ router.put("/address", authenticate, async (req, res) => {
       return res.status(500).json({ message: "Failed to update address" });
     }
 
-    return res.json({ 
+    return res.json({
       message: "Address updated successfully",
-      customer 
+      customer,
     });
   } catch (e) {
     console.error("/customer/address error:", e);
@@ -163,13 +138,17 @@ router.get("/me", authenticate, async (req, res) => {
 
     const { data: customer, error } = await supabaseAdmin
       .from("customers")
-      .select("id, username, email, phone, address, city, nic_number, latitude, longitude, created_at")
+      .select(
+        "id, username, email, phone, address, city, nic_number, latitude, longitude, created_at",
+      )
       .eq("id", customerId)
       .single();
 
     if (error) {
       console.error("Customer fetch error:", error);
-      return res.status(500).json({ message: "Failed to fetch customer profile" });
+      return res
+        .status(500)
+        .json({ message: "Failed to fetch customer profile" });
     }
 
     if (!customer) {

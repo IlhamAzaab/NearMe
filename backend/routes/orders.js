@@ -676,17 +676,19 @@ router.post("/place", authenticate, async (req, res) => {
 
       console.log("📤 Creating notifications:", notifications);
 
-      const { data: insertedNotifs, error: notifError } = await supabaseAdmin
-        .from("notifications")
-        .insert(notifications)
-        .select();
+      // Notifications are now handled by push notification service
+      // which automatically logs to notification_log table
+      // const { data: insertedNotifs, error: notifError } = await supabaseAdmin
+      //   .from("notifications")
+      //   .insert(notifications)
+      //   .select();
 
-      if (notifError) {
-        console.error("❌ Notification insert error:", notifError);
-        // Continue anyway
-      } else {
-        console.log("✅ Notifications created successfully:", insertedNotifs);
-      }
+      // if (notifError) {
+      //   console.error("❌ Notification insert error:", notifError);
+      //   // Continue anyway
+      // } else {
+      //   console.log("✅ Notifications created successfully:", insertedNotifs);
+      // }
 
       // 🔔 WebSocket: Notify each online admin in real-time
       const itemsSummary = processedItems
@@ -1474,21 +1476,23 @@ router.patch(
       };
 
       if (notificationTypes[targetDeliveryStatus]) {
-        const { error: notifError } = await supabaseAdmin
-          .from("notifications")
-          .insert({
-            recipient_id: order.customer_id,
-            recipient_role: "customer",
-            order_id: orderId,
-            restaurant_id: admin.restaurant_id,
-            type: notificationTypes[targetDeliveryStatus],
-            title: notificationTitles[targetDeliveryStatus],
-            message: notificationMessages[targetDeliveryStatus],
-            metadata: {
-              order_number: order.order_number,
-              status: targetDeliveryStatus,
-            },
-          });
+        // Notifications are now handled by push notification service
+        // which automatically logs to notification_log table
+        // const { error: notifError } = await supabaseAdmin
+        //   .from("notifications")
+        //   .insert({
+        //     recipient_id: order.customer_id,
+        //     recipient_role: "customer",
+        //     order_id: orderId,
+        //     restaurant_id: admin.restaurant_id,
+        //     type: notificationTypes[targetDeliveryStatus],
+        //     title: notificationTitles[targetDeliveryStatus],
+        //     message: notificationMessages[targetDeliveryStatus],
+        //     metadata: {
+        //       order_number: order.order_number,
+        //       status: targetDeliveryStatus,
+        //     },
+        //   });
 
         if (notifError) {
           console.error("❌ Customer notification error:", notifError);
@@ -1545,24 +1549,26 @@ router.patch(
               `📤 Notifying ${activeDrivers.length} active drivers...`,
             );
 
+            // Notifications are now handled by push notification service
+            // which automatically logs to notification_log table
             // Notify each driver (direct insert with service_role)
-            const notificationPromises = activeDrivers.map((driver) =>
-              supabaseAdmin.from("notifications").insert({
-                recipient_id: driver.id,
-                recipient_role: "driver",
-                order_id: orderId,
-                restaurant_id: admin.restaurant_id,
-                type: "new_delivery",
-                title: "New Delivery Available",
-                message:
-                  "A new delivery is available. Check available deliveries.",
-                metadata: {
-                  order_id: orderId,
-                  delivery_id: delivery.id,
-                  order_number: order.order_number,
-                },
-              }),
-            );
+            // const notificationPromises = activeDrivers.map((driver) =>
+            //   supabaseAdmin.from("notifications").insert({
+            //     recipient_id: driver.id,
+            //     recipient_role: "driver",
+            //     order_id: orderId,
+            //     restaurant_id: admin.restaurant_id,
+            //     type: "new_delivery",
+            //     title: "New Delivery Available",
+            //     message:
+            //       "A new delivery is available. Check available deliveries.",
+            //     metadata: {
+            //       order_id: orderId,
+            //       delivery_id: delivery.id,
+            //       order_number: order.order_number,
+            //     },
+            //   }),
+            // );
 
             const results = await Promise.allSettled(notificationPromises);
             const successCount = results.filter(

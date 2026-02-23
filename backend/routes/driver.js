@@ -564,9 +564,9 @@ router.get("/notifications", authenticate, async (req, res) => {
     const limit = parseInt(req.query.limit || "50", 10);
 
     const { data, error } = await supabaseAdmin
-      .from("notifications")
+      .from("notification_log")
       .select("*")
-      .eq("recipient_id", driverId)
+      .eq("user_id", driverId)
       .order("created_at", { ascending: false })
       .limit(limit);
 

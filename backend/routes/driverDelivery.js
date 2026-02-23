@@ -1091,9 +1091,11 @@ router.post(
         });
       }
 
-      if (notifications.length > 0) {
-        await supabaseAdmin.from("notifications").insert(notifications);
-      }
+      // Notifications are now handled by push notification service
+      // which automatically logs to notification_log table
+      // if (notifications.length > 0) {
+      //   await supabaseAdmin.from("notifications").insert(notifications);
+      // }
 
       console.log(`[ACCEPT DELIVERY]   ✓ Notifications sent`);
 
@@ -2156,6 +2158,59 @@ router.patch(
             `[DELIVERED] ⚠️ No pending_earnings found for delivery ${deliveryId}`,
           );
         }
+
+        // ======================================================================
+        // CLEANUP: Delete delivery_stops for this delivery
+        // ======================================================================
+        console.log(
+          `[DELIVERED] 🧹 Cleaning up delivery_stops for delivery ${deliveryId}`,
+        );
+
+        // Check if driver has any other active deliveries
+        const { data: remainingDeliveries } = await supabaseAdmin
+          .from("deliveries")
+          .select("id")
+          .eq("driver_id", req.user.id)
+          .not("status", "in", "(delivered,cancelled,failed)");
+
+        const hasRemainingDeliveries =
+          remainingDeliveries && remainingDeliveries.length > 0;
+
+        if (hasRemainingDeliveries) {
+          // Driver still has active deliveries - only delete stops for this specific delivery
+          const { error: deleteError } = await supabaseAdmin
+            .from("delivery_stops")
+            .delete()
+            .eq("delivery_id", deliveryId);
+
+          if (deleteError) {
+            console.error(
+              `[DELIVERED] ❌ Error deleting stops for delivery ${deliveryId}:`,
+              deleteError,
+            );
+          } else {
+            console.log(
+              `[DELIVERED] ✅ Deleted delivery_stops for delivery ${deliveryId} (driver has ${remainingDeliveries.length} active deliveries remaining)`,
+            );
+          }
+        } else {
+          // Driver has no remaining active deliveries - delete ALL stops for this driver
+          const { error: deleteError } = await supabaseAdmin
+            .from("delivery_stops")
+            .delete()
+            .eq("driver_id", req.user.id);
+
+          if (deleteError) {
+            console.error(
+              `[DELIVERED] ❌ Error deleting all stops for driver:`,
+              deleteError,
+            );
+          } else {
+            console.log(
+              `[DELIVERED] ✅ Deleted ALL delivery_stops for driver (all deliveries completed)`,
+            );
+          }
+        }
       }
 
       // Send notifications for status changes
@@ -2211,9 +2266,11 @@ router.patch(
         }
       }
 
-      if (notifications.length > 0) {
-        await supabaseAdmin.from("notifications").insert(notifications);
-      }
+      // Notifications are now handled by push notification service
+      // which automatically logs to notification_log table
+      // if (notifications.length > 0) {
+      //   await supabaseAdmin.from("notifications").insert(notifications);
+      // }
 
       // 📡 REAL-TIME WEBSOCKET: Notify customer of delivery status change
       if (messages && currentDelivery.orders?.customer_id) {
@@ -2444,9 +2501,11 @@ router.patch(
               });
             }
           }
-          if (followups.length > 0) {
-            await supabaseAdmin.from("notifications").insert(followups);
-          }
+          // Notifications are now handled by push notification service
+          // which automatically logs to notification_log table
+          // if (followups.length > 0) {
+          //   await supabaseAdmin.from("notifications").insert(followups);
+          // }
 
           // 📡 REAL-TIME WEBSOCKET: Notify customer of auto-promoted delivery
           if (next.customer_id) {
@@ -2783,18 +2842,13 @@ router.get("/notifications", authenticate, driverOnly, async (req, res) => {
   const { limit = 50, unread_only = false } = req.query;
 
   try {
-    let query = supabaseAdmin
-      .from("notifications")
+    // notification_log has no is_read field, so unread_only is ignored
+    const { data: notifications, error } = await supabaseAdmin
+      .from("notification_log")
       .select("*")
-      .eq("recipient_id", req.user.id)
+      .eq("user_id", req.user.id)
       .order("created_at", { ascending: false })
       .limit(parseInt(limit));
-
-    if (unread_only === "true") {
-      query = query.eq("is_read", false);
-    }
-
-    const { data: notifications, error } = await query;
 
     if (error) {
       console.error("Fetch notifications error:", error);
@@ -2817,27 +2871,9 @@ router.patch(
   authenticate,
   driverOnly,
   async (req, res) => {
-    const notificationId = req.params.id;
-
-    try {
-      const { error } = await supabaseAdmin
-        .from("notifications")
-        .update({ is_read: true, read_at: new Date().toISOString() })
-        .eq("id", notificationId)
-        .eq("recipient_id", req.user.id);
-
-      if (error) {
-        console.error("Mark notification read error:", error);
-        return res
-          .status(500)
-          .json({ message: "Failed to update notification" });
-      }
-
-      return res.json({ message: "Notification marked as read" });
-    } catch (error) {
-      console.error("Update notification error:", error);
-      return res.status(500).json({ message: "Server error" });
-    }
+    // notification_log is read-only, no mark-as-read functionality
+    // Return success for backward compatibility
+    return res.json({ message: "Notification marked as read" });
   },
 );
 
@@ -2850,25 +2886,9 @@ router.patch(
   authenticate,
   driverOnly,
   async (req, res) => {
-    try {
-      const { error } = await supabaseAdmin
-        .from("notifications")
-        .update({ is_read: true, read_at: new Date().toISOString() })
-        .eq("recipient_id", req.user.id)
-        .eq("is_read", false);
-
-      if (error) {
-        console.error("Mark all notifications read error:", error);
-        return res
-          .status(500)
-          .json({ message: "Failed to mark all notifications as read" });
-      }
-
-      return res.json({ message: "All notifications marked as read" });
-    } catch (error) {
-      console.error("Mark all notifications error:", error);
-      return res.status(500).json({ message: "Server error" });
-    }
+    // notification_log is read-only, no mark-as-read functionality
+    // Return success for backward compatibility
+    return res.json({ message: "All notifications marked as read" });
   },
 );
 
