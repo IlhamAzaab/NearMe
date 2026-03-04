@@ -30,11 +30,11 @@ export default function DriverDeposits() {
   const [deposits, setDeposits] = useState([]);
   const [lastRefresh, setLastRefresh] = useState(new Date());
 
-  // Submit deposit modal
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [submitForm, setSubmitForm] = useState({ amount: "" });
   const [selectedFile, setSelectedFile] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [managerBank, setManagerBank] = useState(null);
 
   // Get driver ID from token
   useEffect(() => {
@@ -56,7 +56,26 @@ export default function DriverDeposits() {
       return;
     }
     fetchData(true);
+    fetchManagerBankDetails();
   }, [navigate]);
+
+  const fetchManagerBankDetails = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch(
+        `${API_URL}/driver/deposits/manager-bank-details`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      const data = await res.json();
+      if (data.success && data.bankDetails) {
+        setManagerBank(data.bankDetails);
+      }
+    } catch (err) {
+      console.error("Failed to fetch manager bank details:", err);
+    }
+  };
 
   // Subscribe to real-time deposit status changes for this driver
   useEffect(() => {
@@ -446,6 +465,70 @@ export default function DriverDeposits() {
               </div>
             </div>
           </div>
+
+          {/* Manager Bank Account Details */}
+          {managerBank && (
+            <div className="rounded-xl border border-blue-200 bg-gradient-to-br from-blue-50 to-indigo-50 overflow-hidden">
+              <div className="flex items-center gap-2 px-4 py-3 bg-blue-100/60 border-b border-blue-200">
+                <svg
+                  className="w-5 h-5 text-blue-600"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M3 10h18M3 6h18M3 14h18M3 18h18"
+                  />
+                </svg>
+                <span className="text-blue-800 text-sm font-bold">
+                  Deposit to This Account
+                </span>
+              </div>
+              <div className="p-4 space-y-3">
+                {/* Account Number - Large */}
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-blue-500 mb-1">
+                    Account Number
+                  </p>
+                  <p className="text-[#111816] text-2xl font-bold tracking-wider font-mono">
+                    {managerBank.account_number}
+                  </p>
+                </div>
+                <div className="h-px bg-blue-200/60" />
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-blue-500 mb-0.5">
+                      Account Holder
+                    </p>
+                    <p className="text-[#111816] text-sm font-semibold">
+                      {managerBank.account_holder_name}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-blue-500 mb-0.5">
+                      Bank Name
+                    </p>
+                    <p className="text-[#111816] text-sm font-semibold">
+                      {managerBank.bank_name}
+                    </p>
+                  </div>
+                </div>
+                {managerBank.branch_name && (
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-blue-500 mb-0.5">
+                      Branch
+                    </p>
+                    <p className="text-[#111816] text-sm font-semibold">
+                      {managerBank.branch_name}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Recent Transfers Section */}
           <div className="flex flex-col gap-4">

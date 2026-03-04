@@ -15,6 +15,8 @@
  */
 
 import express from "express";
+import multer from "multer";
+import { v2 as cloudinary } from "cloudinary";
 import { supabaseAdmin } from "../supabaseAdmin.js";
 import { authenticate } from "../middleware/authenticate.js";
 import {
@@ -45,6 +47,13 @@ import {
 } from "../utils/pushNotificationService.js";
 
 const router = express.Router();
+
+// Configure Cloudinary (for delivery proof uploads)
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 // ============================================================================
 // Helper: Calculate distance using Haversine formula (fallback)
@@ -934,17 +943,17 @@ router.post(
         r1_distance_km: earningsData.r1_distance_km || null,
         extra_distance_km: earningsData.extra_distance_km || 0,
         total_distance_km: earningsData.total_distance_km || 0,
-        // Store pending earnings data as JSON for later use (when delivered)
+        // Store pending earnings data as JSON (will be applied when delivered)
         pending_earnings: JSON.stringify({
-          // Only include base_amount for 1st delivery
           ...(isFirstDelivery
             ? { base_amount: earningsData.base_amount || 0 }
             : {}),
           extra_earnings: earningsData.extra_earnings || 0,
           bonus_amount: earningsData.bonus_amount || 0,
+          tip_amount: tipAmount,
           driver_earnings: driverEarningsAmount,
         }),
-        // Set actual earnings to 0 until delivered
+        // Store as 0 until delivery is completed
         base_amount: 0,
         extra_earnings: 0,
         bonus_amount: 0,
@@ -2106,34 +2115,36 @@ router.patch(
           })
           .eq("id", delivery.order_id);
 
-        // NOW store the actual driver earnings from pending_earnings
+        // Apply pending_earnings to actual columns on delivery completion
         console.log(
-          `[DELIVERED] 💰 Storing driver earnings for delivery ${deliveryId}`,
+          `[DELIVERED] 💰 Finalizing earnings for delivery ${deliveryId}`,
         );
 
-        // Fetch the pending earnings data
+        // Fetch the delivery to get pending_earnings
         const { data: deliveryWithPending } = await supabaseAdmin
           .from("deliveries")
-          .select("pending_earnings, delivery_sequence")
+          .select(
+            "pending_earnings, delivery_sequence, driver_earnings, base_amount, extra_earnings, bonus_amount, tip_amount",
+          )
           .eq("id", deliveryId)
           .single();
 
-        if (deliveryWithPending?.pending_earnings) {
+        if (deliveryWithPending && deliveryWithPending.pending_earnings) {
           try {
             const pendingEarnings =
               typeof deliveryWithPending.pending_earnings === "string"
                 ? JSON.parse(deliveryWithPending.pending_earnings)
                 : deliveryWithPending.pending_earnings;
 
-            // Update with actual earnings
             const { error: earningsError } = await supabaseAdmin
               .from("deliveries")
               .update({
                 base_amount: pendingEarnings.base_amount || 0,
                 extra_earnings: pendingEarnings.extra_earnings || 0,
                 bonus_amount: pendingEarnings.bonus_amount || 0,
+                tip_amount: pendingEarnings.tip_amount || 0,
                 driver_earnings: pendingEarnings.driver_earnings || 0,
-                pending_earnings: null, // Clear pending data
+                pending_earnings: null,
               })
               .eq("id", deliveryId);
 
@@ -2144,7 +2155,7 @@ router.patch(
               );
             } else {
               console.log(
-                `[DELIVERED] ✅ Earnings stored: Rs.${pendingEarnings.driver_earnings} (base: ${pendingEarnings.base_amount}, extra: ${pendingEarnings.extra_earnings}, bonus: ${pendingEarnings.bonus_amount})`,
+                `[DELIVERED] ✅ Earnings applied from pending: Rs.${pendingEarnings.driver_earnings} (base: ${pendingEarnings.base_amount || 0}, extra: ${pendingEarnings.extra_earnings}, bonus: ${pendingEarnings.bonus_amount}, tip: ${pendingEarnings.tip_amount || 0})`,
               );
             }
           } catch (parseError) {
@@ -2155,7 +2166,7 @@ router.patch(
           }
         } else {
           console.log(
-            `[DELIVERED] ⚠️ No pending_earnings found for delivery ${deliveryId}`,
+            `[DELIVERED] ⚠️ No pending_earnings found for delivery ${deliveryId}, earnings columns already set: Rs.${deliveryWithPending?.driver_earnings}`,
           );
         }
 
@@ -3573,6 +3584,91 @@ router.get(
       return res
         .status(500)
         .json({ success: false, message: "Failed to fetch delivery earnings" });
+    }
+  },
+);
+
+// ============================================================================
+// POST /driver/deliveries/:id/proof - Upload delivery proof photo
+// ============================================================================
+const proofUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith("image/")) {
+      cb(null, true);
+    } else {
+      cb(new Error("Only image files are allowed"));
+    }
+  },
+});
+
+router.post(
+  "/deliveries/:id/proof",
+  authenticate,
+  driverOnly,
+  proofUpload.single("file"),
+  async (req, res) => {
+    const deliveryId = req.params.id;
+    const driverId = req.user.id;
+
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: "No image file provided" });
+      }
+
+      // Verify this delivery belongs to the driver
+      const { data: delivery, error: fetchError } = await supabaseAdmin
+        .from("deliveries")
+        .select("id, driver_id")
+        .eq("id", deliveryId)
+        .eq("driver_id", driverId)
+        .maybeSingle();
+
+      if (fetchError || !delivery) {
+        return res.status(404).json({ message: "Delivery not found" });
+      }
+
+      // Upload to Cloudinary
+      const b64 = Buffer.from(req.file.buffer).toString("base64");
+      const dataURI = `data:${req.file.mimetype};base64,${b64}`;
+
+      const result = await cloudinary.uploader.upload(dataURI, {
+        folder: `nearme/delivery-proofs/${driverId}`,
+        public_id: `proof_${deliveryId}_${Date.now()}`,
+        resource_type: "image",
+        overwrite: true,
+        access_mode: "public",
+        transformation: [
+          { width: 1200, height: 1200, crop: "limit", quality: "auto" },
+        ],
+      });
+
+      // Save URL to delivery record
+      const { error: updateError } = await supabaseAdmin
+        .from("deliveries")
+        .update({ delivery_proof_url: result.secure_url })
+        .eq("id", deliveryId);
+
+      if (updateError) {
+        console.error("Update delivery proof error:", updateError);
+        return res
+          .status(500)
+          .json({ message: "Failed to save proof URL to delivery" });
+      }
+
+      console.log(
+        `[DELIVERY PROOF] ✅ Uploaded proof for delivery ${deliveryId}`,
+      );
+      return res.json({
+        message: "Delivery proof uploaded",
+        url: result.secure_url,
+      });
+    } catch (error) {
+      console.error(`[DELIVERY PROOF] ❌ Error: ${error.message}`);
+      return res
+        .status(500)
+        .json({ message: "Failed to upload delivery proof" });
     }
   },
 );

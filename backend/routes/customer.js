@@ -6,7 +6,7 @@ const router = express.Router();
 
 /**
  * GET /customer/notifications
- * Get notifications for customer
+ * Get notifications for customer from notification_log + scheduled_notifications
  */
 router.get("/notifications", authenticate, async (req, res) => {
   try {
@@ -17,19 +17,60 @@ router.get("/notifications", authenticate, async (req, res) => {
     const customerId = req.user.id;
     const limit = parseInt(req.query.limit) || 50;
 
-    const { data, error } = await supabaseAdmin
+    // 1) Fetch from notification_log (individual notifications for this user)
+    const { data: logData, error: logError } = await supabaseAdmin
       .from("notification_log")
       .select("*")
       .eq("user_id", customerId)
-      .order("created_at", { ascending: false })
+      .order("sent_at", { ascending: false })
       .limit(limit);
 
-    if (error) {
-      console.error("Customer notifications fetch error:", error);
-      return res.status(500).json({ message: "Failed to fetch notifications" });
+    if (logError) {
+      console.error("notification_log fetch error:", logError);
     }
 
-    return res.json({ notifications: data || [] });
+    // 2) Fetch from scheduled_notifications (sent broadcasts targeting customer role)
+    const { data: scheduledData, error: schedError } = await supabaseAdmin
+      .from("scheduled_notifications")
+      .select("*")
+      .eq("role", "customer")
+      .eq("status", "sent")
+      .or(`recipient_ids.is.null,recipient_ids.cs.{${customerId}}`)
+      .order("sent_at", { ascending: false })
+      .limit(limit);
+
+    if (schedError) {
+      console.error("scheduled_notifications fetch error:", schedError);
+    }
+
+    // Normalize notification_log entries
+    const normalizedLog = (logData || []).map((n) => ({
+      id: n.id,
+      title: n.title,
+      body: n.body,
+      data: n.data || {},
+      status: n.status,
+      created_at: n.sent_at,
+      source: "notification_log",
+    }));
+
+    // Normalize scheduled_notifications entries
+    const normalizedScheduled = (scheduledData || []).map((s) => ({
+      id: s.id,
+      title: s.title,
+      body: s.body,
+      data: s.data || {},
+      status: s.status,
+      created_at: s.sent_at || s.created_at,
+      source: "scheduled",
+    }));
+
+    // Merge, sort by time desc, limit
+    const all = [...normalizedLog, ...normalizedScheduled]
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+      .slice(0, limit);
+
+    return res.json({ notifications: all });
   } catch (e) {
     console.error("/customer/notifications error:", e);
     return res.status(500).json({ message: "Server error" });

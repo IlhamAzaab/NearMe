@@ -269,7 +269,6 @@ export default function DriverDashboard() {
 
   const workingHoursCheckRef = useRef(null);
   const driverLocationRef = useRef(null); // Ref to avoid infinite loop in fetchDashboardData
-  const isBackgroundRefreshRef = useRef(false); // Track if this is a background poll (skip heavy OSRM calls)
 
   // ============================================================================
   // SYNC ONLINE STATUS TO NOTIFICATION CONTEXT
@@ -310,6 +309,12 @@ export default function DriverDashboard() {
         localStorage.removeItem("token");
         localStorage.removeItem("role");
         navigate("/login");
+        return;
+      }
+
+      // Handle rate limiting - just skip, don't redirect
+      if (res.status === 429) {
+        console.warn("Profile fetch rate limited (429) - skipping");
         return;
       }
 
@@ -396,77 +401,84 @@ export default function DriverDashboard() {
         }
       }
 
-      // Fetch today's stats (earnings and deliveries)
-      const statsRes = await fetch(`${API_URL}/driver/stats/today`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      // Use Promise.allSettled to fetch all data in parallel (reduces sequential latency)
+      const headers = { Authorization: `Bearer ${token}` };
 
-      if (statsRes.ok) {
-        const statsData = await statsRes.json();
+      const deliveriesUrl = `${API_URL}/driver/deliveries/available/v2?driver_latitude=${currentLocation.latitude}&driver_longitude=${currentLocation.longitude}`;
+
+      const [
+        statsRes,
+        monthlyStatsRes,
+        recentRes,
+        activeDeliveriesRes,
+        availableRes,
+      ] = await Promise.allSettled([
+        fetch(`${API_URL}/driver/stats/today`, { headers }),
+        fetch(`${API_URL}/driver/stats/monthly`, { headers }),
+        fetch(`${API_URL}/driver/deliveries/recent?limit=5`, { headers }),
+        fetch(`${API_URL}/driver/deliveries/active`, { headers }),
+        fetch(deliveriesUrl, { headers }),
+      ]);
+
+      // Check for 429 on any response — if so, skip processing and back off
+      const allResults = [
+        statsRes,
+        monthlyStatsRes,
+        recentRes,
+        activeDeliveriesRes,
+        availableRes,
+      ];
+      const got429 = allResults.some(
+        (r) => r.status === "fulfilled" && r.value.status === 429,
+      );
+      if (got429) {
+        console.warn("Rate limited (429) — backing off for next poll cycle");
+        if (typeof rateLimitedRef !== "undefined") {
+          rateLimitedRef.current = true;
+        }
+        return;
+      }
+
+      // Process stats
+      if (statsRes.status === "fulfilled" && statsRes.value.ok) {
+        const statsData = await statsRes.value.json();
         setStats({
           todayEarnings: statsData.earnings || 0,
           todayDeliveries: statsData.deliveries || 0,
         });
       }
 
-      // Fetch monthly stats
-      const monthlyStatsRes = await fetch(`${API_URL}/driver/stats/monthly`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (monthlyStatsRes.ok) {
-        const monthlyData = await monthlyStatsRes.json();
+      // Process monthly stats
+      if (monthlyStatsRes.status === "fulfilled" && monthlyStatsRes.value.ok) {
+        const monthlyData = await monthlyStatsRes.value.json();
         setMonthlyStats({
           earnings: monthlyData.earnings || 0,
           deliveries: monthlyData.deliveries || 0,
         });
       }
 
-      // Fetch recent deliveries (last 5 completed)
-      const recentRes = await fetch(
-        `${API_URL}/driver/deliveries/recent?limit=5`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
-      );
-
-      if (recentRes.ok) {
-        const recentData = await recentRes.json();
+      // Process recent deliveries
+      if (recentRes.status === "fulfilled" && recentRes.value.ok) {
+        const recentData = await recentRes.value.json();
         setRecentDeliveries(recentData.deliveries || []);
       }
 
-      // Fetch available deliveries - use lightweight count endpoint for periodic polls
-      // Only call the heavy /available/v2 on initial load (not on 30s interval)
-      // The AvailableDeliveries page handles its own OSRM-based data fetching
-      if (!isBackgroundRefreshRef.current) {
-        // Initial load: call full endpoint once
-        const deliveriesUrl = `${API_URL}/driver/deliveries/available/v2?driver_latitude=${currentLocation.latitude}&driver_longitude=${currentLocation.longitude}`;
-        const deliveriesRes = await fetch(deliveriesUrl, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-
-        if (deliveriesRes.ok) {
-          const deliveriesData = await deliveriesRes.json();
-          setAvailableDeliveries(
-            deliveriesData.available_deliveries ||
-              deliveriesData.deliveries ||
-              [],
-          );
-        }
+      // Process available deliveries (fetched every poll, backend has 30s cache)
+      if (availableRes.status === "fulfilled" && availableRes.value.ok) {
+        const deliveriesData = await availableRes.value.json();
+        setAvailableDeliveries(
+          deliveriesData.available_deliveries ||
+            deliveriesData.deliveries ||
+            [],
+        );
       }
-      // On subsequent polls, skip the heavy OSRM-based endpoint
-      // Available deliveries count is refreshed via WebSocket events
 
-      // Fetch active deliveries (always fetch - inactive drivers can still have active deliveries)
-      const activeDeliveriesRes = await fetch(
-        `${API_URL}/driver/deliveries/active`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
-      );
-
-      if (activeDeliveriesRes.ok) {
-        const activeDeliveriesData = await activeDeliveriesRes.json();
+      // Process active deliveries
+      if (
+        activeDeliveriesRes.status === "fulfilled" &&
+        activeDeliveriesRes.value.ok
+      ) {
+        const activeDeliveriesData = await activeDeliveriesRes.value.json();
         setActiveDeliveries(activeDeliveriesData.deliveries || []);
       }
     } catch (error) {
@@ -476,16 +488,27 @@ export default function DriverDashboard() {
     }
   }, [navigate]); // Removed driverLocation from deps - using driverLocationRef instead
 
+  // Track if we're rate limited to back off
+  const rateLimitedRef = useRef(false);
+  const pollIntervalRef = useRef(null);
+
   useEffect(() => {
     fetchDriverProfile();
     fetchDashboardData();
 
-    // Mark subsequent calls as background refresh (skip heavy OSRM calls)
-    isBackgroundRefreshRef.current = true;
-
-    // Refresh lightweight data every 30 seconds (stats, active deliveries — NOT available/v2)
-    const interval = setInterval(fetchDashboardData, 30000);
-    return () => clearInterval(interval);
+    // Refresh data every 60 seconds (was 30s - reduced to prevent 429)
+    // Skip if we got rate limited on the previous attempt
+    pollIntervalRef.current = setInterval(() => {
+      if (!rateLimitedRef.current) {
+        fetchDashboardData();
+      } else {
+        // Back off - wait another cycle before retrying
+        rateLimitedRef.current = false;
+      }
+    }, 60000);
+    return () => {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    };
   }, [fetchDriverProfile, fetchDashboardData]);
 
   // ============================================================================
@@ -636,17 +659,49 @@ export default function DriverDashboard() {
     return "—";
   };
 
-  // Get earnings from delivery (same logic as AvailableDeliveries)
-  const getDeliveryEarnings = (delivery) => {
+  // Get earnings breakdown from delivery
+  const getEarningsBreakdown = (delivery) => {
     const routeImpact = delivery.route_impact || {};
     const pricing = delivery.pricing || {};
-    return Number(
-      routeImpact.total_trip_earnings ||
-        pricing.total_trip_earnings ||
-        pricing.driver_earnings ||
-        delivery.delivery_fee ||
-        0,
-    ).toFixed(2);
+    const isFirst =
+      routeImpact.is_first_delivery === true ||
+      (routeImpact.is_first_delivery === undefined &&
+        routeImpact.delivery_sequence === 1);
+
+    const baseAmount = parseFloat(
+      routeImpact.base_amount || pricing.base_amount || 0,
+    );
+    const extraEarnings = parseFloat(
+      routeImpact.extra_earnings || pricing.extra_earnings || 0,
+    );
+    const bonusAmount = parseFloat(
+      routeImpact.bonus_amount || pricing.bonus_amount || 0,
+    );
+    const tipAmount = parseFloat(pricing.tip_amount || 0);
+
+    // Primary earning (base for 1st, extra for 2nd+)
+    const primaryEarning = isFirst ? baseAmount : extraEarnings;
+
+    // Total driver earnings for this delivery
+    const totalEarnings = isFirst
+      ? baseAmount + tipAmount
+      : extraEarnings + bonusAmount + tipAmount;
+
+    return {
+      isFirst,
+      baseAmount,
+      extraEarnings,
+      bonusAmount,
+      tipAmount,
+      primaryEarning,
+      totalEarnings,
+    };
+  };
+
+  // Get total delivery earnings (for display)
+  const getDeliveryEarnings = (delivery) => {
+    const { totalEarnings } = getEarningsBreakdown(delivery);
+    return totalEarnings.toFixed(2);
   };
 
   // Get estimated time from delivery
@@ -899,10 +954,21 @@ export default function DriverDashboard() {
                     </div>
                     <div className="flex-1">
                       <p className="text-slate-900 font-semibold text-sm">
-                        {delivery.orders?.restaurant_name || "Restaurant"}
+                        {["picked_up", "on_the_way", "at_customer"].includes(
+                          delivery.status,
+                        )
+                          ? delivery.order?.delivery?.address ||
+                            delivery.orders?.delivery_address ||
+                            "Customer Address"
+                          : delivery.order?.restaurant?.name ||
+                            delivery.orders?.restaurant_name ||
+                            "Restaurant"}
                       </p>
                       <p className="text-slate-500 text-xs mt-0.5">
-                        Order #{delivery.orders?.order_number || "N/A"}
+                        Order #
+                        {delivery.order?.order_number ||
+                          delivery.orders?.order_number ||
+                          "N/A"}
                       </p>
                       <p className="text-amber-600 text-xs font-medium mt-1 capitalize">
                         {delivery.status?.replace(/_/g, " ")}
@@ -949,32 +1015,18 @@ export default function DriverDashboard() {
               <div className="flex items-center justify-center py-12">
                 <div className="w-8 h-8 border-4 border-[#22c55e] border-t-transparent rounded-full animate-spin"></div>
               </div>
-            ) : !isOnline ? (
-              activeDeliveries.length > 0 ? (
-                <div className="px-4 py-8 text-center">
-                  <span className="material-symbols-outlined text-5xl text-amber-400 mb-3">
-                    pending_actions
-                  </span>
-                  <p className="text-slate-600 font-medium">
-                    Complete your active deliveries
-                  </p>
-                  <p className="text-slate-400 text-sm mt-1">
-                    You can go online after completing current deliveries
-                  </p>
-                </div>
-              ) : (
-                <div className="px-4 py-12 text-center">
-                  <span className="material-symbols-outlined text-6xl text-slate-300 mb-4">
-                    wifi_off
-                  </span>
-                  <p className="text-slate-500 font-medium">
-                    You're currently offline
-                  </p>
-                  <p className="text-slate-400 text-sm mt-1">
-                    Go online to receive delivery requests
-                  </p>
-                </div>
-              )
+            ) : !isOnline && activeDeliveries.length === 0 ? (
+              <div className="px-4 py-12 text-center">
+                <span className="material-symbols-outlined text-6xl text-slate-300 mb-4">
+                  wifi_off
+                </span>
+                <p className="text-slate-500 font-medium">
+                  You're currently offline
+                </p>
+                <p className="text-slate-400 text-sm mt-1">
+                  Go online to receive delivery requests
+                </p>
+              </div>
             ) : availableDeliveries.length === 0 ? (
               <div className="px-4 py-12 text-center">
                 <span className="material-symbols-outlined text-6xl text-slate-300 mb-4">
@@ -1009,19 +1061,32 @@ export default function DriverDashboard() {
                         <p className="text-[#22c55e] text-2xl font-bold leading-tight">
                           Rs. {getDeliveryEarnings(delivery)}
                         </p>
-                        {/* Tip Badge */}
-                        {parseFloat(delivery.pricing?.tip_amount || 0) > 0 && (
-                          <div className="flex items-center gap-1.5 bg-yellow-50 border border-yellow-300 rounded-full px-2.5 py-0.5 w-fit">
-                            <span className="text-xs">💰</span>
-                            <span className="text-yellow-700 text-xs font-bold">
-                              +Rs.
-                              {parseFloat(delivery.pricing.tip_amount).toFixed(
-                                0,
-                              )}{" "}
-                              tip included
-                            </span>
-                          </div>
-                        )}
+                        {/* Earnings Breakdown */}
+                        {(() => {
+                          const breakdown = getEarningsBreakdown(delivery);
+                          const hasExtras =
+                            breakdown.bonusAmount > 0 ||
+                            breakdown.tipAmount > 0;
+                          return hasExtras ? (
+                            <div className="flex flex-col gap-0.5">
+                              <p className="text-slate-500 text-xs">
+                                {breakdown.isFirst ? "Base" : "Extra"}: Rs.{" "}
+                                {breakdown.primaryEarning.toFixed(0)}
+                              </p>
+                              {breakdown.bonusAmount > 0 && (
+                                <p className="text-orange-600 text-xs font-medium">
+                                  🎁 Bonus: Rs.{" "}
+                                  {breakdown.bonusAmount.toFixed(0)}
+                                </p>
+                              )}
+                              {breakdown.tipAmount > 0 && (
+                                <p className="text-yellow-700 text-xs font-medium">
+                                  💰 Tip: Rs. {breakdown.tipAmount.toFixed(0)}
+                                </p>
+                              )}
+                            </div>
+                          ) : null;
+                        })()}
                         <div className="flex items-center gap-1.5">
                           <span className="material-symbols-outlined text-[18px] text-slate-400">
                             store

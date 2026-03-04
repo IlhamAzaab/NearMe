@@ -201,6 +201,18 @@ const RestaurantFoods = () => {
       return;
     }
 
+    if (!food.is_available) {
+      const slots = food.available_time
+        ?.map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+        .join(", ");
+      showError(
+        slots
+          ? `${food.name} is only available during ${slots} time`
+          : `${food.name} is currently not available`,
+      );
+      return;
+    }
+
     if (restaurant?.is_open === false) {
       showError(
         `${restaurant?.restaurant_name || "This restaurant"} is currently closed`,
@@ -251,6 +263,18 @@ const RestaurantFoods = () => {
 
     if (role !== "customer") {
       showError("Only customers can place orders");
+      return;
+    }
+
+    if (!food.is_available) {
+      const slots = food.available_time
+        ?.map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+        .join(", ");
+      showError(
+        slots
+          ? `${food.name} is only available during ${slots} time`
+          : `${food.name} is currently not available`,
+      );
       return;
     }
 

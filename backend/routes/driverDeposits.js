@@ -56,6 +56,48 @@ const upload = multer({
 // ============================================================================
 
 /**
+ * GET /driver/deposits/manager-bank-details
+ * Get the designated manager's bank account details for deposit
+ */
+router.get(
+  "/manager-bank-details",
+  authenticate,
+  driverOnly,
+  async (req, res) => {
+    try {
+      // Fetch the specific manager's bank details
+      const { data: manager, error } = await supabaseAdmin
+        .from("managers")
+        .select("account_holder_name, bank_name, branch_name, account_number")
+        .eq("email", "mimilhamazaab51@gmail.com")
+        .single();
+
+      if (error || !manager) {
+        console.error("[DEPOSITS] Manager bank details error:", error?.message);
+        return res.json({
+          success: true,
+          bankDetails: null,
+          message: "Manager bank details not configured",
+        });
+      }
+
+      return res.json({
+        success: true,
+        bankDetails: {
+          account_holder_name: manager.account_holder_name,
+          bank_name: manager.bank_name,
+          branch_name: manager.branch_name,
+          account_number: manager.account_number,
+        },
+      });
+    } catch (error) {
+      console.error("[DEPOSITS] Manager bank details error:", error.message);
+      return res.status(500).json({ success: false, message: "Server error" });
+    }
+  },
+);
+
+/**
  * GET /driver/deposits/balance
  * Get driver's current pending deposit balance
  */
@@ -713,24 +755,88 @@ router.get("/manager/summary", authenticate, managerOnly, async (req, res) => {
 
       if (snapshot) {
         // Snapshot exists - use snapshot data
-        // Get the day-before-yesterday snapshot for prev_pending
-        const dayBefore = new Date(sriLankaDate);
-        dayBefore.setDate(dayBefore.getDate() - 2);
-        const dayBeforeStr = dayBefore.toISOString().split("T")[0];
+        // IMPORTANT: Snapshot N is created at midnight of day N, capturing sales from day N-1.
+        // So yesterday's snapshot has day-before-yesterday's sales, NOT yesterday's sales.
+        // We need TODAY's snapshot for yesterday's actual sales data.
+        //
+        // yesterday's snapshot.ending_pending = pending at start of yesterday (prev_pending)
+        // today's snapshot.total_sales = yesterday's actual sales
+        // today's snapshot.total_approved = yesterday's actual approved
+        // today's snapshot.ending_pending = pending at end of yesterday
 
-        const { data: olderSnapshot } = await supabaseAdmin
+        // prev_pending = pending at START of yesterday = yesterday's snapshot ending_pending
+        const prevPending = parseFloat(snapshot.ending_pending || 0);
+
+        // Get today's snapshot for yesterday's actual sales data
+        const { data: todaySnapshot } = await supabaseAdmin
           .from("daily_deposit_snapshots")
-          .select("ending_pending")
-          .eq("snapshot_date", dayBeforeStr)
+          .select("*")
+          .eq("snapshot_date", todayStr)
           .single();
 
-        const prevPending = olderSnapshot
-          ? parseFloat(olderSnapshot.ending_pending || 0)
-          : 0;
-        const todaysSales = parseFloat(snapshot.total_sales || 0);
-        const paidAmount = parseFloat(snapshot.total_approved || 0);
+        if (todaySnapshot) {
+          // Today's snapshot exists — use it for yesterday's sales
+          const todaysSales = parseFloat(todaySnapshot.total_sales || 0);
+          const paidAmount = parseFloat(todaySnapshot.total_approved || 0);
+          const totalSales = todaysSales + prevPending;
+          const pendingAmount = parseFloat(todaySnapshot.ending_pending || 0);
+
+          const summary = {
+            total_sales_today: totalSales,
+            todays_sales: todaysSales,
+            prev_pending: prevPending,
+            pending: pendingAmount,
+            paid: paidAmount,
+            pending_deposits_count: 0,
+            period: "yesterday",
+            snapshot_date: yesterdayStr,
+          };
+
+          console.log(
+            `[DEPOSITS] ✅ Summary (yesterday from today's snapshot):`,
+            summary,
+          );
+          return res.json({ success: true, summary });
+        }
+
+        // Today's snapshot doesn't exist yet — calculate yesterday's sales from live data
+        // Yesterday's boundaries: from yesterday's snapshot created_at to today's midnight
+        const todayMidnightSL = new Date(todayStr + "T00:00:00+05:30");
+        const snapshotBoundary = snapshot.created_at;
+
+        let salesQuery = supabaseAdmin
+          .from("deliveries")
+          .select(`id, order_id, orders!inner(total_amount, payment_method)`)
+          .eq("status", "delivered")
+          .eq("orders.payment_method", "cash")
+          .lt("updated_at", todayMidnightSL.toISOString());
+        if (snapshotBoundary) {
+          salesQuery = salesQuery.gt("updated_at", snapshotBoundary);
+        }
+
+        const { data: cashDeliveries } = await salesQuery;
+        const todaysSales = (cashDeliveries || []).reduce(
+          (sum, d) => sum + parseFloat(d.orders?.total_amount || 0),
+          0,
+        );
+
+        let approvedQuery = supabaseAdmin
+          .from("driver_deposits")
+          .select("approved_amount")
+          .eq("status", "approved")
+          .lt("reviewed_at", todayMidnightSL.toISOString());
+        if (snapshotBoundary) {
+          approvedQuery = approvedQuery.gt("reviewed_at", snapshotBoundary);
+        }
+
+        const { data: approvedDeposits } = await approvedQuery;
+        const paidAmount = (approvedDeposits || []).reduce(
+          (sum, d) => sum + parseFloat(d.approved_amount || 0),
+          0,
+        );
+
         const totalSales = todaysSales + prevPending;
-        const pendingAmount = parseFloat(snapshot.ending_pending || 0);
+        const pendingAmount = Math.max(0, totalSales - paidAmount);
 
         const summary = {
           total_sales_today: totalSales,
@@ -741,10 +847,11 @@ router.get("/manager/summary", authenticate, managerOnly, async (req, res) => {
           pending_deposits_count: 0,
           period: "yesterday",
           snapshot_date: yesterdayStr,
+          calculated_from_live_data: true,
         };
 
         console.log(
-          `[DEPOSITS] ✅ Summary (yesterday from snapshot):`,
+          `[DEPOSITS] ✅ Summary (yesterday calculated from live data):`,
           summary,
         );
         return res.json({ success: true, summary });

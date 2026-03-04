@@ -6,6 +6,10 @@ import {
   getServiceFeeTiers,
   getDeliveryFeeTiers,
 } from "../utils/systemConfig.js";
+import {
+  isFoodAvailableNow,
+  getSriLankaTimeString,
+} from "../utils/restaurantScheduler.js";
 
 const router = express.Router();
 
@@ -79,7 +83,6 @@ router.get("/foods", async (req, res) => {
         )
       `,
       )
-      .eq("is_available", true)
       .eq("restaurants.restaurant_status", "active")
       .order("name", { ascending: true });
 
@@ -98,11 +101,21 @@ router.get("/foods", async (req, res) => {
       return res.status(500).json({ message: "Failed to fetch foods" });
     }
 
-    // Map the data to include customer prices with commission
+    // Map the data to include customer prices with commission + real-time availability
+    const currentTime = getSriLankaTimeString();
     const mappedFoods = (foods || []).map((food) => {
       const pricedFood = addCustomerPricing(food);
+      // Real-time availability: combine scheduler flag + time-slot check
+      const timeAvailable = isFoodAvailableNow(
+        food.available_time,
+        currentTime,
+      );
+      const effectiveAvailable = food.is_manually_unavailable
+        ? false
+        : food.is_available && timeAvailable;
       return {
         ...pricedFood,
+        is_available: effectiveAvailable,
         // Effective price for display (offer price if exists, otherwise regular)
         price:
           pricedFood.effective_regular_price || pricedFood.regular_price || 0,
@@ -168,7 +181,6 @@ router.get("/restaurants/:restaurantId/foods", async (req, res) => {
       .from("foods")
       .select("*")
       .eq("restaurant_id", restaurantId)
-      .eq("is_available", true)
       .order("name", { ascending: true });
 
     // Add search filter if provided (sanitize to prevent PostgREST injection)
@@ -186,8 +198,22 @@ router.get("/restaurants/:restaurantId/foods", async (req, res) => {
       return res.status(500).json({ message: "Failed to fetch foods" });
     }
 
-    // Add customer pricing with commission to all foods
-    const pricedFoods = (foods || []).map((food) => addCustomerPricing(food));
+    // Add customer pricing with commission + real-time availability
+    const currentTime = getSriLankaTimeString();
+    const pricedFoods = (foods || []).map((food) => {
+      const pricedFood = addCustomerPricing(food);
+      const timeAvailable = isFoodAvailableNow(
+        food.available_time,
+        currentTime,
+      );
+      const effectiveAvailable = food.is_manually_unavailable
+        ? false
+        : food.is_available && timeAvailable;
+      return {
+        ...pricedFood,
+        is_available: effectiveAvailable,
+      };
+    });
 
     return res.json({ foods: pricedFoods });
   } catch (e) {
@@ -216,13 +242,12 @@ router.get("/restaurants/:restaurantId/foods/:foodId", async (req, res) => {
       return res.status(404).json({ message: "Restaurant not found" });
     }
 
-    // Get the food from the restaurant
+    // Get the food from the restaurant (no is_available filter — show all)
     const { data: food, error } = await supabaseAdmin
       .from("foods")
       .select("*")
       .eq("id", foodId)
       .eq("restaurant_id", restaurantId)
-      .eq("is_available", true)
       .single();
 
     if (error || !food) {
@@ -230,8 +255,16 @@ router.get("/restaurants/:restaurantId/foods/:foodId", async (req, res) => {
       return res.status(404).json({ message: "Food not found" });
     }
 
-    // Add customer pricing with commission
-    const pricedFood = addCustomerPricing(food);
+    // Add customer pricing with commission + real-time availability
+    const currentTime = getSriLankaTimeString();
+    const timeAvailable = isFoodAvailableNow(food.available_time, currentTime);
+    const effectiveAvailable = food.is_manually_unavailable
+      ? false
+      : food.is_available && timeAvailable;
+    const pricedFood = {
+      ...addCustomerPricing(food),
+      is_available: effectiveAvailable,
+    };
 
     return res.json({ food: pricedFood });
   } catch (e) {

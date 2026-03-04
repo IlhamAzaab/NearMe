@@ -48,6 +48,30 @@ export default function ManagerReports() {
         {/* Active Pages */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           <div
+            onClick={() => navigate("/manager/send-notification")}
+            className="bg-white rounded-xl border border-[#dbe6e3] p-4 cursor-pointer hover:border-[#13ecb9] hover:shadow-md transition-all active:scale-[0.98]"
+          >
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 rounded-lg bg-violet-100 text-violet-600 flex items-center justify-center">
+                <span className="material-symbols-outlined">campaign</span>
+              </div>
+              <h3 className="text-[#111816] font-bold text-sm">
+                Send Notification
+              </h3>
+            </div>
+            <p className="text-[#618980] text-xs">
+              Send push & in-app notifications to customers, admins, or drivers
+            </p>
+            <div className="mt-3 flex items-center gap-1 text-[#13ecb9]">
+              <span className="material-symbols-outlined text-sm">
+                arrow_forward
+              </span>
+              <span className="text-[10px] font-medium uppercase tracking-wider">
+                Open
+              </span>
+            </div>
+          </div>
+          <div
             onClick={() => navigate("/manager/reports/operations")}
             className="bg-white rounded-xl border border-[#dbe6e3] p-4 cursor-pointer hover:border-[#13ecb9] hover:shadow-md transition-all active:scale-[0.98]"
           >

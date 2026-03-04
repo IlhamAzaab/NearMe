@@ -87,7 +87,7 @@ const FoodDetail = () => {
     setRole("");
     setUserEmail("");
     setUserName("");
-    navigate("/home");
+    navigate("/");
   };
 
   const formatPrice = (price) => {
@@ -118,6 +118,18 @@ const FoodDetail = () => {
       if (restaurant?.is_open === false) {
         showError(
           `${restaurant?.restaurant_name || "This restaurant"} is currently closed`,
+        );
+        return;
+      }
+
+      if (!food?.is_available) {
+        const slots = food?.available_time
+          ?.map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+          .join(", ");
+        showError(
+          slots
+            ? `${food.name} is only available during ${slots} time`
+            : `${food?.name || "This food"} is currently not available`,
         );
         return;
       }
@@ -219,6 +231,38 @@ const FoodDetail = () => {
                 <div className="absolute top-3 right-3 bg-green-600 text-white px-2 py-1 rounded-full shadow-md flex items-center gap-1 text-sm">
                   <span>★</span>
                   <span className="font-semibold">{food.stars}</span>
+                </div>
+              )}
+
+              {/* Not Available Badge */}
+              {!food.is_available && (
+                <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent flex flex-col items-center justify-end pb-14">
+                  <div className="bg-red-500/95 backdrop-blur-sm px-5 py-2.5 rounded-2xl shadow-xl flex items-center gap-2">
+                    <svg
+                      className="w-5 h-5 text-white"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                      />
+                    </svg>
+                    <span className="text-white font-semibold text-sm">
+                      Currently Not Available
+                    </span>
+                  </div>
+                  {food.available_time?.length > 0 && (
+                    <p className="text-white/90 text-xs mt-2 font-medium">
+                      Available during:{" "}
+                      {food.available_time
+                        .map((t) => t.charAt(0).toUpperCase() + t.slice(1))
+                        .join(", ")}
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -427,9 +471,29 @@ const FoodDetail = () => {
 
             {/* Action Buttons */}
             <div className="p-4 space-y-2">
+              {!food.is_available && (
+                <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2">
+                  <svg
+                    className="w-5 h-5 text-red-500 flex-shrink-0"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.072 16.5c-.77.833.192 2.5 1.732 2.5z"
+                    />
+                  </svg>
+                  <span className="text-red-600 text-sm font-medium">
+                    This item is currently not available for ordering
+                  </span>
+                </div>
+              )}
               <button
                 onClick={() => addToCart()}
-                disabled={addingToCart}
+                disabled={addingToCart || !food.is_available}
                 className="w-full py-3 bg-[#FF7A00] text-white font-bold rounded-xl hover:bg-orange-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-base shadow-md shadow-orange-200 hover:-translate-y-0.5"
               >
                 {addingToCart ? (
@@ -459,7 +523,7 @@ const FoodDetail = () => {
 
               <button
                 onClick={() => addToCart({ goToCheckout: true })}
-                disabled={addingToCart}
+                disabled={addingToCart || !food.is_available}
                 className="w-full py-3 bg-white text-[#FF7A00] font-bold rounded-xl border-2 border-[#FF7A00] hover:bg-orange-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-base"
               >
                 {addingToCart ? (

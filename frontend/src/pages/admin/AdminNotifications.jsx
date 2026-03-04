@@ -11,48 +11,21 @@ export default function AdminNotifications() {
   const [loading, setLoading] = useState(true);
   const [adminId, setAdminId] = useState(null);
 
-  const markAllAsRead = useCallback(async () => {
-    try {
-      const token = localStorage.getItem("token");
-      await fetch(`${API_URL}/admin/notifications/mark-all-read`, {
-        method: "PATCH",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-    } catch (e) {
-      console.error("Mark all read error:", e);
-    }
-  }, []);
-
   const fetchNotifications = useCallback(async () => {
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(
-        `${API_URL}/admin/notifications?limit=100`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
-      );
+      const res = await fetch(`${API_URL}/admin/notifications?limit=100`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const data = await res.json();
       setNotifications(data.notifications || []);
-
-      // Mark all as read after fetching
-      await markAllAsRead();
-
-      // Update local state to reflect read status
-      setNotifications((prev) =>
-        prev.map((notif) => ({
-          ...notif,
-          is_read: true,
-          read_at: new Date().toISOString(),
-        })),
-      );
     } catch (e) {
       console.error("Fetch error:", e);
       setNotifications([]);
     } finally {
       setLoading(false);
     }
-  }, [markAllAsRead]);
+  }, []);
 
   useEffect(() => {
     const role = localStorage.getItem("role");
@@ -78,12 +51,24 @@ export default function AdminNotifications() {
         {
           event: "INSERT",
           schema: "public",
-          table: "notifications",
-          filter: `recipient_id=eq.${adminId}`,
+          table: "notification_log",
+          filter: `user_id=eq.${adminId}`,
         },
         (payload) => {
           console.log("New notification:", payload);
-          setNotifications((prev) => [payload.new, ...prev]);
+          const newNotif = payload.new;
+          setNotifications((prev) => [
+            {
+              id: newNotif.id,
+              title: newNotif.title,
+              body: newNotif.body,
+              data: newNotif.data || {},
+              status: newNotif.status,
+              created_at: newNotif.sent_at || newNotif.created_at,
+              source: "notification_log",
+            },
+            ...prev,
+          ]);
         },
       )
       .subscribe();
@@ -168,34 +153,21 @@ export default function AdminNotifications() {
         ) : (
           <div className="space-y-3">
             {notifications.map((n) => {
-              let metadata = {};
-              try {
-                metadata = n.metadata ? JSON.parse(n.metadata) : {};
-              } catch (e) {
-                metadata = {};
-              }
-
-              // Determine styling based on read status
-              const isUnread = !n.is_read;
-              const bgColor = isUnread ? "bg-green-50" : "bg-white";
-              const borderColor = isUnread
-                ? "border-green-500"
-                : "border-gray-200";
-              const iconBg = isUnread ? "bg-green-100" : "bg-gray-100";
-              const shadowClass = isUnread ? "shadow-md" : "shadow";
+              const metadata =
+                (typeof n.data === "string" ? JSON.parse(n.data) : n.data) ||
+                {};
+              const notifType = metadata.type || null;
 
               return (
                 <div
                   key={n.id}
-                  className={`${bgColor} rounded-xl ${shadowClass} hover:shadow-lg transition-all p-4 border-l-4 ${borderColor}`}
+                  className="bg-white rounded-xl shadow hover:shadow-lg transition-all p-4 border-l-4 border-gray-200"
                 >
                   <div className="flex items-start gap-4">
                     {/* Icon */}
-                    <div
-                      className={`w-12 h-12 ${iconBg} rounded-full flex items-center justify-center flex-shrink-0`}
-                    >
+                    <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center flex-shrink-0">
                       <span className="text-xl">
-                        {getNotificationIcon(n.type)}
+                        {getNotificationIcon(notifType)}
                       </span>
                     </div>
 
@@ -204,24 +176,9 @@ export default function AdminNotifications() {
                       <div className="flex items-start justify-between gap-2">
                         <div>
                           <div className="flex items-center gap-2">
-                            <p
-                              className={`font-bold ${
-                                isUnread ? "text-gray-900" : "text-gray-700"
-                              }`}
-                            >
-                              {n.title}
-                            </p>
-                            {isUnread && (
-                              <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-                            )}
+                            <p className="font-bold text-gray-900">{n.title}</p>
                           </div>
-                          <p
-                            className={`mt-1 ${
-                              isUnread ? "text-gray-800" : "text-gray-600"
-                            }`}
-                          >
-                            {n.message}
-                          </p>
+                          <p className="mt-1 text-gray-600">{n.body}</p>
                         </div>
                       </div>
 

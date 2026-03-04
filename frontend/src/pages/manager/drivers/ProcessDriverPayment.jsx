@@ -42,14 +42,12 @@ export default function ProcessDriverPayment() {
       const headers = { Authorization: `Bearer ${token}` };
 
       const [driverRes, historyRes] = await Promise.all([
-        fetch(
-          `${API_URL}/manager/driver-payments/driver/${driverId}`,
-          { headers },
-        ),
-        fetch(
-          `${API_URL}/manager/driver-payments/driver/${driverId}/history`,
-          { headers },
-        ),
+        fetch(`${API_URL}/manager/driver-payments/driver/${driverId}`, {
+          headers,
+        }),
+        fetch(`${API_URL}/manager/driver-payments/driver/${driverId}/history`, {
+          headers,
+        }),
       ]);
 
       const driverData = await driverRes.json();
@@ -250,6 +248,59 @@ export default function ProcessDriverPayment() {
               </span>
             )}
           </div>
+
+          {/* Driver Bank Account Details */}
+          {driver.bank_details && (
+            <div className="rounded-xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-teal-50 overflow-hidden">
+              <div className="flex items-center gap-2 px-4 py-2.5 bg-emerald-100/60 border-b border-emerald-200">
+                <span className="material-symbols-outlined text-emerald-600 text-base">
+                  account_balance
+                </span>
+                <span className="text-emerald-800 text-xs font-bold">
+                  Driver Bank Account — Transfer Here
+                </span>
+              </div>
+              <div className="p-4 space-y-2.5">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-500 mb-0.5">
+                    Account Number
+                  </p>
+                  <p className="text-[#111816] text-xl font-bold tracking-wider font-mono">
+                    {driver.bank_details.account_number}
+                  </p>
+                </div>
+                <div className="h-px bg-emerald-200/60" />
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-500 mb-0.5">
+                      Account Holder
+                    </p>
+                    <p className="text-[#111816] text-xs font-semibold">
+                      {driver.bank_details.account_holder_name}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-500 mb-0.5">
+                      Bank Name
+                    </p>
+                    <p className="text-[#111816] text-xs font-semibold">
+                      {driver.bank_details.bank_name}
+                    </p>
+                  </div>
+                </div>
+                {driver.bank_details.branch_name && (
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-500 mb-0.5">
+                      Branch
+                    </p>
+                    <p className="text-[#111816] text-xs font-semibold">
+                      {driver.bank_details.branch_name}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Current Available Balance */}
           <div className="bg-gradient-to-br from-[#e8fdf6] to-[#d4f7ec] rounded-2xl p-5 border border-[#b8e8d9]">

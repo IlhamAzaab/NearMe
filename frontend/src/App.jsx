@@ -32,6 +32,7 @@ import ProcessDriverPayment from "./pages/manager/drivers/ProcessDriverPayment";
 import AdminPayments from "./pages/manager/restaurants/AdminPayments";
 import ProcessAdminPayment from "./pages/manager/restaurants/ProcessAdminPayment";
 import ManagerEarnings from "./pages/manager/ManagerEarnings";
+import ManagerAccount from "./pages/manager/ManagerAccount";
 import ManagerReports from "./pages/manager/ManagerReports";
 import PendingDeliveries from "./pages/manager/PendingDeliveries";
 import OperationsConfig from "./pages/manager/OperationsConfig";
@@ -41,8 +42,11 @@ import RestaurantReports from "./pages/manager/reports/RestaurantReports";
 import FinancialReports from "./pages/manager/reports/FinancialReports";
 import CustomerReports from "./pages/manager/reports/CustomerReports";
 import TimeAnalytics from "./pages/manager/reports/TimeAnalytics";
+import SendNotification from "./pages/manager/SendNotification";
+import SendNotificationForm from "./pages/manager/SendNotificationForm";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import AdminProfile from "./pages/admin/AdminProfile";
+import AccountProfile from "./pages/admin/AccountProfile";
 import RestaurantDetail from "./pages/admin/RestaurantDetail";
 import Products from "./pages/admin/Products";
 import Categories from "./pages/admin/Categories";
@@ -371,6 +375,15 @@ function App() {
                     </ProtectedRoute>
                   }
                 />
+                {/* Manager Account */}
+                <Route
+                  path="/manager/account"
+                  element={
+                    <ProtectedRoute allowedRole="manager">
+                      <ManagerAccount />
+                    </ProtectedRoute>
+                  }
+                />
                 {/* Manager Reports */}
                 <Route
                   path="/manager/reports"
@@ -452,6 +465,23 @@ function App() {
                     </ProtectedRoute>
                   }
                 />
+                {/* Manager Send Notification */}
+                <Route
+                  path="/manager/send-notification"
+                  element={
+                    <ProtectedRoute allowedRole="manager">
+                      <SendNotification />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/manager/send-notification/:role"
+                  element={
+                    <ProtectedRoute allowedRole="manager">
+                      <SendNotificationForm />
+                    </ProtectedRoute>
+                  }
+                />
                 {/* Admin Routes - Protected */}
                 <Route
                   path="/admin/dashboard"
@@ -502,6 +532,14 @@ function App() {
                   }
                 />
                 <Route path="/admin/profile" element={<AdminProfile />} />
+                <Route
+                  path="/admin/account"
+                  element={
+                    <AdminDashboardRoute>
+                      <AccountProfile />
+                    </AdminDashboardRoute>
+                  }
+                />
                 <Route
                   path="/admin/restaurant"
                   element={

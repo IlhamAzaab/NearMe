@@ -451,6 +451,7 @@ const Home = () => {
                 >
                   <img
                     src={
+                      featuredRestaurant.cover_image_url ||
                       featuredRestaurant.logo_url ||
                       "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=800"
                     }
@@ -492,9 +493,7 @@ const Home = () => {
                           </span>
                         </>
                       )}
-                      <span>
-                        {featuredRestaurant.cuisine || "Multi-cuisine"}
-                      </span>
+                      <span>{featuredRestaurant.city || "Unknown City"}</span>
                       {featuredRestaurant.delivery_time && (
                         <>
                           <span>•</span>
@@ -547,6 +546,7 @@ const Home = () => {
                     <div className="relative">
                       <img
                         src={
+                          r.cover_image_url ||
                           r.logo_url ||
                           "https://images.unsplash.com/photo-1552566626-52f8b828add9?w=400"
                         }
@@ -559,8 +559,24 @@ const Home = () => {
                           <span>{r.rating}</span>
                         </div>
                       )}
+                      {/* Logo avatar overlapping banner */}
+                      <div className="absolute -bottom-5 left-3 w-10 h-10 rounded-full border-2 border-white shadow-md bg-white overflow-hidden flex-shrink-0">
+                        {r.logo_url ? (
+                          <img
+                            src={r.logo_url}
+                            alt={`${r.restaurant_name} logo`}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full bg-orange-100 flex items-center justify-center">
+                            <span className="text-orange-500 text-xs font-bold">
+                              {r.restaurant_name?.charAt(0) || "R"}
+                            </span>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <div className="p-3">
+                    <div className="p-3 pt-4 pl-16">
                       <div className="flex items-center gap-1.5 mb-1">
                         <h4 className="font-semibold text-gray-900 text-sm truncate">
                           {r.restaurant_name}
@@ -586,7 +602,7 @@ const Home = () => {
                         )}
                       </div>
                       <p className="text-xs text-gray-500 truncate mb-2">
-                        {r.cuisine || "Multi-cuisine"}
+                        {r.city || "Unknown City"}
                       </p>
                       <div className="flex items-center gap-2 text-xs text-gray-400 mb-1">
                         {showDistances &&
@@ -686,6 +702,7 @@ const Home = () => {
                     >
                       <img
                         src={
+                          r.cover_image_url ||
                           r.logo_url ||
                           "https://images.unsplash.com/photo-1552566626-52f8b828add9?w=400"
                         }
@@ -718,7 +735,7 @@ const Home = () => {
                           )}
                         </div>
                         <p className="text-sm text-gray-500 mb-2 truncate">
-                          {r.cuisine || "Multi-cuisine"}
+                          {r.city || "Unknown City"}
                         </p>
                         <div className="flex items-center gap-3 text-sm mb-1">
                           {showDistances &&
@@ -838,28 +855,39 @@ const Home = () => {
                       alt={food.name}
                       className="w-full h-36 object-cover"
                     />
-                   
-                    <button
-                      className="absolute bottom-2 right-2 w-9 h-9 bg-white text-[#FF7A00] rounded-full flex items-center justify-center shadow-lg hover:bg-[#FF7A00] hover:text-white transition-colors"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        // Add to cart logic
-                      }}
-                    >
-                      <svg
-                        className="w-5 h-5"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
+
+                    {/* Unavailable Overlay */}
+                    {!food.is_available && (
+                      <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                        <span className="px-3 py-1 bg-red-500 text-white text-xs font-semibold rounded-full shadow-lg">
+                          Not Available
+                        </span>
+                      </div>
+                    )}
+
+                    {food.is_available && (
+                      <button
+                        className="absolute bottom-2 right-2 w-9 h-9 bg-white text-[#FF7A00] rounded-full flex items-center justify-center shadow-lg hover:bg-[#FF7A00] hover:text-white transition-colors"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          // Add to cart logic
+                        }}
                       >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2.5}
-                          d="M12 4v16m8-8H4"
-                        />
-                      </svg>
-                    </button>
+                        <svg
+                          className="w-5 h-5"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2.5}
+                            d="M12 4v16m8-8H4"
+                          />
+                        </svg>
+                      </button>
+                    )}
                   </div>
                   <div className="p-3">
                     <h4 className="font-semibold text-gray-900 text-sm truncate mb-1">

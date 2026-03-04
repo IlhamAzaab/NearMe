@@ -39,10 +39,8 @@ function SwipeToDeliver({
       setIsDragging(false);
       setSwipePosition(maxSwipe.current);
 
-      // Trigger completion after animation
-      setTimeout(() => {
-        onSwipe();
-      }, 300);
+      // Trigger immediately - overlay handles the visual feedback
+      onSwipe();
     }
   };
 

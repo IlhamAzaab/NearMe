@@ -44,14 +44,6 @@ export default function CustomerNotifications() {
       setIsLoggedIn(false);
       setLoading(false);
     }
-    if (token && role === "customer") {
-      setIsLoggedIn(true);
-      setCustomerId(userId);
-      fetchNotifications();
-    } else {
-      setIsLoggedIn(false);
-      setLoading(false);
-    }
   }, [navigate, fetchNotifications]);
 
   // Real-time subscription for new notifications (using broadcast channel)
@@ -60,18 +52,34 @@ export default function CustomerNotifications() {
 
     console.log("🔔 Setting up customer notification subscription");
 
+    // Listen on notification_log table for new entries
     const channel = supabase
-      .channel(`user:${customerId}:notifications`)
-      .on("broadcast", { event: "insert" }, (payload) => {
-        console.log("🆕 New customer notification received:", payload.payload);
-
-        const newNotif = payload.payload;
-
-        // Only add if it's for this customer
-        if (newNotif.recipient_id === customerId) {
-          setNotifications((prev) => [newNotif, ...prev]);
-        }
-      })
+      .channel(`customer-notifications-${customerId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "notification_log",
+          filter: `user_id=eq.${customerId}`,
+        },
+        (payload) => {
+          console.log("🆕 New customer notification received:", payload.new);
+          const newNotif = payload.new;
+          setNotifications((prev) => [
+            {
+              id: newNotif.id,
+              title: newNotif.title,
+              body: newNotif.body,
+              data: newNotif.data || {},
+              status: newNotif.status,
+              created_at: newNotif.sent_at || newNotif.created_at,
+              source: "notification_log",
+            },
+            ...prev,
+          ]);
+        },
+      )
       .subscribe((status) => {
         console.log("📡 Customer notification subscription status:", status);
       });
@@ -213,12 +221,10 @@ export default function CustomerNotifications() {
         ) : (
           <div className="space-y-3">
             {notifications.map((n) => {
-              let metadata = {};
-              try {
-                metadata = n.metadata ? JSON.parse(n.metadata) : {};
-              } catch (e) {
-                metadata = {};
-              }
+              const metadata =
+                (typeof n.data === "string" ? JSON.parse(n.data) : n.data) ||
+                {};
+              const notifType = metadata.type || null;
 
               const getNotificationColor = (type) => {
                 switch (type) {
@@ -243,10 +249,10 @@ export default function CustomerNotifications() {
                   <div className="flex items-start gap-4">
                     {/* Icon */}
                     <div
-                      className={`w-12 h-12 ${getNotificationColor(n.type)} rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg`}
+                      className={`w-12 h-12 ${getNotificationColor(notifType)} rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg`}
                     >
                       <span className="text-xl">
-                        {getNotificationIcon(n.type)}
+                        {getNotificationIcon(notifType)}
                       </span>
                     </div>
 
@@ -255,9 +261,7 @@ export default function CustomerNotifications() {
                       <div className="flex items-start justify-between gap-2">
                         <div>
                           <p className="font-bold text-gray-900">{n.title}</p>
-                          <p className="text-gray-600 text-sm mt-1">
-                            {n.message}
-                          </p>
+                          <p className="text-gray-600 text-sm mt-1">{n.body}</p>
                         </div>
                         <span className="text-xs text-gray-400 whitespace-nowrap">
                           {getTimeAgo(n.created_at)}
@@ -265,7 +269,7 @@ export default function CustomerNotifications() {
                       </div>
 
                       {/* Driver Details for driver_assigned notifications */}
-                      {n.type === "driver_assigned" && metadata.driver && (
+                      {notifType === "driver_assigned" && metadata.driver && (
                         <div className="mt-3 p-3 bg-orange-50 rounded-xl">
                           <p className="text-sm font-semibold text-[#FF7A00] mb-2">
                             🛵 Driver Details

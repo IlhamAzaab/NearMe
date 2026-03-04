@@ -5,6 +5,10 @@ import {
   getCartItemPrices,
   calculateCustomerPrice,
 } from "../utils/commission.js";
+import {
+  isFoodAvailableNow,
+  getSriLankaTimeString,
+} from "../utils/restaurantScheduler.js";
 
 const router = express.Router();
 
@@ -42,20 +46,43 @@ router.post("/add", authenticate, async (req, res) => {
         .json({ message: "Size must be 'regular' or 'large'" });
     }
 
-    // STEP 1: Get food details with current price
+    // STEP 1: Get food details with current price (no is_available filter)
     const { data: food, error: foodError } = await supabaseAdmin
       .from("foods")
       .select(
-        "id, name, image_url, regular_price, extra_price, offer_price, extra_offer_price, regular_size, extra_size",
+        "id, name, image_url, regular_price, extra_price, offer_price, extra_offer_price, regular_size, extra_size, is_available, is_manually_unavailable, available_time",
       )
       .eq("id", food_id)
       .eq("restaurant_id", restaurant_id)
-      .eq("is_available", true)
       .single();
 
     if (foodError || !food) {
       return res.status(404).json({
-        message: "Food not found or not available",
+        message: "Food not found",
+      });
+    }
+
+    // Real-time availability check (admin toggle + time-slot)
+    const currentTime = getSriLankaTimeString();
+    const timeAvailable = isFoodAvailableNow(food.available_time, currentTime);
+    const effectiveAvailable = food.is_manually_unavailable
+      ? false
+      : food.is_available && timeAvailable;
+
+    if (!effectiveAvailable) {
+      // Build a friendly message
+      let reason = "This food is currently not available";
+      if (food.is_manually_unavailable) {
+        reason = `${food.name} has been marked as unavailable by the restaurant`;
+      } else if (!timeAvailable && food.available_time?.length > 0) {
+        const slots = food.available_time
+          .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+          .join(", ");
+        reason = `${food.name} is only available during ${slots} time`;
+      }
+      return res.status(400).json({
+        message: reason,
+        unavailable: true,
       });
     }
 
@@ -305,7 +332,9 @@ router.get("/", authenticate, async (req, res) => {
               extra_price,
               offer_price,
               extra_offer_price,
-              is_available
+              is_available,
+              is_manually_unavailable,
+              available_time
             )
           `,
           )
@@ -318,6 +347,7 @@ router.get("/", authenticate, async (req, res) => {
         }
 
         // Calculate total using CURRENT prices from foods table with commission
+        const currentTime = getSriLankaTimeString();
         const itemsWithCurrentPrice = items.map((item) => {
           const food = item.foods;
           let current_unit_price = item.unit_price;
@@ -325,8 +355,18 @@ router.get("/", authenticate, async (req, res) => {
             item.admin_unit_price || item.unit_price;
           let current_commission = item.commission_per_item || 0;
 
+          // Real-time availability check
+          const timeAvailable = food
+            ? isFoodAvailableNow(food.available_time, currentTime)
+            : false;
+          const effectiveAvailable = food
+            ? food.is_manually_unavailable
+              ? false
+              : food.is_available && timeAvailable
+            : false;
+
           // Get current price from food if available (with commission)
-          if (food && food.is_available) {
+          if (food && effectiveAvailable) {
             const { adminPrice, customerPrice, commission } = getCartItemPrices(
               food,
               item.size,
@@ -359,7 +399,7 @@ router.get("/", authenticate, async (req, res) => {
             admin_total_price: parseFloat(current_admin_total_price),
             commission_per_item: parseFloat(current_commission),
             total_commission: parseFloat(current_total_commission),
-            is_available: food?.is_available || false,
+            is_available: effectiveAvailable,
             created_at: item.created_at,
           };
         });

@@ -107,6 +107,29 @@ const reportsSidebarLinks = [
   },
 ];
 
+const notificationSidebarLinks = [
+  {
+    to: "/manager/send-notification",
+    label: "Overview",
+    icon: "campaign",
+  },
+  {
+    to: "/manager/send-notification/customer",
+    label: "Notify Customers",
+    icon: "person",
+  },
+  {
+    to: "/manager/send-notification/admin",
+    label: "Notify Admins",
+    icon: "admin_panel_settings",
+  },
+  {
+    to: "/manager/send-notification/driver",
+    label: "Notify Drivers",
+    icon: "delivery_dining",
+  },
+];
+
 function getSection(pathname) {
   if (
     pathname.startsWith("/manager/drivers") ||
@@ -122,6 +145,9 @@ function getSection(pathname) {
   ) {
     return "admins";
   }
+  if (pathname.startsWith("/manager/send-notification")) {
+    return "notifications";
+  }
   if (pathname.startsWith("/manager/reports")) {
     return "reports";
   }
@@ -136,6 +162,8 @@ function getSidebarConfig(section) {
       return { title: "Restaurant & Admin", links: adminSidebarLinks };
     case "reports":
       return { title: "Reports", links: reportsSidebarLinks };
+    case "notifications":
+      return { title: "Send Notifications", links: notificationSidebarLinks };
     default:
       return null;
   }
@@ -281,10 +309,12 @@ export default function ManagerPageLayout({
               </button>
             )}
             <button
-              onClick={() => navigate("/manager/dashboard")}
+              onClick={() => navigate("/manager/account")}
               className="p-2 rounded-lg hover:bg-gray-100 transition-colors text-[#618980]"
             >
-              <span className="material-symbols-outlined text-xl">home</span>
+              <span className="material-symbols-outlined text-xl">
+                account_circle
+              </span>
             </button>
           </div>
         </div>

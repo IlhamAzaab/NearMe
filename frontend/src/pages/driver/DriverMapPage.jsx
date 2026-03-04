@@ -15,6 +15,8 @@ import { X, Phone, ChevronDown, Navigation } from "lucide-react";
 import DriverLayout from "../../components/DriverLayout";
 import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
 import SwipeToDeliver from "../../components/SwipeToDeliver";
+import StatusTransitionOverlay from "../../components/StatusTransitionOverlay";
+import DeliveryProofUpload from "../../components/DeliveryProofUpload";
 import { API_URL } from "../../config";
 
 // Open Google Maps for navigation (works on both web and mobile apps)
@@ -162,6 +164,13 @@ export default function DriverMapPage() {
     showSuccess,
     showError,
   } = useAlert();
+
+  // Status transition overlay state
+  const [overlayVisible, setOverlayVisible] = useState(false);
+  const [overlayStatus, setOverlayStatus] = useState("processing");
+  const [overlayActionType, setOverlayActionType] = useState("pickup");
+  const [overlayErrorMsg, setOverlayErrorMsg] = useState("");
+  const overlayCallbackRef = useRef(null);
 
   // Callbacks for map interaction
   const handleBoundsFitted = useCallback(() => {
@@ -461,7 +470,12 @@ export default function DriverMapPage() {
   const handlePickedUp = async () => {
     if (!currentTarget) return;
 
+    // Show overlay IMMEDIATELY on swipe
+    setOverlayActionType("pickup");
+    setOverlayStatus("processing");
+    setOverlayVisible(true);
     setUpdating(true);
+
     try {
       const token = localStorage.getItem("token");
       const res = await fetch(
@@ -481,28 +495,31 @@ export default function DriverMapPage() {
       );
 
       if (res.ok) {
-        // Remove from pickups and fetch updated data
-        const updatedPickups = pickups.filter(
-          (p) => p.delivery_id !== currentTarget.delivery_id,
-        );
-        setPickups(updatedPickups);
-
-        // If more pickups, move to next
-        if (updatedPickups.length > 0) {
-          setCurrentTarget(updatedPickups[0]);
-        } else {
-          // All pickups done, switch to delivery mode
-          await fetchPickupsAndDeliveries();
-        }
+        // Show success overlay
+        setOverlayStatus("success");
+        overlayCallbackRef.current = async () => {
+          const updatedPickups = pickups.filter(
+            (p) => p.delivery_id !== currentTarget.delivery_id,
+          );
+          setPickups(updatedPickups);
+          if (updatedPickups.length > 0) {
+            setCurrentTarget(updatedPickups[0]);
+          } else {
+            await fetchPickupsAndDeliveries();
+          }
+          setUpdating(false);
+        };
       } else {
         const data = await res.json();
-        showError(data.message || "Failed to update status");
+        setOverlayErrorMsg(data.message || "Failed to update status");
+        setOverlayStatus("error");
+        overlayCallbackRef.current = () => setUpdating(false);
       }
     } catch (e) {
       console.error("Update error:", e);
-      showError("Failed to update status");
-    } finally {
-      setUpdating(false);
+      setOverlayErrorMsg("Failed to update status");
+      setOverlayStatus("error");
+      overlayCallbackRef.current = () => setUpdating(false);
     }
   };
 
@@ -516,7 +533,12 @@ export default function DriverMapPage() {
   const handleDelivered = async () => {
     if (!currentTarget) return;
 
+    // Show overlay IMMEDIATELY on swipe
+    setOverlayActionType("deliver");
+    setOverlayStatus("processing");
+    setOverlayVisible(true);
     setUpdating(true);
+
     try {
       const token = localStorage.getItem("token");
 
@@ -588,23 +610,27 @@ export default function DriverMapPage() {
 
         setDeliveries(updatedDeliveries);
 
-        // If more deliveries, move to next
-        if (updatedDeliveries.length > 0) {
-          setCurrentTarget(updatedDeliveries[0]);
-        } else {
-          // All done
-          showSuccess("All deliveries completed!");
-          navigate("/driver/deliveries/active");
-        }
+        // Show success overlay
+        setOverlayStatus("success");
+        overlayCallbackRef.current = () => {
+          if (updatedDeliveries.length > 0) {
+            setCurrentTarget(updatedDeliveries[0]);
+          } else {
+            navigate("/driver/deliveries/active");
+          }
+          setUpdating(false);
+        };
       } else {
         const data = await res.json();
-        showError(data.message || "Failed to update status");
+        setOverlayErrorMsg(data.message || "Failed to update status");
+        setOverlayStatus("error");
+        overlayCallbackRef.current = () => setUpdating(false);
       }
     } catch (e) {
       console.error("Delivery error:", e);
-      showError("Failed to mark as delivered");
-    } finally {
-      setUpdating(false);
+      setOverlayErrorMsg("Failed to mark as delivered");
+      setOverlayStatus("error");
+      overlayCallbackRef.current = () => setUpdating(false);
     }
   };
 
@@ -672,6 +698,20 @@ export default function DriverMapPage() {
   return (
     <DriverLayout>
       <AnimatedAlert alert={alertState} visible={alertVisible} />
+      {/* Status Transition Overlay */}
+      <StatusTransitionOverlay
+        visible={overlayVisible}
+        status={overlayStatus}
+        actionType={overlayActionType}
+        errorMessage={overlayErrorMsg}
+        onComplete={() => {
+          setOverlayVisible(false);
+          setOverlayStatus("processing");
+          setOverlayErrorMsg("");
+          overlayCallbackRef.current?.();
+          overlayCallbackRef.current = null;
+        }}
+      />
       <div className="h-screen flex flex-col bg-gray-50">
         {/* Map */}
         <div className="flex-1 relative">
@@ -1028,6 +1068,7 @@ function DeliveryInfo({ delivery, onDelivered, updating }) {
     distance_km,
     estimated_time_minutes,
     items = [],
+    delivery_id,
   } = delivery;
 
   return (
@@ -1165,7 +1206,13 @@ function DeliveryInfo({ delivery, onDelivered, updating }) {
         </div>
       </div>
 
-      {/* Block 5: Swipe to Deliver */}
+      {/* Block 5: Delivery Proof Photo (Optional) */}
+      <DeliveryProofUpload
+        deliveryId={delivery_id}
+        onUploaded={(url) => console.log("Proof uploaded:", url)}
+      />
+
+      {/* Block 6: Swipe to Deliver */}
       <div className="pt-2">
         <SwipeToDeliver
           onSwipe={onDelivered}

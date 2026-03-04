@@ -794,17 +794,49 @@ export default function AvailableDeliveries() {
               )}
             </div>
           ) : deliveries.length === 0 ? (
-            <div className="p-8 text-center">
-              <div className="text-5xl mb-4">�</div>
-              <h3 className="text-lg font-bold text-gray-700 mb-2">
-                No Deliveries Near You
-              </h3>
-              <p className="text-sm text-gray-500 mb-6">
-                {currentRoute.active_deliveries >= 5
-                  ? "You've reached the maximum of 5 deliveries. Complete some deliveries first."
-                  : "No delivery requests available in your area right now. We'll notify you when new orders come in!"}
-              </p>
-              <div className="flex gap-3 justify-center">
+            <div className="p-6">
+              {/* Active Deliveries Card - Show prominently if driver has active deliveries */}
+              {currentRoute.active_deliveries > 0 && (
+                <div
+                  onClick={() => navigate("/driver/deliveries/active")}
+                  className="mb-6 bg-gradient-to-r from-green-500 to-emerald-600 rounded-xl p-6 text-white shadow-lg cursor-pointer active:scale-[0.98] transition-transform"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center">
+                        <span className="text-2xl">🚗</span>
+                      </div>
+                      <div>
+                        <div className="text-sm font-medium opacity-90">
+                          You have
+                        </div>
+                        <div className="text-2xl font-bold">
+                          {currentRoute.active_deliveries} Active Deliver
+                          {currentRoute.active_deliveries === 1 ? "y" : "ies"}
+                        </div>
+                      </div>
+                    </div>
+                    <span className="material-icons text-3xl">
+                      arrow_forward
+                    </span>
+                  </div>
+                  <div className="text-sm opacity-90 mt-2">
+                    Tap to view and manage your active deliveries
+                  </div>
+                </div>
+              )}
+
+              {/* No Available Deliveries Message */}
+              <div className="text-center">
+                <div className="text-5xl mb-4">�</div>
+                <h3 className="text-lg font-bold text-gray-700 mb-2">
+                  No Deliveries Near You
+                </h3>
+                <p className="text-sm text-gray-500 mb-6">
+                  {currentRoute.active_deliveries >= 5
+                    ? "You've reached the maximum of 5 deliveries. Complete some deliveries first."
+                    : "No delivery requests available in your area right now. We'll notify you when new orders come in!"}
+                </p>
                 <button
                   onClick={() => {
                     setIsLoadingAfterAccept(true);
@@ -819,14 +851,6 @@ export default function AvailableDeliveries() {
                 >
                   🔄 Refresh
                 </button>
-                {currentRoute.active_deliveries > 0 && (
-                  <button
-                    onClick={() => navigate("/driver/deliveries/active")}
-                    className="px-6 py-2 border border-green-500 text-green-500 rounded-full text-sm font-medium hover:bg-green-50 active:scale-95 transition-all"
-                  >
-                    View Active ({currentRoute.active_deliveries})
-                  </button>
-                )}
               </div>
             </div>
           ) : (

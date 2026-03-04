@@ -545,13 +545,20 @@ export async function sendOrderStatusNotification(customerId, orderInfo) {
 /**
  * Notify all active drivers about a new delivery available
  * Called when admin accepts an order
- * @param {object} deliveryInfo - { deliveryId, orderNumber, restaurantName, totalAmount }
+ * @param {object} deliveryInfo - { deliveryId, orderNumber, restaurantName, totalAmount, tipAmount }
  */
 export async function sendNewDeliveryNotificationToDrivers(deliveryInfo) {
   try {
+    const tipAmount = parseFloat(deliveryInfo.tipAmount || 0);
+    let body = `Order #${deliveryInfo.orderNumber} from ${deliveryInfo.restaurantName}`;
+    if (tipAmount > 0) {
+      body += `\n💰 Tip included: Rs. ${tipAmount.toFixed(0)}`;
+    }
+    body += `\nCheck available deliveries for earnings details.`;
+
     return await sendBroadcastNotification("driver", {
       title: "🚗 New Delivery Available!",
-      body: `Order #${deliveryInfo.orderNumber} from ${deliveryInfo.restaurantName} — Rs. ${Number(deliveryInfo.totalAmount).toFixed(2)}`,
+      body,
       sound: "default",
       channelId: "urgent_orders",
       sticky: true,
@@ -560,6 +567,7 @@ export async function sendNewDeliveryNotificationToDrivers(deliveryInfo) {
         persistent: "true",
         deliveryId: String(deliveryInfo.deliveryId),
         orderNumber: deliveryInfo.orderNumber,
+        tipAmount: tipAmount > 0 ? String(tipAmount) : undefined,
         screen: "AvailableDeliveries",
         channelId: "urgent_orders",
       },
@@ -691,14 +699,26 @@ export async function sendDeliveryStatusToAdmin(restaurantId, info) {
 /**
  * Notify all drivers about a tipped delivery (persistent until accept/decline)
  * Called when manager adds a tip to a pending delivery
- * @param {object} deliveryInfo - { deliveryId, orderNumber, restaurantName, totalAmount, tipAmount }
+ * @param {object} deliveryInfo - { deliveryId, orderNumber, restaurantName, totalAmount, tipAmount, bonusAmount }
  */
 export async function sendTipDeliveryNotificationToDrivers(deliveryInfo) {
   try {
     console.log("💰 sendTipDeliveryNotificationToDrivers:", deliveryInfo);
+    const tipAmount = parseFloat(deliveryInfo.tipAmount || 0);
+    const bonusAmount = parseFloat(deliveryInfo.bonusAmount || 0);
+
+    let body = `Order #${deliveryInfo.orderNumber} from ${deliveryInfo.restaurantName}`;
+    if (bonusAmount > 0) {
+      body += `\n🎁 Bonus: Rs. ${bonusAmount.toFixed(0)}`;
+    }
+    if (tipAmount > 0) {
+      body += `\n💰 Tip: Rs. ${tipAmount.toFixed(0)}`;
+    }
+    body += `\nCheck available deliveries for full earnings breakdown.`;
+
     return await sendBroadcastNotification("driver", {
       title: "💰 Tipped Delivery Available!",
-      body: `Order #${deliveryInfo.orderNumber} from ${deliveryInfo.restaurantName} — Rs. ${Number(deliveryInfo.totalAmount).toFixed(2)} + Rs. ${Number(deliveryInfo.tipAmount).toFixed(2)} tip!`,
+      body,
       sound: "default",
       channelId: "urgent_orders",
       sticky: true,
@@ -707,7 +727,8 @@ export async function sendTipDeliveryNotificationToDrivers(deliveryInfo) {
         persistent: "true",
         deliveryId: String(deliveryInfo.deliveryId),
         orderNumber: deliveryInfo.orderNumber,
-        tipAmount: String(deliveryInfo.tipAmount),
+        tipAmount: String(tipAmount),
+        bonusAmount: bonusAmount > 0 ? String(bonusAmount) : undefined,
         screen: "AvailableDeliveries",
         channelId: "urgent_orders",
       },
