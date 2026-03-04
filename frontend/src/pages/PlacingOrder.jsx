@@ -144,7 +144,7 @@ const PlacingOrder = () => {
       showViewOrder={true}
       viewOrderExpanded={viewOrderExpanded}
       onToggleViewOrder={handleToggleViewOrder}
-      
+      showBikeRiderView={true} // Enable first-person bike rider perspective
       onBack={handleBack}
     >
       {/* Success Animation Banner */}

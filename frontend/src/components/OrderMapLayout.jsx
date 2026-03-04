@@ -28,6 +28,9 @@ const OrderMapLayout = ({
   // Callbacks
   onBack = () => {},
 
+  // View mode
+  showBikeRiderView = false, // Enable first-person bike rider perspective
+
   // Custom content
   children = null,
 
@@ -58,31 +61,97 @@ const OrderMapLayout = ({
 
   return (
     <div className={`order-map-layout ${className}`}>
-      {/* ===== Map Background ===== */}
-      <div className="map-background">
-        <div className="map-blocks">
-          {mapBlocks.map((block, idx) => (
-            <div
-              key={idx}
-              className="map-block"
-              style={{
-                top: block.top,
-                left: block.left,
-                width: block.width,
-                height: block.height,
-              }}
-            />
-          ))}
-        </div>
-      </div>
+      {/* ===== Map Background OR Bike Rider View ===== */}
+      {showBikeRiderView ? (
+        /* First-Person Bike Rider View */
+        <div className="bike-rider-view">
+          {/* Animated road surface */}
+          <div className="road-animation">
+            <div className="road-surface"></div>
+          </div>
 
-      {/* Location Pin */}
-      <div className="location-pin">
-        <svg className="pin-icon" viewBox="0 0 24 24" fill="#22c55e">
-          <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
-        </svg>
-        <div className="pin-pulse"></div>
-      </div>
+          {/* Speed lines for motion effect */}
+          <div className="speed-lines">
+            <div className="speed-line"></div>
+            <div className="speed-line"></div>
+            <div className="speed-line"></div>
+            <div className="speed-line"></div>
+            <div className="speed-line"></div>
+            <div className="speed-line"></div>
+          </div>
+
+          {/* Delivery box mounted on bike */}
+          <div className="delivery-box-mount">
+            <div className="delivery-box">
+              <div className="delivery-box-icon">🍔</div>
+            </div>
+          </div>
+
+          {/* Bike handlebars in first-person perspective */}
+          <div className="bike-handlebars">
+            {/* Left handlebar */}
+            <svg className="handlebar-left" viewBox="0 0 100 120" fill="none">
+              {/* Grip */}
+              <rect x="70" y="0" width="12" height="35" rx="6" fill="#2c3e50" />
+              <rect x="72" y="2" width="8" height="31" rx="4" fill="#34495e" />
+              {/* Handlebar tube */}
+              <path
+                d="M76 35 Q 65 60, 50 90 L 45 95 Q 43 98, 45 100 L 50 95 Q 66 63, 76 35 Z"
+                fill="#7f8c8d"
+                stroke="#5a6268"
+                strokeWidth="2"
+              />
+              {/* Mirror */}
+              <circle cx="82" cy="15" r="8" fill="#34495e" opacity="0.8" />
+              <circle cx="82" cy="15" r="6" fill="#ecf0f1" opacity="0.9" />
+            </svg>
+
+            {/* Right handlebar */}
+            <svg className="handlebar-right" viewBox="0 0 100 120" fill="none">
+              {/* Grip */}
+              <rect x="18" y="0" width="12" height="35" rx="6" fill="#2c3e50" />
+              <rect x="20" y="2" width="8" height="31" rx="4" fill="#34495e" />
+              {/* Handlebar tube */}
+              <path
+                d="M24 35 Q 35 60, 50 90 L 55 95 Q 57 98, 55 100 L 50 95 Q 34 63, 24 35 Z"
+                fill="#7f8c8d"
+                stroke="#5a6268"
+                strokeWidth="2"
+              />
+              {/* Brake lever */}
+              <rect x="22" y="10" width="3" height="15" rx="1.5" fill="#e74c3c" />
+            </svg>
+          </div>
+        </div>
+      ) : (
+        /* Normal Map View */
+        <div className="map-background">
+          <div className="map-blocks">
+            {mapBlocks.map((block, idx) => (
+              <div
+                key={idx}
+                className="map-block"
+                style={{
+                  top: block.top,
+                  left: block.left,
+                  width: block.width,
+                  height: block.height,
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Location Pin - Only show in normal map view */}
+      {!showBikeRiderView && (
+        <div className="location-pin">
+          <svg className="pin-icon" viewBox="0 0 24 24" fill="#22c55e">
+            <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
+          </svg>
+          <div className="pin-pulse"></div>
+        </div>
+      )}
 
       {/* Back Button */}
       <button className="header-back-btn" onClick={onBack}>
