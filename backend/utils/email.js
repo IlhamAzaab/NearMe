@@ -93,7 +93,7 @@ export async function sendVerificationEmail({ to, verificationLink }) {
     process.env.SMTP_HOST === "smtp.example.com"
   ) {
     console.log(
-      "\n========== EMAIL VERIFICATION (DEVELOPMENT MODE) =========="
+      "\n========== EMAIL VERIFICATION (DEVELOPMENT MODE) ==========",
     );
     console.log(`To: ${to}`);
     console.log(`Subject: ${subject}`);
