@@ -11,11 +11,49 @@ import {
 } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { X, Phone, ChevronDown } from "lucide-react";
+import { X, Phone, ChevronDown, Navigation } from "lucide-react";
 import DriverLayout from "../../components/DriverLayout";
 import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
 import SwipeToDeliver from "../../components/SwipeToDeliver";
+import StatusTransitionOverlay from "../../components/StatusTransitionOverlay";
+import DeliveryProofUpload from "../../components/DeliveryProofUpload";
 import { API_URL } from "../../config";
+
+// Open Google Maps for navigation (works on both web and mobile apps)
+function openGoogleMapsNavigation(destLat, destLng, destLabel = "Destination") {
+  // google.navigation intent works on Android Google Maps app
+  // On iOS it opens Google Maps app if installed, otherwise web
+  // On web it opens Google Maps in browser
+  const isAndroid = /android/i.test(navigator.userAgent);
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+
+  if (isAndroid) {
+    // Android: use google.navigation intent (opens Google Maps app directly in navigation mode)
+    window.location.href = `google.navigation:q=${destLat},${destLng}&mode=d`;
+    // Fallback to web after a short delay if the app doesn't open
+    setTimeout(() => {
+      window.open(
+        `https://www.google.com/maps/dir/?api=1&destination=${destLat},${destLng}&travelmode=driving`,
+        "_blank",
+      );
+    }, 1500);
+  } else if (isIOS) {
+    // iOS: try Google Maps app first, fallback to Apple Maps
+    window.location.href = `comgooglemaps://?daddr=${destLat},${destLng}&directionsmode=driving`;
+    setTimeout(() => {
+      window.open(
+        `https://maps.apple.com/?daddr=${destLat},${destLng}&dirflg=d`,
+        "_blank",
+      );
+    }, 1500);
+  } else {
+    // Web: open Google Maps in new tab
+    window.open(
+      `https://www.google.com/maps/dir/?api=1&destination=${destLat},${destLng}&travelmode=driving`,
+      "_blank",
+    );
+  }
+}
 
 // Fix Leaflet default marker icons
 delete L.Icon.Default.prototype._getIconUrl;
@@ -84,6 +122,7 @@ function MapBounds({
 
 // Minimum distance (meters) the driver must move before we consider it a real movement
 const MOVEMENT_THRESHOLD_METERS = 10;
+const FETCH_MOVEMENT_THRESHOLD_METERS = 100; // Only re-fetch OSRM/data when moved 100m+
 
 function getDistanceMeters(lat1, lng1, lat2, lng2) {
   const R = 6371000;
@@ -125,6 +164,13 @@ export default function DriverMapPage() {
     showSuccess,
     showError,
   } = useAlert();
+
+  // Status transition overlay state
+  const [overlayVisible, setOverlayVisible] = useState(false);
+  const [overlayStatus, setOverlayStatus] = useState("processing");
+  const [overlayActionType, setOverlayActionType] = useState("pickup");
+  const [overlayErrorMsg, setOverlayErrorMsg] = useState("");
+  const overlayCallbackRef = useRef(null);
 
   // Callbacks for map interaction
   const handleBoundsFitted = useCallback(() => {
@@ -213,7 +259,7 @@ export default function DriverMapPage() {
           lastLocationRef.current = newLoc;
           setDriverLocation(newLoc);
 
-          // Send to backend & refresh data when driver moves significantly (>30m since last backend update)
+          // Send to backend & refresh data when driver moves significantly (>100m since last backend update)
           const movedSinceBackend = lastBackendLocationRef.current
             ? getDistanceMeters(
                 lastBackendLocationRef.current.latitude,
@@ -223,7 +269,7 @@ export default function DriverMapPage() {
               )
             : Infinity;
 
-          if (movedSinceBackend >= 30) {
+          if (movedSinceBackend >= FETCH_MOVEMENT_THRESHOLD_METERS) {
             lastBackendLocationRef.current = newLoc;
             updateLocationOnBackend(deliveryId, newLoc);
             // Refresh delivery data when driver has moved significantly
@@ -424,7 +470,12 @@ export default function DriverMapPage() {
   const handlePickedUp = async () => {
     if (!currentTarget) return;
 
+    // Show overlay IMMEDIATELY on swipe
+    setOverlayActionType("pickup");
+    setOverlayStatus("processing");
+    setOverlayVisible(true);
     setUpdating(true);
+
     try {
       const token = localStorage.getItem("token");
       const res = await fetch(
@@ -444,28 +495,31 @@ export default function DriverMapPage() {
       );
 
       if (res.ok) {
-        // Remove from pickups and fetch updated data
-        const updatedPickups = pickups.filter(
-          (p) => p.delivery_id !== currentTarget.delivery_id,
-        );
-        setPickups(updatedPickups);
-
-        // If more pickups, move to next
-        if (updatedPickups.length > 0) {
-          setCurrentTarget(updatedPickups[0]);
-        } else {
-          // All pickups done, switch to delivery mode
-          await fetchPickupsAndDeliveries();
-        }
+        // Show success overlay
+        setOverlayStatus("success");
+        overlayCallbackRef.current = async () => {
+          const updatedPickups = pickups.filter(
+            (p) => p.delivery_id !== currentTarget.delivery_id,
+          );
+          setPickups(updatedPickups);
+          if (updatedPickups.length > 0) {
+            setCurrentTarget(updatedPickups[0]);
+          } else {
+            await fetchPickupsAndDeliveries();
+          }
+          setUpdating(false);
+        };
       } else {
         const data = await res.json();
-        showError(data.message || "Failed to update status");
+        setOverlayErrorMsg(data.message || "Failed to update status");
+        setOverlayStatus("error");
+        overlayCallbackRef.current = () => setUpdating(false);
       }
     } catch (e) {
       console.error("Update error:", e);
-      showError("Failed to update status");
-    } finally {
-      setUpdating(false);
+      setOverlayErrorMsg("Failed to update status");
+      setOverlayStatus("error");
+      overlayCallbackRef.current = () => setUpdating(false);
     }
   };
 
@@ -479,7 +533,12 @@ export default function DriverMapPage() {
   const handleDelivered = async () => {
     if (!currentTarget) return;
 
+    // Show overlay IMMEDIATELY on swipe
+    setOverlayActionType("deliver");
+    setOverlayStatus("processing");
+    setOverlayVisible(true);
     setUpdating(true);
+
     try {
       const token = localStorage.getItem("token");
 
@@ -551,23 +610,27 @@ export default function DriverMapPage() {
 
         setDeliveries(updatedDeliveries);
 
-        // If more deliveries, move to next
-        if (updatedDeliveries.length > 0) {
-          setCurrentTarget(updatedDeliveries[0]);
-        } else {
-          // All done
-          showSuccess("All deliveries completed!");
-          navigate("/driver/deliveries/active");
-        }
+        // Show success overlay
+        setOverlayStatus("success");
+        overlayCallbackRef.current = () => {
+          if (updatedDeliveries.length > 0) {
+            setCurrentTarget(updatedDeliveries[0]);
+          } else {
+            navigate("/driver/deliveries/active");
+          }
+          setUpdating(false);
+        };
       } else {
         const data = await res.json();
-        showError(data.message || "Failed to update status");
+        setOverlayErrorMsg(data.message || "Failed to update status");
+        setOverlayStatus("error");
+        overlayCallbackRef.current = () => setUpdating(false);
       }
     } catch (e) {
       console.error("Delivery error:", e);
-      showError("Failed to mark as delivered");
-    } finally {
-      setUpdating(false);
+      setOverlayErrorMsg("Failed to mark as delivered");
+      setOverlayStatus("error");
+      overlayCallbackRef.current = () => setUpdating(false);
     }
   };
 
@@ -635,6 +698,20 @@ export default function DriverMapPage() {
   return (
     <DriverLayout>
       <AnimatedAlert alert={alertState} visible={alertVisible} />
+      {/* Status Transition Overlay */}
+      <StatusTransitionOverlay
+        visible={overlayVisible}
+        status={overlayStatus}
+        actionType={overlayActionType}
+        errorMessage={overlayErrorMsg}
+        onComplete={() => {
+          setOverlayVisible(false);
+          setOverlayStatus("processing");
+          setOverlayErrorMsg("");
+          overlayCallbackRef.current?.();
+          overlayCallbackRef.current = null;
+        }}
+      />
       <div className="h-screen flex flex-col bg-gray-50">
         {/* Map */}
         <div className="flex-1 relative">
@@ -909,14 +986,30 @@ function PickupInfo({ pickup, onPickedUp, updating }) {
           <h2 className="text-xl font-bold text-green-600">
             {restaurant.name}
           </h2>
-          {restaurant.phone && (
-            <a
-              href={`tel:${restaurant.phone}`}
-              className="shrink-0 w-10 h-10 bg-green-500 rounded-full flex items-center justify-center hover:bg-green-600 transition-colors"
+          <div className="flex items-center gap-2">
+            {/* Navigate to Restaurant in Google Maps */}
+            <button
+              onClick={() =>
+                openGoogleMapsNavigation(
+                  restaurant.latitude,
+                  restaurant.longitude,
+                  restaurant.name,
+                )
+              }
+              className="shrink-0 w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center hover:bg-blue-600 transition-colors"
+              title="Navigate in Google Maps"
             >
-              <Phone className="w-5 h-5 text-white" />
-            </a>
-          )}
+              <Navigation className="w-5 h-5 text-white" />
+            </button>
+            {restaurant.phone && (
+              <a
+                href={`tel:${restaurant.phone}`}
+                className="shrink-0 w-10 h-10 bg-green-500 rounded-full flex items-center justify-center hover:bg-green-600 transition-colors"
+              >
+                <Phone className="w-5 h-5 text-white" />
+              </a>
+            )}
+          </div>
         </div>
         <p className="text-gray-700 text-sm leading-relaxed">
           {restaurant.address}
@@ -975,6 +1068,7 @@ function DeliveryInfo({ delivery, onDelivered, updating }) {
     distance_km,
     estimated_time_minutes,
     items = [],
+    delivery_id,
   } = delivery;
 
   return (
@@ -1033,15 +1127,30 @@ function DeliveryInfo({ delivery, onDelivered, updating }) {
       <div className="bg-white p-4 rounded-lg border border-gray-300">
         <div className="flex items-start justify-between mb-2">
           <h2 className="text-xl font-bold text-green-600">{customer.name}</h2>
-          
-          {customer.phone && (
-            <a
-              href={`tel:${customer.phone}`}
-              className="shrink-0 w-10 h-10 rounded-full flex items-center justify-center hover:bg-green-600 transition-colors"
+          <div className="flex items-center gap-2">
+            {/* Navigate to Customer in Google Maps */}
+            <button
+              onClick={() =>
+                openGoogleMapsNavigation(
+                  customer.latitude,
+                  customer.longitude,
+                  customer.name,
+                )
+              }
+              className="shrink-0 w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center hover:bg-blue-600 transition-colors"
+              title="Navigate in Google Maps"
             >
-              <Phone className="w-8 h-8 text-green-500" />
-            </a>
-          )}
+              <Navigation className="w-5 h-5 text-white" />
+            </button>
+            {customer.phone && (
+              <a
+                href={`tel:${customer.phone}`}
+                className="shrink-0 w-10 h-10 rounded-full flex items-center justify-center hover:bg-green-600 transition-colors"
+              >
+                <Phone className="w-8 h-8 text-green-500" />
+              </a>
+            )}
+          </div>
         </div>
         <p className="text-gray-700 text-sm leading-relaxed">
           {customer.address}
@@ -1097,7 +1206,13 @@ function DeliveryInfo({ delivery, onDelivered, updating }) {
         </div>
       </div>
 
-      {/* Block 5: Swipe to Deliver */}
+      {/* Block 5: Delivery Proof Photo (Optional) */}
+      <DeliveryProofUpload
+        deliveryId={delivery_id}
+        onUploaded={(url) => console.log("Proof uploaded:", url)}
+      />
+
+      {/* Block 6: Swipe to Deliver */}
       <div className="pt-2">
         <SwipeToDeliver
           onSwipe={onDelivered}

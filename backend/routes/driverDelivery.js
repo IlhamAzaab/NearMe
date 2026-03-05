@@ -15,6 +15,8 @@
  */
 
 import express from "express";
+import multer from "multer";
+import { v2 as cloudinary } from "cloudinary";
 import { supabaseAdmin } from "../supabaseAdmin.js";
 import { authenticate } from "../middleware/authenticate.js";
 import {
@@ -45,6 +47,13 @@ import {
 } from "../utils/pushNotificationService.js";
 
 const router = express.Router();
+
+// Configure Cloudinary (for delivery proof uploads)
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 // ============================================================================
 // Helper: Calculate distance using Haversine formula (fallback)
@@ -89,13 +98,50 @@ function setCache(key, data) {
 }
 
 // ============================================================================
-// Helper: Fetch with timeout and improved retry logic
+// OSRM Circuit Breaker: Skip OSRM entirely when it's consistently failing
+// ============================================================================
+let osrmCircuitOpen = false;
+let osrmLastFailTime = 0;
+const OSRM_CIRCUIT_COOLDOWN = 60000; // 60s before retrying OSRM after circuit opens
+let osrmConsecutiveFailures = 0;
+const OSRM_FAILURE_THRESHOLD = 3; // Open circuit after 3 consecutive failures
+
+function isOsrmAvailable() {
+  if (!osrmCircuitOpen) return true;
+  // Check if cooldown has elapsed
+  if (Date.now() - osrmLastFailTime > OSRM_CIRCUIT_COOLDOWN) {
+    console.log("[OSRM] Circuit breaker: cooldown elapsed, retrying OSRM");
+    osrmCircuitOpen = false;
+    osrmConsecutiveFailures = 0;
+    return true;
+  }
+  return false;
+}
+
+function recordOsrmFailure() {
+  osrmConsecutiveFailures++;
+  if (osrmConsecutiveFailures >= OSRM_FAILURE_THRESHOLD) {
+    osrmCircuitOpen = true;
+    osrmLastFailTime = Date.now();
+    console.log(
+      `[OSRM] Circuit breaker OPEN: ${osrmConsecutiveFailures} consecutive failures. Will retry in ${OSRM_CIRCUIT_COOLDOWN / 1000}s`,
+    );
+  }
+}
+
+function recordOsrmSuccess() {
+  osrmConsecutiveFailures = 0;
+  osrmCircuitOpen = false;
+}
+
+// ============================================================================
+// Helper: Fetch with timeout and retry (reduced: 5s timeout, 1 retry)
 // ============================================================================
 async function fetchWithTimeout(
   url,
   options = {},
-  timeout = 15000,
-  retries = 3,
+  timeout = 5000,
+  retries = 1,
 ) {
   let lastError;
 
@@ -118,8 +164,7 @@ async function fetchWithTimeout(
         throw lastError;
       }
 
-      // Exponential backoff: 1s, 2s, 4s
-      const delay = Math.pow(2, i) * 1000;
+      const delay = 1000; // Single 1s retry
       console.log(
         `[OSRM] Retry ${i + 1}/${retries} after ${delay}ms - Error: ${error.message}`,
       );
@@ -148,57 +193,42 @@ async function getRouteDistance(
       return cached;
     }
 
-    // Use FOOT profile for shortest distance (motorcycles can use walking paths in town)
+    // Circuit breaker: skip OSRM entirely when it's consistently failing
+    if (!isOsrmAvailable()) {
+      throw new Error("OSRM circuit breaker open");
+    }
+
+    // Use FOOT profile for shortest distance
     const url = `https://router.project-osrm.org/route/v1/foot/${startLng},${startLat};${endLng},${endLat}?overview=${overview}${
       overview === "full" ? "&geometries=geojson" : ""
     }`;
 
-    console.log(
-      `[OSRM] Requesting route: (${startLng},${startLat}) → (${endLng},${endLat})`,
-    );
-
-    // Use public OSRM with 15 second timeout and 3 retries
-    const response = await fetchWithTimeout(url, {}, 15000, 3);
+    // Use public OSRM with 5s timeout and 1 retry
+    const response = await fetchWithTimeout(url, {}, 5000, 1);
 
     if (!response.ok) {
-      console.error(
-        `[OSRM] HTTP Error: ${response.status} ${response.statusText}`,
-      );
       throw new Error(`OSRM HTTP ${response.status}`);
     }
 
     const data = await response.json();
 
     if (data.code === "Ok" && data.routes?.[0]) {
-      console.log(
-        `[OSRM] ✅ Success: Distance=${(data.routes[0].distance / 1000).toFixed(2)}km, Duration=${(data.routes[0].duration / 60).toFixed(0)}min`,
-      );
-
       // Cache the result
       setCache(cacheKey, data.routes[0]);
-
+      recordOsrmSuccess();
       return data.routes[0];
     }
 
-    console.warn(
-      `[OSRM] ⚠️ Invalid response: code=${data.code}, message=${data.message}`,
-    );
     throw new Error(`OSRM code: ${data.code} - ${data.message}`);
   } catch (error) {
-    console.error(`[OSRM] ❌ All retries failed - Error: ${error.message}`);
+    recordOsrmFailure();
 
-    // Fallback to Haversine only if OSRM completely fails
-    console.log(`[HAVERSINE] Using fallback calculation...`);
-
+    // Fallback to Haversine
     const distance = calculateHaversineDistance(
       startLat,
       startLng,
       endLat,
       endLng,
-    );
-
-    console.log(
-      `[HAVERSINE] Distance=${(distance / 1000).toFixed(2)}km (estimated)`,
     );
 
     return {
@@ -295,7 +325,6 @@ router.get(
           orders!inner (
             id,
             order_number,
-            status,
             restaurant_id,
             restaurant_name,
             restaurant_address,
@@ -914,17 +943,17 @@ router.post(
         r1_distance_km: earningsData.r1_distance_km || null,
         extra_distance_km: earningsData.extra_distance_km || 0,
         total_distance_km: earningsData.total_distance_km || 0,
-        // Store pending earnings data as JSON for later use (when delivered)
+        // Store pending earnings data as JSON (will be applied when delivered)
         pending_earnings: JSON.stringify({
-          // Only include base_amount for 1st delivery
           ...(isFirstDelivery
             ? { base_amount: earningsData.base_amount || 0 }
             : {}),
           extra_earnings: earningsData.extra_earnings || 0,
           bonus_amount: earningsData.bonus_amount || 0,
+          tip_amount: tipAmount,
           driver_earnings: driverEarningsAmount,
         }),
-        // Set actual earnings to 0 until delivered
+        // Store as 0 until delivery is completed
         base_amount: 0,
         extra_earnings: 0,
         bonus_amount: 0,
@@ -991,6 +1020,9 @@ router.post(
       console.log(
         `[ACCEPT DELIVERY]   💰 Earnings pending (will be stored on delivery completion)`,
       );
+
+      // Invalidate available deliveries cache for ALL drivers (this delivery is no longer available)
+      availableDeliveriesCache.clear();
 
       // Step 3: Insert delivery stops into driver's route
       console.log(
@@ -1068,9 +1100,11 @@ router.post(
         });
       }
 
-      if (notifications.length > 0) {
-        await supabaseAdmin.from("notifications").insert(notifications);
-      }
+      // Notifications are now handled by push notification service
+      // which automatically logs to notification_log table
+      // if (notifications.length > 0) {
+      //   await supabaseAdmin.from("notifications").insert(notifications);
+      // }
 
       console.log(`[ACCEPT DELIVERY]   ✓ Notifications sent`);
 
@@ -1236,7 +1270,6 @@ router.get(
           orders (
             id,
             order_number,
-            status,
             restaurant_id,
             restaurant_name,
             restaurant_address,
@@ -1433,7 +1466,6 @@ router.get(
           orders (
             id,
             order_number,
-            status,
             restaurant_name,
             delivery_address,
             delivery_city,
@@ -2083,34 +2115,36 @@ router.patch(
           })
           .eq("id", delivery.order_id);
 
-        // NOW store the actual driver earnings from pending_earnings
+        // Apply pending_earnings to actual columns on delivery completion
         console.log(
-          `[DELIVERED] 💰 Storing driver earnings for delivery ${deliveryId}`,
+          `[DELIVERED] 💰 Finalizing earnings for delivery ${deliveryId}`,
         );
 
-        // Fetch the pending earnings data
+        // Fetch the delivery to get pending_earnings
         const { data: deliveryWithPending } = await supabaseAdmin
           .from("deliveries")
-          .select("pending_earnings, delivery_sequence")
+          .select(
+            "pending_earnings, delivery_sequence, driver_earnings, base_amount, extra_earnings, bonus_amount, tip_amount",
+          )
           .eq("id", deliveryId)
           .single();
 
-        if (deliveryWithPending?.pending_earnings) {
+        if (deliveryWithPending && deliveryWithPending.pending_earnings) {
           try {
             const pendingEarnings =
               typeof deliveryWithPending.pending_earnings === "string"
                 ? JSON.parse(deliveryWithPending.pending_earnings)
                 : deliveryWithPending.pending_earnings;
 
-            // Update with actual earnings
             const { error: earningsError } = await supabaseAdmin
               .from("deliveries")
               .update({
                 base_amount: pendingEarnings.base_amount || 0,
                 extra_earnings: pendingEarnings.extra_earnings || 0,
                 bonus_amount: pendingEarnings.bonus_amount || 0,
+                tip_amount: pendingEarnings.tip_amount || 0,
                 driver_earnings: pendingEarnings.driver_earnings || 0,
-                pending_earnings: null, // Clear pending data
+                pending_earnings: null,
               })
               .eq("id", deliveryId);
 
@@ -2121,7 +2155,7 @@ router.patch(
               );
             } else {
               console.log(
-                `[DELIVERED] ✅ Earnings stored: Rs.${pendingEarnings.driver_earnings} (base: ${pendingEarnings.base_amount}, extra: ${pendingEarnings.extra_earnings}, bonus: ${pendingEarnings.bonus_amount})`,
+                `[DELIVERED] ✅ Earnings applied from pending: Rs.${pendingEarnings.driver_earnings} (base: ${pendingEarnings.base_amount || 0}, extra: ${pendingEarnings.extra_earnings}, bonus: ${pendingEarnings.bonus_amount}, tip: ${pendingEarnings.tip_amount || 0})`,
               );
             }
           } catch (parseError) {
@@ -2132,8 +2166,61 @@ router.patch(
           }
         } else {
           console.log(
-            `[DELIVERED] ⚠️ No pending_earnings found for delivery ${deliveryId}`,
+            `[DELIVERED] ⚠️ No pending_earnings found for delivery ${deliveryId}, earnings columns already set: Rs.${deliveryWithPending?.driver_earnings}`,
           );
+        }
+
+        // ======================================================================
+        // CLEANUP: Delete delivery_stops for this delivery
+        // ======================================================================
+        console.log(
+          `[DELIVERED] 🧹 Cleaning up delivery_stops for delivery ${deliveryId}`,
+        );
+
+        // Check if driver has any other active deliveries
+        const { data: remainingDeliveries } = await supabaseAdmin
+          .from("deliveries")
+          .select("id")
+          .eq("driver_id", req.user.id)
+          .not("status", "in", "(delivered,cancelled,failed)");
+
+        const hasRemainingDeliveries =
+          remainingDeliveries && remainingDeliveries.length > 0;
+
+        if (hasRemainingDeliveries) {
+          // Driver still has active deliveries - only delete stops for this specific delivery
+          const { error: deleteError } = await supabaseAdmin
+            .from("delivery_stops")
+            .delete()
+            .eq("delivery_id", deliveryId);
+
+          if (deleteError) {
+            console.error(
+              `[DELIVERED] ❌ Error deleting stops for delivery ${deliveryId}:`,
+              deleteError,
+            );
+          } else {
+            console.log(
+              `[DELIVERED] ✅ Deleted delivery_stops for delivery ${deliveryId} (driver has ${remainingDeliveries.length} active deliveries remaining)`,
+            );
+          }
+        } else {
+          // Driver has no remaining active deliveries - delete ALL stops for this driver
+          const { error: deleteError } = await supabaseAdmin
+            .from("delivery_stops")
+            .delete()
+            .eq("driver_id", req.user.id);
+
+          if (deleteError) {
+            console.error(
+              `[DELIVERED] ❌ Error deleting all stops for driver:`,
+              deleteError,
+            );
+          } else {
+            console.log(
+              `[DELIVERED] ✅ Deleted ALL delivery_stops for driver (all deliveries completed)`,
+            );
+          }
         }
       }
 
@@ -2190,9 +2277,11 @@ router.patch(
         }
       }
 
-      if (notifications.length > 0) {
-        await supabaseAdmin.from("notifications").insert(notifications);
-      }
+      // Notifications are now handled by push notification service
+      // which automatically logs to notification_log table
+      // if (notifications.length > 0) {
+      //   await supabaseAdmin.from("notifications").insert(notifications);
+      // }
 
       // 📡 REAL-TIME WEBSOCKET: Notify customer of delivery status change
       if (messages && currentDelivery.orders?.customer_id) {
@@ -2423,9 +2512,11 @@ router.patch(
               });
             }
           }
-          if (followups.length > 0) {
-            await supabaseAdmin.from("notifications").insert(followups);
-          }
+          // Notifications are now handled by push notification service
+          // which automatically logs to notification_log table
+          // if (followups.length > 0) {
+          //   await supabaseAdmin.from("notifications").insert(followups);
+          // }
 
           // 📡 REAL-TIME WEBSOCKET: Notify customer of auto-promoted delivery
           if (next.customer_id) {
@@ -2517,7 +2608,6 @@ router.get("/deliveries/active", authenticate, driverOnly, async (req, res) => {
         orders (
           id,
           order_number,
-          status,
           restaurant_name,
           restaurant_address,
           restaurant_latitude,
@@ -2557,102 +2647,70 @@ router.get("/deliveries/active", authenticate, driverOnly, async (req, res) => {
       return res.json({ deliveries: [] });
     }
 
-    // Calculate total distance for each delivery
-    const formattedDeliveries = await Promise.all(
-      deliveries.map(async (d) => {
-        let totalDistance = 0;
+    // Use Haversine only (no OSRM) — this is a fast overview endpoint.
+    // Detailed OSRM routes are fetched by /pickups and /deliveries-route endpoints.
+    const formattedDeliveries = deliveries.map((d) => {
+      const driverLat = d.current_latitude || d.orders.restaurant_latitude;
+      const driverLng = d.current_longitude || d.orders.restaurant_longitude;
+      const restaurantLat = parseFloat(d.orders.restaurant_latitude);
+      const restaurantLng = parseFloat(d.orders.restaurant_longitude);
+      const customerLat = parseFloat(d.orders.delivery_latitude);
+      const customerLng = parseFloat(d.orders.delivery_longitude);
 
-        try {
-          // Use driver's initial location (when accepted) or restaurant as fallback
-          const driverLat = d.current_latitude || d.orders.restaurant_latitude;
-          const driverLng =
-            d.current_longitude || d.orders.restaurant_longitude;
-          const restaurantLat = parseFloat(d.orders.restaurant_latitude);
-          const restaurantLng = parseFloat(d.orders.restaurant_longitude);
-          const customerLat = parseFloat(d.orders.delivery_latitude);
-          const customerLng = parseFloat(d.orders.delivery_longitude);
+      // Fast Haversine calculation (no network calls)
+      const restaurantDist = calculateHaversineDistance(
+        driverLat,
+        driverLng,
+        restaurantLat,
+        restaurantLng,
+      );
+      const customerDist = calculateHaversineDistance(
+        restaurantLat,
+        restaurantLng,
+        customerLat,
+        customerLng,
+      );
+      const totalDistance = (restaurantDist + customerDist) * 1.3;
 
-          // Fetch driver → restaurant distance
-          const restaurantRoute = await getRouteDistance(
-            driverLng,
-            driverLat,
-            restaurantLng,
-            restaurantLat,
-            "false",
-          );
-          if (restaurantRoute) {
-            totalDistance += restaurantRoute.distance;
-          }
-
-          // Fetch restaurant → customer distance
-          const customerRoute = await getRouteDistance(
-            restaurantLng,
-            restaurantLat,
-            customerLng,
-            customerLat,
-            "false",
-          );
-          if (customerRoute) {
-            totalDistance += customerRoute.distance;
-          }
-        } catch (error) {
-          console.error("Error calculating total distance:", error);
-          // Use fallback calculation even on error
-          const restaurantDist = calculateHaversineDistance(
-            driverLat,
-            driverLng,
-            restaurantLat,
-            restaurantLng,
-          );
-          const customerDist = calculateHaversineDistance(
-            restaurantLat,
-            restaurantLng,
-            customerLat,
-            customerLng,
-          );
-          totalDistance = (restaurantDist + customerDist) * 1.3; // Add 30% for road routing
-        }
-
-        return {
-          id: d.id,
-          order_id: d.order_id,
+      return {
+        id: d.id,
+        order_id: d.order_id,
+        status: d.status,
+        driver_location: {
+          latitude: d.current_latitude,
+          longitude: d.current_longitude,
+        },
+        accepted_at: d.accepted_at,
+        picked_up_at: d.picked_up_at,
+        total_distance: totalDistance, // in meters (estimated)
+        order: {
+          order_number: d.orders.order_number,
           status: d.status,
-          driver_location: {
-            latitude: d.current_latitude,
-            longitude: d.current_longitude,
+          restaurant: {
+            name: d.orders.restaurant_name,
+            address: d.orders.restaurant_address,
+            latitude: restaurantLat,
+            longitude: restaurantLng,
           },
-          accepted_at: d.accepted_at,
-          picked_up_at: d.picked_up_at,
-          total_distance: totalDistance, // in meters
-          order: {
-            order_number: d.orders.order_number,
-            status: d.status,
-            restaurant: {
-              name: d.orders.restaurant_name,
-              address: d.orders.restaurant_address,
-              latitude: parseFloat(d.orders.restaurant_latitude),
-              longitude: parseFloat(d.orders.restaurant_longitude),
-            },
-            delivery: {
-              address: d.orders.delivery_address,
-              city: d.orders.delivery_city,
-              latitude: parseFloat(d.orders.delivery_latitude),
-              longitude: parseFloat(d.orders.delivery_longitude),
-            },
-            customer: {
-              id: d.orders.customer_id,
-              name: d.orders.customer_name,
-              phone: d.orders.customer_phone,
-            },
-            restaurant_id: d.orders.restaurant_id,
-            total_amount: parseFloat(d.orders.total_amount),
-            distance_km: parseFloat(d.orders.distance_km),
-            payment_method: d.orders.payment_method,
-            items: d.orders.order_items,
+          delivery: {
+            address: d.orders.delivery_address,
+            city: d.orders.delivery_city,
+            latitude: customerLat,
+            longitude: customerLng,
           },
-        };
-      }),
-    );
+          customer: {
+            id: d.orders.customer_id,
+            name: d.orders.customer_name,
+            phone: d.orders.customer_phone,
+          },
+          restaurant_id: d.orders.restaurant_id,
+          total_amount: parseFloat(d.orders.total_amount),
+          distance_km: parseFloat(d.orders.distance_km),
+          payment_method: d.orders.payment_method,
+          items: d.orders.order_items,
+        },
+      };
+    });
 
     return res.json({ deliveries: formattedDeliveries });
   } catch (error) {
@@ -2675,7 +2733,7 @@ router.get("/deliveries/:id", authenticate, driverOnly, async (req, res) => {
       .select(
         `
           id,
-          delivery_status,
+          status,
           driver_id,
           current_latitude,
           current_longitude,
@@ -2695,7 +2753,7 @@ router.get("/deliveries/:id", authenticate, driverOnly, async (req, res) => {
       )
       .eq("id", deliveryId)
       .eq("driver_id", driverId)
-      .eq("delivery_status", "accepted") // ✅ IMPORTANT
+      .eq("status", "accepted")
       .single();
 
     if (error || !data) {
@@ -2707,7 +2765,7 @@ router.get("/deliveries/:id", authenticate, driverOnly, async (req, res) => {
     return res.json({
       delivery: {
         id: data.id,
-        delivery_status: data.delivery_status,
+        status: data.status,
         driver_location: {
           latitude: data.current_latitude,
           longitude: data.current_longitude,
@@ -2795,18 +2853,13 @@ router.get("/notifications", authenticate, driverOnly, async (req, res) => {
   const { limit = 50, unread_only = false } = req.query;
 
   try {
-    let query = supabaseAdmin
-      .from("notifications")
+    // notification_log has no is_read field, so unread_only is ignored
+    const { data: notifications, error } = await supabaseAdmin
+      .from("notification_log")
       .select("*")
-      .eq("recipient_id", req.user.id)
+      .eq("user_id", req.user.id)
       .order("created_at", { ascending: false })
       .limit(parseInt(limit));
-
-    if (unread_only === "true") {
-      query = query.eq("is_read", false);
-    }
-
-    const { data: notifications, error } = await query;
 
     if (error) {
       console.error("Fetch notifications error:", error);
@@ -2829,27 +2882,9 @@ router.patch(
   authenticate,
   driverOnly,
   async (req, res) => {
-    const notificationId = req.params.id;
-
-    try {
-      const { error } = await supabaseAdmin
-        .from("notifications")
-        .update({ is_read: true, read_at: new Date().toISOString() })
-        .eq("id", notificationId)
-        .eq("recipient_id", req.user.id);
-
-      if (error) {
-        console.error("Mark notification read error:", error);
-        return res
-          .status(500)
-          .json({ message: "Failed to update notification" });
-      }
-
-      return res.json({ message: "Notification marked as read" });
-    } catch (error) {
-      console.error("Update notification error:", error);
-      return res.status(500).json({ message: "Server error" });
-    }
+    // notification_log is read-only, no mark-as-read functionality
+    // Return success for backward compatibility
+    return res.json({ message: "Notification marked as read" });
   },
 );
 
@@ -2862,25 +2897,9 @@ router.patch(
   authenticate,
   driverOnly,
   async (req, res) => {
-    try {
-      const { error } = await supabaseAdmin
-        .from("notifications")
-        .update({ is_read: true, read_at: new Date().toISOString() })
-        .eq("recipient_id", req.user.id)
-        .eq("is_read", false);
-
-      if (error) {
-        console.error("Mark all notifications read error:", error);
-        return res
-          .status(500)
-          .json({ message: "Failed to mark all notifications as read" });
-      }
-
-      return res.json({ message: "All notifications marked as read" });
-    } catch (error) {
-      console.error("Mark all notifications error:", error);
-      return res.status(500).json({ message: "Server error" });
-    }
+    // notification_log is read-only, no mark-as-read functionality
+    // Return success for backward compatibility
+    return res.json({ message: "All notifications marked as read" });
   },
 );
 
@@ -2954,6 +2973,32 @@ router.get("/stats", authenticate, driverOnly, async (req, res) => {
 //   current_route
 // }
 
+// ============================================================================
+// AVAILABLE DELIVERIES RESPONSE CACHE
+// ============================================================================
+// Caches per-driver results for 30 seconds. Invalidated when:
+//   - Driver moves >200m from cached position
+//   - Cache TTL expires (30s)
+//   - Pending delivery count changes
+// This prevents repeated OSRM calls when frontend polls frequently.
+// ============================================================================
+const availableDeliveriesCache = new Map();
+const AVAILABLE_CACHE_TTL_MS = 30 * 1000; // 30 seconds
+const AVAILABLE_CACHE_MOVE_THRESHOLD_M = 200; // Only recalculate if driver moved 200m+
+
+function haversineDistanceSimple(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 router.get(
   "/deliveries/available/v2",
   authenticate,
@@ -2961,6 +3006,24 @@ router.get(
   async (req, res) => {
     const driverId = req.user.id;
     const { driver_latitude, driver_longitude } = req.query;
+    const lat = driver_latitude ? parseFloat(driver_latitude) : null;
+    const lng = driver_longitude ? parseFloat(driver_longitude) : null;
+
+    // Check response cache first
+    const cached = availableDeliveriesCache.get(driverId);
+    if (cached && lat && lng) {
+      const age = Date.now() - cached.timestamp;
+      const moved = haversineDistanceSimple(cached.lat, cached.lng, lat, lng);
+      if (
+        age < AVAILABLE_CACHE_TTL_MS &&
+        moved < AVAILABLE_CACHE_MOVE_THRESHOLD_M
+      ) {
+        console.log(
+          `[ENDPOINT] GET /available/v2 → CACHED (age=${Math.round(age / 1000)}s, moved=${Math.round(moved)}m)`,
+        );
+        return res.json(cached.result);
+      }
+    }
 
     console.log(`\n\n${"=".repeat(100)}`);
     console.log(`[ENDPOINT] GET /driver/deliveries/available/v2`);
@@ -2971,10 +3034,20 @@ router.get(
     try {
       const availableDeliveries = await getAvailableDeliveriesForDriver(
         driverId,
-        driver_latitude ? parseFloat(driver_latitude) : null,
-        driver_longitude ? parseFloat(driver_longitude) : null,
+        lat,
+        lng,
         getRouteDistance, // Pass the OSRM helper function
       );
+
+      // Store in cache
+      if (lat && lng) {
+        availableDeliveriesCache.set(driverId, {
+          result: availableDeliveries,
+          lat,
+          lng,
+          timestamp: Date.now(),
+        });
+      }
 
       console.log(
         `[ENDPOINT] ✅ Returning ${availableDeliveries.available_deliveries?.length || 0} available deliveries`,
@@ -3511,6 +3584,91 @@ router.get(
       return res
         .status(500)
         .json({ success: false, message: "Failed to fetch delivery earnings" });
+    }
+  },
+);
+
+// ============================================================================
+// POST /driver/deliveries/:id/proof - Upload delivery proof photo
+// ============================================================================
+const proofUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith("image/")) {
+      cb(null, true);
+    } else {
+      cb(new Error("Only image files are allowed"));
+    }
+  },
+});
+
+router.post(
+  "/deliveries/:id/proof",
+  authenticate,
+  driverOnly,
+  proofUpload.single("file"),
+  async (req, res) => {
+    const deliveryId = req.params.id;
+    const driverId = req.user.id;
+
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: "No image file provided" });
+      }
+
+      // Verify this delivery belongs to the driver
+      const { data: delivery, error: fetchError } = await supabaseAdmin
+        .from("deliveries")
+        .select("id, driver_id")
+        .eq("id", deliveryId)
+        .eq("driver_id", driverId)
+        .maybeSingle();
+
+      if (fetchError || !delivery) {
+        return res.status(404).json({ message: "Delivery not found" });
+      }
+
+      // Upload to Cloudinary
+      const b64 = Buffer.from(req.file.buffer).toString("base64");
+      const dataURI = `data:${req.file.mimetype};base64,${b64}`;
+
+      const result = await cloudinary.uploader.upload(dataURI, {
+        folder: `nearme/delivery-proofs/${driverId}`,
+        public_id: `proof_${deliveryId}_${Date.now()}`,
+        resource_type: "image",
+        overwrite: true,
+        access_mode: "public",
+        transformation: [
+          { width: 1200, height: 1200, crop: "limit", quality: "auto" },
+        ],
+      });
+
+      // Save URL to delivery record
+      const { error: updateError } = await supabaseAdmin
+        .from("deliveries")
+        .update({ delivery_proof_url: result.secure_url })
+        .eq("id", deliveryId);
+
+      if (updateError) {
+        console.error("Update delivery proof error:", updateError);
+        return res
+          .status(500)
+          .json({ message: "Failed to save proof URL to delivery" });
+      }
+
+      console.log(
+        `[DELIVERY PROOF] ✅ Uploaded proof for delivery ${deliveryId}`,
+      );
+      return res.json({
+        message: "Delivery proof uploaded",
+        url: result.secure_url,
+      });
+    } catch (error) {
+      console.error(`[DELIVERY PROOF] ❌ Error: ${error.message}`);
+      return res
+        .status(500)
+        .json({ message: "Failed to upload delivery proof" });
     }
   },
 );

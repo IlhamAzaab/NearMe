@@ -6,7 +6,7 @@ const router = express.Router();
 
 /**
  * GET /customer/notifications
- * Get notifications for customer
+ * Get notifications for customer from notification_log + scheduled_notifications
  */
 router.get("/notifications", authenticate, async (req, res) => {
   try {
@@ -17,19 +17,60 @@ router.get("/notifications", authenticate, async (req, res) => {
     const customerId = req.user.id;
     const limit = parseInt(req.query.limit) || 50;
 
-    const { data, error } = await supabaseAdmin
-      .from("notifications")
+    // 1) Fetch from notification_log (individual notifications for this user)
+    const { data: logData, error: logError } = await supabaseAdmin
+      .from("notification_log")
       .select("*")
-      .eq("recipient_id", customerId)
-      .order("created_at", { ascending: false })
+      .eq("user_id", customerId)
+      .order("sent_at", { ascending: false })
       .limit(limit);
 
-    if (error) {
-      console.error("Customer notifications fetch error:", error);
-      return res.status(500).json({ message: "Failed to fetch notifications" });
+    if (logError) {
+      console.error("notification_log fetch error:", logError);
     }
 
-    return res.json({ notifications: data || [] });
+    // 2) Fetch from scheduled_notifications (sent broadcasts targeting customer role)
+    const { data: scheduledData, error: schedError } = await supabaseAdmin
+      .from("scheduled_notifications")
+      .select("*")
+      .eq("role", "customer")
+      .eq("status", "sent")
+      .or(`recipient_ids.is.null,recipient_ids.cs.{${customerId}}`)
+      .order("sent_at", { ascending: false })
+      .limit(limit);
+
+    if (schedError) {
+      console.error("scheduled_notifications fetch error:", schedError);
+    }
+
+    // Normalize notification_log entries
+    const normalizedLog = (logData || []).map((n) => ({
+      id: n.id,
+      title: n.title,
+      body: n.body,
+      data: n.data || {},
+      status: n.status,
+      created_at: n.sent_at,
+      source: "notification_log",
+    }));
+
+    // Normalize scheduled_notifications entries
+    const normalizedScheduled = (scheduledData || []).map((s) => ({
+      id: s.id,
+      title: s.title,
+      body: s.body,
+      data: s.data || {},
+      status: s.status,
+      created_at: s.sent_at || s.created_at,
+      source: "scheduled",
+    }));
+
+    // Merge, sort by time desc, limit
+    const all = [...normalizedLog, ...normalizedScheduled]
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+      .slice(0, limit);
+
+    return res.json({ notifications: all });
   } catch (e) {
     console.error("/customer/notifications error:", e);
     return res.status(500).json({ message: "Server error" });
@@ -46,23 +87,9 @@ router.patch("/notifications/:id/read", authenticate, async (req, res) => {
       return res.status(403).json({ message: "Forbidden" });
     }
 
-    const notifId = req.params.id;
-    const customerId = req.user.id;
-
-    const { data, error } = await supabaseAdmin
-      .from("notifications")
-      .update({ is_read: true, read_at: new Date().toISOString() })
-      .eq("id", notifId)
-      .eq("recipient_id", customerId)
-      .select()
-      .single();
-
-    if (error) {
-      console.error("Mark read error:", error);
-      return res.status(500).json({ message: "Failed to mark as read" });
-    }
-
-    return res.json({ notification: data });
+    // notification_log table doesn't have is_read field - it's read-only
+    // Just return success since notifications are auto-read when fetched
+    return res.json({ message: "Notification marked as read" });
   } catch (e) {
     console.error("/customer/notifications/:id/read error:", e);
     return res.status(500).json({ message: "Server error" });
@@ -79,19 +106,8 @@ router.patch("/notifications/mark-all-read", authenticate, async (req, res) => {
       return res.status(403).json({ message: "Forbidden" });
     }
 
-    const customerId = req.user.id;
-
-    const { error } = await supabaseAdmin
-      .from("notifications")
-      .update({ is_read: true, read_at: new Date().toISOString() })
-      .eq("recipient_id", customerId)
-      .eq("is_read", false);
-
-    if (error) {
-      console.error("Mark all read error:", error);
-      return res.status(500).json({ message: "Failed to mark all as read" });
-    }
-
+    // notification_log table doesn't have is_read field - it's read-only
+    // Just return success since notifications are auto-read when fetched
     return res.json({ message: "All notifications marked as read" });
   } catch (e) {
     console.error("/customer/notifications/mark-all-read error:", e);
@@ -139,9 +155,9 @@ router.put("/address", authenticate, async (req, res) => {
       return res.status(500).json({ message: "Failed to update address" });
     }
 
-    return res.json({ 
+    return res.json({
       message: "Address updated successfully",
-      customer 
+      customer,
     });
   } catch (e) {
     console.error("/customer/address error:", e);
@@ -163,13 +179,17 @@ router.get("/me", authenticate, async (req, res) => {
 
     const { data: customer, error } = await supabaseAdmin
       .from("customers")
-      .select("id, username, email, phone, address, city, nic_number, latitude, longitude, created_at")
+      .select(
+        "id, username, email, phone, address, city, nic_number, latitude, longitude, created_at",
+      )
       .eq("id", customerId)
       .single();
 
     if (error) {
       console.error("Customer fetch error:", error);
-      return res.status(500).json({ message: "Failed to fetch customer profile" });
+      return res
+        .status(500)
+        .json({ message: "Failed to fetch customer profile" });
     }
 
     if (!customer) {

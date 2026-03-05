@@ -262,15 +262,37 @@ router.get(
           .json({ success: false, message: "Restaurant not found" });
       }
 
-      // Get admin email
+      // Get admin details
       let adminEmail = null;
+      let adminName = null;
+      let adminPhone = null;
       if (restaurant.admin_id) {
         const { data: admin } = await supabaseAdmin
           .from("admins")
-          .select("email")
+          .select("email, full_name, phone")
           .eq("id", restaurant.admin_id)
           .single();
         adminEmail = admin?.email || null;
+        adminName = admin?.full_name || null;
+        adminPhone = admin?.phone || null;
+      }
+
+      // Get restaurant bank account details
+      let bankDetails = null;
+      if (restaurant.admin_id) {
+        const { data: bankAccount } = await supabaseAdmin
+          .from("restaurant_bank_accounts")
+          .select("account_holder_name, bank_name, branch, account_number")
+          .eq("admin_id", restaurant.admin_id)
+          .single();
+        if (bankAccount) {
+          bankDetails = {
+            account_holder_name: bankAccount.account_holder_name,
+            bank_name: bankAccount.bank_name,
+            branch_name: bankAccount.branch,
+            account_number: bankAccount.account_number,
+          };
+        }
       }
 
       // Get total earnings from restaurant_payments view
@@ -313,10 +335,13 @@ router.get(
           restaurant_status: restaurant.restaurant_status,
           admin_id: restaurant.admin_id,
           admin_email: adminEmail,
+          admin_name: adminName,
+          admin_phone: adminPhone,
           total_earnings: totalEarnings,
           total_paid: totalPaid,
           withdrawal_balance: withdrawalBalance,
           order_count: orderCount,
+          bank_details: bankDetails,
         },
       });
     } catch (error) {

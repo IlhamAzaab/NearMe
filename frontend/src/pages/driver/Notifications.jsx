@@ -12,53 +12,23 @@ export default function DriverNotifications() {
   const [driverId, setDriverId] = useState(null);
 
   // =============================================
-  // MARK ALL AS READ
-  // =============================================
-  const markAllAsRead = useCallback(async () => {
-    try {
-      const token = localStorage.getItem("token");
-      await fetch(`${API_URL}/driver/notifications/mark-all-read`, {
-        method: "PATCH",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-    } catch (e) {
-      console.error("Mark all read error:", e);
-    }
-  }, []);
-
-  // =============================================
   // FETCH NOTIFICATIONS
   // =============================================
   const fetchNotifications = useCallback(async () => {
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(
-        `${API_URL}/driver/notifications?limit=50`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
-      );
+      const res = await fetch(`${API_URL}/driver/notifications?limit=50`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const data = await res.json();
       setNotifications(data.notifications || []);
-
-      // Mark all as read after fetching
-      await markAllAsRead();
-
-      // Update local state to reflect read status
-      setNotifications((prev) =>
-        prev.map((notif) => ({
-          ...notif,
-          is_read: true,
-          read_at: new Date().toISOString(),
-        })),
-      );
     } catch (e) {
       console.error("Fetch notifications error:", e);
       setNotifications([]);
     } finally {
       setLoading(false);
     }
-  }, [markAllAsRead]);
+  }, []);
 
   // =============================================
   // AUTH CHECK
@@ -89,12 +59,24 @@ export default function DriverNotifications() {
         {
           event: "INSERT",
           schema: "public",
-          table: "notifications",
-          filter: `recipient_id=eq.${driverId}`,
+          table: "notification_log",
+          filter: `user_id=eq.${driverId}`,
         },
         (payload) => {
           console.log("New driver notification:", payload);
-          setNotifications((prev) => [payload.new, ...prev]);
+          const newNotif = payload.new;
+          setNotifications((prev) => [
+            {
+              id: newNotif.id,
+              title: newNotif.title,
+              body: newNotif.body,
+              data: newNotif.data || {},
+              status: newNotif.status,
+              created_at: newNotif.sent_at || newNotif.created_at,
+              source: "notification_log",
+            },
+            ...prev,
+          ]);
         },
       )
       .subscribe();
@@ -171,20 +153,16 @@ export default function DriverNotifications() {
           ) : (
             <div className="space-y-3">
               {notifications.map((n) => {
-                let metadata = {};
-                try {
-                  metadata = n.metadata ? JSON.parse(n.metadata) : {};
-                } catch (e) {
-                  metadata = {};
-                }
+                const metadata =
+                  (typeof n.data === "string" ? JSON.parse(n.data) : n.data) ||
+                  {};
+                const notifType = metadata.type || null;
 
-                const isUnread = !n.is_read;
-                const bgColor = isUnread ? "bg-blue-50" : "bg-white";
-                const borderColor = isUnread
-                  ? "border-blue-600"
-                  : "border-gray-300";
-                const iconBg = isUnread ? "bg-blue-200" : "bg-gray-100";
-                const shadowClass = isUnread ? "shadow-md" : "shadow";
+                // All notifications in notification_log are informational (no read status)
+                const bgColor = "bg-white";
+                const borderColor = "border-gray-300";
+                const iconBg = "bg-gray-100";
+                const shadowClass = "shadow";
 
                 return (
                   <div
@@ -197,7 +175,7 @@ export default function DriverNotifications() {
                         className={`w-12 h-12 ${iconBg} rounded-full flex items-center justify-center flex-shrink-0`}
                       >
                         <span className="text-xl">
-                          {getNotificationIcon(n.type)}
+                          {getNotificationIcon(notifType)}
                         </span>
                       </div>
 
@@ -205,21 +183,8 @@ export default function DriverNotifications() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-start justify-between gap-2">
                           <div>
-                            <div className="flex items-center gap-2">
-                              <p
-                                className={`font-bold ${isUnread ? "text-gray-900" : "text-gray-700"}`}
-                              >
-                                {n.title}
-                              </p>
-                              {isUnread && (
-                                <span className="w-2 h-2 bg-blue-600 rounded-full animate-pulse"></span>
-                              )}
-                            </div>
-                            <p
-                              className={`mt-1 ${isUnread ? "text-gray-800" : "text-gray-600"}`}
-                            >
-                              {n.message}
-                            </p>
+                            <p className="font-bold text-gray-900">{n.title}</p>
+                            <p className="mt-1 text-gray-800">{n.body}</p>
                           </div>
                         </div>
 

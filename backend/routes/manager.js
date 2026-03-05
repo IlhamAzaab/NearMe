@@ -7,11 +7,18 @@ import {
   getSystemConfig,
   invalidateConfigCache,
 } from "../utils/systemConfig.js";
-import { broadcastNewDelivery } from "../utils/socketManager.js";
+import {
+  broadcastNewDelivery,
+  notifyCustomer,
+  notifyAdmin,
+  notifyDriver,
+} from "../utils/socketManager.js";
 import {
   sendAdminApprovalNotification,
   sendDriverApprovalNotification,
   sendTipDeliveryNotificationToDrivers,
+  sendPushNotification,
+  sendBroadcastNotification,
 } from "../utils/pushNotificationService.js";
 import dotenv from "dotenv";
 
@@ -1166,8 +1173,10 @@ router.get("/dashboard-stats", authenticate, async (req, res) => {
     // ---- 1. Today's delivered orders with earnings ----
     const { data: todayDeliveries, error: delErr } = await supabaseAdmin
       .from("deliveries")
-      .select("order_id, driver_earnings, status, driver_id")
-      .eq("status", "delivered");
+      .select("order_id, driver_earnings, status, driver_id, delivered_at")
+      .eq("status", "delivered")
+      .gte("delivered_at", todayStart.toISOString())
+      .lte("delivered_at", todayEnd.toISOString());
 
     if (delErr) {
       console.error("Dashboard deliveries error:", delErr);
@@ -1183,7 +1192,7 @@ router.get("/dashboard-stats", authenticate, async (req, res) => {
       };
     }
 
-    // Get today's orders (placed today with delivered status)
+    // Get orders for today's deliveries (no date filter on orders - delivery date matters)
     let todayOrders = [];
     if (allOrderIds.length > 0) {
       const { data: ordersData } = await supabaseAdmin
@@ -1191,9 +1200,7 @@ router.get("/dashboard-stats", authenticate, async (req, res) => {
         .select(
           "id, subtotal, admin_subtotal, commission_total, delivery_fee, service_fee, total_amount, placed_at, restaurant_id, restaurant_name",
         )
-        .in("id", allOrderIds)
-        .gte("placed_at", todayStart.toISOString())
-        .lte("placed_at", todayEnd.toISOString());
+        .in("id", allOrderIds);
       todayOrders = ordersData || [];
     }
 
@@ -1224,7 +1231,82 @@ router.get("/dashboard-stats", authenticate, async (req, res) => {
       }
     }
 
-    // ---- 2. Pending amount from drivers (cash collected not yet deposited) ----
+    // ---- 2a. Balance payment pending for drivers and restaurants ----
+    // Balance = Total owed - Total approved/paid
+    // Get ALL delivered deliveries for computing balance payments
+    const { data: allDeliveries } = await supabaseAdmin
+      .from("deliveries")
+      .select("order_id, driver_earnings, driver_id, status")
+      .eq("status", "delivered");
+
+    const allDeliveriesOrderIds = (allDeliveries || []).map((d) => d.order_id);
+    const allDeliveriesMap = {};
+    const allDriverSet = new Set();
+    let totalDriverEarnings = 0;
+
+    for (const d of allDeliveries || []) {
+      allDeliveriesMap[d.order_id] = {
+        driver_earnings: parseFloat(d.driver_earnings || 0),
+      };
+      totalDriverEarnings += parseFloat(d.driver_earnings || 0);
+      if (d.driver_id) {
+        allDriverSet.add(d.driver_id);
+      }
+    }
+
+    let totalRestaurantOwed = 0;
+    const allRestaurantMap = {};
+
+    if (allDeliveriesOrderIds.length > 0) {
+      const { data: allOrdersData } = await supabaseAdmin
+        .from("orders")
+        .select("id, admin_subtotal, restaurant_id, restaurant_name")
+        .in("id", allDeliveriesOrderIds);
+
+      for (const order of allOrdersData || []) {
+        const restaurantPay = parseFloat(order.admin_subtotal || 0);
+        totalRestaurantOwed += restaurantPay;
+
+        if (order.restaurant_id) {
+          allRestaurantMap[order.restaurant_id] =
+            (allRestaurantMap[order.restaurant_id] || 0) + restaurantPay;
+        }
+      }
+    }
+
+    // Get APPROVED driver deposits to subtract from total driver earnings
+    const { data: approvedDeposits } = await supabaseAdmin
+      .from("driver_deposits")
+      .select("approved_amount")
+      .eq("status", "approved");
+
+    const totalApprovedDeposits = (approvedDeposits || []).reduce(
+      (sum, d) => sum + parseFloat(d.approved_amount || 0),
+      0,
+    );
+
+    // Calculate balance payments
+    const driverPaymentBalance = Math.max(
+      0,
+      totalDriverEarnings - totalApprovedDeposits,
+    );
+
+    // Get total payments already made to restaurants via admin_payments
+    const { data: adminPayments } = await supabaseAdmin
+      .from("admin_payments")
+      .select("amount");
+
+    const totalPaidToRestaurants = (adminPayments || []).reduce(
+      (sum, p) => sum + parseFloat(p.amount || 0),
+      0,
+    );
+
+    const restaurantPaymentBalance = Math.max(
+      0,
+      totalRestaurantOwed - totalPaidToRestaurants,
+    );
+
+    // ---- 2b. Pending amount from drivers (cash collected not yet deposited) ----
     // Use the same logic as deposits/manager/summary
     const { data: latestSnapshot } = await supabaseAdmin
       .from("daily_deposit_snapshots")
@@ -1263,8 +1345,8 @@ router.get("/dashboard-stats", authenticate, async (req, res) => {
     if (snapshotBoundary) {
       approvedQuery = approvedQuery.gt("reviewed_at", snapshotBoundary);
     }
-    const { data: approvedDeposits } = await approvedQuery;
-    const paidAmount = (approvedDeposits || []).reduce(
+    const { data: approvedDepositsAfterSnapshot } = await approvedQuery;
+    const paidAmount = (approvedDepositsAfterSnapshot || []).reduce(
       (sum, d) => sum + parseFloat(d.approved_amount || 0),
       0,
     );
@@ -1296,30 +1378,47 @@ router.get("/dashboard-stats", authenticate, async (req, res) => {
       });
     }
 
-    // Fetch all delivered orders for the last 7 days
+    // Fetch all delivered deliveries for the last 7 days (by delivered_at)
     const weekStart = graphDays[0].start;
+    const { data: weekDeliveries } = await supabaseAdmin
+      .from("deliveries")
+      .select("order_id, driver_earnings, delivered_at")
+      .eq("status", "delivered")
+      .gte("delivered_at", weekStart.toISOString())
+      .lte("delivered_at", todayEnd.toISOString());
+
+    const weekOrderIds = (weekDeliveries || []).map((d) => d.order_id);
+    const weekDeliveriesMap = {};
+    for (const d of weekDeliveries || []) {
+      weekDeliveriesMap[d.order_id] = {
+        driver_earnings: parseFloat(d.driver_earnings || 0),
+        delivered_at: d.delivered_at,
+      };
+    }
+
     let weekOrders = [];
-    if (allOrderIds.length > 0) {
+    if (weekOrderIds.length > 0) {
       const { data: weekData } = await supabaseAdmin
         .from("orders")
-        .select("id, total_amount, admin_subtotal, placed_at")
-        .in("id", allOrderIds)
-        .gte("placed_at", weekStart.toISOString())
-        .lte("placed_at", todayEnd.toISOString());
+        .select("id, total_amount, admin_subtotal")
+        .in("id", weekOrderIds);
       weekOrders = weekData || [];
     }
 
     const earningsGraph = graphDays.map((day) => {
+      // Filter by delivery date, not order placed_at
       const dayOrders = weekOrders.filter((o) => {
-        const placed = new Date(o.placed_at);
-        return placed >= day.start && placed <= day.end;
+        const deliveredAt = weekDeliveriesMap[o.id]?.delivered_at;
+        if (!deliveredAt) return false;
+        const delivered = new Date(deliveredAt);
+        return delivered >= day.start && delivered <= day.end;
       });
       let sales = 0;
       let earnings = 0;
       for (const order of dayOrders) {
         const total = parseFloat(order.total_amount || 0);
         const restPay = parseFloat(order.admin_subtotal || 0);
-        const driverPay = deliveriesMap[order.id]?.driver_earnings || 0;
+        const driverPay = weekDeliveriesMap[order.id]?.driver_earnings || 0;
         sales += total;
         earnings += total - restPay - driverPay;
       }
@@ -1339,10 +1438,10 @@ router.get("/dashboard-stats", authenticate, async (req, res) => {
       todaySales: parseFloat(todaySales.toFixed(2)),
       todayOrders: todayOrders.length,
       totalPendingFromDrivers: parseFloat(totalPendingFromDrivers.toFixed(2)),
-      driverPayment: parseFloat(todayDriverPayTotal.toFixed(2)),
-      driverCount: todayDriverSet.size,
-      restaurantPayment: parseFloat(todayRestaurantPayTotal.toFixed(2)),
-      restaurantCount: Object.keys(todayRestaurantMap).length,
+      driverPayment: parseFloat(driverPaymentBalance.toFixed(2)),
+      driverCount: allDriverSet.size,
+      restaurantPayment: parseFloat(restaurantPaymentBalance.toFixed(2)),
+      restaurantCount: Object.keys(allRestaurantMap).length,
       earningsGraph,
     });
   } catch (e) {
@@ -1379,6 +1478,13 @@ router.get("/earnings/summary", authenticate, async (req, res) => {
       startDate.setHours(0, 0, 0, 0);
       endDate = new Date(now);
       endDate.setHours(23, 59, 59, 999);
+    } else if (period === "yesterday") {
+      startDate = new Date(now);
+      startDate.setDate(startDate.getDate() - 1);
+      startDate.setHours(0, 0, 0, 0);
+      endDate = new Date(now);
+      endDate.setDate(endDate.getDate() - 1);
+      endDate.setHours(23, 59, 59, 999);
     } else if (period === "weekly") {
       startDate = new Date(now);
       startDate.setDate(now.getDate() - 7);
@@ -1391,10 +1497,21 @@ router.get("/earnings/summary", authenticate, async (req, res) => {
 
     // Manager earnings only count when delivery is completed (delivered)
     // Money is collected from customer only after driver delivers the food
-    const { data: deliveries, error: delError } = await supabaseAdmin
+    // Filter by delivered_at within date range (consistent with dashboard)
+    // Only delivered status (cancelled/failed orders excluded automatically)
+    let delQuery = supabaseAdmin
       .from("deliveries")
       .select("order_id, driver_earnings, status, delivered_at")
       .eq("status", "delivered");
+
+    if (startDate) {
+      delQuery = delQuery.gte("delivered_at", startDate.toISOString());
+    }
+    if (endDate) {
+      delQuery = delQuery.lte("delivered_at", endDate.toISOString());
+    }
+
+    const { data: deliveries, error: delError } = await delQuery;
 
     if (delError) {
       console.error("Deliveries fetch error:", delError);
@@ -1413,7 +1530,7 @@ router.get("/earnings/summary", authenticate, async (req, res) => {
       };
     }
 
-    // Get orders for those deliveries within date range
+    // Get orders for those deliveries (no date filter on orders - delivery date matters)
     let orders = [];
     if (orderIds.length > 0) {
       const { data: ordersData, error: ordersError } = await supabaseAdmin
@@ -1430,14 +1547,11 @@ router.get("/earnings/summary", authenticate, async (req, res) => {
           delivery_fee,
           service_fee,
           total_amount,
-          status,
           placed_at,
           delivered_at
         `,
         )
-        .in("id", orderIds)
-        .gte("placed_at", startDate.toISOString())
-        .lte("placed_at", endDate.toISOString());
+        .in("id", orderIds);
 
       if (ordersError) {
         console.error("Orders fetch error:", ordersError);
@@ -1524,14 +1638,50 @@ router.get("/earnings/orders", authenticate, async (req, res) => {
       to,
       restaurant_id,
       status,
-      limit = 50,
+      limit = 100,
       offset = 0,
     } = req.query;
 
-    let query = supabaseAdmin
-      .from("orders")
+    // Strategy: Show ALL orders (delivered and non-delivered) in correct period
+    // - Delivered orders appear in period when delivered (delivered_at)
+    // - Non-delivered orders appear in period when placed (placed_at)
+    // - Cancelled orders are excluded entirely
+    // - Only delivered orders have earnings calculated
+
+    // Fetch ALL deliveries except cancelled
+    const { data: allDeliveries, error: delError } = await supabaseAdmin
+      .from("deliveries")
       .select(
-        `
+        "order_id, driver_earnings, status, delivered_at, driver_id, drivers(full_name, phone)",
+      )
+      .neq("status", "cancelled");
+
+    if (delError) {
+      console.error("Deliveries fetch error:", delError);
+      return res.status(500).json({ message: "Failed to fetch deliveries" });
+    }
+
+    // Build deliveries map
+    const orderIds = (allDeliveries || []).map((d) => d.order_id);
+    let deliveriesMap = {};
+    for (const d of allDeliveries || []) {
+      deliveriesMap[d.order_id] = {
+        driver_earning:
+          d.status === "delivered" ? parseFloat(d.driver_earnings || 0) : 0,
+        driver_name: d.drivers?.full_name || null,
+        driver_phone: d.drivers?.phone || null,
+        delivery_status: d.status,
+        delivered_at: d.delivered_at,
+      };
+    }
+
+    // Fetch orders for these deliveries
+    let orders = [];
+    if (orderIds.length > 0) {
+      let orderQuery = supabaseAdmin
+        .from("orders")
+        .select(
+          `
         id,
         order_number,
         restaurant_id,
@@ -1543,60 +1693,76 @@ router.get("/earnings/orders", authenticate, async (req, res) => {
         delivery_fee,
         service_fee,
         total_amount,
-        status,
         placed_at,
         delivered_at
       `,
-      )
-      .order("placed_at", { ascending: false })
-      .range(parseInt(offset), parseInt(offset) + parseInt(limit) - 1);
-
-    if (from) {
-      query = query.gte("placed_at", new Date(from).toISOString());
-    }
-    if (to) {
-      query = query.lte("placed_at", new Date(to).toISOString());
-    }
-    if (restaurant_id) {
-      query = query.eq("restaurant_id", restaurant_id);
-    }
-    // Note: We don't filter by orders.status. Delivery status filtering
-    // is handled by the deliveries join below (only delivered deliveries count).
-
-    const { data: orders, error } = await query;
-
-    if (error) {
-      console.error("Orders fetch error:", error);
-      return res.status(500).json({ message: "Failed to fetch orders" });
-    }
-
-    // Fetch driver earnings from deliveries for these orders
-    // Only include delivered orders for manager earnings
-    const orderIds = (orders || []).map((o) => o.id);
-    let deliveriesMap = {};
-    if (orderIds.length > 0) {
-      const { data: deliveries, error: delError } = await supabaseAdmin
-        .from("deliveries")
-        .select(
-          "order_id, driver_earnings, status, driver_id, drivers(full_name, phone)",
         )
-        .in("order_id", orderIds)
-        .eq("status", "delivered");
+        .in("id", orderIds);
 
-      if (!delError && deliveries) {
-        for (const d of deliveries) {
-          deliveriesMap[d.order_id] = {
-            driver_earning: parseFloat(d.driver_earnings || 0),
-            driver_name: d.drivers?.full_name || null,
-            driver_phone: d.drivers?.phone || null,
-            delivery_status: d.status,
-          };
-        }
+      if (restaurant_id) {
+        orderQuery = orderQuery.eq("restaurant_id", restaurant_id);
       }
+
+      const { data: ordersData, error } = await orderQuery;
+
+      if (error) {
+        console.error("Orders fetch error:", error);
+        return res.status(500).json({ message: "Failed to fetch orders" });
+      }
+      orders = ordersData || [];
     }
+
+    // Filter orders by period based on their relevant timestamp
+    const fromDate = from ? new Date(from) : null;
+    const toDate = to ? new Date(to) : null;
+
+    const filteredOrders = orders.filter((order) => {
+      const deliveryInfo = deliveriesMap[order.id];
+      if (!deliveryInfo) return false;
+
+      // Determine which timestamp to use for period filtering
+      let relevantDate;
+      if (
+        deliveryInfo.delivery_status === "delivered" &&
+        deliveryInfo.delivered_at
+      ) {
+        relevantDate = new Date(deliveryInfo.delivered_at);
+      } else {
+        relevantDate = new Date(order.placed_at);
+      }
+
+      // Apply date range filter
+      if (fromDate && relevantDate < fromDate) return false;
+      if (toDate && relevantDate > toDate) return false;
+      return true;
+    });
+
+    // Sort by relevant date (delivered_at for delivered, placed_at otherwise) descending
+    filteredOrders.sort((a, b) => {
+      const aInfo = deliveriesMap[a.id];
+      const bInfo = deliveriesMap[b.id];
+
+      const aDate =
+        aInfo.delivery_status === "delivered" && aInfo.delivered_at
+          ? new Date(aInfo.delivered_at)
+          : new Date(a.placed_at);
+
+      const bDate =
+        bInfo.delivery_status === "delivered" && bInfo.delivered_at
+          ? new Date(bInfo.delivered_at)
+          : new Date(b.placed_at);
+
+      return bDate - aDate;
+    });
+
+    // Apply pagination
+    const paginatedOrders = filteredOrders.slice(
+      parseInt(offset),
+      parseInt(offset) + parseInt(limit),
+    );
 
     // Add calculated earnings to each order
-    const ordersWithEarnings = (orders || []).map((order) => {
+    const ordersWithEarnings = paginatedOrders.map((order) => {
       const deliveryInfo = deliveriesMap[order.id] || {};
       const driverEarning = deliveryInfo.driver_earning || 0;
       const totalCollected = parseFloat(order.total_amount || 0);
@@ -1605,8 +1771,8 @@ router.get("/earnings/orders", authenticate, async (req, res) => {
 
       return {
         ...order,
-        // Override status with delivery status
-        status: deliveryInfo.delivery_status || order.status,
+        // Use delivery status (orders table doesn't have status)
+        status: deliveryInfo.delivery_status || "pending",
         total_collected: totalCollected,
         restaurant_payout: restaurantPayout,
         driver_earning: driverEarning,
@@ -2094,6 +2260,313 @@ router.put("/system-config", authenticate, async (req, res) => {
   } catch (err) {
     console.error("System config update error:", err);
     return res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+// ─── SEND NOTIFICATION SYSTEM ────────────────────────────────
+
+/**
+ * GET /manager/customers
+ * List all customers for recipient selection
+ */
+router.get("/customers", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "manager") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const { search } = req.query;
+
+    let query = supabaseAdmin
+      .from("customers")
+      .select("id, username, email, phone, city")
+      .order("created_at", { ascending: false });
+
+    if (search) {
+      const safe = search.replace(/[,()]/g, "").trim();
+      if (safe) {
+        const term = `%${safe}%`;
+        query = query.or(`email.ilike.${term},username.ilike.${term}`);
+      }
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error("Fetch customers error:", error);
+      return res.status(500).json({ message: "Failed to fetch customers" });
+    }
+
+    return res.json({ customers: data || [] });
+  } catch (e) {
+    console.error("/manager/customers error:", e);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
+/**
+ * POST /manager/send-notification
+ * Send push + socket notification to selected recipients
+ *
+ * Body: {
+ *   role: "customer" | "admin" | "driver",
+ *   title: string,
+ *   body: string,
+ *   scheduledTime: ISO string | null (null = send now),
+ *   recipientIds: string[] | "all"
+ * }
+ */
+router.post("/send-notification", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "manager") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const { role, title, body, scheduledTime, recipientIds } = req.body;
+
+    // Validate
+    if (!role || !["customer", "admin", "driver"].includes(role)) {
+      return res
+        .status(400)
+        .json({ message: "Invalid role. Must be customer, admin, or driver." });
+    }
+    if (!title || !title.trim()) {
+      return res.status(400).json({ message: "Title is required." });
+    }
+    if (!body || !body.trim()) {
+      return res.status(400).json({ message: "Body is required." });
+    }
+
+    const notification = {
+      title: title.trim(),
+      body: body.trim(),
+      data: {
+        type: "manager_notification",
+        role,
+        sentBy: req.user.id,
+        sentAt: new Date().toISOString(),
+      },
+    };
+
+    // Check if scheduled for later
+    if (scheduledTime) {
+      const scheduledDate = new Date(scheduledTime);
+      const now = new Date();
+      if (scheduledDate > now) {
+        // Store scheduled notification
+        const { data: scheduled, error: schedError } = await supabaseAdmin
+          .from("scheduled_notifications")
+          .insert({
+            role,
+            title: notification.title,
+            body: notification.body,
+            data: notification.data,
+            scheduled_at: scheduledTime,
+            recipient_ids: recipientIds === "all" ? null : recipientIds,
+            created_by: req.user.id,
+            status: "pending",
+          })
+          .select()
+          .single();
+
+        if (schedError) {
+          console.error("Schedule notification error:", schedError);
+          // Fallback: send immediately if scheduling fails
+          console.log("Falling back to immediate send...");
+        } else {
+          return res.json({
+            success: true,
+            message: `Notification scheduled for ${scheduledDate.toLocaleString()}`,
+            scheduled,
+          });
+        }
+      }
+    }
+
+    // Send immediately
+    const results = { push: [], socket: [], failed: [] };
+    let totalRecipients = 0;
+
+    // Get the table name for this role
+    const tableMap = {
+      customer: "customers",
+      admin: "admins",
+      driver: "drivers",
+    };
+
+    // Socket notifier map
+    const socketNotify = {
+      customer: notifyCustomer,
+      admin: notifyAdmin,
+      driver: notifyDriver,
+    };
+
+    if (recipientIds === "all") {
+      // Broadcast to all users of this role
+      console.log(`📢 Broadcasting notification to all ${role}s`);
+
+      // Get all user IDs of this role
+      const { data: users } = await supabaseAdmin
+        .from(tableMap[role])
+        .select("id");
+
+      if (users && users.length > 0) {
+        totalRecipients = users.length;
+
+        // Send push + log to each user individually (sendPushNotification logs to notification_log)
+        for (const user of users) {
+          try {
+            const pushResult = await sendPushNotification(
+              user.id,
+              notification,
+            );
+            results.push.push({ userId: user.id, ...pushResult });
+
+            // Socket notification for web real-time
+            socketNotify[role](user.id, "manager_notification", {
+              title: notification.title,
+              body: notification.body,
+              data: notification.data,
+            });
+            results.socket.push(user.id);
+          } catch (err) {
+            console.error(`Failed to notify ${user.id}:`, err);
+            results.failed.push({ userId: user.id, error: err.message });
+          }
+        }
+      }
+    } else if (Array.isArray(recipientIds) && recipientIds.length > 0) {
+      // Send to specific users
+      totalRecipients = recipientIds.length;
+      console.log(`📤 Sending notification to ${totalRecipients} ${role}(s)`);
+
+      for (const userId of recipientIds) {
+        try {
+          const pushResult = await sendPushNotification(userId, notification);
+          results.push.push({ userId, ...pushResult });
+
+          // Socket notification for web real-time
+          socketNotify[role](userId, "manager_notification", {
+            title: notification.title,
+            body: notification.body,
+            data: notification.data,
+          });
+          results.socket.push(userId);
+        } catch (err) {
+          console.error(`Failed to notify ${userId}:`, err);
+          results.failed.push({ userId, error: err.message });
+        }
+      }
+    } else {
+      return res
+        .status(400)
+        .json({ message: "recipientIds must be 'all' or a non-empty array." });
+    }
+
+    // Log the manager's own broadcast action
+    await supabaseAdmin.from("notification_log").insert({
+      user_id: req.user.id,
+      user_type: "manager",
+      title: `[Broadcast to ${role}s] ${notification.title}`,
+      body: notification.body,
+      data: {
+        ...notification.data,
+        recipientCount: totalRecipients,
+        recipientIds,
+      },
+      status: "sent",
+    });
+
+    console.log(
+      `✅ Manager notification sent to ${totalRecipients} ${role}(s)`,
+    );
+
+    return res.json({
+      success: true,
+      message: `Notification sent to ${totalRecipients} ${role}(s)`,
+      totalRecipients,
+      results: {
+        pushSent: results.push.length,
+        socketSent: results.socket.length,
+        failed: results.failed.length,
+      },
+    });
+  } catch (e) {
+    console.error("/manager/send-notification error:", e);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+/**
+ * GET /manager/notification-history
+ * Get history of notifications sent by managers (from both notification_log + scheduled_notifications)
+ */
+router.get("/notification-history", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "manager") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const managerId = req.user.id;
+
+    // 1) Fetch from notification_log (manager's sent notifications)
+    const { data: logData, error: logError } = await supabaseAdmin
+      .from("notification_log")
+      .select("*")
+      .eq("user_type", "manager")
+      .order("sent_at", { ascending: false })
+      .limit(50);
+
+    if (logError) {
+      console.error("notification_log history fetch error:", logError);
+    }
+
+    // 2) Fetch from scheduled_notifications (all scheduled by this manager)
+    const { data: scheduledData, error: schedError } = await supabaseAdmin
+      .from("scheduled_notifications")
+      .select("*")
+      .eq("created_by", managerId)
+      .order("created_at", { ascending: false })
+      .limit(50);
+
+    if (schedError) {
+      console.error("scheduled_notifications history fetch error:", schedError);
+    }
+
+    // Normalize notification_log entries
+    const normalizedLog = (logData || []).map((n) => ({
+      id: n.id,
+      title: n.title,
+      body: n.body,
+      data: n.data || {},
+      status: n.status,
+      created_at: n.sent_at,
+      source: "notification_log",
+    }));
+
+    // Normalize scheduled_notifications entries
+    const normalizedScheduled = (scheduledData || []).map((s) => ({
+      id: s.id,
+      title: s.title,
+      body: s.body,
+      data: s.data || {},
+      status: s.status,
+      role: s.role,
+      scheduled_at: s.scheduled_at,
+      sent_at: s.sent_at,
+      created_at: s.sent_at || s.created_at,
+      source: "scheduled",
+    }));
+
+    // Merge and sort by time desc
+    const all = [...normalizedLog, ...normalizedScheduled]
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+      .slice(0, 100);
+
+    return res.json({ notifications: all });
+  } catch (e) {
+    console.error("/manager/notification-history error:", e);
+    return res.status(500).json({ message: "Server error" });
   }
 });
 

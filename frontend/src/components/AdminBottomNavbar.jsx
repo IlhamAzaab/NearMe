@@ -13,7 +13,11 @@ const AdminBottomNavbar = () => {
       return "products";
     if (path === "/admin/orders") return "orders";
     if (path === "/admin/earnings") return "earnings";
-    if (path === "/admin/profile" || path === "/admin/settings")
+    if (
+      path === "/admin/profile" ||
+      path === "/admin/settings" ||
+      path === "/admin/account"
+    )
       return "account";
     return null;
   };
@@ -130,7 +134,7 @@ const AdminBottomNavbar = () => {
           }
           label="Account"
           active={activeNav === "account"}
-          onClick={() => navigate("/admin/profile")}
+          onClick={() => navigate("/admin/account")}
         />
       </div>
     </nav>

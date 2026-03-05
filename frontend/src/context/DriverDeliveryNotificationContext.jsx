@@ -120,7 +120,13 @@ function createAlertSound() {
 
 export function DriverDeliveryNotificationProvider({ children }) {
   const [notifications, setNotifications] = useState([]);
-  const [isDriverOnline, setIsDriverOnline] = useState(false);
+  // Default to true if logged in as driver — driver is always online unless
+  // explicitly offline (manual toggle, working hours, or admin closed)
+  const [isDriverOnline, setIsDriverOnline] = useState(() => {
+    const role = localStorage.getItem("role");
+    const token = localStorage.getItem("token");
+    return role === "driver" && !!token;
+  });
   const { socket, isConnected } = useSocket();
   const alertSoundRef = useRef(null);
   const navigateRef = useRef(null); // Will be set by the notification overlay component

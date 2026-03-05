@@ -42,7 +42,7 @@ const navItems = [
     label: "Reports",
     icon: "assessment",
     path: "/manager/reports",
-    match: (p) => p.startsWith("/manager/reports"),
+    match: (p) => p === "/manager/reports",
   },
 ];
 

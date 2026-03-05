@@ -974,8 +974,13 @@ router.patch("/foods/:foodId", authenticate, async (req, res) => {
       cleanData.description = updateData.description?.trim() || null;
     if (updateData.image_url !== undefined)
       cleanData.image_url = updateData.image_url;
-    if (updateData.is_available !== undefined)
+    if (updateData.is_available !== undefined) {
       cleanData.is_available = updateData.is_available;
+      // When admin toggles availability, set the manual flag accordingly
+      // is_manually_unavailable = true means admin explicitly turned it off
+      // is_manually_unavailable = false means scheduler can control it
+      cleanData.is_manually_unavailable = !updateData.is_available;
+    }
     if (updateData.available_time !== undefined)
       cleanData.available_time = updateData.available_time;
     if (updateData.regular_size !== undefined)
@@ -1105,7 +1110,7 @@ router.post("/upload-image", authenticate, async (req, res) => {
 
 /**
  * GET /admin/notifications
- * Get notifications for admin
+ * Get notifications for admin from notification_log + scheduled_notifications
  */
 router.get("/notifications", authenticate, async (req, res) => {
   try {
@@ -1116,19 +1121,60 @@ router.get("/notifications", authenticate, async (req, res) => {
     const adminId = req.user.id;
     const limit = parseInt(req.query.limit) || 50;
 
-    const { data, error } = await supabaseAdmin
-      .from("notifications")
+    // 1) Fetch from notification_log (individual notifications for this user)
+    const { data: logData, error: logError } = await supabaseAdmin
+      .from("notification_log")
       .select("*")
-      .eq("recipient_id", adminId)
-      .order("created_at", { ascending: false })
+      .eq("user_id", adminId)
+      .order("sent_at", { ascending: false })
       .limit(limit);
 
-    if (error) {
-      console.error("Notifications fetch error:", error);
-      return res.status(500).json({ message: "Failed to fetch notifications" });
+    if (logError) {
+      console.error("notification_log fetch error:", logError);
     }
 
-    return res.json({ notifications: data || [] });
+    // 2) Fetch from scheduled_notifications (sent broadcasts targeting admin role)
+    const { data: scheduledData, error: schedError } = await supabaseAdmin
+      .from("scheduled_notifications")
+      .select("*")
+      .eq("role", "admin")
+      .eq("status", "sent")
+      .or(`recipient_ids.is.null,recipient_ids.cs.{${adminId}}`)
+      .order("sent_at", { ascending: false })
+      .limit(limit);
+
+    if (schedError) {
+      console.error("scheduled_notifications fetch error:", schedError);
+    }
+
+    // Normalize notification_log entries
+    const normalizedLog = (logData || []).map((n) => ({
+      id: n.id,
+      title: n.title,
+      body: n.body,
+      data: n.data || {},
+      status: n.status,
+      created_at: n.sent_at,
+      source: "notification_log",
+    }));
+
+    // Normalize scheduled_notifications entries
+    const normalizedScheduled = (scheduledData || []).map((s) => ({
+      id: s.id,
+      title: s.title,
+      body: s.body,
+      data: s.data || {},
+      status: s.status,
+      created_at: s.sent_at || s.created_at,
+      source: "scheduled",
+    }));
+
+    // Merge, sort by time desc, limit
+    const all = [...normalizedLog, ...normalizedScheduled]
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+      .slice(0, limit);
+
+    return res.json({ notifications: all });
   } catch (e) {
     console.error("/admin/notifications error:", e);
     return res.status(500).json({ message: "Server error" });
@@ -1146,21 +1192,9 @@ router.patch("/notifications/mark-all-read", authenticate, async (req, res) => {
       return res.status(403).json({ message: "Forbidden" });
     }
 
-    const adminId = req.user.id;
-
-    const { data, error } = await supabaseAdmin
-      .from("notifications")
-      .update({ is_read: true, read_at: new Date().toISOString() })
-      .eq("recipient_id", adminId)
-      .eq("is_read", false)
-      .select();
-
-    if (error) {
-      console.error("Mark all read error:", error);
-      return res.status(500).json({ message: "Failed to mark all as read" });
-    }
-
-    return res.json({ success: true, updated: data?.length || 0 });
+    // notification_log table doesn't have is_read field - it's read-only
+    // Just return success since notifications are auto-read when fetched
+    return res.json({ success: true, updated: 0 });
   } catch (e) {
     console.error("/admin/notifications/mark-all-read error:", e);
     return res.status(500).json({ message: "Server error" });
@@ -1177,20 +1211,8 @@ router.patch("/notifications/:id/read", authenticate, async (req, res) => {
       return res.status(403).json({ message: "Forbidden" });
     }
 
-    const adminId = req.user.id;
-    const notificationId = req.params.id;
-
-    const { error } = await supabaseAdmin
-      .from("notifications")
-      .update({ is_read: true, read_at: new Date().toISOString() })
-      .eq("id", notificationId)
-      .eq("recipient_id", adminId);
-
-    if (error) {
-      console.error("Mark read error:", error);
-      return res.status(500).json({ message: "Failed to mark as read" });
-    }
-
+    // notification_log table doesn't have is_read field - it's read-only
+    // Just return success since notifications are auto-read when fetched
     return res.json({ success: true });
   } catch (e) {
     console.error("/admin/notifications/:id/read error:", e);
@@ -1289,7 +1311,7 @@ router.get("/earnings", authenticate, async (req, res) => {
     // Only count orders where driver has picked up (delivery status >= picked_up)
     let totalQuery = supabaseAdmin
       .from("order_financial_details")
-      .select("restaurant_payment, placed_at, status")
+      .select("restaurant_payment, placed_at")
       .eq("restaurant_id", restaurantId);
 
     // Only include orders with qualifying deliveries

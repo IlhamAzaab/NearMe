@@ -298,7 +298,8 @@ router.post("/place", authenticate, async (req, res) => {
           regular_price,
           offer_price,
           extra_price,
-          extra_offer_price
+          extra_offer_price,
+          is_available
         )
       `,
       )
@@ -311,6 +312,17 @@ router.post("/place", authenticate, async (req, res) => {
 
     if (!cartItems || cartItems.length === 0) {
       return res.status(400).json({ message: "Cart is empty" });
+    }
+
+    // Check if any cart items have unavailable foods
+    const unavailableFoodIds = cartItems
+      .filter((item) => item.foods && !item.foods.is_available)
+      .map((item) => item.food_name);
+    if (unavailableFoodIds.length > 0) {
+      return res.status(400).json({
+        message: `Cannot place order. The following item(s) are currently unavailable: ${unavailableFoodIds.join(", ")}. Please remove them from your cart first.`,
+        unavailable_items: unavailableFoodIds,
+      });
     }
 
     // ========================================================================
@@ -676,17 +688,19 @@ router.post("/place", authenticate, async (req, res) => {
 
       console.log("📤 Creating notifications:", notifications);
 
-      const { data: insertedNotifs, error: notifError } = await supabaseAdmin
-        .from("notifications")
-        .insert(notifications)
-        .select();
+      // Notifications are now handled by push notification service
+      // which automatically logs to notification_log table
+      // const { data: insertedNotifs, error: notifError } = await supabaseAdmin
+      //   .from("notifications")
+      //   .insert(notifications)
+      //   .select();
 
-      if (notifError) {
-        console.error("❌ Notification insert error:", notifError);
-        // Continue anyway
-      } else {
-        console.log("✅ Notifications created successfully:", insertedNotifs);
-      }
+      // if (notifError) {
+      //   console.error("❌ Notification insert error:", notifError);
+      //   // Continue anyway
+      // } else {
+      //   console.log("✅ Notifications created successfully:", insertedNotifs);
+      // }
 
       // 🔔 WebSocket: Notify each online admin in real-time
       const itemsSummary = processedItems
@@ -1348,7 +1362,10 @@ router.patch(
       const { data: order, error: orderError } = await supabaseAdmin
         .from("orders")
         .select(
-          `id, customer_id, order_number,
+          `id, customer_id, order_number, restaurant_name, restaurant_address,
+          restaurant_latitude, restaurant_longitude,
+          delivery_address, delivery_city, delivery_latitude, delivery_longitude,
+          total_amount, distance_km, estimated_duration_min,
           deliveries!inner(id, status)
         `,
         )
@@ -1474,28 +1491,6 @@ router.patch(
       };
 
       if (notificationTypes[targetDeliveryStatus]) {
-        const { error: notifError } = await supabaseAdmin
-          .from("notifications")
-          .insert({
-            recipient_id: order.customer_id,
-            recipient_role: "customer",
-            order_id: orderId,
-            restaurant_id: admin.restaurant_id,
-            type: notificationTypes[targetDeliveryStatus],
-            title: notificationTitles[targetDeliveryStatus],
-            message: notificationMessages[targetDeliveryStatus],
-            metadata: {
-              order_number: order.order_number,
-              status: targetDeliveryStatus,
-            },
-          });
-
-        if (notifError) {
-          console.error("❌ Customer notification error:", notifError);
-        } else {
-          console.log("✅ Customer notified successfully");
-        }
-
         // 📡 REAL-TIME WEBSOCKET: Notify customer instantly
         if (order.customer_id) {
           notifyCustomer(order.customer_id, "order:status_update", {
@@ -1545,38 +1540,9 @@ router.patch(
               `📤 Notifying ${activeDrivers.length} active drivers...`,
             );
 
-            // Notify each driver (direct insert with service_role)
-            const notificationPromises = activeDrivers.map((driver) =>
-              supabaseAdmin.from("notifications").insert({
-                recipient_id: driver.id,
-                recipient_role: "driver",
-                order_id: orderId,
-                restaurant_id: admin.restaurant_id,
-                type: "new_delivery",
-                title: "New Delivery Available",
-                message:
-                  "A new delivery is available. Check available deliveries.",
-                metadata: {
-                  order_id: orderId,
-                  delivery_id: delivery.id,
-                  order_number: order.order_number,
-                },
-              }),
-            );
-
-            const results = await Promise.allSettled(notificationPromises);
-            const successCount = results.filter(
-              (r) => r.status === "fulfilled",
-            ).length;
-            const failCount = results.filter(
-              (r) => r.status === "rejected",
-            ).length;
-
-            console.log(
-              `✅ Notified ${successCount} drivers successfully${
-                failCount > 0 ? `, ${failCount} failed` : ""
-              }`,
-            );
+            // Notifications are now handled by push notification service
+            // which automatically logs to notification_log table
+            // and by WebSocket broadcast below
 
             // ================================================================
             // 🚀 REAL-TIME WEBSOCKET BROADCAST - Fair Instant Notification
@@ -1627,6 +1593,7 @@ router.patch(
               orderNumber: order.order_number,
               restaurantName: order.restaurant_name,
               totalAmount: parseFloat(order.total_amount || 0),
+              tipAmount: deliveryTipAmount,
             }).catch((err) =>
               console.error("Push driver broadcast error (non-fatal):", err),
             );

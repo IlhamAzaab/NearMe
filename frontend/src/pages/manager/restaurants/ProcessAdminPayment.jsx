@@ -42,10 +42,9 @@ export default function ProcessAdminPayment() {
       const headers = { Authorization: `Bearer ${token}` };
 
       const [restaurantRes, historyRes] = await Promise.all([
-        fetch(
-          `${API_URL}/manager/admin-payments/restaurant/${restaurantId}`,
-          { headers },
-        ),
+        fetch(`${API_URL}/manager/admin-payments/restaurant/${restaurantId}`, {
+          headers,
+        }),
         fetch(
           `${API_URL}/manager/admin-payments/restaurant/${restaurantId}/history`,
           { headers },
@@ -234,11 +233,93 @@ export default function ProcessAdminPayment() {
               <p className="text-sm text-gray-600 mt-1">
                 {restaurant.admin_email || "No admin email"}
               </p>
-              <p className="text-xs text-gray-500 mt-1">
-                {restaurant.phone || "No phone"}
-              </p>
+              {/* Admin Details */}
+              {(restaurant.admin_name || restaurant.admin_phone) && (
+                <div className="mt-3 pt-3 border-t border-gray-100 w-full">
+                  {restaurant.admin_name && (
+                    <div className="flex items-center justify-center gap-1.5 text-sm text-gray-700">
+                      <span
+                        className="material-symbols-outlined text-gray-400"
+                        style={{ fontSize: "16px" }}
+                      >
+                        person
+                      </span>
+                      <span className="font-medium">
+                        {restaurant.admin_name}
+                      </span>
+                    </div>
+                  )}
+                  {restaurant.admin_phone && (
+                    <div className="flex items-center justify-center gap-1.5 text-sm text-gray-600 mt-1">
+                      <span
+                        className="material-symbols-outlined text-gray-400"
+                        style={{ fontSize: "16px" }}
+                      >
+                        call
+                      </span>
+                      <span>{restaurant.admin_phone}</span>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
+
+          {/* Bank Account Details */}
+          {restaurant.bank_details && (
+            <div className="rounded-xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-teal-50 overflow-hidden">
+              <div className="flex items-center gap-2 px-4 py-2.5 bg-emerald-100/60 border-b border-emerald-200">
+                <span
+                  className="material-symbols-outlined text-emerald-600"
+                  style={{ fontSize: "18px" }}
+                >
+                  account_balance
+                </span>
+                <span className="text-emerald-800 text-xs font-bold">
+                  Bank Account — Transfer Here
+                </span>
+              </div>
+              <div className="p-4 space-y-2.5">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-500 mb-0.5">
+                    Account Number
+                  </p>
+                  <p className="text-[#111816] text-xl font-bold tracking-wider font-mono">
+                    {restaurant.bank_details.account_number}
+                  </p>
+                </div>
+                <div className="h-px bg-emerald-200/60" />
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-500 mb-0.5">
+                      Account Holder
+                    </p>
+                    <p className="text-[#111816] text-xs font-semibold">
+                      {restaurant.bank_details.account_holder_name}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-500 mb-0.5">
+                      Bank Name
+                    </p>
+                    <p className="text-[#111816] text-xs font-semibold">
+                      {restaurant.bank_details.bank_name}
+                    </p>
+                  </div>
+                </div>
+                {restaurant.bank_details.branch_name && (
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-500 mb-0.5">
+                      Branch
+                    </p>
+                    <p className="text-[#111816] text-xs font-semibold">
+                      {restaurant.bank_details.branch_name}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Current Balance */}
           <div className="bg-gradient-to-br from-red-50 to-red-100 rounded-xl border border-red-200 p-6">

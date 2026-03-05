@@ -257,6 +257,22 @@ router.get("/driver/:driverId", authenticate, managerOnly, async (req, res) => {
         .json({ success: false, message: "Driver not found" });
     }
 
+    // Get driver bank account details
+    let bankDetails = null;
+    const { data: bankAccount } = await supabaseAdmin
+      .from("driver_bank_accounts")
+      .select("account_holder_name, bank_name, branch, account_number")
+      .eq("driver_id", driverId)
+      .single();
+    if (bankAccount) {
+      bankDetails = {
+        account_holder_name: bankAccount.account_holder_name,
+        bank_name: bankAccount.bank_name,
+        branch_name: bankAccount.branch,
+        account_number: bankAccount.account_number,
+      };
+    }
+
     // Get total earnings (tip_amount is already included in driver_earnings)
     const { data: deliveries } = await supabaseAdmin
       .from("deliveries")
@@ -300,6 +316,7 @@ router.get("/driver/:driverId", authenticate, managerOnly, async (req, res) => {
         withdrawal_balance: withdrawalBalance,
         pending_deposit: pendingDeposit,
         is_verified: pendingDeposit <= 100,
+        bank_details: bankDetails,
       },
     });
   } catch (error) {
@@ -482,7 +499,9 @@ router.post(
         amount: payAmount,
         driverName: driver.full_name,
         note: note || null,
-      }).catch(err => console.error('[DRIVER-PAYMENTS] Push notification error:', err));
+      }).catch((err) =>
+        console.error("[DRIVER-PAYMENTS] Push notification error:", err),
+      );
 
       return res.json({
         success: true,

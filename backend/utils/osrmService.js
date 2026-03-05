@@ -28,6 +28,44 @@ let osrmAvailable = true;
 let osrmLastCheckTime = 0;
 const OSRM_RETRY_INTERVAL = 60000; // Retry OSRM every 60 seconds after failure
 
+// ============================================================================
+// OSRM ROUTE CACHE — avoids redundant network calls for identical segments
+// ============================================================================
+// Key = rounded coordinates (4 decimals ≈ 11m precision), Value = { result, timestamp }
+const osrmRouteCache = new Map();
+const OSRM_CACHE_TTL_MS = 5 * 60 * 1000; // Cache routes for 5 minutes
+const OSRM_CACHE_MAX_SIZE = 500; // Max entries to prevent memory leak
+
+// Minimum distance (meters) between two points to bother calling OSRM
+// Below this, we return zero-distance immediately
+const OSRM_MIN_SEGMENT_DISTANCE_M = 50;
+
+function makeRouteCacheKey(waypoints) {
+  // Round to 4 decimals (~11m) for cache key stability
+  return waypoints
+    .map((wp) => `${wp.lat.toFixed(4)},${wp.lng.toFixed(4)}`)
+    .join("|");
+}
+
+function getCachedRoute(key) {
+  const entry = osrmRouteCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.timestamp > OSRM_CACHE_TTL_MS) {
+    osrmRouteCache.delete(key);
+    return null;
+  }
+  return entry.result;
+}
+
+function setCachedRoute(key, result) {
+  // Evict oldest entries if cache is full
+  if (osrmRouteCache.size >= OSRM_CACHE_MAX_SIZE) {
+    const firstKey = osrmRouteCache.keys().next().value;
+    osrmRouteCache.delete(firstKey);
+  }
+  osrmRouteCache.set(key, { result, timestamp: Date.now() });
+}
+
 /**
  * Haversine distance calculation (fallback when OSRM is unavailable)
  * @param {number} lat1 - Latitude of point 1
@@ -189,16 +227,49 @@ export async function getOSRMRoute(waypoints, context = "", options = {}) {
   const useSingleMode = options.useSingleMode !== false;
   const optimize = options.optimize !== false;
 
-  console.log(
-    `\n[OSRM] 🗺️ Getting route for ${waypoints.length} waypoints${context ? ` (${context})` : ""}`,
-  );
-  console.log(
-    `[OSRM] 🔍 Mode: ${useSingleMode ? "FOOT (shortest distance)" : "Multiple profiles"}, Optimize waypoints: ${optimize}`,
-  );
-
   if (!waypoints || waypoints.length < 2) {
     throw new Error("Need at least 2 waypoints for routing");
   }
+
+  // ── Zero-distance skip: if all waypoints are within 50m, return zero immediately ──
+  if (waypoints.length === 2) {
+    const microDist = haversineDistance(
+      waypoints[0].lat,
+      waypoints[0].lng,
+      waypoints[1].lat,
+      waypoints[1].lng,
+    );
+    if (microDist < OSRM_MIN_SEGMENT_DISTANCE_M) {
+      // Points are essentially the same spot — skip OSRM call entirely
+      return {
+        distance: 0,
+        duration: 0,
+        geometry: {
+          type: "LineString",
+          coordinates: [
+            [waypoints[0].lng, waypoints[0].lat],
+            [waypoints[1].lng, waypoints[1].lat],
+          ],
+        },
+        roadSegments: [],
+        polyline: "",
+        legs: [],
+        isFallback: false,
+        isZeroDistance: true,
+      };
+    }
+  }
+
+  // ── Cache lookup ──
+  const cacheKey = makeRouteCacheKey(waypoints);
+  const cached = getCachedRoute(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  console.log(
+    `\n[OSRM] 🗺️ Getting route for ${waypoints.length} waypoints${context ? ` (${context})` : ""}`,
+  );
 
   waypoints.forEach((wp, idx) => {
     const label = wp.label || `Point ${idx}`;
@@ -317,6 +388,9 @@ export async function getOSRMRoute(waypoints, context = "", options = {}) {
 
   console.log(`[OSRM] ✓ Road segments (steps): ${roadSegments.length}`);
 
+  // ── Store in cache before returning ──
+  // (We'll set the cache after building the final result below)
+
   // Extract full route geometry (GeoJSON format from OSRM)
   // OSRM returns geometry in GeoJSON format when geometries=geojson
   const geometry = route.geometry; // { type: "LineString", coordinates: [[lng, lat], ...] }
@@ -325,7 +399,7 @@ export async function getOSRMRoute(waypoints, context = "", options = {}) {
   // OSRM can return polyline format with geometries=polyline
   const polyline = encodePolyline(geometry.coordinates);
 
-  return {
+  const finalResult = {
     distance: totalDistance,
     duration: totalDuration,
     geometry: geometry, // GeoJSON LineString: { type: "LineString", coordinates: [[lng, lat], ...] }
@@ -333,6 +407,11 @@ export async function getOSRMRoute(waypoints, context = "", options = {}) {
     polyline: polyline, // Encoded polyline string for compatibility
     legs: route.legs || [],
   };
+
+  // Store in cache
+  setCachedRoute(cacheKey, finalResult);
+
+  return finalResult;
 }
 
 /**

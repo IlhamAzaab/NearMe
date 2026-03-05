@@ -55,6 +55,13 @@ const ManagerEarnings = () => {
       from.setHours(0, 0, 0, 0);
       to = new Date(now);
       to.setHours(23, 59, 59, 999);
+    } else if (period === "yesterday") {
+      const yesterday = new Date(now);
+      yesterday.setDate(now.getDate() - 1);
+      from = new Date(yesterday);
+      from.setHours(0, 0, 0, 0);
+      to = new Date(yesterday);
+      to.setHours(23, 59, 59, 999);
     } else if (period === "weekly") {
       from = new Date(now);
       from.setDate(now.getDate() - 7);
@@ -94,6 +101,7 @@ const ManagerEarnings = () => {
 
   const periodLabels = {
     daily: "Today",
+    yesterday: "Yesterday",
     weekly: "This Week",
     monthly: "This Month",
     all: "All Time",
@@ -108,7 +116,7 @@ const ManagerEarnings = () => {
     >
       {/* Period Selector */}
       <div className="flex gap-2 overflow-x-auto pb-3 mb-4 hide-scrollbar">
-        {["daily", "weekly", "monthly", "all"].map((p) => (
+        {["daily", "yesterday", "weekly", "monthly", "all"].map((p) => (
           <button
             key={p}
             onClick={() => setPeriod(p)}
