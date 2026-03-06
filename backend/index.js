@@ -87,11 +87,27 @@ const allowedOrigins = [
   "http://localhost:5178",
   "http://localhost:5179",
 ];
+
+// Add any extra allowed origins from environment (comma-separated)
+if (process.env.ALLOWED_ORIGINS) {
+  process.env.ALLOWED_ORIGINS.split(",").forEach((o) => {
+    const trimmed = o.trim();
+    if (trimmed) allowedOrigins.push(trimmed);
+  });
+}
+
 app.use(
   cors({
     origin: (origin, cb) => {
       // Allow requests with no origin (mobile apps, curl, server-to-server)
-      if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+      if (!origin) return cb(null, true);
+      // Exact match or match *.vercel.app deployments
+      if (
+        allowedOrigins.includes(origin) ||
+        origin.endsWith(".vercel.app")
+      ) {
+        return cb(null, true);
+      }
       return cb(new Error("Not allowed by CORS"));
     },
     credentials: true,

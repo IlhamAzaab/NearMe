@@ -28,7 +28,13 @@ const connectedManagers = new Map(); // managerId -> { socketId, connectedAt }
 export function initializeSocket(server) {
   io = new Server(server, {
     cors: {
-      origin: "*", // In production, restrict to your frontend URL
+      origin: (origin, cb) => {
+        // Allow no-origin requests and Vercel deployments
+        if (!origin || origin.endsWith(".vercel.app") || origin.startsWith("http://localhost")) {
+          return cb(null, true);
+        }
+        return cb(null, true); // Allow all for socket connections
+      },
       methods: ["GET", "POST"],
     },
     // Optimize for real-time delivery notifications
