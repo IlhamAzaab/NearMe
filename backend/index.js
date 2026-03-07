@@ -102,10 +102,7 @@ app.use(
       // Allow requests with no origin (mobile apps, curl, server-to-server)
       if (!origin) return cb(null, true);
       // Exact match or match *.vercel.app deployments
-      if (
-        allowedOrigins.includes(origin) ||
-        origin.endsWith(".vercel.app")
-      ) {
+      if (allowedOrigins.includes(origin) || origin.endsWith(".vercel.app")) {
         return cb(null, true);
       }
       return cb(new Error("Not allowed by CORS"));

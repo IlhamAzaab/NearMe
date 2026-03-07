@@ -30,7 +30,11 @@ export function initializeSocket(server) {
     cors: {
       origin: (origin, cb) => {
         // Allow no-origin requests and Vercel deployments
-        if (!origin || origin.endsWith(".vercel.app") || origin.startsWith("http://localhost")) {
+        if (
+          !origin ||
+          origin.endsWith(".vercel.app") ||
+          origin.startsWith("http://localhost")
+        ) {
           return cb(null, true);
         }
         return cb(null, true); // Allow all for socket connections
