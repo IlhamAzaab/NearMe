@@ -104,10 +104,12 @@ router.post("/signup", async (req, res) => {
       });
     }
 
-    // Build the redirect URL that Supabase puts in the verification email
-    const redirectUrl = `${
-      process.env.FRONTEND_URL || "https://meezo-eta.vercel.app"
-    }/auth/verify-email`;
+    // Build the redirect URL that Supabase puts in the verification email.
+    // Points to our backend HTML page so verification works without loading
+    // the full React frontend.
+    const backendUrl =
+      process.env.BACKEND_URL || "https://meezo-backend-d3gw.onrender.com";
+    const redirectUrl = `${backendUrl}/auth/email-verified`;
 
     // Use auth.signUp() via the anon-key client so Supabase's GoTrue server
     // automatically sends the confirmation email (requires "Confirm email"
@@ -779,6 +781,136 @@ router.post("/verify-token", async (req, res) => {
       message: "Server error during token verification",
     });
   }
+});
+
+/**
+ * GET /auth/email-verified
+ * Supabase redirects here after the user clicks "Verify Email" in Gmail.
+ * Serves a self-contained HTML page that:
+ *  1. Extracts access_token from the URL hash (set by Supabase)
+ *  2. Calls POST /auth/verify-token to create the users record
+ *  3. Shows a "Verified!" or "Failed" message
+ *  4. Provides a link back to the webapp / mobile app
+ *
+ * This avoids loading the full React frontend just for verification.
+ */
+router.get("/email-verified", (req, res) => {
+  const frontendUrl =
+    process.env.FRONTEND_URL || "https://meezo-eta.vercel.app";
+  const backendUrl =
+    process.env.BACKEND_URL ||
+    `${req.protocol}://${req.get("host")}`;
+  // Mobile deep-link scheme (React Native app)
+  const mobileScheme = "nearmemobile";
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>NearMe – Email Verification</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+         min-height:100vh;display:flex;align-items:center;justify-content:center;
+         background:linear-gradient(135deg,#f0fdf4,#fff,#ecfdf5);padding:16px}
+    .card{max-width:400px;width:100%;background:#fff;border-radius:24px;
+          padding:32px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.08);
+          border:1px solid #d1fae5}
+    .icon{width:80px;height:80px;border-radius:50%;display:flex;
+          align-items:center;justify-content:center;margin:0 auto 20px;font-size:40px}
+    .icon-spin{background:linear-gradient(135deg,#d1fae5,#a7f3d0);animation:spin 1s linear infinite}
+    .icon-ok{background:linear-gradient(135deg,#22c55e,#16a34a)}
+    .icon-fail{background:linear-gradient(135deg,#ef4444,#dc2626)}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    h2{font-size:24px;font-weight:800;color:#111827;margin-bottom:8px}
+    p{color:#6b7280;font-size:14px;line-height:1.5;margin-bottom:16px}
+    .btn{display:inline-block;width:100%;padding:14px;border:none;border-radius:14px;
+         font-size:16px;font-weight:700;cursor:pointer;text-decoration:none;
+         transition:all .2s}
+    .btn-green{background:linear-gradient(to right,#22c55e,#10b981);color:#fff}
+    .btn-green:hover{opacity:.9;transform:scale(1.02)}
+    .btn-gray{background:#f3f4f6;color:#374151;margin-top:10px}
+    .btn-gray:hover{background:#e5e7eb}
+    .hide{display:none}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <!-- Verifying state -->
+    <div id="verifying">
+      <div class="icon icon-spin">&#9696;</div>
+      <h2>Verifying your email…</h2>
+      <p>Please wait a moment.</p>
+    </div>
+    <!-- Success state -->
+    <div id="success" class="hide">
+      <div class="icon icon-ok" style="color:#fff;font-size:36px">✓</div>
+      <h2>Email Verified!</h2>
+      <p>Your email has been confirmed. You can close this tab and go back to the app to login.</p>
+      <a class="btn btn-green" href="${frontendUrl}/login">Open NearMe &rarr;</a>
+    </div>
+    <!-- Error state -->
+    <div id="error" class="hide">
+      <div class="icon icon-fail" style="color:#fff;font-size:36px">✕</div>
+      <h2>Verification Failed</h2>
+      <p id="error-msg">Something went wrong. Please try again.</p>
+      <a class="btn btn-green" href="${frontendUrl}/signup">Back to Signup</a>
+      <a class="btn btn-gray" href="${frontendUrl}/login">Go to Login</a>
+    </div>
+  </div>
+
+  <script>
+    (async function(){
+      var show = function(id){ document.getElementById(id).classList.remove('hide') };
+      var hide = function(id){ document.getElementById(id).classList.add('hide') };
+
+      try {
+        var hash = window.location.hash.substring(1);
+        var params = new URLSearchParams(hash);
+        var accessToken = params.get('access_token');
+        var err = params.get('error');
+        var errDesc = params.get('error_description');
+
+        if (err) {
+          hide('verifying'); show('error');
+          document.getElementById('error-msg').textContent = errDesc || 'Verification failed. The link may have expired.';
+          return;
+        }
+
+        if (!accessToken) {
+          hide('verifying'); show('error');
+          document.getElementById('error-msg').textContent = 'Invalid verification link.';
+          return;
+        }
+
+        var resp = await fetch('${backendUrl}/auth/verify-token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: accessToken })
+        });
+        var data = await resp.json();
+
+        if (resp.ok && data.emailConfirmed) {
+          hide('verifying'); show('success');
+          // Try to open mobile app via deep link (non-blocking)
+          try { window.location.href = '${mobileScheme}://email-verified'; } catch(_){}
+        } else {
+          hide('verifying'); show('error');
+          document.getElementById('error-msg').textContent =
+            data.message || 'Verification pending or failed. Please try again.';
+        }
+      } catch (e) {
+        hide('verifying'); show('error');
+        document.getElementById('error-msg').textContent = 'Network error. Please try again.';
+      }
+    })();
+  </script>
+</body>
+</html>`;
+
+  res.setHeader("Content-Type", "text/html");
+  res.send(html);
 });
 
 export default router;
