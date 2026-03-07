@@ -3,7 +3,6 @@ import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "../supabaseAdmin.js";
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
-import { sendVerificationEmail } from "../utils/email.js";
 import { authenticate } from "../middleware/authenticate.js";
 
 if (process.env.NODE_ENV !== "production") {
@@ -26,11 +25,28 @@ const supabaseAuthOnly = createClient(
   },
 );
 
+// Supabase client with ANON key for auth.signUp() — Supabase's GoTrue server
+// automatically sends the verification email when called with the anon key and
+// email confirmations are enabled in the Supabase dashboard.
+const supabaseAnonClient = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY,
+  {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  },
+);
+
 const router = express.Router();
 
 /**
  * POST /auth/signup
- * Register new customer with email verification
+ * Register new customer with email verification.
+ * User is created in Supabase auth only. NO record is written to the
+ * public.users or customers tables until the email is verified
+ * (handled by /auth/verify-token).
  */
 router.post("/signup", async (req, res) => {
   try {
@@ -49,7 +65,7 @@ router.post("/signup", async (req, res) => {
       });
     }
 
-    // Check if email already exists in users table
+    // Check if email already exists in users table (already verified users)
     const { data: existingUser } = await supabaseAdmin
       .from("users")
       .select("email, role")
@@ -88,111 +104,55 @@ router.post("/signup", async (req, res) => {
       });
     }
 
-    // Create user in Supabase Auth with email confirmation required
-    const { data: authData, error: authError } =
-      await supabaseAdmin.auth.admin.createUser({
+    // Build the redirect URL that Supabase puts in the verification email
+    const redirectUrl = `${
+      process.env.FRONTEND_URL || "https://meezo-eta.vercel.app"
+    }/auth/verify-email`;
+
+    // Use auth.signUp() via the anon-key client so Supabase's GoTrue server
+    // automatically sends the confirmation email (requires "Confirm email"
+    // to be ON in Supabase Dashboard → Auth → Email).
+    const { data: signUpData, error: signUpError } =
+      await supabaseAnonClient.auth.signUp({
         email,
         password,
-        email_confirm: false, // Require email confirmation
-        user_metadata: {
-          role: "customer",
+        options: {
+          data: { role: "customer" },
+          emailRedirectTo: redirectUrl,
         },
       });
 
-    if (authError) {
-      console.error("Auth user creation failed:", authError.message);
+    if (signUpError) {
+      console.error("Signup failed:", signUpError.message);
       return res.status(400).json({
-        message: authError.message,
+        message: signUpError.message,
       });
     }
 
-    // Create user record in users table
-    const { error: userError } = await supabaseAdmin.from("users").insert({
-      id: authData.user.id,
-      role: "customer",
-      email: email,
-      created_at: new Date().toISOString(),
-    });
-
-    if (userError) {
-      console.error("Users table insert failed:", userError.message);
-      // Rollback: delete auth user
-      await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
-      return res.status(500).json({
-        message: "Failed to create user record",
-      });
-    }
-
-    // Generate email verification link and send email
-    try {
-      const redirectUrl = `${
-        process.env.FRONTEND_URL || "http://localhost:5174"
-      }/auth/verify-email`;
-
-      const { data: linkData, error: linkError } =
-        await supabaseAdmin.auth.admin.generateLink({
-          type: "signup",
-          email: email,
-          options: {
-            redirectTo: redirectUrl,
-          },
-        });
-
-      if (linkError) {
-        console.error("Email link generation failed:", linkError.message);
-        return res.status(201).json({
-          message:
-            "Account created but email sending failed. Please contact support.",
-          userId: authData.user.id,
-          emailSent: false,
-        });
-      }
-
-      const actionLink = linkData.properties?.action_link;
-
-      if (!actionLink) {
-        console.error("No action link returned from generateLink()");
-        return res.status(201).json({
-          message:
-            "Account created but email sending failed. Please contact support.",
-          userId: authData.user.id,
-          emailSent: false,
-        });
-      }
-
-      try {
-        // Send the verification email with the action link
-        await sendVerificationEmail({
-          to: email,
-          verificationLink: actionLink,
-        });
-
-        res.status(201).json({
-          message:
-            "Signup successful! Please check your email to verify your account.",
-          userId: authData.user.id,
-          emailSent: true,
-        });
-      } catch (smtpError) {
-        console.error("SMTP email send failed:", smtpError.message);
-
-        res.status(201).json({
-          message:
-            "Account created but email sending failed. Please contact support.",
-          userId: authData.user.id,
-          emailSent: false,
-        });
-      }
-    } catch (emailError) {
-      console.error("Email verification process error:", emailError.message);
-      // User is created but email failed
-      res.status(201).json({
+    // If identities array is empty, the email already exists in auth.users
+    // (unverified or previously registered through a different method).
+    if (
+      signUpData.user &&
+      (!signUpData.user.identities || signUpData.user.identities.length === 0)
+    ) {
+      return res.status(400).json({
         message:
-          "Account created but email sending failed. Please contact support.",
-        userId: authData.user.id,
-        emailSent: false,
+          "This email is already registered. Please login or check your email for verification.",
       });
     }
+
+    console.log(
+      `✅ Signup: verification email sent to ${email} (userId: ${signUpData.user?.id})`,
+    );
+
+    // DO NOT insert into public.users table here — that happens in
+    // /auth/verify-token after the email is confirmed.
+    res.status(201).json({
+      message:
+        "Signup successful! Please check your email to verify your account.",
+      userId: signUpData.user?.id,
+      emailSent: true,
+    });
   } catch (error) {
     console.error("Signup error:", error.message);
     res.status(500).json({
@@ -751,7 +711,9 @@ router.post("/login", async (req, res) => {
 
 /**
  * POST /auth/verify-token
- * Verify access token and extract user ID
+ * Verify access token and extract user ID.
+ * If the email is confirmed and the user does not yet have a public.users
+ * record, one is created here (deferred from signup).
  */
 router.post("/verify-token", async (req, res) => {
   try {
@@ -772,10 +734,44 @@ router.post("/verify-token", async (req, res) => {
       });
     }
 
+    const emailConfirmed = !!data.user.email_confirmed_at;
+
+    // If email is confirmed, ensure the user has a record in public.users
+    if (emailConfirmed) {
+      const { data: existingUser } = await supabaseAdmin
+        .from("users")
+        .select("id")
+        .eq("id", data.user.id)
+        .maybeSingle();
+
+      if (!existingUser) {
+        const { error: insertError } = await supabaseAdmin
+          .from("users")
+          .insert({
+            id: data.user.id,
+            role: "customer",
+            email: data.user.email,
+            created_at: new Date().toISOString(),
+          });
+
+        if (insertError) {
+          console.error(
+            "Failed to create user record after verification:",
+            insertError.message,
+          );
+          // Non-fatal — the login self-healing can recover later
+        } else {
+          console.log(
+            `✅ Created users record for ${data.user.email} after email verification`,
+          );
+        }
+      }
+    }
+
     res.json({
       userId: data.user.id,
       email: data.user.email,
-      emailConfirmed: !!data.user.email_confirmed_at,
+      emailConfirmed,
     });
   } catch (error) {
     console.error("Token verification error:", error);

@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Home from "./pages/Home";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
@@ -113,6 +113,19 @@ function App() {
               <DeliveryNotificationOverlay />
               <ManagerNotificationOverlay />
               <Routes>
+                {/* Default route: redirect to login if not authenticated */}
+                <Route
+                  path="/"
+                  element={
+                    localStorage.getItem("token") ? (
+                      <ProtectedRoute allowedRole="customer">
+                        <Home />
+                      </ProtectedRoute>
+                    ) : (
+                      <Navigate to="/login" replace />
+                    )
+                  }
+                />
                 <Route
                   path="/"
                   element={
