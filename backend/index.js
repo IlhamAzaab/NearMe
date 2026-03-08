@@ -25,6 +25,19 @@ console.log(
   process.env.SUPABASE_SERVICE_ROLE_KEY ? "✓ Set (hidden)" : "✗ Missing",
 );
 
+// Verify SMTP configuration
+console.log("\n📧 Checking SMTP configuration...");
+console.log("SMTP_HOST:", process.env.SMTP_HOST || "✗ Missing");
+console.log("SMTP_PORT:", process.env.SMTP_PORT || "✗ Missing");
+console.log("SMTP_USER:", process.env.SMTP_USER ? "✓ Set" : "✗ Missing");
+console.log("SMTP_PASS:", process.env.SMTP_PASS ? "✓ Set (hidden)" : "✗ Missing");
+console.log("SMTP_FROM:", process.env.SMTP_FROM || "✗ Missing");
+console.log("BACKEND_URL:", process.env.BACKEND_URL || "✗ Missing (will use fallback)");
+console.log("FRONTEND_URL:", process.env.FRONTEND_URL || "✗ Missing (will use fallback)");
+if (!process.env.SMTP_HOST || process.env.SMTP_HOST === "smtp.example.com") {
+  console.error("⚠️  SMTP NOT CONFIGURED — verification emails will NOT be sent!");
+}
+
 // Test Supabase connection
 (async () => {
   try {

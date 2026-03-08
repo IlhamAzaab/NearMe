@@ -87,23 +87,32 @@ export async function sendVerificationEmail({ to, verificationLink }) {
     </div>
   `;
 
-  // For development: if SMTP not configured, log credentials to console instead of sending
+  // If SMTP not configured, throw an error so the caller knows
   if (
-    process.env.SMTP_HOST === undefined ||
+    !process.env.SMTP_HOST ||
     process.env.SMTP_HOST === "smtp.example.com"
   ) {
+    console.error(
+      "❌ SMTP not configured! Set SMTP_HOST, SMTP_USER, SMTP_PASS env vars.",
+    );
+    console.log(`[DEV] Verification link for ${to}: ${verificationLink}`);
+    throw new Error(
+      "SMTP not configured. Cannot send verification email.",
+    );
+  }
+
+  // Log for debugging (link only, not full email)
+  if (process.env.NODE_ENV !== "production") {
     console.log(
       "\n========== EMAIL VERIFICATION (DEVELOPMENT MODE) ==========",
     );
     console.log(`To: ${to}`);
     console.log(`Subject: ${subject}`);
     console.log(`Link: ${verificationLink}`);
-    console.log(`\n${text}`);
     console.log("=========================================================\n");
-    return;
   }
 
-  // Production: send actual email
+  // Send actual email via SMTP
   try {
     await transporter.sendMail({ from, to, subject, text, html });
     console.log(`✅ Verification email sent successfully to ${to}`);

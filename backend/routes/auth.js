@@ -104,8 +104,10 @@ router.post("/signup", async (req, res) => {
       // If user already exists in auth but unverified, allow re-sending
       if (authError.message?.includes("already been registered")) {
         // Find existing auth user — use small page to avoid fetching all users
-        const { data: pageData } =
-          await supabaseAdmin.auth.admin.listUsers({ perPage: 50, page: 1 });
+        const { data: pageData } = await supabaseAdmin.auth.admin.listUsers({
+          perPage: 50,
+          page: 1,
+        });
         const found = pageData?.users?.find((u) => u.email === email);
 
         if (found && !found.email_confirmed_at) {
@@ -121,10 +123,15 @@ router.post("/signup", async (req, res) => {
             "https://meezo-backend-d3gw.onrender.com";
           const verificationLink = `${backendUrl}/auth/confirm-email?token=${encodeURIComponent(verifyToken)}`;
 
-          // Fire-and-forget — don't block response on SMTP
-          sendVerificationEmail({ to: email, verificationLink }).catch((err) =>
-            console.error("Re-send SMTP failed:", err.message),
-          );
+          try {
+            await sendVerificationEmail({ to: email, verificationLink });
+            console.log(`✅ Re-sent verification email to ${email}`);
+          } catch (smtpErr) {
+            console.error("Re-send SMTP failed:", smtpErr.message);
+            return res.status(500).json({
+              message: "Failed to send verification email. Please try again.",
+            });
+          }
 
           return res.status(201).json({
             message: "Verification email re-sent! Please check your email.",
@@ -159,17 +166,21 @@ router.post("/signup", async (req, res) => {
       process.env.BACKEND_URL || "https://meezo-backend-d3gw.onrender.com";
     const verificationLink = `${backendUrl}/auth/confirm-email?token=${encodeURIComponent(verifyToken)}`;
 
-    // Send email via our own SMTP (Nodemailer) — fire-and-forget
-    // Don't await: respond to user immediately, send email in background
-    sendVerificationEmail({ to: email, verificationLink })
-      .then(() =>
-        console.log(
-          `✅ Signup: verification email sent to ${email} via SMTP (userId: ${authData.user.id})`,
-        ),
-      )
-      .catch((smtpError) =>
-        console.error("SMTP send failed:", smtpError.message),
+    // Send email via our own SMTP (Nodemailer)
+    // We MUST await this — if SMTP fails the user will never get the email
+    try {
+      await sendVerificationEmail({ to: email, verificationLink });
+      console.log(
+        `✅ Signup: verification email sent to ${email} via SMTP (userId: ${authData.user.id})`,
       );
+    } catch (smtpError) {
+      console.error("SMTP send failed:", smtpError.message);
+      // Email failed — but user is created in auth. Return error so user can retry.
+      return res.status(500).json({
+        message:
+          "Account created but failed to send verification email. Please try signing up again to resend.",
+      });
+    }
 
     // DO NOT insert into public.users — happens in /auth/confirm-email
     res.status(201).json({
