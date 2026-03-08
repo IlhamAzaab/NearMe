@@ -3,7 +3,6 @@ import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "../supabaseAdmin.js";
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
-import { sendVerificationEmail } from "../utils/email.js";
 import { authenticate } from "../middleware/authenticate.js";
 
 if (process.env.NODE_ENV !== "production") {
@@ -22,67 +21,31 @@ const supabaseAuthOnly = createClient(
   },
 );
 
+// Supabase client with ANON key — for auth.signUp() which triggers built-in email.
+const supabaseAnonClient = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_ANON_KEY,
+  {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  },
+);
+
 const router = express.Router();
-
-/**
- * GET /auth/smtp-check
- * Diagnostic endpoint — check if SMTP env vars are configured on the server.
- * Also tests SMTP connectivity.
- */
-router.get("/smtp-check", async (req, res) => {
-  const config = {
-    smtp_host: process.env.SMTP_HOST || null,
-    smtp_port: process.env.SMTP_PORT || null,
-    smtp_user: process.env.SMTP_USER ? "✓ Set" : "✗ MISSING",
-    smtp_pass: process.env.SMTP_PASS ? "✓ Set" : "✗ MISSING",
-    smtp_from: process.env.SMTP_FROM || null,
-    backend_url: process.env.BACKEND_URL || null,
-    frontend_url: process.env.FRONTEND_URL || null,
-    node_env: process.env.NODE_ENV || "not set",
-  };
-
-  // Quick SMTP verify test — try configured port, then fallback
-  const portsToTest = [
-    { port: Number(process.env.SMTP_PORT || 465), secure: Number(process.env.SMTP_PORT || 465) === 465 },
-    { port: 465, secure: true },
-    { port: 587, secure: false },
-  ];
-
-  for (const { port, secure } of portsToTest) {
-    try {
-      const nodemailer = await import("nodemailer");
-      const testTransporter = nodemailer.default.createTransport({
-        host: process.env.SMTP_HOST,
-        port,
-        secure,
-        connectionTimeout: 10000,
-        greetingTimeout: 10000,
-        auth: {
-          user: process.env.SMTP_USER,
-          pass: process.env.SMTP_PASS,
-        },
-      });
-      await testTransporter.verify();
-      config.smtp_test = `✓ OK on port ${port} (secure=${secure})`;
-      config.working_port = port;
-      break;
-    } catch (err) {
-      config[`port_${port}_test`] = `✗ ${err.message}`;
-    }
-  }
-
-  res.json(config);
-});
 
 /**
  * POST /auth/signup
  * Register new customer with email verification.
  *
  * Flow:
- *  1. Create user in Supabase auth (email_confirm: false)
- *  2. Generate our OWN signed verification token (JWT, 1 hour expiry)
- *  3. Send verification email via our SMTP (Nodemailer)
- *  4. NO record in public.users until email is confirmed via GET /auth/confirm-email
+ *  1. Check email availability across all tables
+ *  2. Use supabaseAnonClient.auth.signUp() — Supabase sends the verification email
+ *  3. NO record in public.users until email is confirmed
+ *
+ * Supabase handles email delivery (SMTP is blocked on Render).
+ * After user clicks the link, Supabase redirects to our /auth/email-verified endpoint.
  */
 router.post("/signup", async (req, res) => {
   try {
@@ -140,99 +103,59 @@ router.post("/signup", async (req, res) => {
       });
     }
 
-    // Create user in Supabase Auth with email_confirm: false
-    // (we handle confirmation ourselves)
+    // The redirect URL after email verification — goes to OUR backend
+    const backendUrl =
+      process.env.BACKEND_URL || "https://meezo-backend-d3gw.onrender.com";
+    const emailRedirectTo = `${backendUrl}/auth/email-verified`;
+
+    // Sign up via Supabase Anon client — this triggers Supabase's built-in email
     const { data: authData, error: authError } =
-      await supabaseAdmin.auth.admin.createUser({
+      await supabaseAnonClient.auth.signUp({
         email,
         password,
-        email_confirm: false,
-        user_metadata: { role: "customer" },
+        options: {
+          emailRedirectTo,
+          data: { role: "customer" },
+        },
       });
 
     if (authError) {
-      // If user already exists in auth but unverified, allow re-sending
+      console.error("Supabase signUp error:", authError.message);
+
       if (authError.message?.includes("already been registered")) {
-        // Find existing auth user — use small page to avoid fetching all users
-        const { data: pageData } = await supabaseAdmin.auth.admin.listUsers({
-          perPage: 50,
-          page: 1,
-        });
-        const found = pageData?.users?.find((u) => u.email === email);
-
-        if (found && !found.email_confirmed_at) {
-          // Unverified user — resend verification (fire-and-forget)
-          const verifyToken = jwt.sign(
-            { userId: found.id, email, purpose: "email_verification" },
-            process.env.JWT_SECRET,
-            { expiresIn: "1h" },
-          );
-
-          const backendUrl =
-            process.env.BACKEND_URL ||
-            "https://meezo-backend-d3gw.onrender.com";
-          const verificationLink = `${backendUrl}/auth/confirm-email?token=${encodeURIComponent(verifyToken)}`;
-
-          try {
-            await sendVerificationEmail({ to: email, verificationLink });
-            console.log(`✅ Re-sent verification email to ${email}`);
-          } catch (smtpErr) {
-            console.error("Re-send SMTP failed:", smtpErr.message);
-            return res.status(500).json({
-              message: "Failed to send verification email. Please try again.",
-            });
-          }
-
-          return res.status(201).json({
-            message: "Verification email re-sent! Please check your email.",
-            userId: found.id,
-            emailSent: true,
-          });
-        }
-
         return res.status(400).json({
           message:
             "This email is already registered. Please login or check your email for verification.",
         });
       }
 
-      console.error("Auth user creation failed:", authError.message);
       return res.status(400).json({ message: authError.message });
     }
 
-    // Generate our own verification JWT (expires in 1 hour)
-    const verifyToken = jwt.sign(
-      {
-        userId: authData.user.id,
-        email,
-        purpose: "email_verification",
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: "1h" },
-    );
-
-    // Build verification link pointing to OUR backend
-    const backendUrl =
-      process.env.BACKEND_URL || "https://meezo-backend-d3gw.onrender.com";
-    const verificationLink = `${backendUrl}/auth/confirm-email?token=${encodeURIComponent(verifyToken)}`;
-
-    // Send email via our own SMTP (Nodemailer)
-    // We MUST await this — if SMTP fails the user will never get the email
-    try {
-      await sendVerificationEmail({ to: email, verificationLink });
-      console.log(
-        `✅ Signup: verification email sent to ${email} via SMTP (userId: ${authData.user.id})`,
-      );
-    } catch (smtpError) {
-      console.error("SMTP send failed:", smtpError.message);
-      // Email failed — but user is created in auth. Return error so user can retry.
+    // Check if Supabase returned a user (it should)
+    if (!authData?.user) {
       return res.status(500).json({
-        message:
-          "Account created but failed to send verification email. Please try signing up again to resend.",
+        message: "Signup failed. Please try again.",
       });
     }
 
-    // DO NOT insert into public.users — happens in /auth/confirm-email
+    // Supabase returns a "fake" user with empty identities when email already exists
+    // (security measure to prevent email enumeration)
+    if (
+      authData.user.identities &&
+      authData.user.identities.length === 0
+    ) {
+      return res.status(400).json({
+        message:
+          "This email is already registered. Please login or check your email for the verification link.",
+      });
+    }
+
+    console.log(
+      `✅ Signup: ${email} registered (userId: ${authData.user.id}). Supabase will send verification email.`,
+    );
+
+    // DO NOT insert into public.users — happens in /auth/email-verified after confirmation
     res.status(201).json({
       message:
         "Signup successful! Please check your email to verify your account.",
@@ -1075,13 +998,109 @@ ${btnHtml}
 });
 
 /**
- * GET /auth/email-verified (legacy — kept for backwards compatibility)
+ * GET /auth/email-verified
+ * Supabase redirects here after user clicks the verification link in their email.
+ * Supabase appends tokens as a URL hash fragment: #access_token=...&type=signup
+ *
+ * Since hash fragments are NOT sent to the server, we serve a lightweight HTML page
+ * whose JavaScript extracts the access_token, calls POST /auth/verify-token to
+ * create the public.users record, and then shows a success/failure UI.
  */
 router.get("/email-verified", (req, res) => {
   const frontendUrl =
     process.env.FRONTEND_URL || "https://meezo-eta.vercel.app";
-  // Redirect to login since this is no longer the primary flow
-  res.redirect(`${frontendUrl}/login`);
+  const backendUrl =
+    process.env.BACKEND_URL || "https://meezo-backend-d3gw.onrender.com";
+
+  res.setHeader("Content-Type", "text/html");
+  res.send(`<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>NearMe – Verifying Email…</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+     min-height:100vh;display:flex;align-items:center;justify-content:center;
+     background:linear-gradient(135deg,#f0fdf4,#fff,#ecfdf5);padding:16px}
+.card{max-width:400px;width:100%;background:#fff;border-radius:24px;
+      padding:32px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.08);
+      border:1px solid #d1fae5}
+.icon{width:80px;height:80px;border-radius:50%;display:flex;align-items:center;
+      justify-content:center;margin:0 auto 20px;font-size:40px;color:#fff}
+.icon-loading{background:linear-gradient(135deg,#3b82f6,#2563eb);animation:pulse 1.5s infinite}
+.icon-success{background:linear-gradient(135deg,#22c55e,#16a34a)}
+.icon-error{background:linear-gradient(135deg,#ef4444,#dc2626)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+h2{font-size:24px;font-weight:800;color:#111827;margin-bottom:8px}
+p{color:#6b7280;font-size:14px;line-height:1.5;margin-bottom:16px}
+.btn{display:block;width:100%;padding:14px;border:none;border-radius:14px;
+     font-size:16px;font-weight:700;cursor:pointer;text-decoration:none;
+     text-align:center;transition:all .2s;margin-top:10px}
+.btn-green{background:linear-gradient(to right,#22c55e,#10b981);color:#fff}
+.btn-green:hover{opacity:.9;transform:scale(1.02)}
+.btn-gray{background:#f3f4f6;color:#374151}
+.btn-gray:hover{background:#e5e7eb}
+.hidden{display:none}
+</style></head><body>
+<div class="card">
+  <div id="loading">
+    <div class="icon icon-loading">⏳</div>
+    <h2>Verifying your email…</h2>
+    <p>Please wait a moment.</p>
+  </div>
+  <div id="success" class="hidden">
+    <div class="icon icon-success">✓</div>
+    <h2>Email Verified!</h2>
+    <p>Your email has been confirmed successfully. You can now login to NearMe.</p>
+    <a class="btn btn-green" href="${frontendUrl}/login">Open NearMe →</a>
+  </div>
+  <div id="error" class="hidden">
+    <div class="icon icon-error">✕</div>
+    <h2 id="errTitle">Verification Failed</h2>
+    <p id="errMsg">Something went wrong during verification.</p>
+    <a class="btn btn-green" href="${frontendUrl}/signup">Back to Signup</a>
+    <a class="btn btn-gray" href="${frontendUrl}/login">Go to Login</a>
+  </div>
+</div>
+<script>
+(function(){
+  var hash = window.location.hash.substring(1);
+  if(!hash){
+    showError("Invalid Link","No verification data found. Please use the link from your email.");
+    return;
+  }
+  var params = new URLSearchParams(hash);
+  var accessToken = params.get("access_token");
+  if(!accessToken){
+    showError("Invalid Link","Missing access token. Please use the link from your email.");
+    return;
+  }
+  // Call our backend to verify the token and create public.users record
+  fetch("${backendUrl}/auth/verify-token",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({token:accessToken})
+  })
+  .then(function(r){return r.json().then(function(d){return{ok:r.ok,data:d}})})
+  .then(function(res){
+    if(res.ok && res.data.emailConfirmed){
+      document.getElementById("loading").classList.add("hidden");
+      document.getElementById("success").classList.remove("hidden");
+    } else {
+      showError("Verification Failed", res.data.message || "Could not verify your email. Please try again.");
+    }
+  })
+  .catch(function(){
+    showError("Verification Failed","A network error occurred. Please try again.");
+  });
+  function showError(title,msg){
+    document.getElementById("loading").classList.add("hidden");
+    document.getElementById("errTitle").textContent=title;
+    document.getElementById("errMsg").textContent=msg;
+    document.getElementById("error").classList.remove("hidden");
+  }
+})();
+</script>
+</body></html>`);
 });
 
 export default router;
