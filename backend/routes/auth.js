@@ -25,6 +25,24 @@ const supabaseAuthOnly = createClient(
 const router = express.Router();
 
 /**
+ * GET /auth/smtp-check
+ * Diagnostic endpoint — check if SMTP env vars are configured on the server.
+ * Returns sanitized info (no passwords).
+ */
+router.get("/smtp-check", (req, res) => {
+  res.json({
+    smtp_host: process.env.SMTP_HOST || null,
+    smtp_port: process.env.SMTP_PORT || null,
+    smtp_user: process.env.SMTP_USER ? "✓ Set" : "✗ MISSING",
+    smtp_pass: process.env.SMTP_PASS ? "✓ Set" : "✗ MISSING",
+    smtp_from: process.env.SMTP_FROM || null,
+    backend_url: process.env.BACKEND_URL || null,
+    frontend_url: process.env.FRONTEND_URL || null,
+    node_env: process.env.NODE_ENV || "not set",
+  });
+});
+
+/**
  * POST /auth/signup
  * Register new customer with email verification.
  *

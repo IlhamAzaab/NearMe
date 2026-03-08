@@ -5,15 +5,40 @@ if (process.env.NODE_ENV !== "production") {
   dotenv.config({ path: "../.env" });
 }
 
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || "smtp.example.com",
-  port: Number(process.env.SMTP_PORT || 587),
-  secure: false,
-  auth: {
-    user: process.env.SMTP_USER || "smtp-user",
-    pass: process.env.SMTP_PASS || "smtp-pass",
-  },
-});
+// Build transporter only if SMTP is configured
+let transporter = null;
+const smtpConfigured =
+  process.env.SMTP_HOST &&
+  process.env.SMTP_HOST !== "smtp.example.com" &&
+  process.env.SMTP_USER &&
+  process.env.SMTP_PASS;
+
+if (smtpConfigured) {
+  transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT || 587),
+    secure: false,
+    connectionTimeout: 10000, // 10s to connect
+    greetingTimeout: 10000,   // 10s for SMTP greeting
+    socketTimeout: 15000,     // 15s for socket inactivity
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
+  });
+
+  // Verify SMTP on startup (non-blocking)
+  transporter
+    .verify()
+    .then(() => console.log("\u2705 SMTP transporter verified — emails will be sent"))
+    .catch((err) =>
+      console.error("\u274c SMTP verification failed:", err.message),
+    );
+} else {
+  console.warn(
+    "\u26a0\ufe0f  SMTP not configured. Set SMTP_HOST, SMTP_USER, SMTP_PASS to enable emails.",
+  );
+}
 
 /**
  * Send admin invitation email with temporary password
@@ -43,10 +68,7 @@ export async function sendAdminInviteEmail({ to, tempPassword, loginUrl }) {
   console.log("========================================\n");
 
   // If SMTP not configured, stop after logging
-  if (
-    process.env.SMTP_HOST === undefined ||
-    process.env.SMTP_HOST === "smtp.example.com"
-  ) {
+  if (!transporter) {
     console.log("⚠️  SMTP not configured - email not sent (console only)\n");
     return;
   }
@@ -87,35 +109,16 @@ export async function sendVerificationEmail({ to, verificationLink }) {
     </div>
   `;
 
-  // If SMTP not configured, throw an error so the caller knows
-  if (
-    !process.env.SMTP_HOST ||
-    process.env.SMTP_HOST === "smtp.example.com"
-  ) {
-    console.error(
-      "❌ SMTP not configured! Set SMTP_HOST, SMTP_USER, SMTP_PASS env vars.",
-    );
+  // Check transporter is available
+  if (!transporter) {
+    console.error("❌ SMTP not configured — cannot send verification email");
     console.log(`[DEV] Verification link for ${to}: ${verificationLink}`);
-    throw new Error(
-      "SMTP not configured. Cannot send verification email.",
-    );
+    throw new Error("SMTP not configured. Cannot send verification email.");
   }
 
-  // Log for debugging (link only, not full email)
-  if (process.env.NODE_ENV !== "production") {
-    console.log(
-      "\n========== EMAIL VERIFICATION (DEVELOPMENT MODE) ==========",
-    );
-    console.log(`To: ${to}`);
-    console.log(`Subject: ${subject}`);
-    console.log(`Link: ${verificationLink}`);
-    console.log("=========================================================\n");
-  }
-
-  // Send actual email via SMTP
   try {
     await transporter.sendMail({ from, to, subject, text, html });
-    console.log(`✅ Verification email sent successfully to ${to}`);
+    console.log(`✅ Verification email sent to ${to}`);
   } catch (error) {
     console.error(`❌ Failed to send verification email to ${to}`);
     console.error("SMTP Error:", error.message);
@@ -151,10 +154,7 @@ export async function sendDriverInviteEmail({ to, tempPassword, loginUrl }) {
   console.log("========================================\n");
 
   // If SMTP not configured, stop after logging
-  if (
-    process.env.SMTP_HOST === undefined ||
-    process.env.SMTP_HOST === "smtp.example.com"
-  ) {
+  if (!transporter) {
     console.log("⚠️  SMTP not configured - email not sent (console only)\n");
     return;
   }
