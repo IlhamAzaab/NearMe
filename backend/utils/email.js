@@ -70,19 +70,19 @@ export async function sendAdminInviteEmail({ to, tempPassword, loginUrl }) {
 export async function sendVerificationEmail({ to, verificationLink }) {
   const from = process.env.SMTP_FROM || "no-reply@nearme.com";
   const subject = "Verify your NearMe account";
-  const text = `Welcome to NearMe!\n\nClick the link below to verify your email address:\n\n${verificationLink}\n\nThis link will expire in 24 hours.\n\nIf you didn't create this account, please ignore this email.`;
+  const text = `Welcome to NearMe!\n\nClick the link below to verify your email address:\n\n${verificationLink}\n\nThis link will expire in 1 hour.\n\nIf you didn't create this account, please ignore this email.`;
   const html = `
     <div style="font-family: Arial, sans-serif; line-height: 1.6;">
       <h2>Welcome to NearMe!</h2>
       <p>Please verify your email address by clicking the button below:</p>
       <p style="margin: 30px 0;">
-        <a href="${verificationLink}" style="background-color: #007bff; color: white; padding: 12px 30px; text-decoration: none; border-radius: 4px; display: inline-block;">Verify Email</a>
+        <a href="${verificationLink}" style="background-color: #22c55e; color: white; padding: 14px 32px; text-decoration: none; border-radius: 12px; display: inline-block; font-weight: bold; font-size: 16px;">Verify Email</a>
       </p>
       <p>Or copy and paste this link in your browser:</p>
       <p style="background-color: #f5f5f5; padding: 10px; word-break: break-all; font-size: 12px;">
         ${verificationLink}
       </p>
-      <p style="color: #666; font-size: 12px;">This link will expire in 24 hours.</p>
+      <p style="color: #666; font-size: 12px;">This link will expire in 1 hour.</p>
       <p style="color: #999; font-size: 12px;">If you didn't create this account, please ignore this email.</p>
     </div>
   `;

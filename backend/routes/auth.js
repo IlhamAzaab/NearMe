@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "../supabaseAdmin.js";
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
+import { sendVerificationEmail } from "../utils/email.js";
 import { authenticate } from "../middleware/authenticate.js";
 
 if (process.env.NODE_ENV !== "production") {
@@ -10,27 +11,9 @@ if (process.env.NODE_ENV !== "production") {
 }
 
 // Separate Supabase client ONLY for signInWithPassword.
-// signInWithPassword sets a user-session on the client it is called on,
-// which would cause subsequent DB queries on that client to run under the
-// "authenticated" Postgres role instead of "service_role", triggering RLS
-// violations. Isolating it here keeps supabaseAdmin clean for DB ops.
 const supabaseAuthOnly = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY,
-  {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  },
-);
-
-// Supabase client with ANON key for auth.signUp() — Supabase's GoTrue server
-// automatically sends the verification email when called with the anon key and
-// email confirmations are enabled in the Supabase dashboard.
-const supabaseAnonClient = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY,
   {
     auth: {
       autoRefreshToken: false,
@@ -44,9 +27,12 @@ const router = express.Router();
 /**
  * POST /auth/signup
  * Register new customer with email verification.
- * User is created in Supabase auth only. NO record is written to the
- * public.users or customers tables until the email is verified
- * (handled by /auth/verify-token).
+ *
+ * Flow:
+ *  1. Create user in Supabase auth (email_confirm: false)
+ *  2. Generate our OWN signed verification token (JWT, 1 hour expiry)
+ *  3. Send verification email via our SMTP (Nodemailer)
+ *  4. NO record in public.users until email is confirmed via GET /auth/confirm-email
  */
 router.post("/signup", async (req, res) => {
   try {
@@ -104,55 +90,93 @@ router.post("/signup", async (req, res) => {
       });
     }
 
-    // Build the redirect URL that Supabase puts in the verification email.
-    // Points to our backend HTML page so verification works without loading
-    // the full React frontend.
-    const backendUrl =
-      process.env.BACKEND_URL || "https://meezo-backend-d3gw.onrender.com";
-    const redirectUrl = `${backendUrl}/auth/email-verified`;
-
-    // Use auth.signUp() via the anon-key client so Supabase's GoTrue server
-    // automatically sends the confirmation email (requires "Confirm email"
-    // to be ON in Supabase Dashboard → Auth → Email).
-    const { data: signUpData, error: signUpError } =
-      await supabaseAnonClient.auth.signUp({
+    // Create user in Supabase Auth with email_confirm: false
+    // (we handle confirmation ourselves)
+    const { data: authData, error: authError } =
+      await supabaseAdmin.auth.admin.createUser({
         email,
         password,
-        options: {
-          data: { role: "customer" },
-          emailRedirectTo: redirectUrl,
-        },
+        email_confirm: false,
+        user_metadata: { role: "customer" },
       });
 
-    if (signUpError) {
-      console.error("Signup failed:", signUpError.message);
-      return res.status(400).json({
-        message: signUpError.message,
-      });
+    if (authError) {
+      // If user already exists in auth but unverified, allow re-sending
+      if (authError.message?.includes("already been registered")) {
+        // Look up existing auth user
+        const { data: listData } =
+          await supabaseAdmin.auth.admin.listUsers({ perPage: 1, page: 1 });
+        // Use email lookup via admin API
+        const { data: existingAuth } =
+          await supabaseAdmin.auth.admin.listUsers();
+        const found = existingAuth?.users?.find((u) => u.email === email);
+
+        if (found && !found.email_confirmed_at) {
+          // Unverified user — re-send verification
+          const verifyToken = jwt.sign(
+            { userId: found.id, email, purpose: "email_verification" },
+            process.env.JWT_SECRET,
+            { expiresIn: "1h" },
+          );
+
+          const backendUrl =
+            process.env.BACKEND_URL ||
+            "https://meezo-backend-d3gw.onrender.com";
+          const verificationLink = `${backendUrl}/auth/confirm-email?token=${encodeURIComponent(verifyToken)}`;
+
+          await sendVerificationEmail({ to: email, verificationLink });
+
+          return res.status(201).json({
+            message:
+              "Verification email re-sent! Please check your email.",
+            userId: found.id,
+            emailSent: true,
+          });
+        }
+
+        return res.status(400).json({
+          message:
+            "This email is already registered. Please login or check your email for verification.",
+        });
+      }
+
+      console.error("Auth user creation failed:", authError.message);
+      return res.status(400).json({ message: authError.message });
     }
 
-    // If identities array is empty, the email already exists in auth.users
-    // (unverified or previously registered through a different method).
-    if (
-      signUpData.user &&
-      (!signUpData.user.identities || signUpData.user.identities.length === 0)
-    ) {
-      return res.status(400).json({
-        message:
-          "This email is already registered. Please login or check your email for verification.",
-      });
-    }
-
-    console.log(
-      `✅ Signup: verification email sent to ${email} (userId: ${signUpData.user?.id})`,
+    // Generate our own verification JWT (expires in 1 hour)
+    const verifyToken = jwt.sign(
+      {
+        userId: authData.user.id,
+        email,
+        purpose: "email_verification",
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: "1h" },
     );
 
-    // DO NOT insert into public.users table here — that happens in
-    // /auth/verify-token after the email is confirmed.
+    // Build verification link pointing to OUR backend
+    const backendUrl =
+      process.env.BACKEND_URL || "https://meezo-backend-d3gw.onrender.com";
+    const verificationLink = `${backendUrl}/auth/confirm-email?token=${encodeURIComponent(verifyToken)}`;
+
+    // Send email via our own SMTP (Nodemailer)
+    try {
+      await sendVerificationEmail({ to: email, verificationLink });
+      console.log(
+        `✅ Signup: verification email sent to ${email} via SMTP (userId: ${authData.user.id})`,
+      );
+    } catch (smtpError) {
+      console.error("SMTP send failed:", smtpError.message);
+      // User exists in auth but email failed — still return success
+      // so they can try resending later
+    }
+
+    // DO NOT insert into public.users — happens in /auth/confirm-email
     res.status(201).json({
       message:
         "Signup successful! Please check your email to verify your account.",
-      userId: signUpData.user?.id,
+      userId: authData.user.id,
       emailSent: true,
     });
   } catch (error) {
@@ -784,133 +808,195 @@ router.post("/verify-token", async (req, res) => {
 });
 
 /**
- * GET /auth/email-verified
- * Supabase redirects here after the user clicks "Verify Email" in Gmail.
- * Serves a self-contained HTML page that:
- *  1. Extracts access_token from the URL hash (set by Supabase)
- *  2. Calls POST /auth/verify-token to create the users record
- *  3. Shows a "Verified!" or "Failed" message
- *  4. Provides a link back to the webapp / mobile app
+ * GET /auth/confirm-email?token=JWT
+ * The user clicks this link from the verification email.
+ * Everything happens SERVER-SIDE:
+ *  1. Verify our JWT (not Supabase's — ours, 1 hour expiry)
+ *  2. Mark email as confirmed in Supabase auth via admin API
+ *  3. Create record in public.users table
+ *  4. Serve a lightweight HTML page: "Verified! Go back to the app."
  *
- * This avoids loading the full React frontend just for verification.
+ * No frontend load, no Supabase redirect, no localhost issues.
+ */
+router.get("/confirm-email", async (req, res) => {
+  const frontendUrl =
+    process.env.FRONTEND_URL || "https://meezo-eta.vercel.app";
+  const mobileScheme = "nearmemobile";
+
+  // Helper to send an HTML response
+  const sendPage = (title, icon, iconBg, heading, msg, buttons) => {
+    const btnHtml = buttons
+      .map(
+        (b) =>
+          `<a class="btn ${b.cls}" href="${b.href}">${b.text}</a>`,
+      )
+      .join("");
+    res.setHeader("Content-Type", "text/html");
+    res.send(`<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>${title}</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+     min-height:100vh;display:flex;align-items:center;justify-content:center;
+     background:linear-gradient(135deg,#f0fdf4,#fff,#ecfdf5);padding:16px}
+.card{max-width:400px;width:100%;background:#fff;border-radius:24px;
+      padding:32px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.08);
+      border:1px solid #d1fae5}
+.icon{width:80px;height:80px;border-radius:50%;display:flex;align-items:center;
+      justify-content:center;margin:0 auto 20px;font-size:40px;color:#fff;
+      background:${iconBg}}
+h2{font-size:24px;font-weight:800;color:#111827;margin-bottom:8px}
+p{color:#6b7280;font-size:14px;line-height:1.5;margin-bottom:16px}
+.btn{display:block;width:100%;padding:14px;border:none;border-radius:14px;
+     font-size:16px;font-weight:700;cursor:pointer;text-decoration:none;
+     text-align:center;transition:all .2s;margin-top:10px}
+.btn-green{background:linear-gradient(to right,#22c55e,#10b981);color:#fff}
+.btn-green:hover{opacity:.9;transform:scale(1.02)}
+.btn-gray{background:#f3f4f6;color:#374151}
+.btn-gray:hover{background:#e5e7eb}
+</style></head><body><div class="card">
+<div class="icon">${icon}</div>
+<h2>${heading}</h2>
+<p>${msg}</p>
+${btnHtml}
+</div></body></html>`);
+  };
+
+  try {
+    const { token } = req.query;
+
+    if (!token) {
+      return sendPage(
+        "NearMe – Invalid Link",
+        "✕",
+        "linear-gradient(135deg,#ef4444,#dc2626)",
+        "Invalid Link",
+        "No verification token found. Please use the link from your email.",
+        [
+          { cls: "btn-green", href: `${frontendUrl}/signup`, text: "Back to Signup" },
+        ],
+      );
+    }
+
+    // Verify our own JWT
+    let payload;
+    try {
+      payload = jwt.verify(token, process.env.JWT_SECRET);
+    } catch (jwtErr) {
+      const isExpired = jwtErr.name === "TokenExpiredError";
+      return sendPage(
+        "NearMe – Verification Failed",
+        "✕",
+        "linear-gradient(135deg,#ef4444,#dc2626)",
+        isExpired ? "Link Expired" : "Invalid Link",
+        isExpired
+          ? "This verification link has expired. Please sign up again to get a new link."
+          : "This verification link is invalid. Please check your email for the correct link.",
+        [
+          { cls: "btn-green", href: `${frontendUrl}/signup`, text: "Back to Signup" },
+          { cls: "btn-gray", href: `${frontendUrl}/login`, text: "Go to Login" },
+        ],
+      );
+    }
+
+    if (payload.purpose !== "email_verification" || !payload.userId) {
+      return sendPage(
+        "NearMe – Invalid Link",
+        "✕",
+        "linear-gradient(135deg,#ef4444,#dc2626)",
+        "Invalid Link",
+        "This link is not a valid email verification link.",
+        [
+          { cls: "btn-green", href: `${frontendUrl}/signup`, text: "Back to Signup" },
+        ],
+      );
+    }
+
+    // Confirm email in Supabase auth via admin API
+    const { error: updateError } =
+      await supabaseAdmin.auth.admin.updateUserById(payload.userId, {
+        email_confirm: true,
+      });
+
+    if (updateError) {
+      console.error("Failed to confirm email in auth:", updateError.message);
+      return sendPage(
+        "NearMe – Verification Failed",
+        "✕",
+        "linear-gradient(135deg,#ef4444,#dc2626)",
+        "Verification Failed",
+        "Could not verify your email. The account may not exist. Please try signing up again.",
+        [
+          { cls: "btn-green", href: `${frontendUrl}/signup`, text: "Back to Signup" },
+        ],
+      );
+    }
+
+    // Create record in public.users (if not already there)
+    const { data: existingUser } = await supabaseAdmin
+      .from("users")
+      .select("id")
+      .eq("id", payload.userId)
+      .maybeSingle();
+
+    if (!existingUser) {
+      const { error: insertError } = await supabaseAdmin
+        .from("users")
+        .insert({
+          id: payload.userId,
+          role: "customer",
+          email: payload.email,
+          created_at: new Date().toISOString(),
+        });
+
+      if (insertError) {
+        console.error("Users table insert failed:", insertError.message);
+        // Non-fatal — login self-healing can recover
+      } else {
+        console.log(
+          `✅ Created users record for ${payload.email} after email confirmation`,
+        );
+      }
+    }
+
+    console.log(`✅ Email confirmed for ${payload.email} (userId: ${payload.userId})`);
+
+    // Success page
+    sendPage(
+      "NearMe – Email Verified!",
+      "✓",
+      "linear-gradient(135deg,#22c55e,#16a34a)",
+      "Email Verified!",
+      "Your email has been confirmed successfully. You can now close this page and go back to the app to login.",
+      [
+        { cls: "btn-green", href: `${frontendUrl}/login`, text: "Open NearMe →" },
+      ],
+    );
+  } catch (error) {
+    console.error("Confirm email error:", error);
+    sendPage(
+      "NearMe – Error",
+      "✕",
+      "linear-gradient(135deg,#ef4444,#dc2626)",
+      "Something Went Wrong",
+      "An unexpected error occurred. Please try again later.",
+      [
+        { cls: "btn-green", href: `${frontendUrl}/signup`, text: "Back to Signup" },
+        { cls: "btn-gray", href: `${frontendUrl}/login`, text: "Go to Login" },
+      ],
+    );
+  }
+});
+
+/**
+ * GET /auth/email-verified (legacy — kept for backwards compatibility)
  */
 router.get("/email-verified", (req, res) => {
   const frontendUrl =
     process.env.FRONTEND_URL || "https://meezo-eta.vercel.app";
-  const backendUrl =
-    process.env.BACKEND_URL ||
-    `${req.protocol}://${req.get("host")}`;
-  // Mobile deep-link scheme (React Native app)
-  const mobileScheme = "nearmemobile";
-
-  const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>NearMe – Email Verification</title>
-  <style>
-    *{margin:0;padding:0;box-sizing:border-box}
-    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
-         min-height:100vh;display:flex;align-items:center;justify-content:center;
-         background:linear-gradient(135deg,#f0fdf4,#fff,#ecfdf5);padding:16px}
-    .card{max-width:400px;width:100%;background:#fff;border-radius:24px;
-          padding:32px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.08);
-          border:1px solid #d1fae5}
-    .icon{width:80px;height:80px;border-radius:50%;display:flex;
-          align-items:center;justify-content:center;margin:0 auto 20px;font-size:40px}
-    .icon-spin{background:linear-gradient(135deg,#d1fae5,#a7f3d0);animation:spin 1s linear infinite}
-    .icon-ok{background:linear-gradient(135deg,#22c55e,#16a34a)}
-    .icon-fail{background:linear-gradient(135deg,#ef4444,#dc2626)}
-    @keyframes spin{to{transform:rotate(360deg)}}
-    h2{font-size:24px;font-weight:800;color:#111827;margin-bottom:8px}
-    p{color:#6b7280;font-size:14px;line-height:1.5;margin-bottom:16px}
-    .btn{display:inline-block;width:100%;padding:14px;border:none;border-radius:14px;
-         font-size:16px;font-weight:700;cursor:pointer;text-decoration:none;
-         transition:all .2s}
-    .btn-green{background:linear-gradient(to right,#22c55e,#10b981);color:#fff}
-    .btn-green:hover{opacity:.9;transform:scale(1.02)}
-    .btn-gray{background:#f3f4f6;color:#374151;margin-top:10px}
-    .btn-gray:hover{background:#e5e7eb}
-    .hide{display:none}
-  </style>
-</head>
-<body>
-  <div class="card">
-    <!-- Verifying state -->
-    <div id="verifying">
-      <div class="icon icon-spin">&#9696;</div>
-      <h2>Verifying your email…</h2>
-      <p>Please wait a moment.</p>
-    </div>
-    <!-- Success state -->
-    <div id="success" class="hide">
-      <div class="icon icon-ok" style="color:#fff;font-size:36px">✓</div>
-      <h2>Email Verified!</h2>
-      <p>Your email has been confirmed. You can close this tab and go back to the app to login.</p>
-      <a class="btn btn-green" href="${frontendUrl}/login">Open NearMe &rarr;</a>
-    </div>
-    <!-- Error state -->
-    <div id="error" class="hide">
-      <div class="icon icon-fail" style="color:#fff;font-size:36px">✕</div>
-      <h2>Verification Failed</h2>
-      <p id="error-msg">Something went wrong. Please try again.</p>
-      <a class="btn btn-green" href="${frontendUrl}/signup">Back to Signup</a>
-      <a class="btn btn-gray" href="${frontendUrl}/login">Go to Login</a>
-    </div>
-  </div>
-
-  <script>
-    (async function(){
-      var show = function(id){ document.getElementById(id).classList.remove('hide') };
-      var hide = function(id){ document.getElementById(id).classList.add('hide') };
-
-      try {
-        var hash = window.location.hash.substring(1);
-        var params = new URLSearchParams(hash);
-        var accessToken = params.get('access_token');
-        var err = params.get('error');
-        var errDesc = params.get('error_description');
-
-        if (err) {
-          hide('verifying'); show('error');
-          document.getElementById('error-msg').textContent = errDesc || 'Verification failed. The link may have expired.';
-          return;
-        }
-
-        if (!accessToken) {
-          hide('verifying'); show('error');
-          document.getElementById('error-msg').textContent = 'Invalid verification link.';
-          return;
-        }
-
-        var resp = await fetch('${backendUrl}/auth/verify-token', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token: accessToken })
-        });
-        var data = await resp.json();
-
-        if (resp.ok && data.emailConfirmed) {
-          hide('verifying'); show('success');
-          // Try to open mobile app via deep link (non-blocking)
-          try { window.location.href = '${mobileScheme}://email-verified'; } catch(_){}
-        } else {
-          hide('verifying'); show('error');
-          document.getElementById('error-msg').textContent =
-            data.message || 'Verification pending or failed. Please try again.';
-        }
-      } catch (e) {
-        hide('verifying'); show('error');
-        document.getElementById('error-msg').textContent = 'Network error. Please try again.';
-      }
-    })();
-  </script>
-</body>
-</html>`;
-
-  res.setHeader("Content-Type", "text/html");
-  res.send(html);
+  // Redirect to login since this is no longer the primary flow
+  res.redirect(`${frontendUrl}/login`);
 });
 
 export default router;
