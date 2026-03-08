@@ -64,26 +64,7 @@ export default function Signup() {
     }
 
     try {
-      // Check if email is already registered
-      const checkResponse = await fetch(
-        `${API_URL}/auth/check-availability`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: formData.email }),
-        },
-      );
-
-      const checkData = await checkResponse.json();
-
-      if (!checkData.emailAvailable) {
-        showError(checkData.message);
-        setLoading(false);
-        triggerShake();
-        return;
-      }
-
-      // Proceed with signup
+      // Signup endpoint already checks availability — no need for a separate call
       const response = await fetch(`${API_URL}/auth/signup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

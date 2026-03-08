@@ -103,16 +103,13 @@ router.post("/signup", async (req, res) => {
     if (authError) {
       // If user already exists in auth but unverified, allow re-sending
       if (authError.message?.includes("already been registered")) {
-        // Look up existing auth user
-        const { data: listData } =
-          await supabaseAdmin.auth.admin.listUsers({ perPage: 1, page: 1 });
-        // Use email lookup via admin API
-        const { data: existingAuth } =
-          await supabaseAdmin.auth.admin.listUsers();
-        const found = existingAuth?.users?.find((u) => u.email === email);
+        // Find existing auth user — use small page to avoid fetching all users
+        const { data: pageData } =
+          await supabaseAdmin.auth.admin.listUsers({ perPage: 50, page: 1 });
+        const found = pageData?.users?.find((u) => u.email === email);
 
         if (found && !found.email_confirmed_at) {
-          // Unverified user — re-send verification
+          // Unverified user — resend verification (fire-and-forget)
           const verifyToken = jwt.sign(
             { userId: found.id, email, purpose: "email_verification" },
             process.env.JWT_SECRET,
@@ -124,11 +121,13 @@ router.post("/signup", async (req, res) => {
             "https://meezo-backend-d3gw.onrender.com";
           const verificationLink = `${backendUrl}/auth/confirm-email?token=${encodeURIComponent(verifyToken)}`;
 
-          await sendVerificationEmail({ to: email, verificationLink });
+          // Fire-and-forget — don't block response on SMTP
+          sendVerificationEmail({ to: email, verificationLink }).catch((err) =>
+            console.error("Re-send SMTP failed:", err.message),
+          );
 
           return res.status(201).json({
-            message:
-              "Verification email re-sent! Please check your email.",
+            message: "Verification email re-sent! Please check your email.",
             userId: found.id,
             emailSent: true,
           });
@@ -160,17 +159,17 @@ router.post("/signup", async (req, res) => {
       process.env.BACKEND_URL || "https://meezo-backend-d3gw.onrender.com";
     const verificationLink = `${backendUrl}/auth/confirm-email?token=${encodeURIComponent(verifyToken)}`;
 
-    // Send email via our own SMTP (Nodemailer)
-    try {
-      await sendVerificationEmail({ to: email, verificationLink });
-      console.log(
-        `✅ Signup: verification email sent to ${email} via SMTP (userId: ${authData.user.id})`,
+    // Send email via our own SMTP (Nodemailer) — fire-and-forget
+    // Don't await: respond to user immediately, send email in background
+    sendVerificationEmail({ to: email, verificationLink })
+      .then(() =>
+        console.log(
+          `✅ Signup: verification email sent to ${email} via SMTP (userId: ${authData.user.id})`,
+        ),
+      )
+      .catch((smtpError) =>
+        console.error("SMTP send failed:", smtpError.message),
       );
-    } catch (smtpError) {
-      console.error("SMTP send failed:", smtpError.message);
-      // User exists in auth but email failed — still return success
-      // so they can try resending later
-    }
 
     // DO NOT insert into public.users — happens in /auth/confirm-email
     res.status(201).json({
@@ -826,10 +825,7 @@ router.get("/confirm-email", async (req, res) => {
   // Helper to send an HTML response
   const sendPage = (title, icon, iconBg, heading, msg, buttons) => {
     const btnHtml = buttons
-      .map(
-        (b) =>
-          `<a class="btn ${b.cls}" href="${b.href}">${b.text}</a>`,
-      )
+      .map((b) => `<a class="btn ${b.cls}" href="${b.href}">${b.text}</a>`)
       .join("");
     res.setHeader("Content-Type", "text/html");
     res.send(`<!DOCTYPE html>
@@ -874,7 +870,11 @@ ${btnHtml}
         "Invalid Link",
         "No verification token found. Please use the link from your email.",
         [
-          { cls: "btn-green", href: `${frontendUrl}/signup`, text: "Back to Signup" },
+          {
+            cls: "btn-green",
+            href: `${frontendUrl}/signup`,
+            text: "Back to Signup",
+          },
         ],
       );
     }
@@ -894,8 +894,16 @@ ${btnHtml}
           ? "This verification link has expired. Please sign up again to get a new link."
           : "This verification link is invalid. Please check your email for the correct link.",
         [
-          { cls: "btn-green", href: `${frontendUrl}/signup`, text: "Back to Signup" },
-          { cls: "btn-gray", href: `${frontendUrl}/login`, text: "Go to Login" },
+          {
+            cls: "btn-green",
+            href: `${frontendUrl}/signup`,
+            text: "Back to Signup",
+          },
+          {
+            cls: "btn-gray",
+            href: `${frontendUrl}/login`,
+            text: "Go to Login",
+          },
         ],
       );
     }
@@ -908,7 +916,11 @@ ${btnHtml}
         "Invalid Link",
         "This link is not a valid email verification link.",
         [
-          { cls: "btn-green", href: `${frontendUrl}/signup`, text: "Back to Signup" },
+          {
+            cls: "btn-green",
+            href: `${frontendUrl}/signup`,
+            text: "Back to Signup",
+          },
         ],
       );
     }
@@ -928,7 +940,11 @@ ${btnHtml}
         "Verification Failed",
         "Could not verify your email. The account may not exist. Please try signing up again.",
         [
-          { cls: "btn-green", href: `${frontendUrl}/signup`, text: "Back to Signup" },
+          {
+            cls: "btn-green",
+            href: `${frontendUrl}/signup`,
+            text: "Back to Signup",
+          },
         ],
       );
     }
@@ -941,14 +957,12 @@ ${btnHtml}
       .maybeSingle();
 
     if (!existingUser) {
-      const { error: insertError } = await supabaseAdmin
-        .from("users")
-        .insert({
-          id: payload.userId,
-          role: "customer",
-          email: payload.email,
-          created_at: new Date().toISOString(),
-        });
+      const { error: insertError } = await supabaseAdmin.from("users").insert({
+        id: payload.userId,
+        role: "customer",
+        email: payload.email,
+        created_at: new Date().toISOString(),
+      });
 
       if (insertError) {
         console.error("Users table insert failed:", insertError.message);
@@ -960,7 +974,9 @@ ${btnHtml}
       }
     }
 
-    console.log(`✅ Email confirmed for ${payload.email} (userId: ${payload.userId})`);
+    console.log(
+      `✅ Email confirmed for ${payload.email} (userId: ${payload.userId})`,
+    );
 
     // Success page
     sendPage(
@@ -970,7 +986,11 @@ ${btnHtml}
       "Email Verified!",
       "Your email has been confirmed successfully. You can now close this page and go back to the app to login.",
       [
-        { cls: "btn-green", href: `${frontendUrl}/login`, text: "Open NearMe →" },
+        {
+          cls: "btn-green",
+          href: `${frontendUrl}/login`,
+          text: "Open NearMe →",
+        },
       ],
     );
   } catch (error) {
@@ -982,7 +1002,11 @@ ${btnHtml}
       "Something Went Wrong",
       "An unexpected error occurred. Please try again later.",
       [
-        { cls: "btn-green", href: `${frontendUrl}/signup`, text: "Back to Signup" },
+        {
+          cls: "btn-green",
+          href: `${frontendUrl}/signup`,
+          text: "Back to Signup",
+        },
         { cls: "btn-gray", href: `${frontendUrl}/login`, text: "Go to Login" },
       ],
     );
