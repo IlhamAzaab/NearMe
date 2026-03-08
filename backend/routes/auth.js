@@ -41,24 +41,34 @@ router.get("/smtp-check", async (req, res) => {
     node_env: process.env.NODE_ENV || "not set",
   };
 
-  // Quick SMTP verify test
-  try {
-    const nodemailer = await import("nodemailer");
-    const testTransporter = nodemailer.default.createTransport({
-      host: process.env.SMTP_HOST,
-      port: Number(process.env.SMTP_PORT || 587),
-      secure: false,
-      connectionTimeout: 10000,
-      greetingTimeout: 10000,
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-      },
-    });
-    await testTransporter.verify();
-    config.smtp_test = "✓ Connection OK";
-  } catch (err) {
-    config.smtp_test = `✗ FAILED: ${err.message}`;
+  // Quick SMTP verify test — try configured port, then fallback
+  const portsToTest = [
+    { port: Number(process.env.SMTP_PORT || 465), secure: Number(process.env.SMTP_PORT || 465) === 465 },
+    { port: 465, secure: true },
+    { port: 587, secure: false },
+  ];
+
+  for (const { port, secure } of portsToTest) {
+    try {
+      const nodemailer = await import("nodemailer");
+      const testTransporter = nodemailer.default.createTransport({
+        host: process.env.SMTP_HOST,
+        port,
+        secure,
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+        auth: {
+          user: process.env.SMTP_USER,
+          pass: process.env.SMTP_PASS,
+        },
+      });
+      await testTransporter.verify();
+      config.smtp_test = `✓ OK on port ${port} (secure=${secure})`;
+      config.working_port = port;
+      break;
+    } catch (err) {
+      config[`port_${port}_test`] = `✗ ${err.message}`;
+    }
   }
 
   res.json(config);
