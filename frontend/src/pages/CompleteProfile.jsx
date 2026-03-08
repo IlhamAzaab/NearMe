@@ -3,50 +3,6 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import SiteHeader from "../components/SiteHeader";
 import AnimatedAlert, { useAlert } from "../components/AnimatedAlert";
 import { API_URL } from "../config";
-import {
-  MapContainer,
-  TileLayer,
-  Marker,
-  useMapEvents,
-  useMap,
-} from "react-leaflet";
-import "leaflet/dist/leaflet.css";
-import L from "leaflet";
-
-// Fix Leaflet default marker icon issue
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl:
-    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png",
-  iconUrl:
-    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
-  shadowUrl:
-    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
-});
-
-// Component to handle map clicks
-function LocationMarker({ position, setPosition }) {
-  useMapEvents({
-    click(e) {
-      setPosition([e.latlng.lat, e.latlng.lng]);
-    },
-  });
-
-  return position === null ? null : <Marker position={position}></Marker>;
-}
-
-// Component to handle map centering
-function MapController({ center }) {
-  const map = useMap();
-
-  useEffect(() => {
-    if (center) {
-      map.setView(center, 15);
-    }
-  }, [center, map]);
-
-  return null;
-}
 
 export default function CompleteProfile() {
   const navigate = useNavigate();
@@ -56,25 +12,17 @@ export default function CompleteProfile() {
   const [formData, setFormData] = useState({
     username: "",
     phone: "",
-    nic_number: "",
     address: "",
     city: "",
   });
-  const [position, setPosition] = useState(null); // [lat, lng]
-  const [mapCenter, setMapCenter] = useState([7.8731, 80.7718]); // For centering map
   const [loading, setLoading] = useState(false);
   const [phoneError, setPhoneError] = useState("");
   const [usernameError, setUsernameError] = useState("");
-  const [locating, setLocating] = useState(false);
   const { alert, visible, showError } = useAlert();
 
   useEffect(() => {
     if (!userId) {
       navigate("/login");
-    }
-    // Set default position (Sri Lanka center)
-    if (!position) {
-      setPosition([7.8731, 80.7718]); // Sri Lanka center
     }
   }, [userId, navigate]);
 
@@ -88,38 +36,8 @@ export default function CompleteProfile() {
   };
 
   const validatePhone = (phone) => {
-    // Sri Lankan phone number validation (10 digits starting with 0)
     const phoneRegex = /^0\d{9}$/;
     return phoneRegex.test(phone);
-  };
-
-  const handleUseMyLocation = () => {
-    if (!navigator.geolocation) {
-      showError("Geolocation is not supported by your browser");
-      return;
-    }
-
-    setLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const { latitude, longitude } = pos.coords;
-        setPosition([latitude, longitude]);
-        setMapCenter([latitude, longitude]); // This will trigger MapController to center the map
-        setLocating(false);
-      },
-      (err) => {
-        console.error("Geolocation error:", err);
-        showError(
-          "Unable to get your location. Please select manually on the map.",
-        );
-        setLocating(false);
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0,
-      },
-    );
   };
 
   const checkPhoneAvailability = async (phone) => {
@@ -155,29 +73,22 @@ export default function CompleteProfile() {
     e.preventDefault();
     setLoading(true);
 
-    // Validation
-    if (!formData.username || !formData.phone) {
-      showError("Username and phone number are required");
+    if (!formData.username || !formData.phone || !formData.address || !formData.city) {
+      showError("All fields are required");
       setLoading(false);
       return;
     }
 
     if (!validatePhone(formData.phone)) {
-      setPhoneError("Invalid phone number format");
+      setPhoneError("Invalid phone number format (e.g., 0771234567)");
       setLoading(false);
       return;
     }
 
-    // Check if position is set
-    if (!position) {
-      showError("Please select your location on the map");
-      setLoading(false);
-      return;
-    }
-
-    // Get email from Supabase user
     try {
       const accessToken = searchParams.get("access_token");
+
+      // Get email from backend
       const headers = {};
       if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
 
@@ -193,6 +104,7 @@ export default function CompleteProfile() {
         return;
       }
 
+      // Complete profile
       const response = await fetch(`${API_URL}/auth/complete-profile`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -201,12 +113,9 @@ export default function CompleteProfile() {
           username: formData.username,
           email: userData.email,
           phone: formData.phone,
-          nic_number: formData.nic_number || null,
-          address: formData.address || null,
-          city: formData.city || null,
-          latitude: position[0].toString(),
-          longitude: position[1].toString(),
-          access_token: searchParams.get("access_token") || null,
+          address: formData.address,
+          city: formData.city,
+          access_token: accessToken || null,
         }),
       });
 
@@ -218,21 +127,13 @@ export default function CompleteProfile() {
         return;
       }
 
-      // Success - save token and user data, then redirect to home
-      if (data.token) {
-        localStorage.setItem("token", data.token);
-      }
-      localStorage.setItem("role", data.role || "customer");
-      localStorage.setItem("userEmail", userData.email);
-      if (data.userId) {
-        localStorage.setItem("userId", data.userId);
-      }
-      if (data.userName) {
-        localStorage.setItem("userName", data.userName);
-      }
-
-      // Navigate directly to home (logged in)
-      navigate("/home");
+      // Navigate to OTP verification page
+      const otpParams = new URLSearchParams({
+        userId,
+        phone: formData.phone,
+        access_token: accessToken || "",
+      });
+      navigate(`/auth/verify-otp?${otpParams.toString()}`);
     } catch (err) {
       console.error("Profile completion error:", err);
       showError("Network error. Please try again.");
@@ -245,7 +146,7 @@ export default function CompleteProfile() {
       <SiteHeader />
 
       <div className="flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-2xl w-full space-y-8">
+        <div className="max-w-md w-full space-y-8">
           {/* Header */}
           <div className="text-center">
             <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-green-100 mb-4">
@@ -259,216 +160,125 @@ export default function CompleteProfile() {
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   strokeWidth={2}
-                  d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                  d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
                 />
               </svg>
             </div>
             <h2 className="text-3xl font-extrabold text-gray-900">
-              Email Verified!
+              Complete Your Profile
             </h2>
             <p className="mt-2 text-sm text-gray-600">
-              Complete your profile to start ordering
+              Just a few details to get you started
             </p>
           </div>
 
           {/* Form */}
-          <div className="bg-white rounded-lg shadow-lg p-8">
-            <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="bg-white rounded-2xl shadow-lg p-8">
+            <form onSubmit={handleSubmit} className="space-y-5">
               <AnimatedAlert alert={alert} visible={visible} />
 
-              {/* Two Column Layout for Desktop */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Username */}
-                <div>
-                  <label
-                    htmlFor="username"
-                    className="block text-sm font-medium text-gray-700 mb-1"
-                  >
-                    Username <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    id="username"
-                    name="username"
-                    type="text"
-                    required
-                    value={formData.username}
-                    onChange={handleChange}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:border-transparent"
-                    placeholder="Choose a username"
-                  />
-                  {usernameError && (
-                    <p className="mt-1 text-xs text-red-600">{usernameError}</p>
-                  )}
-                </div>
-
-                {/* Phone */}
-                <div>
-                  <label
-                    htmlFor="phone"
-                    className="block text-sm font-medium text-gray-700 mb-1"
-                  >
-                    Phone Number <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    id="phone"
-                    name="phone"
-                    type="tel"
-                    required
-                    value={formData.phone}
-                    onChange={handleChange}
-                    onBlur={handlePhoneBlur}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:border-transparent"
-                    placeholder="0771234567"
-                  />
-                  {phoneError && (
-                    <p className="mt-1 text-xs text-red-600">{phoneError}</p>
-                  )}
-                </div>
-
-                {/* NIC Number */}
-                <div>
-                  <label
-                    htmlFor="nic_number"
-                    className="block text-sm font-medium text-gray-700 mb-1"
-                  >
-                    NIC Number (Optional)
-                  </label>
-                  <input
-                    id="nic_number"
-                    name="nic_number"
-                    type="text"
-                    value={formData.nic_number}
-                    onChange={handleChange}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:border-transparent"
-                    placeholder="123456789V or 201234567890"
-                  />
-                </div>
-
-                {/* City */}
-                <div>
-                  <label
-                    htmlFor="city"
-                    className="block text-sm font-medium text-gray-700 mb-1"
-                  >
-                    City (Optional)
-                  </label>
-                  <input
-                    id="city"
-                    name="city"
-                    type="text"
-                    value={formData.city}
-                    onChange={handleChange}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:border-transparent"
-                    placeholder="Colombo"
-                  />
-                </div>
+              {/* Username */}
+              <div>
+                <label
+                  htmlFor="username"
+                  className="block text-sm font-medium text-gray-700 mb-1"
+                >
+                  Username <span className="text-red-500">*</span>
+                </label>
+                <input
+                  id="username"
+                  name="username"
+                  type="text"
+                  required
+                  value={formData.username}
+                  onChange={handleChange}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition"
+                  placeholder="Choose a username"
+                />
+                {usernameError && (
+                  <p className="mt-1 text-xs text-red-600">{usernameError}</p>
+                )}
               </div>
 
-              {/* Address (Full Width) */}
+              {/* Mobile Number */}
+              <div>
+                <label
+                  htmlFor="phone"
+                  className="block text-sm font-medium text-gray-700 mb-1"
+                >
+                  Mobile Number <span className="text-red-500">*</span>
+                </label>
+                <input
+                  id="phone"
+                  name="phone"
+                  type="tel"
+                  required
+                  value={formData.phone}
+                  onChange={handleChange}
+                  onBlur={handlePhoneBlur}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition"
+                  placeholder="0771234567"
+                />
+                <p className="mt-1.5 text-xs text-gray-500 flex items-center gap-1">
+                  <svg className="w-3.5 h-3.5 text-green-600 flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
+                    <path d="M12 2C6.477 2 2 6.477 2 12c0 1.89.525 3.66 1.438 5.168L2 22l4.832-1.438A9.955 9.955 0 0012 22c5.523 0 10-4.477 10-10S17.523 2 12 2zm0 18a8 8 0 01-4.028-1.082l-.29-.172-2.87.852.852-2.87-.172-.29A8 8 0 1112 20z"/>
+                  </svg>
+                  <span>Enter your WhatsApp number. We'll send the OTP to your WhatsApp.</span>
+                </p>
+                {phoneError && (
+                  <p className="mt-1 text-xs text-red-600">{phoneError}</p>
+                )}
+              </div>
+
+              {/* Address */}
               <div>
                 <label
                   htmlFor="address"
                   className="block text-sm font-medium text-gray-700 mb-1"
                 >
-                  Address (Optional)
+                  Address <span className="text-red-500">*</span>
                 </label>
                 <textarea
                   id="address"
                   name="address"
-                  rows="3"
+                  rows="2"
+                  required
                   value={formData.address}
                   onChange={handleChange}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:border-transparent"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition resize-none"
                   placeholder="123 Main Street, Apartment 4B"
                 />
               </div>
 
-              {/* Map for Location Selection */}
-              <div className="md:col-span-2 space-y-3">
-                <label className="block text-sm font-medium text-gray-700">
-                  Delivery Location <span className="text-red-500">*</span>
-                </label>
-                <div className="relative">
-                  <MapContainer
-                    center={position || [7.8731, 80.7718]}
-                    zoom={13}
-                    style={{
-                      height: "400px",
-                      width: "100%",
-                      borderRadius: "8px",
-                    }}
-                  >
-                    <TileLayer
-                      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                    />
-                    <LocationMarker
-                      position={position}
-                      setPosition={setPosition}
-                    />
-                    <MapController center={mapCenter} />
-                  </MapContainer>
-                </div>
-
-                {position && (
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Latitude
-                      </label>
-                      <input
-                        type="text"
-                        className="w-full border rounded-lg p-2 bg-gray-100 text-sm"
-                        value={position[0].toFixed(6)}
-                        readOnly
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Longitude
-                      </label>
-                      <input
-                        type="text"
-                        className="w-full border rounded-lg p-2 bg-gray-100 text-sm"
-                        value={position[1].toFixed(6)}
-                        readOnly
-                      />
-                    </div>
-                  </div>
-                )}
-
-                <button
-                  type="button"
-                  onClick={handleUseMyLocation}
-                  disabled={locating}
-                  className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+              {/* City */}
+              <div>
+                <label
+                  htmlFor="city"
+                  className="block text-sm font-medium text-gray-700 mb-1"
                 >
-                  {locating
-                    ? "Getting location..."
-                    : "📍 Use My Current Location"}
-                </button>
-                <p className="text-xs text-gray-500">
-                  Click on the map to pin location or use your current location
-                </p>
-              </div>
-
-              {/* Info Box */}
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <p className="text-sm text-blue-800">
-                  <strong>Note:</strong> Your phone number will be used for
-                  order updates and delivery coordination. Make sure it's
-                  correct!
-                </p>
+                  City <span className="text-red-500">*</span>
+                </label>
+                <input
+                  id="city"
+                  name="city"
+                  type="text"
+                  required
+                  value={formData.city}
+                  onChange={handleChange}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition"
+                  placeholder="Colombo"
+                />
               </div>
 
               {/* Submit Button */}
               <button
                 type="submit"
-                disabled={loading || phoneError}
-                className={`w-full py-3 px-4 rounded-lg font-semibold text-white transition ${
+                disabled={loading || !!phoneError}
+                className={`w-full py-3.5 px-4 rounded-xl font-bold text-white text-lg transition-all ${
                   loading || phoneError
                     ? "bg-gray-400 cursor-not-allowed"
-                    : "bg-indigo-600 hover:bg-indigo-700"
+                    : "bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 shadow-lg hover:shadow-xl active:scale-[0.98]"
                 }`}
               >
                 {loading ? (
@@ -492,10 +302,10 @@ export default function CompleteProfile() {
                         d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
                       />
                     </svg>
-                    Completing profile...
+                    Saving...
                   </span>
                 ) : (
-                  "Complete Profile & Start Ordering"
+                  "Continue →"
                 )}
               </button>
             </form>

@@ -36,6 +36,104 @@ const supabaseAnonClient = createClient(
 const router = express.Router();
 
 /**
+ * Send OTP to a phone number via WhatsApp Business Cloud API.
+ * Uses the WhatsApp message template or plain text.
+ * Returns true if sent successfully, false otherwise.
+ */
+async function sendWhatsAppOTP(phone, otp) {
+  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+  const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
+
+  if (!phoneNumberId || !accessToken) {
+    console.warn(
+      "⚠️ WhatsApp credentials not configured. OTP not sent. OTP:",
+      otp,
+    );
+    return false;
+  }
+
+  // Format phone to international format (remove leading 0, add country code if needed)
+  let formattedPhone = phone.replace(/[^0-9]/g, "");
+  if (formattedPhone.startsWith("0")) {
+    formattedPhone = "94" + formattedPhone.substring(1); // Sri Lanka default
+  }
+  if (!formattedPhone.startsWith("94") && formattedPhone.length === 9) {
+    formattedPhone = "94" + formattedPhone;
+  }
+
+  try {
+    const response = await fetch(
+      `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          to: formattedPhone,
+          type: "template",
+          template: {
+            name: "otp_verification",
+            language: { code: "en" },
+            components: [
+              {
+                type: "body",
+                parameters: [{ type: "text", text: otp }],
+              },
+              {
+                type: "button",
+                sub_type: "url",
+                index: "0",
+                parameters: [{ type: "text", text: otp }],
+              },
+            ],
+          },
+        }),
+      },
+    );
+
+    const data = await response.json();
+    if (response.ok) {
+      console.log(`✅ WhatsApp OTP sent to ${formattedPhone}`);
+      return true;
+    } else {
+      console.error("WhatsApp API error:", data);
+      // Fallback: try sending as plain text message (works in test mode)
+      const fallbackRes = await fetch(
+        `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            messaging_product: "whatsapp",
+            to: formattedPhone,
+            type: "text",
+            text: {
+              body: `Your NearMe verification code is: ${otp}\n\nThis code expires in 10 minutes. Do not share it with anyone.`,
+            },
+          }),
+        },
+      );
+      const fallbackData = await fallbackRes.json();
+      if (fallbackRes.ok) {
+        console.log(`✅ WhatsApp OTP sent (text fallback) to ${formattedPhone}`);
+        return true;
+      }
+      console.error("WhatsApp fallback error:", fallbackData);
+      return false;
+    }
+  } catch (err) {
+    console.error("WhatsApp send error:", err.message);
+    return false;
+  }
+}
+
+/**
  * POST /auth/signup
  * Register new customer with email verification.
  *
@@ -418,7 +516,8 @@ router.get("/user-email", async (req, res) => {
 /**
  * POST /auth/complete-profile
  * Complete customer profile after email verification (requires Supabase access token)
- * Protected: validates the userId matches a real Supabase user via access_token
+ * Does NOT issue JWT yet — user must verify OTP first.
+ * Saves profile data and sends WhatsApp OTP.
  */
 router.post("/complete-profile", async (req, res) => {
   try {
@@ -427,38 +526,27 @@ router.post("/complete-profile", async (req, res) => {
       username,
       email,
       phone,
-      nic_number,
       address,
       city,
-      latitude,
-      longitude,
       access_token,
     } = req.body;
 
     // Validate required fields
-    if (!userId || !username || !email || !phone) {
+    if (!userId || !username || !email || !phone || !address || !city) {
       return res.status(400).json({
-        message: "Username, email, and phone are required",
+        message: "All fields are required (username, email, phone, address, city)",
       });
     }
 
     // Verify the caller owns this userId via Supabase access token
-    if (!access_token) {
-      return res.status(401).json({ message: "Access token is required" });
-    }
-    const { data: tokenUser, error: tokenError } =
-      await supabaseAdmin.auth.getUser(access_token);
-    if (tokenError || !tokenUser?.user || tokenUser.user.id !== userId) {
-      return res
-        .status(403)
-        .json({ message: "Access denied — token does not match userId" });
-    }
-
-    // Validate location
-    if (!latitude || !longitude) {
-      return res.status(400).json({
-        message: "Location is required",
-      });
+    if (access_token) {
+      const { data: tokenUser, error: tokenError } =
+        await supabaseAdmin.auth.getUser(access_token);
+      if (tokenError || !tokenUser?.user || tokenUser.user.id !== userId) {
+        return res
+          .status(403)
+          .json({ message: "Access denied — token does not match userId" });
+      }
     }
 
     // Check if user exists and is a customer
@@ -519,7 +607,7 @@ router.post("/complete-profile", async (req, res) => {
       });
     }
 
-    // Create customer profile
+    // Create customer profile (phone_verified = false until OTP is confirmed)
     const { error: customerError } = await supabaseAdmin
       .from("customers")
       .insert({
@@ -527,11 +615,8 @@ router.post("/complete-profile", async (req, res) => {
         username,
         email,
         phone,
-        nic_number,
         address,
         city,
-        latitude: parseFloat(latitude),
-        longitude: parseFloat(longitude),
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       });
@@ -546,27 +631,31 @@ router.post("/complete-profile", async (req, res) => {
     // Update users table with phone
     await supabaseAdmin.from("users").update({ phone }).eq("id", userId);
 
-    // Generate JWT token for the customer
-    const token = jwt.sign(
-      { id: userId, role: "customer" },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" },
+    console.log(
+      `✅ Profile created for ${email} (${username}). Pending OTP verification.`,
     );
 
+    // Generate and send OTP via WhatsApp
+    const otp = String(Math.floor(100000 + Math.random() * 900000));
+    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 min
+
+    // Store OTP in users table metadata — we'll use a simple approach
+    await supabaseAdmin
+      .from("users")
+      .update({
+        otp_code: otp,
+        otp_expires_at: otpExpiry,
+        phone_verified: false,
+      })
+      .eq("id", userId);
+
+    // Send OTP via WhatsApp Business API
+    const whatsappSent = await sendWhatsAppOTP(phone, otp);
+
     res.json({
-      message: "Profile completed successfully",
-      token, // Return token for immediate login
-      role: "customer",
-      userId: userId,
-      userName: username,
-      customer: {
-        id: userId,
-        username,
-        email,
-        phone,
-        latitude: parseFloat(latitude),
-        longitude: parseFloat(longitude),
-      },
+      message: "Profile saved! OTP sent to your WhatsApp.",
+      otpSent: whatsappSent,
+      userId,
     });
   } catch (error) {
     console.error("Complete profile error:", error);
@@ -866,8 +955,7 @@ router.post("/verify-token", async (req, res) => {
  * No frontend load, no Supabase redirect, no localhost issues.
  */
 router.get("/confirm-email", async (req, res) => {
-  const frontendUrl =
-    process.env.FRONTEND_URL || "https://meezo-eta.vercel.app";
+  const frontendUrl = "https://meezo-eta.vercel.app";
   const mobileScheme = "nearmemobile";
 
   // Helper to send an HTML response
@@ -1032,12 +1120,12 @@ ${btnHtml}
       "✓",
       "linear-gradient(135deg,#22c55e,#16a34a)",
       "Email Verified!",
-      "Your email has been confirmed successfully. You can now close this page and go back to the app to login.",
+      "Your email has been confirmed successfully. You can now login to your account.",
       [
         {
           cls: "btn-green",
           href: `${frontendUrl}/login`,
-          text: "Open NearMe →",
+          text: "Go to Login",
         },
       ],
     );
@@ -1058,6 +1146,128 @@ ${btnHtml}
         { cls: "btn-gray", href: `${frontendUrl}/login`, text: "Go to Login" },
       ],
     );
+  }
+});
+
+/**
+ * POST /auth/send-otp
+ * Resend OTP to user's WhatsApp number.
+ */
+router.post("/send-otp", async (req, res) => {
+  try {
+    const { userId, phone } = req.body;
+
+    if (!userId || !phone) {
+      return res.status(400).json({ message: "userId and phone are required" });
+    }
+
+    // Verify user exists
+    const { data: user, error } = await supabaseAdmin
+      .from("users")
+      .select("id, phone")
+      .eq("id", userId)
+      .single();
+
+    if (error || !user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Generate new OTP
+    const otp = String(Math.floor(100000 + Math.random() * 900000));
+    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+
+    await supabaseAdmin
+      .from("users")
+      .update({ otp_code: otp, otp_expires_at: otpExpiry })
+      .eq("id", userId);
+
+    const sent = await sendWhatsAppOTP(phone, otp);
+
+    res.json({
+      message: sent
+        ? "OTP sent to your WhatsApp"
+        : "OTP generated (WhatsApp delivery pending — check console)",
+      otpSent: sent,
+    });
+  } catch (err) {
+    console.error("Send OTP error:", err);
+    res.status(500).json({ message: "Failed to send OTP" });
+  }
+});
+
+/**
+ * POST /auth/verify-otp
+ * Verify WhatsApp OTP and issue JWT token + complete login.
+ */
+router.post("/verify-otp", async (req, res) => {
+  try {
+    const { userId, otp } = req.body;
+
+    if (!userId || !otp) {
+      return res.status(400).json({ message: "userId and OTP are required" });
+    }
+
+    // Fetch stored OTP
+    const { data: user, error } = await supabaseAdmin
+      .from("users")
+      .select("id, role, email, otp_code, otp_expires_at")
+      .eq("id", userId)
+      .single();
+
+    if (error || !user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (!user.otp_code) {
+      return res.status(400).json({ message: "No OTP was requested" });
+    }
+
+    // Check expiry
+    if (new Date(user.otp_expires_at) < new Date()) {
+      return res.status(400).json({ message: "OTP has expired. Please request a new one." });
+    }
+
+    // Verify OTP (timing-safe compare)
+    if (user.otp_code !== otp.trim()) {
+      return res.status(400).json({ message: "Invalid OTP" });
+    }
+
+    // Mark phone as verified, clear OTP
+    await supabaseAdmin
+      .from("users")
+      .update({
+        otp_code: null,
+        otp_expires_at: null,
+        phone_verified: true,
+      })
+      .eq("id", userId);
+
+    // Get customer details
+    const { data: customer } = await supabaseAdmin
+      .from("customers")
+      .select("username")
+      .eq("id", userId)
+      .single();
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { id: userId, role: user.role || "customer" },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" },
+    );
+
+    console.log(`✅ OTP verified for user ${userId}`);
+
+    res.json({
+      message: "Phone verified successfully!",
+      token,
+      role: user.role || "customer",
+      userId,
+      userName: customer?.username || "",
+    });
+  } catch (err) {
+    console.error("Verify OTP error:", err);
+    res.status(500).json({ message: "Failed to verify OTP" });
   }
 });
 

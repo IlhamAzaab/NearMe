@@ -3,6 +3,7 @@ import Home from "./pages/Home";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import CompleteProfile from "./pages/CompleteProfile";
+import VerifyOtp from "./pages/VerifyOtp";
 import VerifyEmail from "./pages/VerifyEmail";
 import RestaurantFoods from "./pages/RestaurantFoods";
 import FoodDetail from "./pages/FoodDetail";
@@ -148,6 +149,10 @@ function App() {
                 <Route
                   path="/auth/complete-profile"
                   element={<CompleteProfile />}
+                />
+                <Route
+                  path="/auth/verify-otp"
+                  element={<VerifyOtp />}
                 />
                 {/* Food Detail Route - Customer Only */}
                 <Route
