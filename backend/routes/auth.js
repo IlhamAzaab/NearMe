@@ -141,10 +141,7 @@ router.post("/signup", async (req, res) => {
 
     // Supabase returns a "fake" user with empty identities when email already exists
     // (security measure to prevent email enumeration)
-    if (
-      authData.user.identities &&
-      authData.user.identities.length === 0
-    ) {
+    if (authData.user.identities && authData.user.identities.length === 0) {
       return res.status(400).json({
         message:
           "This email is already registered. Please login or check your email for the verification link.",
@@ -1001,16 +998,16 @@ ${btnHtml}
  * GET /auth/email-verified
  * Supabase redirects here after user clicks the verification link in their email.
  * Supabase appends tokens as a URL hash fragment: #access_token=...&type=signup
+ * OR returns errors: #error=access_denied&error_code=otp_expired...
  *
  * Since hash fragments are NOT sent to the server, we serve a lightweight HTML page
- * whose JavaScript extracts the access_token, calls POST /auth/verify-token to
- * create the public.users record, and then shows a success/failure UI.
+ * whose JavaScript extracts the access_token or error, calls POST /auth/verify-token,
+ * and shows a success/failure UI.
  */
 router.get("/email-verified", (req, res) => {
-  const frontendUrl =
-    process.env.FRONTEND_URL || "https://meezo-eta.vercel.app";
-  const backendUrl =
-    process.env.BACKEND_URL || "https://meezo-backend-d3gw.onrender.com";
+  // HARDCODED frontend URLs — don't depend on env vars which may not be properly configured
+  const frontendUrl = "https://meezo-eta.vercel.app";
+  const backendUrl = "https://meezo-backend-d3gw.onrender.com";
 
   res.setHeader("Content-Type", "text/html");
   res.send(`<!DOCTYPE html>
@@ -1032,6 +1029,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
 h2{font-size:24px;font-weight:800;color:#111827;margin-bottom:8px}
 p{color:#6b7280;font-size:14px;line-height:1.5;margin-bottom:16px}
+.debug{font-size:12px;color:#9ca3af;margin-top:12px;padding-top:12px;border-top:1px solid #e5e7eb;font-family:monospace;word-break:break-all}
 .btn{display:block;width:100%;padding:14px;border:none;border-radius:14px;
      font-size:16px;font-weight:700;cursor:pointer;text-decoration:none;
      text-align:center;transition:all .2s;margin-top:10px}
@@ -1057,6 +1055,7 @@ p{color:#6b7280;font-size:14px;line-height:1.5;margin-bottom:16px}
     <div class="icon icon-error">✕</div>
     <h2 id="errTitle">Verification Failed</h2>
     <p id="errMsg">Something went wrong during verification.</p>
+    <div id="debugInfo" class="debug"></div>
     <a class="btn btn-green" href="${frontendUrl}/signup">Back to Signup</a>
     <a class="btn btn-gray" href="${frontendUrl}/login">Go to Login</a>
   </div>
@@ -1068,34 +1067,58 @@ p{color:#6b7280;font-size:14px;line-height:1.5;margin-bottom:16px}
     showError("Invalid Link","No verification data found. Please use the link from your email.");
     return;
   }
+  
   var params = new URLSearchParams(hash);
-  var accessToken = params.get("access_token");
-  if(!accessToken){
-    showError("Invalid Link","Missing access token. Please use the link from your email.");
+  
+  // Check for Supabase error first
+  var supabaseError = params.get("error");
+  var errorCode = params.get("error_code");
+  var errorDesc = params.get("error_description");
+  
+  if(supabaseError || errorCode){
+    var msg = errorDesc ? decodeURIComponent(errorDesc) : "Link is invalid or has expired";
+    if(errorCode === "otp_expired"){
+      msg = "Your verification link has expired. This can happen if you wait too long to click the link or if there's a configuration issue.\\n\\nPossible fixes:\\n" +
+            "1. Check that Supabase Site URL is set to: https://meezo-backend-d3gw.onrender.com/auth/email-verified\\n" +
+            "2. Make sure Supabase has your recovery email configured\\n" +
+            "3. Try signing up again to get a fresh verification email";
+    }
+    showError("Verification Error (" + errorCode + ")", msg);
     return;
   }
+  
+  var accessToken = params.get("access_token");
+  if(!accessToken){
+    showError("Invalid Link","No access token found in verification link. Please check your email for the correct link.");
+    return;
+  }
+  
   // Call our backend to verify the token and create public.users record
   fetch("${backendUrl}/auth/verify-token",{
     method:"POST",
     headers:{"Content-Type":"application/json"},
     body:JSON.stringify({token:accessToken})
   })
-  .then(function(r){return r.json().then(function(d){return{ok:r.ok,data:d}})})
+  .then(function(r){return r.json().then(function(d){return{ok:r.ok,status:r.status,data:d}})})
   .then(function(res){
     if(res.ok && res.data.emailConfirmed){
       document.getElementById("loading").classList.add("hidden");
       document.getElementById("success").classList.remove("hidden");
     } else {
-      showError("Verification Failed", res.data.message || "Could not verify your email. Please try again.");
+      showError("Verification Failed", res.data.message || "Could not verify your email. Please try again.", "Status: " + res.status);
     }
   })
-  .catch(function(){
-    showError("Verification Failed","A network error occurred. Please try again.");
+  .catch(function(err){
+    showError("Verification Failed","Network error: " + err.message, "Please check your connection and try again.");
   });
-  function showError(title,msg){
+  
+  function showError(title, msg, debug){
     document.getElementById("loading").classList.add("hidden");
-    document.getElementById("errTitle").textContent=title;
-    document.getElementById("errMsg").textContent=msg;
+    document.getElementById("errTitle").textContent = title;
+    document.getElementById("errMsg").textContent = msg;
+    if(debug){
+      document.getElementById("debugInfo").textContent = debug;
+    }
     document.getElementById("error").classList.remove("hidden");
   }
 })();
