@@ -27,10 +27,10 @@ const router = express.Router();
 /**
  * GET /auth/smtp-check
  * Diagnostic endpoint — check if SMTP env vars are configured on the server.
- * Returns sanitized info (no passwords).
+ * Also tests SMTP connectivity.
  */
-router.get("/smtp-check", (req, res) => {
-  res.json({
+router.get("/smtp-check", async (req, res) => {
+  const config = {
     smtp_host: process.env.SMTP_HOST || null,
     smtp_port: process.env.SMTP_PORT || null,
     smtp_user: process.env.SMTP_USER ? "✓ Set" : "✗ MISSING",
@@ -39,7 +39,29 @@ router.get("/smtp-check", (req, res) => {
     backend_url: process.env.BACKEND_URL || null,
     frontend_url: process.env.FRONTEND_URL || null,
     node_env: process.env.NODE_ENV || "not set",
-  });
+  };
+
+  // Quick SMTP verify test
+  try {
+    const nodemailer = await import("nodemailer");
+    const testTransporter = nodemailer.default.createTransport({
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT || 587),
+      secure: false,
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+    });
+    await testTransporter.verify();
+    config.smtp_test = "✓ Connection OK";
+  } catch (err) {
+    config.smtp_test = `✗ FAILED: ${err.message}`;
+  }
+
+  res.json(config);
 });
 
 /**
