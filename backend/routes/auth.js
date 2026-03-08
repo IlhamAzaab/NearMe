@@ -41,11 +41,10 @@ const router = express.Router();
  *
  * Flow:
  *  1. Check email availability across all tables
- *  2. Use supabaseAnonClient.auth.signUp() — Supabase sends the verification email
- *  3. NO record in public.users until email is confirmed
- *
- * Supabase handles email delivery (SMTP is blocked on Render).
- * After user clicks the link, Supabase redirects to our /auth/email-verified endpoint.
+ *  2. Use supabaseAnonClient.auth.signUp() — creates auth user, NO email sent by Supabase
+ *  3. Generate OUR OWN JWT token for verification
+ *  4. Send verification email via Resend API (HTTP-based, not SMTP)
+ *  5. NO record in public.users until email is confirmed via /auth/confirm-email
  */
 router.post("/signup", async (req, res) => {
   try {
@@ -103,18 +102,12 @@ router.post("/signup", async (req, res) => {
       });
     }
 
-    // The redirect URL after email verification — goes to OUR backend
-    const backendUrl =
-      process.env.BACKEND_URL || "https://meezo-backend-d3gw.onrender.com";
-    const emailRedirectTo = `${backendUrl}/auth/email-verified`;
-
-    // Sign up via Supabase Anon client — this triggers Supabase's built-in email
+    // Sign up via Supabase — NO emailRedirectTo, just creates auth user
     const { data: authData, error: authError } =
       await supabaseAnonClient.auth.signUp({
         email,
         password,
         options: {
-          emailRedirectTo,
           data: { role: "customer" },
         },
       });
@@ -132,7 +125,7 @@ router.post("/signup", async (req, res) => {
       return res.status(400).json({ message: authError.message });
     }
 
-    // Check if Supabase returned a user (it should)
+    // Check if Supabase returned a user
     if (!authData?.user) {
       return res.status(500).json({
         message: "Signup failed. Please try again.",
@@ -140,24 +133,98 @@ router.post("/signup", async (req, res) => {
     }
 
     // Supabase returns a "fake" user with empty identities when email already exists
-    // (security measure to prevent email enumeration)
     if (authData.user.identities && authData.user.identities.length === 0) {
       return res.status(400).json({
         message:
-          "This email is already registered. Please login or check your email for the verification link.",
+          "This email is already registered. Please login or check your email for verification.",
       });
     }
 
-    console.log(
-      `✅ Signup: ${email} registered (userId: ${authData.user.id}). Supabase will send verification email.`,
+    // Generate OUR OWN verification JWT token (1 hour expiry)
+    const verifyToken = jwt.sign(
+      {
+        userId: authData.user.id,
+        email,
+        purpose: "email_verification",
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: "1h" },
     );
 
-    // DO NOT insert into public.users — happens in /auth/email-verified after confirmation
+    // Build verification link pointing to /auth/confirm-email
+    const verificationLink = `https://meezo-backend-d3gw.onrender.com/auth/confirm-email?token=${encodeURIComponent(verifyToken)}`;
+
+    console.log(
+      `✅ Signup: ${email} registered (userId: ${authData.user.id}). Verification link ready.`,
+    );
+    console.log(`📧 Verification link: ${verificationLink}`);
+
+    // Send verification email via Resend API (HTTP-based, not SMTP - works on Render)
+    const resendApiKey = process.env.RESEND_API_KEY;
+
+    if (resendApiKey) {
+      try {
+        const response = await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${resendApiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            from: "NearMe <noreply@nearme.com>",
+            to: email,
+            subject: "Verify Your NearMe Email",
+            html: `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"/><style>
+body{font-family:sans-serif;background:#f0fdf4}
+.container{max-width:500px;margin:40px auto;background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 12px rgba(0,0,0,0.1)}
+h1{color:#111827;font-size:24px;margin-bottom:16px}
+p{color:#6b7280;font-size:14px;line-height:1.6;margin-bottom:16px}
+.btn{display:block;background:linear-gradient(to right,#22c55e,#10b981);color:white;padding:14px;border-radius:8px;text-align:center;text-decoration:none;font-weight:bold;margin:24px 0}
+.footer{border-top:1px solid #e5e7eb;padding-top:16px;color:#9ca3af;font-size:12px}
+</style></head><body>
+<div class="container">
+<h1>Welcome to NearMe! 👋</h1>
+<p>Thank you for signing up. Click the button below to verify your email address.</p>
+<a class="btn" href="${verificationLink}">Verify Email Address</a>
+<p style="font-size:12px;color:#9ca3af">This link expires in 1 hour. If you didn't sign up for NearMe, you can safely ignore this email.</p>
+<div class="footer"><p>NearMe &copy; 2026 | All rights reserved</p></div>
+</div></body></html>`,
+          }),
+        });
+
+        const resendData = await response.json();
+        if (!response.ok) {
+          throw new Error(resendData.message || "Resend API error");
+        }
+
+        console.log(`📧 Email sent via Resend to ${email}`);
+
+        return res.status(201).json({
+          message:
+            "Signup successful! Please check your email to verify your account.",
+          userId: authData.user.id,
+          emailSent: true,
+        });
+      } catch (emailError) {
+        console.error("Resend email failed:", emailError.message);
+        return res.status(500).json({
+          message: "Failed to send verification email. Please try again.",
+        });
+      }
+    }
+
+    // Fallback if RESEND_API_KEY not set — return token for manual testing
+    console.log(
+      "⚠️  RESEND_API_KEY not set. Email not sent. For testing, use this token manually.",
+    );
+
     res.status(201).json({
       message:
         "Signup successful! Please check your email to verify your account.",
       userId: authData.user.id,
-      emailSent: true,
+      emailSent: false,
+      testVerificationLink: verificationLink, // For testing/development only
     });
   } catch (error) {
     console.error("Signup error:", error.message);
@@ -996,134 +1063,11 @@ ${btnHtml}
 
 /**
  * GET /auth/email-verified
- * Supabase redirects here after user clicks the verification link in their email.
- * Supabase appends tokens as a URL hash fragment: #access_token=...&type=signup
- * OR returns errors: #error=access_denied&error_code=otp_expired...
- *
- * Since hash fragments are NOT sent to the server, we serve a lightweight HTML page
- * whose JavaScript extracts the access_token or error, calls POST /auth/verify-token,
- * and shows a success/failure UI.
+ * Legacy endpoint — no longer used.
+ * Verification now happens via /auth/confirm-email (JWT-based)
  */
 router.get("/email-verified", (req, res) => {
-  // HARDCODED frontend URLs — don't depend on env vars which may not be properly configured
-  const frontendUrl = "https://meezo-eta.vercel.app";
-  const backendUrl = "https://meezo-backend-d3gw.onrender.com";
-
-  res.setHeader("Content-Type", "text/html");
-  res.send(`<!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>NearMe – Verifying Email…</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
-     min-height:100vh;display:flex;align-items:center;justify-content:center;
-     background:linear-gradient(135deg,#f0fdf4,#fff,#ecfdf5);padding:16px}
-.card{max-width:400px;width:100%;background:#fff;border-radius:24px;
-      padding:32px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.08);
-      border:1px solid #d1fae5}
-.icon{width:80px;height:80px;border-radius:50%;display:flex;align-items:center;
-      justify-content:center;margin:0 auto 20px;font-size:40px;color:#fff}
-.icon-loading{background:linear-gradient(135deg,#3b82f6,#2563eb);animation:pulse 1.5s infinite}
-.icon-success{background:linear-gradient(135deg,#22c55e,#16a34a)}
-.icon-error{background:linear-gradient(135deg,#ef4444,#dc2626)}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
-h2{font-size:24px;font-weight:800;color:#111827;margin-bottom:8px}
-p{color:#6b7280;font-size:14px;line-height:1.5;margin-bottom:16px}
-.debug{font-size:12px;color:#9ca3af;margin-top:12px;padding-top:12px;border-top:1px solid #e5e7eb;font-family:monospace;word-break:break-all}
-.btn{display:block;width:100%;padding:14px;border:none;border-radius:14px;
-     font-size:16px;font-weight:700;cursor:pointer;text-decoration:none;
-     text-align:center;transition:all .2s;margin-top:10px}
-.btn-green{background:linear-gradient(to right,#22c55e,#10b981);color:#fff}
-.btn-green:hover{opacity:.9;transform:scale(1.02)}
-.btn-gray{background:#f3f4f6;color:#374151}
-.btn-gray:hover{background:#e5e7eb}
-.hidden{display:none}
-</style></head><body>
-<div class="card">
-  <div id="loading">
-    <div class="icon icon-loading">⏳</div>
-    <h2>Verifying your email…</h2>
-    <p>Please wait a moment.</p>
-  </div>
-  <div id="success" class="hidden">
-    <div class="icon icon-success">✓</div>
-    <h2>Email Verified!</h2>
-    <p>Your email has been confirmed successfully. You can now login to NearMe.</p>
-    <a class="btn btn-green" href="${frontendUrl}/login">Open NearMe →</a>
-  </div>
-  <div id="error" class="hidden">
-    <div class="icon icon-error">✕</div>
-    <h2 id="errTitle">Verification Failed</h2>
-    <p id="errMsg">Something went wrong during verification.</p>
-    <div id="debugInfo" class="debug"></div>
-    <a class="btn btn-green" href="${frontendUrl}/signup">Back to Signup</a>
-    <a class="btn btn-gray" href="${frontendUrl}/login">Go to Login</a>
-  </div>
-</div>
-<script>
-(function(){
-  var hash = window.location.hash.substring(1);
-  if(!hash){
-    showError("Invalid Link","No verification data found. Please use the link from your email.");
-    return;
-  }
-  
-  var params = new URLSearchParams(hash);
-  
-  // Check for Supabase error first
-  var supabaseError = params.get("error");
-  var errorCode = params.get("error_code");
-  var errorDesc = params.get("error_description");
-  
-  if(supabaseError || errorCode){
-    var msg = errorDesc ? decodeURIComponent(errorDesc) : "Link is invalid or has expired";
-    if(errorCode === "otp_expired"){
-      msg = "Your verification link has expired. This can happen if you wait too long to click the link or if there's a configuration issue.\\n\\nPossible fixes:\\n" +
-            "1. Check that Supabase Site URL is set to: https://meezo-backend-d3gw.onrender.com/auth/email-verified\\n" +
-            "2. Make sure Supabase has your recovery email configured\\n" +
-            "3. Try signing up again to get a fresh verification email";
-    }
-    showError("Verification Error (" + errorCode + ")", msg);
-    return;
-  }
-  
-  var accessToken = params.get("access_token");
-  if(!accessToken){
-    showError("Invalid Link","No access token found in verification link. Please check your email for the correct link.");
-    return;
-  }
-  
-  // Call our backend to verify the token and create public.users record
-  fetch("${backendUrl}/auth/verify-token",{
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({token:accessToken})
-  })
-  .then(function(r){return r.json().then(function(d){return{ok:r.ok,status:r.status,data:d}})})
-  .then(function(res){
-    if(res.ok && res.data.emailConfirmed){
-      document.getElementById("loading").classList.add("hidden");
-      document.getElementById("success").classList.remove("hidden");
-    } else {
-      showError("Verification Failed", res.data.message || "Could not verify your email. Please try again.", "Status: " + res.status);
-    }
-  })
-  .catch(function(err){
-    showError("Verification Failed","Network error: " + err.message, "Please check your connection and try again.");
-  });
-  
-  function showError(title, msg, debug){
-    document.getElementById("loading").classList.add("hidden");
-    document.getElementById("errTitle").textContent = title;
-    document.getElementById("errMsg").textContent = msg;
-    if(debug){
-      document.getElementById("debugInfo").textContent = debug;
-    }
-    document.getElementById("error").classList.remove("hidden");
-  }
-})();
-</script>
-</body></html>`);
+  res.redirect("https://meezo-eta.vercel.app/signup");
 });
 
 export default router;
