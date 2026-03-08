@@ -18,10 +18,10 @@ if (smtpConfigured) {
   transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST,
     port: smtpPort,
-    secure: smtpPort === 465,     // true for 465 (SSL), false for 587 (STARTTLS)
-    connectionTimeout: 10000,     // 10s to connect
-    greetingTimeout: 10000,       // 10s for SMTP greeting
-    socketTimeout: 15000,         // 15s for socket inactivity
+    secure: smtpPort === 465, // true for 465 (SSL), false for 587 (STARTTLS)
+    connectionTimeout: 10000, // 10s to connect
+    greetingTimeout: 10000, // 10s for SMTP greeting
+    socketTimeout: 15000, // 15s for socket inactivity
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
@@ -31,7 +31,9 @@ if (smtpConfigured) {
   // Verify SMTP on startup (non-blocking)
   transporter
     .verify()
-    .then(() => console.log("\u2705 SMTP transporter verified — emails will be sent"))
+    .then(() =>
+      console.log("\u2705 SMTP transporter verified — emails will be sent"),
+    )
     .catch((err) =>
       console.error("\u274c SMTP verification failed:", err.message),
     );
