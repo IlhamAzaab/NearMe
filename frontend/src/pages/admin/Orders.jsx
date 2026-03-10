@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { API_URL } from "../../config";
 import supabaseClient from "../../supabaseClient";
 import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
@@ -7,6 +7,7 @@ import AdminLayout from "../../components/AdminLayout";
 
 export default function Orders() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setRawError] = useState(null);
@@ -25,7 +26,7 @@ export default function Orders() {
     setRawActionError(msg);
     if (msg) showError(msg);
   };
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState(searchParams.get("status") || "all");
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [counts, setCounts] = useState({
     all: 0,
@@ -223,6 +224,15 @@ export default function Orders() {
       statusSubscription.unsubscribe();
     };
   }, []);
+
+  // Auto-select order from URL params (from dashboard navigation)
+  useEffect(() => {
+    const orderId = searchParams.get("orderId");
+    if (orderId && orders.length > 0 && !selectedOrder) {
+      const target = orders.find((o) => o.id === orderId);
+      if (target) setSelectedOrder(target);
+    }
+  }, [orders, searchParams, selectedOrder]);
 
   const filteredOrders = orders.filter((order) => {
     const deliveryStatus = getDeliveryStatus(order);

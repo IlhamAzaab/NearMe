@@ -511,14 +511,21 @@ router.get("/dashboard-stats", authenticate, async (req, res) => {
     const ordersChange = calcChange(todayOrders, yesterdayOrders);
     const avgChange = calcChange(todayAvg, yesterdayAvg);
 
-    // --- Lifetime totals (all time, using admin earnings) ---
-    let lifetimeRevenue = 0,
-      lifetimeOrders = 0;
-    const lifetimeQ = buildQuery("restaurant_payment");
-    if (lifetimeQ) {
-      const { data: lifetimeData } = await lifetimeQ;
-      lifetimeOrders = lifetimeData?.length || 0;
-      lifetimeRevenue = (lifetimeData || []).reduce(
+    // --- Last 30 days totals (using admin earnings) ---
+    const thirtyDaysAgo = new Date(now);
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    thirtyDaysAgo.setHours(0, 0, 0, 0);
+
+    let last30Revenue = 0,
+      last30Orders = 0;
+    const last30Q = buildQuery("restaurant_payment");
+    if (last30Q) {
+      const { data: last30Data } = await last30Q.gte(
+        "placed_at",
+        thirtyDaysAgo.toISOString(),
+      );
+      last30Orders = last30Data?.length || 0;
+      last30Revenue = (last30Data || []).reduce(
         (s, o) => s + parseFloat(o.restaurant_payment || 0),
         0,
       );
@@ -624,8 +631,8 @@ router.get("/dashboard-stats", authenticate, async (req, res) => {
         avgChange,
       },
       lifetime: {
-        totalRevenue: Math.round(lifetimeRevenue),
-        totalOrders: lifetimeOrders,
+        totalRevenue: Math.round(last30Revenue),
+        totalOrders: last30Orders,
       },
       products: {
         total: totalProducts || 0,
@@ -680,6 +687,17 @@ router.get("/orders", authenticate, async (req, res) => {
       .select("order_id, food_name, quantity")
       .in("order_id", orderIds);
 
+    // Get delivery statuses for each order
+    const { data: deliveries } = await supabaseAdmin
+      .from("deliveries")
+      .select("order_id, status")
+      .in("order_id", orderIds);
+
+    const deliveryStatusByOrder = (deliveries || []).reduce((acc, d) => {
+      acc[d.order_id] = d.status;
+      return acc;
+    }, {});
+
     // Group items by order_id
     const itemsByOrder = (orderItems || []).reduce((acc, item) => {
       if (!acc[item.order_id]) acc[item.order_id] = [];
@@ -698,6 +716,7 @@ router.get("/orders", authenticate, async (req, res) => {
           .join(", ") || "No items",
       amount: parseFloat(o.restaurant_payment || 0),
       status: o.status,
+      delivery_status: deliveryStatusByOrder[o.order_id] || null,
       time: new Date(o.placed_at).toLocaleString("en-US", {
         month: "short",
         day: "numeric",

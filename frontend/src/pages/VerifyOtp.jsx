@@ -108,7 +108,7 @@ export default function VerifyOtp() {
 
       // Redirect after animation completes
       setTimeout(() => {
-        navigate("/home");
+        navigate("/");
       }, 3000);
     } catch (err) {
       setError("Network error. Please try again.");
