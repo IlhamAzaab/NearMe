@@ -1297,4 +1297,42 @@ router.get("/check-email-verified", async (req, res) => {
   }
 });
 
+/**
+ * GET /auth/email-verified
+ * Supabase Site URL redirect target.
+ * After Supabase confirms the email, it redirects here.
+ * We serve a success HTML page with a "Go to Login" button.
+ */
+router.get("/email-verified", (req, res) => {
+  const frontendUrl = "https://meezo-eta.vercel.app";
+  res.setHeader("Content-Type", "text/html");
+  res.send(`<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>NearMe – Email Verified!</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+     min-height:100vh;display:flex;align-items:center;justify-content:center;
+     background:linear-gradient(135deg,#f0fdf4,#fff,#ecfdf5);padding:16px}
+.card{max-width:400px;width:100%;background:#fff;border-radius:24px;
+      padding:32px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.08);
+      border:1px solid #d1fae5}
+.icon{width:80px;height:80px;border-radius:50%;display:flex;align-items:center;
+      justify-content:center;margin:0 auto 20px;font-size:40px;color:#fff;
+      background:linear-gradient(135deg,#22c55e,#16a34a)}
+h2{font-size:24px;font-weight:800;color:#111827;margin-bottom:8px}
+p{color:#6b7280;font-size:14px;line-height:1.5;margin-bottom:16px}
+.btn{display:block;width:100%;padding:14px;border:none;border-radius:14px;
+     font-size:16px;font-weight:700;cursor:pointer;text-decoration:none;
+     text-align:center;transition:all .2s;margin-top:10px;
+     background:linear-gradient(to right,#22c55e,#10b981);color:#fff}
+.btn:hover{opacity:.9;transform:scale(1.02)}
+</style></head><body><div class="card">
+<div class="icon">✓</div>
+<h2>Email Verified!</h2>
+<p>Your email has been confirmed successfully. You can now login to your account.</p>
+<a class="btn" href="${frontendUrl}/login">Go to Login</a>
+</div></body></html>`);
+});
+
 export default router;

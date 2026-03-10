@@ -184,8 +184,16 @@ const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   // Skip CORS preflight requests — browsers send OPTIONS before POST,
-  // which would double-count each login attempt
-  skip: (req) => req.method === "OPTIONS",
+  // which would double-count each login attempt.
+  // Also skip GET requests for email verification links (clicked from email,
+  // not login attempts) and polling endpoints.
+  skip: (req) => {
+    if (req.method === "OPTIONS") return true;
+    if (req.method === "GET" && ["/confirm-email", "/email-verified", "/check-email-verified"].some(
+      (p) => req.path === p || req.path.startsWith(p + "?")
+    )) return true;
+    return false;
+  },
   message: {
     message: "Too many login attempts, please try again after 15 minutes",
   },
