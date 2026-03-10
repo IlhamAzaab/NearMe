@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { API_URL } from "../../config";
 import supabaseClient from "../../supabaseClient";
@@ -226,13 +226,19 @@ export default function Orders() {
   }, []);
 
   // Auto-select order from URL params (from dashboard navigation)
+  // Use a ref so this only fires once — prevents modal reopening after user closes it
+  const autoOpenedRef = useRef(false);
   useEffect(() => {
+    if (autoOpenedRef.current) return;
     const orderId = searchParams.get("orderId");
-    if (orderId && orders.length > 0 && !selectedOrder) {
+    if (orderId && orders.length > 0) {
       const target = orders.find((o) => o.id === orderId);
-      if (target) setSelectedOrder(target);
+      if (target) {
+        setSelectedOrder(target);
+        autoOpenedRef.current = true;
+      }
     }
-  }, [orders, searchParams, selectedOrder]);
+  }, [orders]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const filteredOrders = orders.filter((order) => {
     const deliveryStatus = getDeliveryStatus(order);
@@ -966,7 +972,15 @@ export default function Orders() {
       {selectedOrder && (
         <OrderDetailsModal
           order={selectedOrder}
-          onClose={() => setSelectedOrder(null)}
+          onClose={() => {
+            setSelectedOrder(null);
+            // Clear orderId from URL so auto-open ref reset works on next navigation
+            const params = new URLSearchParams(searchParams);
+            if (params.has("orderId")) {
+              params.delete("orderId");
+              navigate(`/admin/orders${params.toString() ? `?${params}` : ""}`, { replace: true });
+            }
+          }}
           getStatusConfig={getStatusConfig}
           getDeliveryStatus={getDeliveryStatus}
           getDriver={getDriver}
@@ -1038,11 +1052,21 @@ function OrderDetailsModal({
                 {formatDateTime(order.placed_at || order.created_at)}
               </p>
             </div>
-            <span
-              className={`px-3 py-1 rounded-full ${statusConfig.bg} ${statusConfig.text} text-xs font-bold uppercase`}
-            >
-              {statusConfig.label}
-            </span>
+            <div className="flex items-center gap-2">
+              <span
+                className={`px-3 py-1 rounded-full ${statusConfig.bg} ${statusConfig.text} text-xs font-bold uppercase`}
+              >
+                {statusConfig.label}
+              </span>
+              <button
+                onClick={onClose}
+                className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-colors"
+              >
+                <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
 

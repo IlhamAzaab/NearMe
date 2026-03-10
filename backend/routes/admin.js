@@ -516,6 +516,11 @@ router.get("/dashboard-stats", authenticate, async (req, res) => {
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     thirtyDaysAgo.setHours(0, 0, 0, 0);
 
+    // --- Previous 30 days (days 31-60) for comparison ---
+    const sixtyDaysAgo = new Date(now);
+    sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+    sixtyDaysAgo.setHours(0, 0, 0, 0);
+
     let last30Revenue = 0,
       last30Orders = 0;
     const last30Q = buildQuery("restaurant_payment");
@@ -530,6 +535,25 @@ router.get("/dashboard-stats", authenticate, async (req, res) => {
         0,
       );
     }
+
+    let prev30Revenue = 0;
+    const prev30Q = buildQuery("restaurant_payment");
+    if (prev30Q) {
+      const { data: prev30Data } = await prev30Q
+        .gte("placed_at", sixtyDaysAgo.toISOString())
+        .lt("placed_at", thirtyDaysAgo.toISOString());
+      prev30Revenue = (prev30Data || []).reduce(
+        (s, o) => s + parseFloat(o.restaurant_payment || 0),
+        0,
+      );
+    }
+
+    const last30Change =
+      prev30Revenue === 0
+        ? last30Revenue > 0
+          ? 100
+          : 0
+        : Math.round(((last30Revenue - prev30Revenue) / prev30Revenue) * 1000) / 10;
 
     // --- Products info ---
     const { count: totalProducts } = await supabaseAdmin
@@ -633,6 +657,7 @@ router.get("/dashboard-stats", authenticate, async (req, res) => {
       lifetime: {
         totalRevenue: Math.round(last30Revenue),
         totalOrders: last30Orders,
+        revenueChange: last30Change,
       },
       products: {
         total: totalProducts || 0,

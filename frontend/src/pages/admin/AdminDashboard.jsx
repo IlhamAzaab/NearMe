@@ -182,252 +182,249 @@ export default function AdminDashboard() {
   if (loading) {
     return (
       <AdminLayout>
-        <div className="space-y-4">
-          <div className="animate-pulse flex items-center gap-3">
-            <div className="w-12 h-12 bg-gray-100 rounded-xl" />
-            <div className="space-y-2">
-              <div className="h-6 w-44 bg-gray-100 rounded" />
-              <div className="h-3 w-28 bg-gray-100 rounded" />
+        <div className="space-y-3">
+          <div className="bg-white rounded-2xl border border-gray-100 p-4 animate-pulse">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-gray-100 rounded-xl" />
+                <div className="space-y-2">
+                  <div className="h-4 w-32 bg-gray-100 rounded" />
+                  <div className="h-3 w-24 bg-gray-100 rounded" />
+                </div>
+              </div>
+              <div className="w-8 h-8 bg-gray-100 rounded-full" />
+            </div>
+            <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between">
+              <div className="h-4 w-28 bg-gray-100 rounded" />
+              <div className="w-12 h-6 bg-gray-100 rounded-full" />
             </div>
           </div>
+          <div className="h-32 bg-gray-100 rounded-2xl animate-pulse" />
           <div className="grid grid-cols-2 gap-3">
             {[...Array(2)].map((_, i) => (
-              <div key={i} className="bg-white rounded-xl p-4 border border-gray-100 animate-pulse">
-                <div className="h-3 w-20 bg-gray-100 rounded mb-3" />
-                <div className="h-7 w-24 bg-gray-100 rounded mb-1" />
-                <div className="h-3 w-16 bg-gray-100 rounded" />
-              </div>
+              <div key={i} className="bg-white rounded-2xl p-4 border border-gray-100 animate-pulse h-28" />
             ))}
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            {[...Array(2)].map((_, i) => (
-              <div key={i} className="h-24 bg-gray-100 rounded-xl animate-pulse" />
-            ))}
-          </div>
-          <div className="bg-white rounded-xl p-4 border border-gray-100 animate-pulse">
+          <div className="bg-white rounded-2xl p-4 border border-gray-100 animate-pulse h-28" />
+          <div className="bg-white rounded-2xl p-4 border border-gray-100 animate-pulse">
             <div className="h-4 w-36 bg-gray-100 rounded mb-4" />
-            <div className="h-56 bg-gray-50 rounded-lg" />
+            <div className="h-56 bg-gray-50 rounded-xl" />
           </div>
         </div>
       </AdminLayout>
     );
   }
 
+  const revenueChange = dashboardData?.lifetime?.revenueChange;
+
   return (
     <AdminLayout>
       <div
         className={`transition-all duration-500 ease-in-out ${slideIn ? "translate-x-0 opacity-100" : "translate-x-full opacity-0"}`}
       >
-        <div className="space-y-4">
-          {/* ═══════════ Block 1: Restaurant Header ═══════════ */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 animate-slideDown">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div className="space-y-3">
+
+          {/* ═══════════ Block 1: Restaurant Header + Store Status ═══════════ */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 animate-slideDown">
+            {/* Top: Logo + Name + Bell */}
+            <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 {restaurant?.logo_url ? (
                   <img
                     src={restaurant.logo_url}
                     alt={restaurant.restaurant_name}
-                    className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl object-cover shadow-sm border border-gray-200"
+                    className="w-12 h-12 rounded-xl object-cover border border-gray-100"
                   />
                 ) : (
-                  <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center text-white text-xl font-bold shadow-sm" style={{ background: "linear-gradient(135deg, #06C168, #05a85a)" }}>
-                    {restaurant?.restaurant_name?.charAt(0) || "R"}
+                  <div
+                    className="w-12 h-12 rounded-xl flex items-center justify-center"
+                    style={{ background: "#06C168" }}
+                  >
+                    <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+                    </svg>
                   </div>
                 )}
                 <div>
-                  <h1 className="text-xl sm:text-2xl font-bold text-gray-900">
-                    {restaurant?.restaurant_name || "Dashboard"}
+                  <h1 className="text-base font-bold text-gray-900 leading-tight">
+                    {restaurant?.restaurant_name || "Restaurant"}
                   </h1>
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    {new Date().toLocaleDateString("en-IN", {
-                      weekday: "long",
-                      day: "numeric",
-                      month: "short",
-                      year: "numeric",
-                    })}
-                  </p>
+                  <span className="text-xs font-bold" style={{ color: "#06C168" }}>PREMIUM PARTNER</span>
                 </div>
               </div>
+              {/* Bell icon */}
+              <div className="relative">
+                <div className="w-10 h-10 rounded-full bg-gray-50 border border-gray-100 flex items-center justify-center">
+                  <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                  </svg>
+                </div>
+                <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500"></span>
+              </div>
+            </div>
 
+            {/* Divider + Store Status */}
+            <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold text-gray-800">Store Status</p>
+                <p className="text-xs mt-0.5 font-medium" style={{ color: restaurant?.is_open ? "#06C168" : "#ef4444" }}>
+                  {restaurant?.is_open ? "Currently accepting orders" : "Currently closed"}
+                </p>
+              </div>
               <button
                 onClick={toggleRestaurantOpen}
                 disabled={toggling}
-                className={`flex items-center gap-2.5 px-4 py-2 rounded-xl border transition-all duration-300 ${
-                  restaurant?.is_open
-                    ? "border-emerald-200 bg-emerald-50 hover:bg-emerald-100"
-                    : "border-red-200 bg-red-50 hover:bg-red-100"
-                }`}
+                className="relative w-12 h-6 rounded-full transition-colors duration-300 shrink-0"
+                style={{ background: restaurant?.is_open ? "#06C168" : "#d1d5db" }}
               >
                 <div
-                  className={`relative w-10 h-5 rounded-full transition-colors duration-300 ${
-                    restaurant?.is_open ? "bg-[#06C168]" : "bg-red-400"
-                  }`}
-                >
-                  <div
-                    className={`absolute top-[2px] left-[2px] w-4 h-4 bg-white rounded-full shadow transition-transform duration-300 ${
-                      restaurant?.is_open ? "translate-x-5" : "translate-x-0"
-                    }`}
-                  />
-                </div>
-                <span className={`text-sm font-semibold ${restaurant?.is_open ? "text-[#06C168]" : "text-red-500"}`}>
-                  {restaurant?.is_open ? "Open" : "Closed"}
-                </span>
-                {restaurant?.is_manually_overridden && (
-                  <span className="text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full font-medium">
-                    Manual
-                  </span>
-                )}
+                  className={`absolute top-[3px] left-[3px] w-4.5 h-4.5 bg-white rounded-full shadow transition-transform duration-300 ${restaurant?.is_open ? "translate-x-6" : "translate-x-0"}`}
+                />
               </button>
             </div>
           </div>
 
-          {/* ═══════════ Block 2: Today's Performance ═══════════ */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 animate-fadeInUp">
-            <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center gap-2">
-              <span className="w-0.5 h-4 rounded-full" style={{ background: "#06C168" }}></span>
-              Today's Performance
-            </h3>
-
-            {/* Sales + Orders in same row */}
-            <div className="grid grid-cols-2 gap-3">
-              {/* Today Sales */}
-              <div className="bg-gray-50 rounded-lg p-3">
-                <div className="flex items-center gap-2 mb-1.5">
-                  <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: "rgba(6,193,104,0.1)" }}>
-                    <svg className="w-4 h-4" style={{ color: "#06C168" }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  </div>
-                  <p className="text-[11px] text-gray-500 font-medium uppercase tracking-wide">Today Sales</p>
-                </div>
-                <p className="text-xl font-bold" style={{ color: "#06C168" }}>
-                  {formatCurrency(dashboardData?.today?.sales)}
-                </p>
-                <div className="mt-1">
-                  <ChangeIndicator value={dashboardData?.changes?.salesChange} />
-                </div>
-              </div>
-
-              {/* Today Orders */}
-              <div className="bg-gray-50 rounded-lg p-3">
-                <div className="flex items-center gap-2 mb-1.5">
-                  <div className="w-7 h-7 rounded-lg bg-blue-50 flex items-center justify-center">
-                    <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
-                    </svg>
-                  </div>
-                  <p className="text-[11px] text-gray-500 font-medium uppercase tracking-wide">Today Orders</p>
-                </div>
-                <p className="text-xl font-bold text-blue-600">
-                  {dashboardData?.today?.orders || 0}
-                </p>
-                <div className="mt-1">
-                  <ChangeIndicator value={dashboardData?.changes?.ordersChange} />
-                </div>
-              </div>
+          {/* ═══════════ Block 2: 30-Day Revenue (full-width green card) ═══════════ */}
+          <div
+            className="relative rounded-2xl overflow-hidden p-5 shadow-md animate-fadeInUp"
+            style={{ background: "linear-gradient(135deg, #06C168 0%, #04a857 60%, #038848 100%)", animationDelay: "0.1s" }}
+          >
+            {/* Faded background icon */}
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 opacity-[0.12] pointer-events-none">
+              <svg className="w-32 h-32 text-white" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z" />
+              </svg>
             </div>
+            <p className="text-white/80 text-xs font-semibold mb-1">30-Day Revenue</p>
+            <p className="text-white text-3xl font-bold mb-4">
+              {formatCurrency(dashboardData?.lifetime?.totalRevenue)}
+            </p>
+            <div className="inline-flex items-center gap-1.5 bg-white/20 rounded-full px-3.5 py-1.5">
+              <span className="text-white text-xs font-semibold">
+                {revenueChange === undefined || revenueChange === null
+                  ? "↗ No comparison data"
+                  : revenueChange === 0
+                  ? "→ Same as last 30 days"
+                  : revenueChange > 0
+                  ? `↗ Performance is up by ${Math.abs(revenueChange)}%`
+                  : `↘ Performance is down by ${Math.abs(revenueChange)}%`}
+              </span>
+            </div>
+          </div>
 
-            {/* Avg Order Value — small row below */}
-            <div className="mt-2 bg-purple-50/50 rounded-lg px-3 py-2 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded-md bg-purple-100 flex items-center justify-center">
-                  <svg className="w-3.5 h-3.5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+          {/* ═══════════ Block 3: Today Sales + Today Orders (side by side) ═══════════ */}
+          <div className="grid grid-cols-2 gap-3">
+            {/* Today Sales */}
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 animate-fadeInUp" style={{ animationDelay: "0.15s" }}>
+              <div className="flex items-center justify-between mb-3">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: "rgba(6,193,104,0.12)" }}>
+                  <svg className="w-5 h-5" style={{ color: "#06C168" }} viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z" />
                   </svg>
                 </div>
-                <span className="text-xs text-gray-500 font-medium">Avg Order Value</span>
+                <span
+                  className="text-xs font-bold px-2 py-0.5 rounded-full"
+                  style={{
+                    background: (dashboardData?.changes?.salesChange ?? 0) >= 0 ? "rgba(6,193,104,0.12)" : "rgba(239,68,68,0.1)",
+                    color: (dashboardData?.changes?.salesChange ?? 0) >= 0 ? "#06C168" : "#ef4444",
+                  }}
+                >
+                  {(dashboardData?.changes?.salesChange ?? 0) >= 0 ? "+" : ""}{dashboardData?.changes?.salesChange ?? 0}%
+                </span>
               </div>
-              <div className="flex items-center gap-3">
-                <span className="text-sm font-bold text-purple-600">{formatCurrency(dashboardData?.today?.avgOrderValue)}</span>
-                <ChangeIndicator value={dashboardData?.changes?.avgChange} />
+              <p className="text-xs text-gray-500 font-medium mb-1">Today's Sales</p>
+              <p className="text-xl font-bold text-gray-900">{formatCurrency(dashboardData?.today?.sales)}</p>
+            </div>
+
+            {/* Today Orders */}
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 animate-fadeInUp" style={{ animationDelay: "0.2s" }}>
+              <div className="flex items-center justify-between mb-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
+                  <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+                  </svg>
+                </div>
+                <span
+                  className="text-xs font-bold px-2 py-0.5 rounded-full"
+                  style={{
+                    background: (dashboardData?.changes?.ordersChange ?? 0) >= 0 ? "rgba(59,130,246,0.1)" : "rgba(239,68,68,0.1)",
+                    color: (dashboardData?.changes?.ordersChange ?? 0) >= 0 ? "#3b82f6" : "#ef4444",
+                  }}
+                >
+                  {(dashboardData?.changes?.ordersChange ?? 0) >= 0 ? "+" : ""}{dashboardData?.changes?.ordersChange ?? 0}%
+                </span>
               </div>
+              <p className="text-xs text-gray-500 font-medium mb-1">Today's Orders</p>
+              <p className="text-xl font-bold text-gray-900">{dashboardData?.today?.orders || 0}</p>
             </div>
           </div>
 
-          {/* ═══════════ Block 3: Last 30 Days Performance ═══════════ */}
-          <div className="grid grid-cols-2 gap-3">
-            <div
-              className="text-white rounded-xl p-4 shadow-md hover:shadow-lg transition-all duration-300 animate-fadeInUp"
-              style={{ background: "linear-gradient(135deg, #06C168, #05a85a, #048a4a)", animationDelay: "0.15s" }}
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-wider opacity-90">
-                    Revenue
-                  </p>
-                  <p className="text-2xl sm:text-3xl font-bold mt-1">
-                    {formatCurrency(dashboardData?.lifetime?.totalRevenue)}
-                  </p>
-                  <p className="text-[10px] opacity-75 mt-1">Last 30 days</p>
-                </div>
-                <div className="text-3xl opacity-70">💰</div>
+          {/* Avg Order Value strip */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 px-4 py-3 flex items-center justify-between animate-fadeInUp" style={{ animationDelay: "0.25s" }}>
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-purple-50 flex items-center justify-center">
+                <svg className="w-5 h-5 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 font-medium">Avg Order Value</p>
+                <p className="text-base font-bold text-gray-900">{formatCurrency(dashboardData?.today?.avgOrderValue)}</p>
               </div>
             </div>
-            <div
-              className="bg-gradient-to-br from-blue-500 via-blue-600 to-blue-700 text-white rounded-xl p-4 shadow-md hover:shadow-lg transition-all duration-300 animate-fadeInUp"
-              style={{ animationDelay: "0.2s" }}
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-wider opacity-90">
-                    Orders
-                  </p>
-                  <p className="text-2xl sm:text-3xl font-bold mt-1">
-                    {(dashboardData?.lifetime?.totalOrders || 0).toLocaleString()}
-                  </p>
-                  <p className="text-[10px] opacity-75 mt-1">Last 30 days</p>
-                </div>
-                <div className="text-3xl opacity-70">📦</div>
-              </div>
+            <ChangeIndicator value={dashboardData?.changes?.avgChange} />
+          </div>
+
+          {/* ═══════════ Block 4: 30-Day Orders + Menu Overview ═══════════ */}
+          {/* 30-Day Orders count */}
+          <div
+            className="relative rounded-2xl overflow-hidden px-5 py-4 shadow-sm border border-blue-100 bg-blue-50 flex items-center justify-between animate-fadeInUp"
+            style={{ animationDelay: "0.3s" }}
+          >
+            <div>
+              <p className="text-xs text-blue-600 font-semibold mb-0.5">30-Day Orders</p>
+              <p className="text-2xl font-bold text-blue-700">{(dashboardData?.lifetime?.totalOrders || 0).toLocaleString()}</p>
+            </div>
+            <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center">
+              <svg className="w-6 h-6 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+              </svg>
             </div>
           </div>
 
-          {/* ═══════════ Block 4: Products Info — Same Row ═══════════ */}
-          <div className="grid grid-cols-2 gap-3">
-            <div
-              className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-all duration-300 animate-fadeInUp"
-              style={{ animationDelay: "0.25s" }}
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide">
-                    Total Products
-                  </p>
-                  <p className="text-2xl font-bold text-orange-600 mt-1">
-                    {dashboardData?.products?.total || 0}
-                  </p>
-                  <p className="text-[10px] text-gray-400 mt-0.5">All menu items</p>
-                </div>
-                <div className="w-10 h-10 rounded-lg bg-orange-50 flex items-center justify-center text-xl">
-                  🍽️
-                </div>
+          {/* Menu Overview */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 animate-fadeInUp" style={{ animationDelay: "0.35s" }}>
+            <div className="flex items-center gap-2.5 mb-4">
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: "#06C168" }}>
+                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+                </svg>
               </div>
+              <h3 className="text-sm font-bold text-gray-900">Menu Overview</h3>
             </div>
-            <div
-              className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-all duration-300 animate-fadeInUp"
-              style={{ animationDelay: "0.3s" }}
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide">
-                    Available
-                  </p>
-                  <p className="text-2xl font-bold mt-1" style={{ color: "#06C168" }}>
-                    {dashboardData?.products?.available || 0}
-                  </p>
-                  <p className="text-[10px] text-gray-400 mt-0.5">Currently active</p>
+            <div className="bg-gray-50 rounded-xl overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3">
+                <div className="flex items-center gap-2.5">
+                  <span className="w-2.5 h-2.5 rounded-full" style={{ background: "#06C168" }}></span>
+                  <span className="text-sm text-gray-700">Total Products</span>
                 </div>
-                <div className="w-10 h-10 rounded-lg flex items-center justify-center text-xl" style={{ background: "rgba(6,193,104,0.08)" }}>
-                  ✅
+                <span className="text-sm font-bold text-gray-900">{dashboardData?.products?.total || 0}</span>
+              </div>
+              <div className="border-t border-gray-100"></div>
+              <div className="flex items-center justify-between px-4 py-3">
+                <div className="flex items-center gap-2.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-blue-400"></span>
+                  <span className="text-sm text-gray-700">Available Items</span>
                 </div>
+                <span className="text-sm font-bold text-gray-900">{dashboardData?.products?.available || 0}</span>
               </div>
             </div>
           </div>
 
           {/* ═══════════ Block 5: Sales Performance Chart ═══════════ */}
           <div
-            className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 animate-fadeInUp"
-            style={{ animationDelay: "0.35s" }}
+            className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 animate-fadeInUp"
+            style={{ animationDelay: "0.4s" }}
           >
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 gap-2">
               <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
@@ -519,8 +516,8 @@ export default function AdminDashboard() {
 
           {/* ═══════════ Block 6: Recent Orders ═══════════ */}
           <div
-            className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 animate-fadeInUp"
-            style={{ animationDelay: "0.4s" }}
+            className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 animate-fadeInUp"
+            style={{ animationDelay: "0.45s" }}
           >
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
