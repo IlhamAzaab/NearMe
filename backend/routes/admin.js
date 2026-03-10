@@ -553,7 +553,8 @@ router.get("/dashboard-stats", authenticate, async (req, res) => {
         ? last30Revenue > 0
           ? 100
           : 0
-        : Math.round(((last30Revenue - prev30Revenue) / prev30Revenue) * 1000) / 10;
+        : Math.round(((last30Revenue - prev30Revenue) / prev30Revenue) * 1000) /
+          10;
 
     // --- Products info ---
     const { count: totalProducts } = await supabaseAdmin
@@ -840,7 +841,7 @@ router.get("/foods", authenticate, async (req, res) => {
     const { data: foods, error } = await supabaseAdmin
       .from("foods")
       .select(
-        "id, name, description, image_url, is_available, available_time, regular_size, regular_portion, regular_price, offer_price, extra_size, extra_portion, extra_price, stars, created_at",
+        "id, name, description, image_url, is_available, available_time, regular_size, regular_portion, regular_price, offer_price, extra_size, extra_portion, extra_price, extra_offer_price, stars, created_at",
       )
       .eq("restaurant_id", admin.restaurant_id)
       .order("created_at", { ascending: false });
@@ -890,6 +891,7 @@ router.post("/foods", authenticate, async (req, res) => {
       extra_size,
       extra_portion,
       extra_price,
+      extra_offer_price,
     } = req.body || {};
 
     // Validate required fields
@@ -919,6 +921,9 @@ router.post("/foods", authenticate, async (req, res) => {
         extra_size: extra_size?.trim() || null,
         extra_portion: extra_portion?.trim() || null,
         extra_price: extra_price ? parseFloat(extra_price) : null,
+        extra_offer_price: extra_offer_price
+          ? parseFloat(extra_offer_price)
+          : null,
         is_available: true,
       })
       .select();
@@ -1044,6 +1049,10 @@ router.patch("/foods/:foodId", authenticate, async (req, res) => {
     if (updateData.extra_price !== undefined)
       cleanData.extra_price = updateData.extra_price
         ? parseFloat(updateData.extra_price)
+        : null;
+    if (updateData.extra_offer_price !== undefined)
+      cleanData.extra_offer_price = updateData.extra_offer_price
+        ? parseFloat(updateData.extra_offer_price)
         : null;
 
     cleanData.updated_at = new Date().toISOString();

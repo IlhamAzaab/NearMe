@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import AdminLayout from "../../components/AdminLayout";
 import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
 import { API_URL } from "../../config";
 
 export default function Products() {
+  const navigate = useNavigate();
   const [foods, setFoods] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setRawError] = useState(null);
@@ -20,6 +22,7 @@ export default function Products() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingFood, setEditingFood] = useState(null);
   const [search, setSearch] = useState("");
+  const [availabilityFilter, setAvailabilityFilter] = useState("all");
 
   const token = localStorage.getItem("token");
 
@@ -117,9 +120,16 @@ export default function Products() {
     }
   };
 
-  const filteredFoods = foods.filter((food) =>
-    food.name.toLowerCase().includes(search.toLowerCase()),
-  );
+  const filteredFoods = foods.filter((food) => {
+    const matchesSearch = food.name
+      .toLowerCase()
+      .includes(search.toLowerCase());
+    const matchesAvailability =
+      availabilityFilter === "all" ||
+      (availabilityFilter === "available" && food.is_available) ||
+      (availabilityFilter === "unavailable" && !food.is_available);
+    return matchesSearch && matchesAvailability;
+  });
 
   const renderStars = (rating = 0) => {
     return (
@@ -147,78 +157,161 @@ export default function Products() {
   return (
     <AdminLayout>
       <AnimatedAlert alert={alertState} visible={alertVisible} />
-      <div className="space-y-6 animate-fadeIn">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="text-3xl sm:text-4xl font-bold bg-gradient-to-r from-green-600 via-green-500 to-green-600 bg-clip-text text-transparent">
-              Products
-            </h1>
-            <p className="text-gray-700 mt-2 font-medium">
-              Manage your restaurant menu items and products.
-            </p>
+      <div className="space-y-3 animate-fadeIn">
+        {/* ── Header bar ── */}
+        <div className="flex items-center justify-between py-1">
+          <div className="flex items-center gap-2.5">
+            <div
+              className="w-9 h-9 rounded-xl flex items-center justify-center"
+              style={{ background: "#06C168" }}
+            >
+              <svg
+                className="w-5 h-5 text-white"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"
+                />
+              </svg>
+            </div>
+            <h1 className="text-xl font-bold text-gray-900">Products</h1>
           </div>
-          <button
-            onClick={() => {
-              setEditingFood(null);
-              setShowAddModal(true);
-            }}
-            className="px-4 sm:px-5 py-2.5 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-xl hover:from-green-600 hover:to-green-700 flex items-center gap-2 transition-all duration-300 hover:scale-105 shadow-md hover:shadow-lg font-semibold whitespace-nowrap"
-          >
+          <div className="flex items-center gap-2">
+            {/* Availability Filter */}
+            <select
+              value={availabilityFilter}
+              onChange={(e) => setAvailabilityFilter(e.target.value)}
+              className="px-3 py-2 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-500 transition-all cursor-pointer"
+            >
+              <option value="all">All Products</option>
+              <option value="available">Available</option>
+              <option value="unavailable">Unavailable</option>
+            </select>
+            <div
+              className="relative cursor-pointer"
+              onClick={() => navigate("/admin/notifications")}
+            >
+              <div className="w-10 h-10 rounded-full bg-gray-50 border border-gray-100 flex items-center justify-center">
+                <svg
+                  className="w-5 h-5 text-gray-600"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
+                  />
+                </svg>
+              </div>
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500"></span>
+            </div>
+            <div
+              className="w-10 h-10 rounded-full flex items-center justify-center cursor-pointer"
+              style={{ background: "#06C168" }}
+              onClick={() => navigate("/admin/account")}
+            >
+              <svg
+                className="w-5 h-5 text-white"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                />
+              </svg>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Search bar ── */}
+        <div className="relative">
+          <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
             <svg
-              className="w-5 h-5"
+              className="w-4 h-4 text-gray-400"
               fill="none"
-              viewBox="0 0 24 24"
               stroke="currentColor"
+              viewBox="0 0 24 24"
             >
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 strokeWidth={2}
-                d="M12 4v16m8-8H4"
+                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
               />
             </svg>
-            Add Product
-          </button>
-        </div>
-
-        {/* Search */}
-        <div className="bg-white rounded-xl shadow-md border border-green-100 p-4 sm:p-5 hover:shadow-lg transition-shadow duration-300">
+          </div>
           <input
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search products by name..."
-            className="w-full px-4 py-2.5 border-2 border-green-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
+            placeholder="Search food items, categories..."
+            className="w-full pl-10 pr-4 py-3 bg-gray-100 rounded-2xl text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 border-0"
+            style={{ "--tw-ring-color": "#06C168" }}
           />
         </div>
 
-        {/* Products List */}
-        <div className="bg-white rounded-xl shadow-md border border-green-100 hover:shadow-xl transition-shadow duration-300">
+        {/* ── Add Product button ── */}
+        <button
+          onClick={() => {
+            setEditingFood(null);
+            setShowAddModal(true);
+          }}
+          className="w-full py-3.5 rounded-2xl text-white font-semibold text-sm flex items-center justify-center gap-2 shadow-sm active:scale-[0.98] transition-transform"
+          style={{ background: "#06C168" }}
+        >
+          <svg
+            className="w-5 h-5"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2.5}
+              d="M12 4v16m8-8H4"
+            />
+          </svg>
+          Add Product
+        </button>
+
+        {/* ── Products List ── */}
+        <div className="space-y-3">
           {loading ? (
-            <div className="p-4 space-y-4">
+            <>
               {[...Array(4)].map((_, i) => (
                 <div
                   key={i}
-                  className="flex items-center gap-4 p-3 animate-pulse"
+                  className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 skeleton-fade"
                 >
-                  <div className="w-16 h-16 bg-gray-200 rounded-xl shrink-0" />
-                  <div className="flex-1 space-y-2">
-                    <div className="h-4 w-3/4 bg-gray-200 rounded" />
-                    <div className="h-3 w-1/2 bg-gray-200 rounded" />
-                    <div className="h-3 w-1/3 bg-gray-200 rounded" />
-                  </div>
-                  <div className="space-y-2">
-                    <div className="h-5 w-16 bg-gray-200 rounded" />
-                    <div className="h-8 w-12 bg-gray-200 rounded-full" />
+                  <div className="flex gap-3">
+                    <div className="w-16 h-16 bg-gray-100 rounded-xl shrink-0" />
+                    <div className="flex-1 space-y-2 pt-1">
+                      <div className="h-4 w-1/2 bg-gray-100 rounded" />
+                      <div className="h-3 w-3/4 bg-gray-100 rounded" />
+                      <div className="h-4 w-16 bg-gray-100 rounded mt-2" />
+                    </div>
                   </div>
                 </div>
               ))}
-            </div>
+            </>
           ) : filteredFoods.length === 0 ? (
-            <div className="text-center py-12 sm:py-16 text-gray-500">
-              <div className="w-16 sm:w-20 h-16 sm:h-20 mx-auto mb-4 bg-gradient-to-br from-green-100 to-green-200 rounded-2xl flex items-center justify-center">
+            <div className="text-center py-16 text-gray-500">
+              <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-2xl flex items-center justify-center">
                 <svg
-                  className="w-8 sm:w-10 h-8 sm:h-10 text-green-500"
+                  className="w-8 h-8 text-gray-400"
                   fill="none"
                   viewBox="0 0 24 24"
                   stroke="currentColor"
@@ -231,266 +324,172 @@ export default function Products() {
                   />
                 </svg>
               </div>
-              <p className="text-lg font-semibold text-gray-700">
+              <p className="text-base font-semibold text-gray-700">
                 No products found
               </p>
-              <p className="text-sm mt-2 text-gray-500">
+              <p className="text-sm mt-1 text-gray-400">
                 {foods.length === 0
-                  ? 'Click "Add Product" to create your first menu item.'
+                  ? 'Tap "Add Product" to create your first item.'
                   : "No products match your search."}
               </p>
             </div>
           ) : (
-            <div>
-              {/* Mobile cards */}
-              <div className="space-y-4 md:hidden p-4 sm:p-5">
-                {filteredFoods.map((food) => (
-                  <div
-                    key={food.id}
-                    onClick={() => openEdit(food)}
-                    className="rounded-xl border-2 border-green-100 bg-white p-4 sm:p-5 shadow-sm cursor-pointer hover:shadow-lg hover:border-green-200 transition-all duration-300 hover:scale-[1.02]"
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        openEdit(food);
-                      }
-                    }}
-                  >
-                    <div className="flex gap-3">
-                      <div className="w-16 h-16 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0">
-                        {food.image_url ? (
-                          <img
-                            src={food.image_url}
-                            alt={food.name}
-                            className="w-full h-full object-cover"
+            filteredFoods.map((food) => (
+              <div
+                key={food.id}
+                className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 relative"
+              >
+                <div className="flex gap-3">
+                  {/* Image */}
+                  <div className="w-16 h-16 rounded-xl overflow-hidden shrink-0 bg-gray-100">
+                    {food.image_url ? (
+                      <img
+                        src={food.image_url}
+                        alt={food.name}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-gray-300">
+                        <svg
+                          className="w-7 h-7"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={1.5}
+                            d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
                           />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">
-                            No img
-                          </div>
-                        )}
+                        </svg>
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <p className="font-semibold text-gray-900 line-clamp-1">
-                              {food.name}
-                            </p>
-                            <p className="text-xs text-gray-500 line-clamp-2">
-                              {food.description || "-"}
-                            </p>
-                          </div>
-                          <button
-                            onClick={(e) => toggleAvailability(e, food)}
-                            className="flex items-center gap-1.5 flex-shrink-0"
-                          >
-                            <div
-                              className={`relative w-9 h-5 rounded-full transition-colors duration-200 ${
-                                food.is_available
-                                  ? "bg-green-500"
-                                  : "bg-gray-300"
-                              }`}
-                            >
-                              <div
-                                className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform duration-200 ${
-                                  food.is_available
-                                    ? "translate-x-4"
-                                    : "translate-x-0"
-                                }`}
-                              />
-                            </div>
-                            <span
-                              className={`text-[11px] font-medium ${food.is_available ? "text-green-700" : "text-red-600"}`}
-                            >
-                              {food.is_available ? "On" : "Off"}
-                            </span>
-                          </button>
+                    )}
+                  </div>
+
+                  {/* Content */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="font-semibold text-gray-900 text-sm leading-tight">
+                        {food.name}
+                      </p>
+                      {/* Availability Toggle — top right */}
+                      <button
+                        onClick={(e) => toggleAvailability(e, food)}
+                        className="flex items-center gap-1.5 shrink-0"
+                      >
+                        <span
+                          className={`text-[10px] font-bold ${food.is_available ? "text-emerald-600" : "text-gray-400"}`}
+                        >
+                          {food.is_available ? "Available" : "Unavailable"}
+                        </span>
+                        <div
+                          className="relative w-10 h-5 rounded-full transition-colors duration-200"
+                          style={{
+                            background: food.is_available
+                              ? "#06C168"
+                              : "#d1d5db",
+                          }}
+                        >
+                          <div
+                            className={`absolute top-[3px] left-[3px] w-3.5 h-3.5 bg-white rounded-full shadow transition-transform duration-200 ${food.is_available ? "translate-x-5" : "translate-x-0"}`}
+                          />
                         </div>
-                        <div className="mt-2 flex flex-wrap items-center gap-2">
-                          <span className="text-sm font-semibold text-gray-900">
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">
+                      {food.description || "No description"}
+                    </p>
+
+                    {/* Sizes & Prices */}
+                    <div className="mt-2 space-y-1">
+                      {/* Regular size */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold text-gray-400 uppercase w-12 shrink-0">
+                          {food.regular_size || "Regular"}
+                        </span>
+                        <span
+                          className="text-sm font-bold"
+                          style={{ color: "#06C168" }}
+                        >
+                          Rs. {food.offer_price || food.regular_price}
+                        </span>
+                        {food.offer_price && (
+                          <span className="text-xs text-gray-400 line-through font-normal">
                             Rs. {food.regular_price}
                           </span>
-                          {food.offer_price ? (
-                            <span className="text-xs font-medium text-green-700 bg-green-50 px-2 py-0.5 rounded">
-                              Offer: Rs. {food.offer_price}
-                            </span>
-                          ) : null}
-                          <div className="flex items-center text-xs text-gray-600">
-                            {renderStars(food.stars)}
-                          </div>
-                        </div>
-                        <div className="mt-2 flex flex-wrap gap-1">
-                          {food.available_time?.map((time) => (
-                            <span
-                              key={time}
-                              className="px-2 py-1 bg-blue-50 text-blue-700 rounded text-[11px] font-medium capitalize"
-                            >
-                              {time}
-                            </span>
-                          ))}
-                        </div>
+                        )}
                       </div>
-                    </div>
-                    <div className="mt-3 flex items-center justify-end gap-3 text-sm font-medium">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openEdit(food);
-                        }}
-                        className="text-indigo-600 hover:text-indigo-800"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDelete(food.id);
-                        }}
-                        className="text-red-600 hover:text-red-800"
-                      >
-                        Delete
-                      </button>
+                      {/* Extra size (if exists) */}
+                      {food.extra_price && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-bold text-gray-400 uppercase w-12 shrink-0">
+                            {food.extra_size || "Extra"}
+                          </span>
+                          <span
+                            className="text-sm font-bold"
+                            style={{ color: "#06C168" }}
+                          >
+                            Rs. {food.extra_offer_price || food.extra_price}
+                          </span>
+                          {food.extra_offer_price && (
+                            <span className="text-xs text-gray-400 line-through font-normal">
+                              Rs. {food.extra_price}
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
-                ))}
-              </div>
+                </div>
 
-              {/* Desktop table */}
-              <div className="overflow-x-auto hidden md:block">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600">
-                        Product
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600">
-                        Regular Price
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600">
-                        Offer Price
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600">
-                        Available Time
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600">
-                        Rating
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600">
-                        Status
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600">
-                        Actions
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {filteredFoods.map((food) => (
-                      <tr
-                        key={food.id}
-                        className="hover:bg-gray-50 cursor-pointer"
-                        onClick={() => openEdit(food)}
-                      >
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-3">
-                            <div className="w-12 h-12 bg-gray-200 rounded-lg flex-shrink-0">
-                              {food.image_url ? (
-                                <img
-                                  src={food.image_url}
-                                  alt={food.name}
-                                  className="w-full h-full object-cover rounded-lg"
-                                />
-                              ) : (
-                                <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">
-                                  No img
-                                </div>
-                              )}
-                            </div>
-                            <div>
-                              <p className="font-medium text-gray-900">
-                                {food.name}
-                              </p>
-                              <p className="text-sm text-gray-500 line-clamp-1">
-                                {food.description || "-"}
-                              </p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                          Rs. {food.regular_price}
-                        </td>
-                        <td className="px-6 py-4 text-sm font-medium text-green-600">
-                          {food.offer_price ? `Rs. ${food.offer_price}` : "-"}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-gray-700">
-                          <div className="flex gap-1 flex-wrap">
-                            {food.available_time?.map((time) => (
-                              <span
-                                key={time}
-                                className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-medium"
-                              >
-                                {time}
-                              </span>
-                            ))}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">{renderStars(food.stars)}</td>
-                        <td className="px-6 py-4">
-                          <button
-                            onClick={(e) => toggleAvailability(e, food)}
-                            className="flex items-center gap-2"
-                          >
-                            <div
-                              className={`relative w-10 h-[22px] rounded-full transition-colors duration-200 ${
-                                food.is_available
-                                  ? "bg-green-500"
-                                  : "bg-gray-300"
-                              }`}
-                            >
-                              <div
-                                className={`absolute top-[3px] left-[3px] w-4 h-4 bg-white rounded-full shadow transition-transform duration-200 ${
-                                  food.is_available
-                                    ? "translate-x-[18px]"
-                                    : "translate-x-0"
-                                }`}
-                              />
-                            </div>
-                            <span
-                              className={`text-xs font-medium ${food.is_available ? "text-green-700" : "text-red-600"}`}
-                            >
-                              {food.is_available ? "Available" : "Unavailable"}
-                            </span>
-                          </button>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex gap-2">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openEdit(food);
-                              }}
-                              className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDelete(food.id);
-                              }}
-                              className="text-red-600 hover:text-red-800 text-sm font-medium"
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                {/* Edit / Delete icons — bottom right */}
+                <div className="absolute bottom-4 right-4 flex items-center gap-3">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openEdit(food);
+                    }}
+                    className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors"
+                  >
+                    <svg
+                      className="w-4 h-4 text-gray-400"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
+                      />
+                    </svg>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDelete(food.id);
+                    }}
+                    className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-red-50 transition-colors"
+                  >
+                    <svg
+                      className="w-4 h-4 text-gray-400 hover:text-red-400 transition-colors"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                      />
+                    </svg>
+                  </button>
+                </div>
               </div>
-            </div>
+            ))
           )}
         </div>
       </div>
@@ -527,6 +526,7 @@ function AddProductModal({ food, onClose, onSave }) {
     extra_size: food?.extra_size || "",
     extra_portion: food?.extra_portion || "",
     extra_price: food?.extra_price || "",
+    extra_offer_price: food?.extra_offer_price || "",
     is_available: food?.is_available ?? true,
   });
 
@@ -560,6 +560,7 @@ function AddProductModal({ food, onClose, onSave }) {
       extra_size: food?.extra_size || "",
       extra_portion: food?.extra_portion || "",
       extra_price: food?.extra_price || "",
+      extra_offer_price: food?.extra_offer_price || "",
       is_available: food?.is_available ?? true,
     });
   }, [food]);
@@ -672,6 +673,9 @@ function AddProductModal({ food, onClose, onSave }) {
         extra_price: formData.extra_price
           ? parseFloat(formData.extra_price)
           : null,
+        extra_offer_price: formData.extra_offer_price
+          ? parseFloat(formData.extra_offer_price)
+          : null,
       };
 
       const res = await fetch(url, {
@@ -698,178 +702,203 @@ function AddProductModal({ food, onClose, onSave }) {
     }
   };
 
+  const fileInputRef = useRef(null);
+
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-xl max-w-3xl w-full max-h-[95vh] overflow-y-auto">
-        {/* Header */}
-        <div className="sticky top-0 bg-white border-b px-6 py-4 flex items-center justify-between">
-          <h2 className="text-xl font-bold text-gray-800">
-            {food ? "Edit Product" : "Add New Product"}
-          </h2>
-          <button
-            onClick={onClose}
-            disabled={loading}
-            className="text-gray-500 hover:text-gray-700 disabled:opacity-50"
-          >
-            <svg
-              className="w-6 h-6"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center">
+      <div className="bg-gray-50 w-full sm:max-w-md sm:rounded-2xl rounded-t-3xl max-h-[95vh] flex flex-col shadow-2xl">
+        {/* ── Header ── */}
+        <div className="sticky top-0 bg-white z-10 px-4 py-3.5 flex items-center justify-between border-b border-gray-100 sm:rounded-t-2xl">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={loading}
+              className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-50"
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
+              <svg
+                className="w-5 h-5 text-gray-700"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M15 19l-7-7 7-7"
+                />
+              </svg>
+            </button>
+            <h2 className="text-base font-bold text-gray-900">
+              {food ? "Edit Product" : "Add New Product"}
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              document.getElementById("product-form").requestSubmit();
+            }}
+            disabled={loading || uploading}
+            className="px-4 py-2 rounded-xl text-white text-xs font-bold disabled:opacity-50 transition-colors"
+            style={{ background: "#06C168" }}
+          >
+            {loading ? "Saving..." : food ? "Save" : "Save Product"}
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-6">
-          <AnimatedAlert alert={alertState2} visible={alertVisible2} />
+        {/* ── Scrollable body ── */}
+        <div className="flex-1 overflow-y-auto">
+          <form
+            id="product-form"
+            onSubmit={handleSubmit}
+            className="px-4 py-4 space-y-4"
+          >
+            <AnimatedAlert alert={alertState2} visible={alertVisible2} />
 
-          {/* Product Image */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Product Image
-            </label>
-            <div className="flex gap-4">
-              {formData.image_url && (
-                <div className="w-24 h-24 rounded-lg overflow-hidden flex-shrink-0">
-                  <img
-                    src={formData.image_url}
-                    alt="Preview"
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-              )}
-              <div className="flex-1">
+            {/* ── Product Media ── */}
+            <div className="bg-white rounded-2xl border border-gray-100 p-4">
+              <h3 className="text-sm font-bold text-gray-900 mb-3">
+                Product Image
+              </h3>
+              <div className="bg-green-50 border-2 border-dashed border-green-200 rounded-2xl flex flex-col items-center justify-center py-8 px-4 relative">
+                {formData.image_url ? (
+                  <div className="relative">
+                    <img
+                      src={formData.image_url}
+                      alt="Preview"
+                      className="w-24 h-24 rounded-xl object-cover"
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setFormData({ ...formData, image_url: "" })
+                      }
+                      className="absolute -top-2 -right-2 w-6 h-6 bg-green-200 text-[#06C168] rounded-full flex items-center justify-center text-xs shadow"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div
+                      className="w-12 h-12 rounded-full flex items-center justify-center mb-2"
+                      style={{ background: "#06C168" }}
+                    >
+                      <svg
+                        className="w-6 h-6 text-white"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+                        />
+                      </svg>
+                    </div>
+                    <p className="text-sm font-semibold text-gray-700">
+                      Upload Food Image
+                    </p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      JPG, PNG . Max size of 2MB
+                    </p>
+                  </>
+                )}
+                {uploading && (
+                  <p
+                    className="text-xs font-semibold mt-2"
+                    style={{ color: "#06C168" }}
+                  >
+                    Uploading...
+                  </p>
+                )}
                 <input
+                  ref={fileInputRef}
                   type="file"
                   accept="image/*"
                   onChange={handleImageChange}
                   disabled={uploading}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                  className="hidden"
                 />
-                <p className="text-xs text-gray-500 mt-1">
-                  {uploading
-                    ? "Uploading..."
-                    : "Optional. Recommended size: 400x400px"}
-                </p>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                  className="mt-3 px-5 py-2 rounded-xl text-white text-xs font-bold disabled:opacity-50"
+                  style={{ background: "#06C168" }}
+                >
+                  Browse Files
+                </button>
               </div>
             </div>
-          </div>
 
-          {/* Product Name */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Product Name *
-            </label>
-            <input
-              type="text"
-              name="name"
-              required
-              value={formData.name}
-              onChange={handleInputChange}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
-              placeholder="e.g., Chicken Burger, Biryani"
-            />
-          </div>
+            {/* ── Basic Information ── */}
+            <div className="bg-white rounded-2xl border border-gray-100 p-4 space-y-4">
+              <h3 className="text-sm font-bold text-gray-900">
+                Basic Information
+              </h3>
 
-          {/* Description */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Description
-            </label>
-            <textarea
-              name="description"
-              value={formData.description}
-              onChange={handleInputChange}
-              rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
-              placeholder="Describe your product (e.g., ingredients, specialties)..."
-            />
-          </div>
-
-          {/* Available Time - Multi Select */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Available Time *
-            </label>
-            <div className="flex gap-4">
-              {availableTimes.map((time) => (
-                <label key={time} className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={formData.available_time.includes(time)}
-                    onChange={() => handleTimeToggle(time)}
-                    className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-600"
-                  />
-                  <span className="text-sm text-gray-700 capitalize">
-                    {time}
-                  </span>
-                </label>
-              ))}
-            </div>
-            {formData.available_time.length === 0 && (
-              <p className="text-xs text-red-600 mt-1">
-                Select at least one available time
-              </p>
-            )}
-          </div>
-
-          {/* Availability toggle */}
-          <div className="flex items-center justify-between border-t pt-4">
-            <div>
-              <p className="text-sm font-medium text-gray-800">
-                Product availability
-              </p>
-              <p className="text-xs text-gray-500">
-                Toggle off to hide from menu
-              </p>
-            </div>
-            <label className="inline-flex items-center cursor-pointer relative">
-              <input
-                type="checkbox"
-                className="sr-only peer"
-                checked={!!formData.is_available}
-                onChange={(e) =>
-                  setFormData({ ...formData, is_available: e.target.checked })
-                }
-              />
-              <div
-                className={`w-11 h-6 rounded-full relative transition-colors duration-200 ${formData.is_available ? "bg-indigo-600" : "bg-gray-200"}`}
-              >
-                <div
-                  className={`absolute top-[2px] left-[2px] w-5 h-5 bg-white rounded-full transition-transform duration-200 ${formData.is_available ? "translate-x-5" : "translate-x-0"}`}
-                ></div>
-              </div>
-            </label>
-          </div>
-
-          {/* Regular Size Section */}
-          <div className="border-t pt-6">
-            <h3 className="text-sm font-semibold text-gray-800 mb-4">
-              Regular Size (Required)
-            </h3>
-            <div className="grid grid-cols-3 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Size Name
+                <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                  Product Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  name="name"
+                  required
+                  value={formData.name}
+                  onChange={handleInputChange}
+                  className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:border-transparent"
+                  style={{ "--tw-ring-color": "#06C168" }}
+                  placeholder="e.g. Chicken Koththu"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                  Description
+                </label>
+                <textarea
+                  name="description"
+                  value={formData.description}
+                  onChange={handleInputChange}
+                  rows={3}
+                  className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:border-transparent resize-none"
+                  style={{ "--tw-ring-color": "#06C168" }}
+                  placeholder="Tell us about the ingredients and taste..."
+                />
+              </div>
+            </div>
+
+            {/* ── Pricing & Sizes ── */}
+            <div className="bg-white rounded-2xl border border-gray-100 p-4 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-gray-900">
+                  Regular Size
+                </h3>
+              </div>
+
+              {/* Regular size fields */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                  Size
                 </label>
                 <input
                   type="text"
                   name="regular_size"
                   value={formData.regular_size}
                   onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
-                  placeholder="e.g., Regular, Small"
+                  className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:border-transparent"
+                  style={{ "--tw-ring-color": "#06C168" }}
+                  placeholder="Regular"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-semibold text-gray-700 mb-1.5">
                   Portion
                 </label>
                 <input
@@ -877,118 +906,218 @@ function AddProductModal({ food, onClose, onSave }) {
                   name="regular_portion"
                   value={formData.regular_portion}
                   onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
-                  placeholder="e.g., 500g, 1 piece"
+                  className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:border-transparent"
+                  style={{ "--tw-ring-color": "#06C168" }}
+                  placeholder="1 or 2 etc.."
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Price (Rs.) *
+                <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                  Price (Rs.) <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="number"
                   name="regular_price"
                   required
                   min="0"
-                  step="0.01"
+                  step="10"
                   value={formData.regular_price}
                   onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                  className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:border-transparent"
+                  style={{ "--tw-ring-color": "#06C168" }}
                   placeholder="0.00"
                 />
               </div>
-            </div>
-
-            {/* Offer Price */}
-            <div className="mt-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Offer Price (Rs.)
-              </label>
-              <input
-                type="number"
-                name="offer_price"
-                min="0"
-                step="0.01"
-                value={formData.offer_price}
-                onChange={handleInputChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
-                placeholder="Leave empty if no offer"
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Optional. Leave empty if there's no special offer price.
-              </p>
-            </div>
-          </div>
-
-          {/* Extra Size Section */}
-          <div className="border-t pt-6">
-            <h3 className="text-sm font-semibold text-gray-800 mb-4">
-              Extra Size (Optional)
-            </h3>
-            <div className="grid grid-cols-3 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Size Name
-                </label>
-                <input
-                  type="text"
-                  name="extra_size"
-                  value={formData.extra_size}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
-                  placeholder="e.g., Large, Extra"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Portion
-                </label>
-                <input
-                  type="text"
-                  name="extra_portion"
-                  value={formData.extra_portion}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
-                  placeholder="e.g., 750g, 2 pieces"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Price (Rs.)
+                <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                  Offer Price (Rs.)
                 </label>
                 <input
                   type="number"
-                  name="extra_price"
+                  name="offer_price"
                   min="0"
-                  step="0.01"
-                  value={formData.extra_price}
+                  step="10"
+                  value={formData.offer_price}
                   onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                  className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:border-transparent"
+                  style={{ "--tw-ring-color": "#06C168" }}
                   placeholder="0.00"
                 />
               </div>
-            </div>
-          </div>
 
-          {/* Actions */}
-          <div className="flex gap-3 pt-4 border-t">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={loading}
-              className="flex-1 px-4 py-2.5 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium disabled:opacity-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={loading || uploading}
-              className="flex-1 px-4 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium disabled:opacity-50 transition"
-            >
-              {loading ? "Saving..." : food ? "Update Product" : "Add Product"}
-            </button>
-          </div>
-        </form>
+              {/* Extra size fields */}
+              <div className="border-t border-gray-100 pt-4">
+                <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">
+                  Extra Size (If you have)
+                </p>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                      Size
+                    </label>
+                    <input
+                      type="text"
+                      name="extra_size"
+                      value={formData.extra_size}
+                      onChange={handleInputChange}
+                      className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:border-transparent"
+                      style={{ "--tw-ring-color": "#06C168" }}
+                      placeholder="Large"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                      Portion
+                    </label>
+                    <input
+                      type="text"
+                      name="extra_portion"
+                      value={formData.extra_portion}
+                      onChange={handleInputChange}
+                      className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:border-transparent"
+                      style={{ "--tw-ring-color": "#06C168" }}
+                      placeholder="2 or 3 etc.."
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                      Price (Rs.)
+                    </label>
+                    <input
+                      type="number"
+                      name="extra_price"
+                      min="0"
+                      step="10"
+                      value={formData.extra_price}
+                      onChange={handleInputChange}
+                      className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:border-transparent"
+                      style={{ "--tw-ring-color": "#06C168" }}
+                      placeholder="0.00"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                      Offer Price (Rs.)
+                    </label>
+                    <input
+                      type="number"
+                      name="extra_offer_price"
+                      min="0"
+                      step="10"
+                      value={formData.extra_offer_price}
+                      onChange={handleInputChange}
+                      className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:border-transparent"
+                      style={{ "--tw-ring-color": "#06C168" }}
+                      placeholder="0.00"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* ── Product Status ── */}
+            <div className="bg-white rounded-2xl border border-gray-100 p-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-gray-900">
+                  Product Availability
+                </h3>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setFormData({
+                      ...formData,
+                      is_available: !formData.is_available,
+                    })
+                  }
+                  className="relative w-12 h-6 rounded-full transition-colors duration-200"
+                  style={{
+                    background: formData.is_available ? "#06C168" : "#d1d5db",
+                  }}
+                >
+                  <div
+                    className={`absolute top-[3px] left-[3px] w-4.5 h-4.5 bg-white rounded-full shadow transition-transform duration-200 ${formData.is_available ? "translate-x-6" : "translate-x-0"}`}
+                  />
+                </button>
+              </div>
+              <p className="text-xs text-gray-400 mt-1">
+                To Make this food orderable by customers in the app.
+              </p>
+            </div>
+
+            {/* ── Available Time ── */}
+            <div className="bg-white rounded-2xl border border-gray-100 p-4">
+              <h3 className="text-sm font-bold text-gray-900 mb-3">
+                Available Time <span className="text-red-500">*</span>
+              </h3>
+              <div className="space-y-0 divide-y divide-gray-100">
+                {availableTimes.map((time) => (
+                  <label
+                    key={time}
+                    className="flex items-center gap-3 py-3 cursor-pointer"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => handleTimeToggle(time)}
+                      className="w-6 h-6 rounded-md border-2 flex items-center justify-center transition-colors"
+                      style={{
+                        borderColor: formData.available_time.includes(time)
+                          ? "#06C168"
+                          : "#d1d5db",
+                        background: formData.available_time.includes(time)
+                          ? "#06C168"
+                          : "transparent",
+                      }}
+                    >
+                      {formData.available_time.includes(time) && (
+                        <svg
+                          className="w-3.5 h-3.5 text-white"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={3}
+                            d="M5 13l4 4L19 7"
+                          />
+                        </svg>
+                      )}
+                    </button>
+                    <span className="text-sm text-gray-700 font-medium capitalize">
+                      {time}
+                    </span>
+                  </label>
+                ))}
+              </div>
+              {formData.available_time.length === 0 && (
+                <p className="text-xs text-red-500 mt-1">
+                  Select at least one available time
+                </p>
+              )}
+            </div>
+
+            {/* ── Bottom actions ── */}
+            <div className="pt-2 pb-4 space-y-3">
+              <button
+                type="submit"
+                disabled={loading || uploading}
+                className="w-full py-3.5 rounded-2xl text-white font-bold text-sm disabled:opacity-50 transition-colors"
+                style={{ background: "#06C168" }}
+              >
+                {loading ? "Saving..." : food ? "Save Product" : "Save Product"}
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={loading}
+                className="w-full py-3 text-sm font-semibold text-gray-700 disabled:opacity-50"
+              >
+                Discard
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
     </div>
   );

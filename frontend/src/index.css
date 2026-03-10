@@ -45,3 +45,13 @@
 .animate-slide-down {
   animation: slide-down 0.3s ease-out;
 }
+
+/* Skeleton fade in/out animation (replaces heartbeat pulse) */
+@keyframes skeleton-fade {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.skeleton-fade {
+  animation: skeleton-fade 1.5s ease-in-out infinite;
+}

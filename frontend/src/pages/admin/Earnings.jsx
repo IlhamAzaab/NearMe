@@ -131,7 +131,7 @@ export default function Earnings() {
       <AdminLayout>
         <div className="max-w-4xl mx-auto space-y-6">
           {/* Header skeleton */}
-          <div className="flex items-center gap-4 animate-pulse">
+          <div className="flex items-center gap-4 skeleton-fade">
             <div className="w-12 h-12 bg-gray-200 rounded-full" />
             <div className="space-y-2">
               <div className="h-3 w-32 bg-gray-200 rounded" />
@@ -139,7 +139,7 @@ export default function Earnings() {
             </div>
           </div>
           {/* Revenue card skeleton */}
-          <div className="bg-green-100 rounded-2xl p-6 animate-pulse">
+          <div className="bg-green-100 rounded-2xl p-6 skeleton-fade">
             <div className="h-3 w-28 bg-green-200 rounded mb-3" />
             <div className="h-10 w-48 bg-green-200 rounded mb-2" />
             <div className="h-3 w-36 bg-green-200 rounded mb-4" />
@@ -150,7 +150,7 @@ export default function Earnings() {
             </div>
           </div>
           {/* Metric grid skeleton */}
-          <div className="grid grid-cols-2 gap-4 animate-pulse">
+          <div className="grid grid-cols-2 gap-4 skeleton-fade">
             <div className="bg-white rounded-xl p-5 border border-gray-200">
               <div className="h-3 w-20 bg-gray-200 rounded mb-2" />
               <div className="h-7 w-28 bg-gray-200 rounded" />
@@ -161,13 +161,13 @@ export default function Earnings() {
             </div>
           </div>
           {/* Chart skeleton */}
-          <div className="bg-white rounded-2xl p-6 border border-gray-100 animate-pulse">
+          <div className="bg-white rounded-2xl p-6 border border-gray-100 skeleton-fade">
             <div className="h-4 w-24 bg-gray-200 rounded mb-2" />
             <div className="h-8 w-36 bg-gray-200 rounded mb-6" />
             <div className="h-[180px] bg-gray-100 rounded-lg" />
           </div>
           {/* Orders skeleton */}
-          <div className="space-y-3 animate-pulse">
+          <div className="space-y-3 skeleton-fade">
             {[...Array(3)].map((_, i) => (
               <div
                 key={i}

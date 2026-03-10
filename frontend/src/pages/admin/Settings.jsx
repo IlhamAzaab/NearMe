@@ -358,7 +358,7 @@ export default function Settings() {
             {activeTab === "restaurant" && (
               <div className="space-y-6">
                 {loading ? (
-                  <div className="space-y-6 animate-pulse">
+                  <div className="space-y-6 skeleton-fade">
                     <div className="flex items-center justify-between">
                       <div>
                         <div className="h-6 w-48 bg-gray-200 rounded" />

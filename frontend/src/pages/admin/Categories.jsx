@@ -59,7 +59,7 @@ export default function Categories() {
               {[...Array(4)].map((_, i) => (
                 <div
                   key={i}
-                  className="flex items-center gap-4 p-3 animate-pulse"
+                  className="flex items-center gap-4 p-3 skeleton-fade"
                 >
                   <div className="w-12 h-12 bg-gray-200 rounded-lg shrink-0" />
                   <div className="flex-1 space-y-2">

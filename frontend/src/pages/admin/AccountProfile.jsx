@@ -234,7 +234,7 @@ export default function AccountProfile() {
   if (loadingProfile) {
     return (
       <AdminLayout>
-        <div className="max-w-2xl mx-auto space-y-4 animate-pulse">
+        <div className="max-w-2xl mx-auto space-y-4 skeleton-fade">
           <div className="h-8 w-48 bg-gray-200 rounded-xl" />
           <div className="h-32 w-full bg-gray-200 rounded-2xl" />
           <div className="h-48 w-full bg-gray-200 rounded-2xl" />

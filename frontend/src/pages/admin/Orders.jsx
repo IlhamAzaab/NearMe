@@ -26,7 +26,9 @@ export default function Orders() {
     setRawActionError(msg);
     if (msg) showError(msg);
   };
-  const [statusFilter, setStatusFilter] = useState(searchParams.get("status") || "all");
+  const [statusFilter, setStatusFilter] = useState(
+    searchParams.get("status") || "all",
+  );
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [counts, setCounts] = useState({
     all: 0,
@@ -671,7 +673,7 @@ export default function Orders() {
             {[...Array(4)].map((_, i) => (
               <div
                 key={i}
-                className="bg-white rounded-2xl p-4 border border-gray-100 animate-pulse"
+                className="bg-white rounded-2xl p-4 border border-gray-100 skeleton-fade"
               >
                 <div className="flex justify-between items-start mb-3">
                   <div className="space-y-2">
@@ -726,7 +728,8 @@ export default function Orders() {
               return (
                 <div
                   key={order.id}
-                  className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex flex-col gap-3 active:scale-[0.98] transition-transform"
+                  onClick={() => setSelectedOrder(order)}
+                  className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex flex-col gap-3 active:scale-[0.98] transition-transform cursor-pointer"
                 >
                   {/* Order Header */}
                   <div className="flex justify-between items-start">
@@ -892,7 +895,10 @@ export default function Orders() {
                       )}
                     </div>
                   ) : deliveryStatus === "placed" ? (
-                    <div className="flex gap-2">
+                    <div
+                      className="flex gap-2"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <button
                         onClick={() => handleAcceptOrder(order.id)}
                         disabled={processingOrderId === order.id}
@@ -978,12 +984,18 @@ export default function Orders() {
             const params = new URLSearchParams(searchParams);
             if (params.has("orderId")) {
               params.delete("orderId");
-              navigate(`/admin/orders${params.toString() ? `?${params}` : ""}`, { replace: true });
+              navigate(
+                `/admin/orders${params.toString() ? `?${params}` : ""}`,
+                { replace: true },
+              );
             }
           }}
           getStatusConfig={getStatusConfig}
           getDeliveryStatus={getDeliveryStatus}
           getDriver={getDriver}
+          onAccept={handleAcceptOrder}
+          onReject={handleRejectOrder}
+          processingOrderId={processingOrderId}
         />
       )}
 
@@ -1007,6 +1019,9 @@ function OrderDetailsModal({
   getStatusConfig,
   getDeliveryStatus,
   getDriver,
+  onAccept,
+  onReject,
+  processingOrderId,
 }) {
   const deliveryStatus = getDeliveryStatus(order);
   const statusConfig = getStatusConfig(deliveryStatus);
@@ -1062,8 +1077,18 @@ function OrderDetailsModal({
                 onClick={onClose}
                 className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-colors"
               >
-                <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                <svg
+                  className="w-4 h-4 text-gray-600"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
                 </svg>
               </button>
             </div>
@@ -1184,7 +1209,7 @@ function OrderDetailsModal({
           {/* Order Items */}
           <div>
             <h3 className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-3">
-              Order Items
+              Order Items ({items.length})
             </h3>
             <div className="space-y-2">
               {items.map((item, index) => (
@@ -1203,18 +1228,25 @@ function OrderDetailsModal({
                       <span className="text-2xl">🍽️</span>
                     </div>
                   )}
-                  <div className="flex-1">
-                    <p className="font-semibold text-gray-800">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-gray-800 truncate">
                       {item.food_name}
                     </p>
-                    <p className="text-sm text-gray-500">
-                      {item.size &&
-                        item.size !== "regular" &&
-                        `${item.size} • `}
-                      Qty: {item.quantity}
+                    <div className="flex items-center gap-2 mt-0.5">
+                      {item.size && (
+                        <span className="text-[10px] font-bold uppercase tracking-wide text-emerald-700 bg-emerald-100 rounded px-1.5 py-0.5">
+                          {item.size}
+                        </span>
+                      )}
+                      <span className="text-xs font-bold text-gray-500 bg-gray-200 rounded px-1.5 py-0.5">
+                        x{item.quantity}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-gray-400 mt-0.5">
+                      Rs.{parseFloat(item.unit_price || 0).toFixed(0)} each
                     </p>
                   </div>
-                  <p className="font-bold text-gray-800">
+                  <p className="font-bold text-gray-800 whitespace-nowrap">
                     Rs.
                     {parseFloat(
                       item.total_price || item.unit_price * item.quantity,
@@ -1235,6 +1267,34 @@ function OrderDetailsModal({
             </div>
           </div>
         </div>
+
+        {/* Accept / Reject Buttons for new orders */}
+        {deliveryStatus === "placed" && (
+          <div className="px-5 pb-3 flex gap-3">
+            <button
+              onClick={() => {
+                onAccept(order.id);
+                onClose();
+              }}
+              disabled={processingOrderId === order.id}
+              className="flex-1 bg-emerald-500 text-white py-3.5 rounded-xl font-semibold text-sm disabled:opacity-50 active:scale-[0.98] transition-all shadow-lg shadow-emerald-500/20"
+            >
+              {processingOrderId === order.id
+                ? "Processing..."
+                : "Accept Order"}
+            </button>
+            <button
+              onClick={() => {
+                onReject(order.id);
+                onClose();
+              }}
+              disabled={processingOrderId === order.id}
+              className="px-6 py-3.5 bg-red-50 text-red-600 border border-red-200 rounded-xl font-semibold text-sm disabled:opacity-50 active:scale-[0.98] transition-all"
+            >
+              Reject
+            </button>
+          </div>
+        )}
 
         {/* Close Button */}
         <div className="p-5 pt-0">

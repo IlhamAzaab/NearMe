@@ -81,16 +81,16 @@ export default function AdminWithdrawals() {
     return (
       <AdminLayout>
         <div className="max-w-4xl mx-auto space-y-6">
-          <div className="animate-pulse space-y-2">
+          <div className="skeleton-fade space-y-2">
             <div className="h-6 w-48 bg-gray-200 rounded" />
             <div className="h-4 w-32 bg-gray-200 rounded" />
           </div>
-          <div className="bg-green-100 rounded-2xl p-6 animate-pulse">
+          <div className="bg-green-100 rounded-2xl p-6 skeleton-fade">
             <div className="h-3 w-28 bg-green-200 rounded mb-3" />
             <div className="h-10 w-48 bg-green-200 rounded mb-2" />
             <div className="h-3 w-40 bg-green-200 rounded" />
           </div>
-          <div className="grid grid-cols-3 gap-4 animate-pulse">
+          <div className="grid grid-cols-3 gap-4 skeleton-fade">
             {[...Array(3)].map((_, i) => (
               <div
                 key={i}
@@ -101,11 +101,11 @@ export default function AdminWithdrawals() {
               </div>
             ))}
           </div>
-          <div className="bg-white rounded-xl p-4 border border-gray-200 animate-pulse">
+          <div className="bg-white rounded-xl p-4 border border-gray-200 skeleton-fade">
             <div className="h-3 w-24 bg-gray-200 rounded mb-3" />
             <div className="h-2.5 w-full bg-gray-200 rounded-full" />
           </div>
-          <div className="space-y-3 animate-pulse">
+          <div className="space-y-3 skeleton-fade">
             {[...Array(3)].map((_, i) => (
               <div
                 key={i}
