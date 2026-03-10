@@ -25,7 +25,7 @@ export default function Signup() {
       const checkVerification = async () => {
         try {
           const res = await fetch(
-            `${API_URL}/auth/check-email-verified?userId=${encodeURIComponent(signupUserId)}`
+            `${API_URL}/auth/check-email-verified?userId=${encodeURIComponent(signupUserId)}`,
           );
           const data = await res.json();
           if (data.verified) {
@@ -162,7 +162,8 @@ export default function Signup() {
                 Email Verified!
               </h2>
               <p className="text-gray-600 mb-6 animate-fade-in animation-delay-100">
-                Your email has been verified successfully. You can now login to your account.
+                Your email has been verified successfully. You can now login to
+                your account.
               </p>
               <button
                 onClick={() => navigate("/login")}
@@ -187,67 +188,67 @@ export default function Signup() {
             </div>
           ) : (
             /* Pending Email Verification */
-          <div className="text-center">
-            <div className="mx-auto flex items-center justify-center h-20 w-20 rounded-full bg-gradient-to-br from-green-400 to-green-600 mb-6 animate-scale-in shadow-lg">
-              <svg
-                className="h-10 w-10 text-white"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M3 19v-8.93a2 2 0 01.89-1.664l7-4.666a2 2 0 012.22 0l7 4.666A2 2 0 0121 10.07V19M3 19a2 2 0 002 2h14a2 2 0 002-2M3 19l6.75-4.5M21 19l-6.75-4.5M3 10l6.75 4.5M21 10l-6.75 4.5m0 0l-1.14.76a2 2 0 01-2.22 0l-1.14-.76"
-                />
-              </svg>
-            </div>
-            <h2 className="text-3xl font-bold text-gray-800 mb-3 animate-fade-in">
-              Check Your Email!
-            </h2>
-            <p className="text-gray-600 mb-6 animate-fade-in animation-delay-100">
-              We've sent a verification link to{" "}
-              <span className="font-semibold text-green-600">
-                {formData.email}
-              </span>
-            </p>
-            <div className="bg-green-50 border border-green-100 rounded-xl p-4 mb-6 animate-fade-in animation-delay-200">
-              <p className="text-sm text-green-600 font-semibold mb-2">
-                Next steps:
+            <div className="text-center">
+              <div className="mx-auto flex items-center justify-center h-20 w-20 rounded-full bg-gradient-to-br from-green-400 to-green-600 mb-6 animate-scale-in shadow-lg">
+                <svg
+                  className="h-10 w-10 text-white"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M3 19v-8.93a2 2 0 01.89-1.664l7-4.666a2 2 0 012.22 0l7 4.666A2 2 0 0121 10.07V19M3 19a2 2 0 002 2h14a2 2 0 002-2M3 19l6.75-4.5M21 19l-6.75-4.5M3 10l6.75 4.5M21 10l-6.75 4.5m0 0l-1.14.76a2 2 0 01-2.22 0l-1.14-.76"
+                  />
+                </svg>
+              </div>
+              <h2 className="text-3xl font-bold text-gray-800 mb-3 animate-fade-in">
+                Check Your Email!
+              </h2>
+              <p className="text-gray-600 mb-6 animate-fade-in animation-delay-100">
+                We've sent a verification link to{" "}
+                <span className="font-semibold text-green-600">
+                  {formData.email}
+                </span>
               </p>
-              <ol className="text-sm text-gray-600 space-y-1 list-decimal list-inside text-left">
-                <li>Open your email inbox</li>
-                <li>Click the verification link</li>
-                <li>Complete your profile</li>
-                <li>Start ordering delicious food!</li>
-              </ol>
-            </div>
-            <p className="text-xs text-gray-400 mb-6 animate-fade-in animation-delay-300">
-              Didn't receive the email? Check your spam folder or try again in a
-              few minutes.
-            </p>
-            <button
-              onClick={() => navigate("/login")}
-              className="w-full py-3 px-6 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white font-bold rounded-xl transition-all duration-300 shadow-lg hover:shadow-2xl hover:shadow-green-200 hover:scale-105 active:scale-95 flex items-center justify-center gap-2 animate-fade-in animation-delay-400 group relative overflow-hidden"
-            >
-              <div className="absolute inset-0 bg-white/20 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
-              <span>Go to Login</span>
-              <svg
-                className="w-5 h-5 group-hover:translate-x-1 transition-transform"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
+              <div className="bg-green-50 border border-green-100 rounded-xl p-4 mb-6 animate-fade-in animation-delay-200">
+                <p className="text-sm text-green-600 font-semibold mb-2">
+                  Next steps:
+                </p>
+                <ol className="text-sm text-gray-600 space-y-1 list-decimal list-inside text-left">
+                  <li>Open your email inbox</li>
+                  <li>Click the verification link</li>
+                  <li>Complete your profile</li>
+                  <li>Start ordering delicious food!</li>
+                </ol>
+              </div>
+              <p className="text-xs text-gray-400 mb-6 animate-fade-in animation-delay-300">
+                Didn't receive the email? Check your spam folder or try again in
+                a few minutes.
+              </p>
+              <button
+                onClick={() => navigate("/login")}
+                className="w-full py-3 px-6 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white font-bold rounded-xl transition-all duration-300 shadow-lg hover:shadow-2xl hover:shadow-green-200 hover:scale-105 active:scale-95 flex items-center justify-center gap-2 animate-fade-in animation-delay-400 group relative overflow-hidden"
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="2"
-                  d="M13 7l5 5m0 0l-5 5m5-5H6"
-                />
-              </svg>
-            </button>
-          </div>
+                <div className="absolute inset-0 bg-white/20 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
+                <span>Go to Login</span>
+                <svg
+                  className="w-5 h-5 group-hover:translate-x-1 transition-transform"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M13 7l5 5m0 0l-5 5m5-5H6"
+                  />
+                </svg>
+              </button>
+            </div>
           )}
         </div>
 

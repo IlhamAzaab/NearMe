@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import MeezoLogo from "../assets/MeezoLogo.svg";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
@@ -16,6 +17,7 @@ export default function VerifyOtp() {
   const [loading, setLoading] = useState(false);
   const [resendTimer, setResendTimer] = useState(60);
   const [resending, setResending] = useState(false);
+  const [verified, setVerified] = useState(false);
   const inputRefs = useRef([]);
 
   // Countdown timer for resend
@@ -96,13 +98,18 @@ export default function VerifyOtp() {
         return;
       }
 
-      // Save auth data and navigate to home
+      // Save auth data and show success animation
       localStorage.setItem("token", data.token);
       localStorage.setItem("role", data.role);
       localStorage.setItem("userId", data.userId);
       localStorage.setItem("userName", data.userName);
 
-      navigate("/home");
+      setVerified(true);
+      
+      // Redirect after animation completes
+      setTimeout(() => {
+        navigate("/home");
+      }, 3000);
     } catch (err) {
       setError("Network error. Please try again.");
       setLoading(false);
@@ -144,6 +151,184 @@ export default function VerifyOtp() {
     : "your WhatsApp";
 
   return (
+    <>
+      {verified && (
+        <div className="fixed inset-0 z-50 bg-gradient-to-br from-green-50 via-white to-emerald-50 flex items-center justify-center p-4 overflow-hidden">
+          {/* Animated background blobs */}
+          <div className="absolute top-0 left-0 w-96 h-96 bg-green-300 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob"></div>
+          <div className="absolute top-0 right-0 w-96 h-96 bg-emerald-300 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob animation-delay-2000"></div>
+          <div className="absolute -bottom-8 left-20 w-96 h-96 bg-teal-200 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob animation-delay-4000"></div>
+
+          <div className="relative z-10 text-center">
+            {/* Logo with animation */}
+            <div className="mb-8 animate-fade-in-down">
+              <div className="w-32 h-32 mx-auto bg-white rounded-full shadow-2xl shadow-green-200/50 p-4 flex items-center justify-center animate-scale-in">
+                <img
+                  src={MeezoLogo}
+                  alt="Meezo"
+                  className="w-full h-full object-contain"
+                />
+              </div>
+            </div>
+
+            {/* Success checkmark */}
+            <div className="relative mb-8 animate-fade-in-down animation-delay-200">
+              <div className="absolute -top-8 -right-8 w-20 h-20 bg-green-500 rounded-full shadow-lg animate-bounce-in">
+                <svg
+                  className="w-full h-full text-white p-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={3}
+                    d="M5 13l4 4L19 7"
+                  />
+                </svg>
+              </div>
+            </div>
+
+            {/* Success text */}
+            <h2 className="text-4xl font-bold text-gray-800 mb-3 animate-fade-in-down animation-delay-300">
+              Verified!
+            </h2>
+            <p className="text-gray-600 text-lg mb-8 animate-fade-in-down animation-delay-400">
+              Your phone has been verified successfully
+            </p>
+
+            {/* Loading indicator */}
+            <div className="flex justify-center animate-fade-in-down animation-delay-500">
+              <svg
+                className="animate-spin h-8 w-8 text-green-600"
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+              >
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                ></circle>
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                ></path>
+              </svg>
+            </div>
+            <p className="text-gray-500 mt-4 text-sm animate-fade-in-down animation-delay-600">
+              Redirecting to home...
+            </p>
+          </div>
+
+          <style jsx>{`
+            @keyframes blob {
+              0%,
+              100% {
+                transform: translate(0, 0) scale(1);
+              }
+              33% {
+                transform: translate(30px, -50px) scale(1.1);
+              }
+              66% {
+                transform: translate(-20px, 20px) scale(0.9);
+              }
+            }
+
+            @keyframes fade-in-down {
+              from {
+                opacity: 0;
+                transform: translateY(-20px);
+              }
+              to {
+                opacity: 1;
+                transform: translateY(0);
+              }
+            }
+
+            @keyframes scale-in {
+              0% {
+                opacity: 0;
+                transform: scale(0.5) rotate(-10deg);
+              }
+              50% {
+                opacity: 1;
+              }
+              100% {
+                opacity: 1;
+                transform: scale(1) rotate(0deg);
+              }
+            }
+
+            @keyframes bounce-in {
+              0% {
+                opacity: 0;
+                transform: scale(0);
+              }
+              50% {
+                opacity: 1;
+              }
+              100% {
+                opacity: 1;
+                transform: scale(1);
+              }
+            }
+
+            .animate-blob {
+              animation: blob 7s infinite;
+            }
+
+            .animation-delay-2000 {
+              animation-delay: 2s;
+            }
+
+            .animation-delay-4000 {
+              animation-delay: 4s;
+            }
+
+            .animation-delay-200 {
+              animation-delay: 200ms;
+            }
+
+            .animation-delay-300 {
+              animation-delay: 300ms;
+            }
+
+            .animation-delay-400 {
+              animation-delay: 400ms;
+            }
+
+            .animation-delay-500 {
+              animation-delay: 500ms;
+            }
+
+            .animation-delay-600 {
+              animation-delay: 600ms;
+            }
+
+            .animate-fade-in-down {
+              animation: fade-in-down 0.6s ease-out forwards;
+              opacity: 0;
+            }
+
+            .animate-scale-in {
+              animation: scale-in 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+              opacity: 0;
+            }
+
+            .animate-bounce-in {
+              animation: bounce-in 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+              opacity: 0;
+            }
+          `}</style>
+        </div>
+      )}
+
     <div className="min-h-screen bg-gradient-to-br from-green-50 via-white to-emerald-50 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="bg-white rounded-2xl shadow-xl p-8">
@@ -280,5 +465,6 @@ export default function VerifyOtp() {
         </div>
       </div>
     </div>
+    </>
   );
 }

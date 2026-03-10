@@ -121,7 +121,9 @@ async function sendWhatsAppOTP(phone, otp) {
       );
       const fallbackData = await fallbackRes.json();
       if (fallbackRes.ok) {
-        console.log(`✅ WhatsApp OTP sent (text fallback) to ${formattedPhone}`);
+        console.log(
+          `✅ WhatsApp OTP sent (text fallback) to ${formattedPhone}`,
+        );
         return true;
       }
       console.error("WhatsApp fallback error:", fallbackData);
@@ -521,20 +523,14 @@ router.get("/user-email", async (req, res) => {
  */
 router.post("/complete-profile", async (req, res) => {
   try {
-    const {
-      userId,
-      username,
-      email,
-      phone,
-      address,
-      city,
-      access_token,
-    } = req.body;
+    const { userId, username, email, phone, address, city, access_token } =
+      req.body;
 
     // Validate required fields
     if (!userId || !username || !email || !phone || !address || !city) {
       return res.status(400).json({
-        message: "All fields are required (username, email, phone, address, city)",
+        message:
+          "All fields are required (username, email, phone, address, city)",
       });
     }
 
@@ -1224,7 +1220,9 @@ router.post("/verify-otp", async (req, res) => {
 
     // Check expiry
     if (new Date(customer.otp_expires_at) < new Date()) {
-      return res.status(400).json({ message: "OTP has expired. Please request a new one." });
+      return res
+        .status(400)
+        .json({ message: "OTP has expired. Please request a new one." });
     }
 
     // Verify OTP (timing-safe compare)
@@ -1287,7 +1285,9 @@ router.get("/check-email-verified", async (req, res) => {
       await supabaseAdmin.auth.admin.getUserById(userId);
 
     if (error || !userData?.user) {
-      return res.status(404).json({ message: "User not found", verified: false });
+      return res
+        .status(404)
+        .json({ message: "User not found", verified: false });
     }
 
     res.json({ verified: !!userData.user.email_confirmed_at });

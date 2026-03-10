@@ -189,9 +189,13 @@ const authLimiter = rateLimit({
   // not login attempts) and polling endpoints.
   skip: (req) => {
     if (req.method === "OPTIONS") return true;
-    if (req.method === "GET" && ["/confirm-email", "/email-verified", "/check-email-verified"].some(
-      (p) => req.path === p || req.path.startsWith(p + "?")
-    )) return true;
+    if (
+      req.method === "GET" &&
+      ["/confirm-email", "/email-verified", "/check-email-verified"].some(
+        (p) => req.path === p || req.path.startsWith(p + "?"),
+      )
+    )
+      return true;
     return false;
   },
   message: {

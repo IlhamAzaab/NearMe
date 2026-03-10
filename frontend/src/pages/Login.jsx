@@ -85,7 +85,7 @@ export default function Login() {
         }
 
         if (data.role === "customer") {
-          navigate("/home");
+          navigate("/");
         } else if (data.role === "admin") {
           navigate("/admin/dashboard");
         } else if (data.role === "driver") {
@@ -93,7 +93,7 @@ export default function Login() {
         } else if (data.role === "manager") {
           navigate("/manager/dashboard");
         } else {
-          navigate("/home");
+          navigate("/");
         }
       }, 1800);
     } catch (error) {
