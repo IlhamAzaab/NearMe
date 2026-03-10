@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import foodBg from "../assets/food-bg.jpg";
 import AnimatedAlert, { useAlert } from "../components/AnimatedAlert";
@@ -13,8 +13,38 @@ export default function Signup() {
   });
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [emailVerified, setEmailVerified] = useState(false);
+  const [signupUserId, setSignupUserId] = useState(null);
   const [shake, setShake] = useState(false);
   const { alert, visible, showError } = useAlert();
+  const pollRef = useRef(null);
+
+  // Poll for email verification when on the "Check Your Email" screen
+  useEffect(() => {
+    if (success && signupUserId && !emailVerified) {
+      const checkVerification = async () => {
+        try {
+          const res = await fetch(
+            `${API_URL}/auth/check-email-verified?userId=${encodeURIComponent(signupUserId)}`
+          );
+          const data = await res.json();
+          if (data.verified) {
+            setEmailVerified(true);
+          }
+        } catch (err) {
+          // Silently ignore polling errors
+        }
+      };
+
+      // Check immediately, then every 5 seconds
+      checkVerification();
+      pollRef.current = setInterval(checkVerification, 5000);
+
+      return () => {
+        if (pollRef.current) clearInterval(pollRef.current);
+      };
+    }
+  }, [success, signupUserId, emailVerified]);
 
   const handleChange = (e) => {
     setFormData({
@@ -85,6 +115,7 @@ export default function Signup() {
 
       // Success
       setSuccess(true);
+      setSignupUserId(data.userId);
       setLoading(false);
     } catch (err) {
       console.error("Signup error:", err);
@@ -109,6 +140,53 @@ export default function Signup() {
 
         {/* Success Card */}
         <div className="w-full max-w-md backdrop-blur-xl bg-white/90 border border-green-100 rounded-3xl shadow-2xl shadow-green-100/50 p-8 z-10 animate-fade-in-down">
+          {emailVerified ? (
+            /* Email Verified Successfully */
+            <div className="text-center">
+              <div className="mx-auto flex items-center justify-center h-20 w-20 rounded-full bg-gradient-to-br from-green-400 to-green-600 mb-6 animate-scale-in shadow-lg">
+                <svg
+                  className="h-10 w-10 text-white"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M5 13l4 4L19 7"
+                  />
+                </svg>
+              </div>
+              <h2 className="text-3xl font-bold text-gray-800 mb-3 animate-fade-in">
+                Email Verified!
+              </h2>
+              <p className="text-gray-600 mb-6 animate-fade-in animation-delay-100">
+                Your email has been verified successfully. You can now login to your account.
+              </p>
+              <button
+                onClick={() => navigate("/login")}
+                className="w-full py-3 px-6 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white font-bold rounded-xl transition-all duration-300 shadow-lg hover:shadow-2xl hover:shadow-green-200 hover:scale-105 active:scale-95 flex items-center justify-center gap-2 animate-fade-in animation-delay-200 group relative overflow-hidden"
+              >
+                <div className="absolute inset-0 bg-white/20 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
+                <span>Go to Login</span>
+                <svg
+                  className="w-5 h-5 group-hover:translate-x-1 transition-transform"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M13 7l5 5m0 0l-5 5m5-5H6"
+                  />
+                </svg>
+              </button>
+            </div>
+          ) : (
+            /* Pending Email Verification */
           <div className="text-center">
             <div className="mx-auto flex items-center justify-center h-20 w-20 rounded-full bg-gradient-to-br from-green-400 to-green-600 mb-6 animate-scale-in shadow-lg">
               <svg
@@ -170,6 +248,7 @@ export default function Signup() {
               </svg>
             </button>
           </div>
+          )}
         </div>
 
         {/* Floating accent elements */}

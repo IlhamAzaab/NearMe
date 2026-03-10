@@ -639,9 +639,9 @@ router.post("/complete-profile", async (req, res) => {
     const otp = String(Math.floor(100000 + Math.random() * 900000));
     const otpExpiry = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 min
 
-    // Store OTP in users table metadata — we'll use a simple approach
+    // Store OTP in customers table (OTP is customer-only)
     await supabaseAdmin
-      .from("users")
+      .from("customers")
       .update({
         otp_code: otp,
         otp_expires_at: otpExpiry,
@@ -1161,15 +1161,15 @@ router.post("/send-otp", async (req, res) => {
       return res.status(400).json({ message: "userId and phone are required" });
     }
 
-    // Verify user exists
-    const { data: user, error } = await supabaseAdmin
-      .from("users")
+    // Verify customer exists
+    const { data: customer, error } = await supabaseAdmin
+      .from("customers")
       .select("id, phone")
       .eq("id", userId)
       .single();
 
-    if (error || !user) {
-      return res.status(404).json({ message: "User not found" });
+    if (error || !customer) {
+      return res.status(404).json({ message: "Customer not found" });
     }
 
     // Generate new OTP
@@ -1177,7 +1177,7 @@ router.post("/send-otp", async (req, res) => {
     const otpExpiry = new Date(Date.now() + 10 * 60 * 1000).toISOString();
 
     await supabaseAdmin
-      .from("users")
+      .from("customers")
       .update({ otp_code: otp, otp_expires_at: otpExpiry })
       .eq("id", userId);
 
@@ -1207,34 +1207,34 @@ router.post("/verify-otp", async (req, res) => {
       return res.status(400).json({ message: "userId and OTP are required" });
     }
 
-    // Fetch stored OTP
-    const { data: user, error } = await supabaseAdmin
-      .from("users")
-      .select("id, role, email, otp_code, otp_expires_at")
+    // Fetch stored OTP from customers table
+    const { data: customer, error } = await supabaseAdmin
+      .from("customers")
+      .select("id, username, email, otp_code, otp_expires_at")
       .eq("id", userId)
       .single();
 
-    if (error || !user) {
-      return res.status(404).json({ message: "User not found" });
+    if (error || !customer) {
+      return res.status(404).json({ message: "Customer not found" });
     }
 
-    if (!user.otp_code) {
+    if (!customer.otp_code) {
       return res.status(400).json({ message: "No OTP was requested" });
     }
 
     // Check expiry
-    if (new Date(user.otp_expires_at) < new Date()) {
+    if (new Date(customer.otp_expires_at) < new Date()) {
       return res.status(400).json({ message: "OTP has expired. Please request a new one." });
     }
 
     // Verify OTP (timing-safe compare)
-    if (user.otp_code !== otp.trim()) {
+    if (customer.otp_code !== otp.trim()) {
       return res.status(400).json({ message: "Invalid OTP" });
     }
 
-    // Mark phone as verified, clear OTP
+    // Mark phone as verified, clear OTP in customers table
     await supabaseAdmin
-      .from("users")
+      .from("customers")
       .update({
         otp_code: null,
         otp_expires_at: null,
@@ -1242,16 +1242,16 @@ router.post("/verify-otp", async (req, res) => {
       })
       .eq("id", userId);
 
-    // Get customer details
-    const { data: customer } = await supabaseAdmin
-      .from("customers")
-      .select("username")
+    // Get user role from users table
+    const { data: user } = await supabaseAdmin
+      .from("users")
+      .select("role")
       .eq("id", userId)
       .single();
 
     // Generate JWT token
     const token = jwt.sign(
-      { id: userId, role: user.role || "customer" },
+      { id: userId, role: user?.role || "customer" },
       process.env.JWT_SECRET,
       { expiresIn: "7d" },
     );
@@ -1261,7 +1261,7 @@ router.post("/verify-otp", async (req, res) => {
     res.json({
       message: "Phone verified successfully!",
       token,
-      role: user.role || "customer",
+      role: user?.role || "customer",
       userId,
       userName: customer?.username || "",
     });
@@ -1272,12 +1272,29 @@ router.post("/verify-otp", async (req, res) => {
 });
 
 /**
- * GET /auth/email-verified
- * Legacy endpoint — no longer used.
- * Verification now happens via /auth/confirm-email (JWT-based)
+ * GET /auth/check-email-verified?userId=...
+ * Check if a user's email has been verified.
+ * Used by the signup "Check Your Email" screen to poll for verification status.
  */
-router.get("/email-verified", (req, res) => {
-  res.redirect("https://meezo-eta.vercel.app/signup");
+router.get("/check-email-verified", async (req, res) => {
+  try {
+    const { userId } = req.query;
+    if (!userId) {
+      return res.status(400).json({ message: "userId is required" });
+    }
+
+    const { data: userData, error } =
+      await supabaseAdmin.auth.admin.getUserById(userId);
+
+    if (error || !userData?.user) {
+      return res.status(404).json({ message: "User not found", verified: false });
+    }
+
+    res.json({ verified: !!userData.user.email_confirmed_at });
+  } catch (error) {
+    console.error("Check email verified error:", error);
+    res.status(500).json({ message: "Server error", verified: false });
+  }
 });
 
 export default router;
