@@ -99,9 +99,10 @@ export default function AdminNotifications() {
               />
             </svg>
           ),
-          bg: "bg-blue-100",
-          color: "text-blue-600",
-          label: "New Order",
+          bg: "bg-green-100",
+          color: "text-green-600",
+          label: "Order Received",
+          milestone: true,
         };
       case "driver_assigned":
         return {
@@ -232,53 +233,6 @@ export default function AdminNotifications() {
     return then.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   };
 
-  const formatDate = (timestamp) => {
-    if (!timestamp) return "";
-    return new Date(timestamp).toLocaleTimeString("en-US", {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: true,
-    });
-  };
-
-  // Group notifications by date
-  const groupNotifications = () => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-
-    const groups = { today: [], yesterday: [], earlier: [] };
-
-    const filtered =
-      filter === "all"
-        ? notifications
-        : notifications.filter((n) => {
-            const metadata =
-              (typeof n.data === "string" ? JSON.parse(n.data) : n.data) || {};
-            return metadata.type === filter;
-          });
-
-    filtered.forEach((n) => {
-      const notifDate = new Date(n.created_at);
-      notifDate.setHours(0, 0, 0, 0);
-
-      if (notifDate.getTime() === today.getTime()) {
-        groups.today.push(n);
-      } else if (notifDate.getTime() === yesterday.getTime()) {
-        groups.yesterday.push(n);
-      } else {
-        groups.earlier.push(n);
-      }
-    });
-
-    return groups;
-  };
-
-  const groups = groupNotifications();
-  const totalFiltered =
-    groups.today.length + groups.yesterday.length + groups.earlier.length;
-
   const handleNotificationClick = (n) => {
     const metadata =
       (typeof n.data === "string" ? JSON.parse(n.data) : n.data) || {};
@@ -299,6 +253,8 @@ export default function AdminNotifications() {
         key={n.id}
         onClick={() => isClickable && handleNotificationClick(n)}
         className={`bg-white rounded-2xl p-4 border border-gray-100 shadow-sm transition-all ${
+          config.milestone ? "border-l-4 border-l-green-500 bg-green-50/30" : ""
+        } ${
           isClickable
             ? "cursor-pointer active:scale-[0.98] hover:border-gray-200 hover:shadow-md"
             : ""
@@ -331,7 +287,7 @@ export default function AdminNotifications() {
                 </p>
               </div>
               <span className="text-[10px] text-gray-400 font-medium shrink-0 mt-0.5">
-                {formatDate(n.created_at)}
+                {getTimeAgo(n.created_at)}
               </span>
             </div>
 
@@ -382,67 +338,53 @@ export default function AdminNotifications() {
     );
   };
 
-  const renderGroup = (label, items) => {
-    if (items.length === 0) return null;
-    return (
-      <div>
-        <div className="flex items-center gap-2 mb-3 px-1">
-          <span
-            className="w-0.5 h-4 rounded-full"
-            style={{ background: "#06C168" }}
-          ></span>
-          <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">
-            {label}
-          </h3>
-          <span className="text-[10px] text-gray-400 font-medium">
-            ({items.length})
-          </span>
-        </div>
-        <div className="space-y-2.5">{items.map(renderNotification)}</div>
-      </div>
-    );
-  };
+  const filteredNotifications =
+    filter === "all"
+      ? notifications
+      : notifications.filter((n) => {
+          const metadata =
+            (typeof n.data === "string" ? JSON.parse(n.data) : n.data) || {};
+          return metadata.type === filter;
+        });
 
   return (
     <AdminLayout noPadding>
-      {/* Green gradient header */}
-      <div className="bg-gradient-to-br from-green-600 via-green-700 to-green-800 p-4 pb-20 lg:rounded-t-2xl">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => navigate(-1)}
-              className="w-9 h-9 rounded-full bg-white/15 backdrop-blur-sm border border-white/10 flex items-center justify-center text-white"
-            >
-              <svg
-                className="w-5 h-5"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M15 19l-7-7 7-7"
-                />
-              </svg>
-            </button>
-            <div>
-              <h1 className="text-white text-xl font-bold">Notifications</h1>
-              <p className="text-white/70 text-xs font-medium">
-                Stay updated on all activities
-              </p>
-            </div>
-          </div>
+      {/* White header */}
+      <div className="bg-white sticky top-0 z-10">
+        <div className="flex items-center justify-between px-4 py-3">
+          {/* Back */}
           <button
-            onClick={fetchNotifications}
-            className="w-10 h-10 rounded-full bg-white/15 backdrop-blur-sm border border-white/10 flex items-center justify-center text-white"
+            onClick={() => navigate(-1)}
+            className="w-10 h-10 flex items-center justify-center"
           >
             <svg
-              className="w-5 h-5"
+              className="w-6 h-6"
               fill="none"
               viewBox="0 0 24 24"
-              stroke="currentColor"
+              stroke="#06C168"
+              strokeWidth={2.5}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M15 19l-7-7 7-7"
+              />
+            </svg>
+          </button>
+
+          {/* Title */}
+          <h1 className="text-lg font-bold text-gray-900">Notifications</h1>
+
+          {/* Refresh */}
+          <button
+            onClick={fetchNotifications}
+            className="w-10 h-10 flex items-center justify-center"
+          >
+            <svg
+              className="w-6 h-6"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="#06C168"
               strokeWidth={2}
             >
               <path
@@ -454,44 +396,23 @@ export default function AdminNotifications() {
           </button>
         </div>
 
-        {/* Stats row */}
-        <div className="flex gap-3">
-          <div className="flex-1 bg-white/15 backdrop-blur-sm border border-white/10 p-3 rounded-2xl">
-            <span className="text-white/60 text-[10px] uppercase tracking-widest font-bold">
-              Total
-            </span>
-            <span className="block text-white text-2xl font-bold mt-0.5">
-              {notifications.length}
-            </span>
-          </div>
-          <div className="flex-1 bg-white/15 backdrop-blur-sm border border-white/10 p-3 rounded-2xl">
-            <span className="text-white/60 text-[10px] uppercase tracking-widest font-bold">
-              Today
-            </span>
-            <span className="block text-white text-2xl font-bold mt-0.5">
-              {groups.today.length}
-            </span>
-          </div>
-        </div>
-      </div>
+        {/* Divider */}
+        <div className="h-px bg-gray-100" />
 
-      {/* Main content */}
-      <div className="px-4 -mt-14 pb-8">
-        {/* Filter chips */}
-        <div className="flex gap-2 overflow-x-auto pb-3 hide-scrollbar mb-4">
+        {/* Tabs */}
+        <div className="flex gap-6 px-4 pt-2">
           {[
             { key: "all", label: "All" },
             { key: "new_delivery", label: "Orders" },
-            { key: "driver_assigned", label: "Drivers" },
-            { key: "delivery_status_update", label: "Updates" },
+            { key: "delivery_status_update", label: "Delivery" },
           ].map((tab) => (
             <button
               key={tab.key}
               onClick={() => setFilter(tab.key)}
-              className={`flex-shrink-0 px-4 py-2 rounded-full text-sm font-semibold transition-all ${
+              className={`pb-2.5 text-sm font-semibold border-b-[2.5px] transition-colors ${
                 filter === tab.key
-                  ? "bg-[#065f46] text-white shadow-md"
-                  : "bg-white text-gray-600 border border-gray-200"
+                  ? "text-[#06C168] border-[#06C168]"
+                  : "text-gray-400 border-transparent"
               }`}
             >
               {tab.label}
@@ -499,7 +420,12 @@ export default function AdminNotifications() {
           ))}
         </div>
 
-        {/* Notification list */}
+        {/* Bottom border */}
+        <div className="h-px bg-gray-100" />
+      </div>
+
+      {/* Notification list */}
+      <div className="px-4 py-4 pb-8">
         {loading ? (
           <div className="space-y-2.5">
             {[...Array(6)].map((_, i) => (
@@ -525,7 +451,7 @@ export default function AdminNotifications() {
               </div>
             ))}
           </div>
-        ) : totalFiltered === 0 ? (
+        ) : filteredNotifications.length === 0 ? (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm">
             <div className="flex flex-col items-center justify-center py-16 px-6">
               <div className="w-16 h-16 rounded-full bg-gray-50 flex items-center justify-center mb-4">
@@ -554,40 +480,11 @@ export default function AdminNotifications() {
             </div>
           </div>
         ) : (
-          <div className="space-y-5">
-            {renderGroup("Today", groups.today)}
-            {renderGroup("Yesterday", groups.yesterday)}
-            {renderGroup("Earlier", groups.earlier)}
-          </div>
-        )}
-
-        {/* End indicator */}
-        {!loading && totalFiltered > 0 && (
-          <div className="flex flex-col items-center justify-center py-8 opacity-40">
-            <svg
-              className="w-8 h-8 text-gray-400 mb-1"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={1.5}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-              />
-            </svg>
-            <p className="text-xs font-medium text-gray-500">
-              You're all caught up
-            </p>
+          <div className="space-y-2.5">
+            {filteredNotifications.map(renderNotification)}
           </div>
         )}
       </div>
-
-      <style>{`
-        .hide-scrollbar::-webkit-scrollbar { display: none; }
-        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-      `}</style>
     </AdminLayout>
   );
 }
