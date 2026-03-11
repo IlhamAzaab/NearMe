@@ -278,13 +278,10 @@ export default function AdminDashboard() {
                   <img
                     src={restaurant.logo_url}
                     alt={restaurant.restaurant_name}
-                    className="w-12 h-12 rounded-xl object-cover border border-gray-100"
+                    className="w-12 h-12 rounded-full object-cover border-2 border-green-500 bg-green-50"
                   />
                 ) : (
-                  <div
-                    className="w-12 h-12 rounded-xl flex items-center justify-center"
-                    style={{ background: "#06C168" }}
-                  >
+                  <div className="w-12 h-12 rounded-full flex items-center justify-center border-2 border-green-500 bg-green-500">
                     <svg
                       className="w-6 h-6 text-white"
                       fill="none"

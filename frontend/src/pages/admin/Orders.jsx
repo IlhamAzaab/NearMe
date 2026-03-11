@@ -44,6 +44,9 @@ export default function Orders() {
     orderId: null,
   });
   const [rejectReason, setRejectReason] = useState("");
+  const [period, setPeriod] = useState("today");
+  const [showPeriodDropdown, setShowPeriodDropdown] = useState(false);
+  const periodRef = useRef(null);
 
   // Normalize deliveries to always be an array (Supabase may return object for 1:1 relations)
   const normalizeDeliveries = (deliveries) => {
@@ -242,7 +245,53 @@ export default function Orders() {
     }
   }, [orders]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const filteredOrders = orders.filter((order) => {
+  const periodLabels = {
+    today: "Today",
+    yesterday: "Yesterday",
+    last7: "Last 7 Days",
+    last30: "Last 30 Days",
+    all: "All Time",
+  };
+
+  const isInPeriod = (dateStr) => {
+    if (!dateStr) return false;
+    const d = new Date(dateStr);
+    const now = new Date();
+    const todayStart = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+    );
+    const yesterdayStart = new Date(todayStart);
+    yesterdayStart.setDate(yesterdayStart.getDate() - 1);
+
+    switch (period) {
+      case "today":
+        return d >= todayStart;
+      case "yesterday":
+        return d >= yesterdayStart && d < todayStart;
+      case "last7": {
+        const start = new Date(todayStart);
+        start.setDate(start.getDate() - 7);
+        return d >= start;
+      }
+      case "last30": {
+        const start = new Date(todayStart);
+        start.setDate(start.getDate() - 30);
+        return d >= start;
+      }
+      case "all":
+        return true;
+      default:
+        return true;
+    }
+  };
+
+  const periodOrders = orders.filter((o) =>
+    isInPeriod(o.placed_at || o.created_at),
+  );
+
+  const filteredOrders = periodOrders.filter((order) => {
     const deliveryStatus = getDeliveryStatus(order);
     if (statusFilter === "all") return true;
     if (statusFilter === "pending") return deliveryStatus === "placed";
@@ -447,39 +496,40 @@ export default function Orders() {
     }
   };
 
-  const calculateTodayRevenue = () => {
-    const today = new Date().toDateString();
-    // Admin earns only when driver picks up the order (delivery status >= picked_up)
+  const getPeriodRevenue = () => {
     const pickedUpStatuses = [
       "picked_up",
       "on_the_way",
       "at_customer",
       "delivered",
     ];
-    return orders
-      .filter((o) => {
-        const placedToday = new Date(o.placed_at).toDateString() === today;
-        const deliveryStatus = getDeliveryStatus(o);
-        return placedToday && pickedUpStatuses.includes(deliveryStatus);
-      })
+    return periodOrders
+      .filter((o) => pickedUpStatuses.includes(getDeliveryStatus(o)))
       .reduce((sum, o) => sum + parseFloat(o.subtotal || 0), 0);
   };
 
-  const getTodayOrdersCount = () => {
-    const today = new Date().toDateString();
-    // Only count orders where driver has picked up (delivery status >= picked_up)
+  const getPeriodOrdersCount = () => {
     const pickedUpStatuses = [
       "picked_up",
       "on_the_way",
       "at_customer",
       "delivered",
     ];
-    return orders.filter((o) => {
-      const placedToday = new Date(o.placed_at).toDateString() === today;
-      const deliveryStatus = getDeliveryStatus(o);
-      return placedToday && pickedUpStatuses.includes(deliveryStatus);
-    }).length;
+    return periodOrders.filter((o) =>
+      pickedUpStatuses.includes(getDeliveryStatus(o)),
+    ).length;
   };
+
+  // Close period dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (periodRef.current && !periodRef.current.contains(e.target)) {
+        setShowPeriodDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   return (
     <AdminLayout noPadding>
@@ -546,106 +596,129 @@ export default function Orders() {
       )}
 
       {/* Stats Header */}
-      <div className="bg-gradient-to-br from-green-600 via-green-700 to-green-800 p-4 pb-20 lg:rounded-t-2xl">
-        <div className="flex items-center justify-between mb-4">
+      <div className="bg-gradient-to-br from-[#24e68c] to-[#06c16a] p-4 pb-14">
+        <div className="flex items-center justify-between mb-2">
           <div>
-            <h1 className="text-white text-xl font-bold">Orders</h1>
-            <p className="text-white/70 text-xs font-medium">
+            <h1 className="text-black-600 text-xl font-bold">Orders</h1>
+            <p className="text-black-600 text-xs font-medium">
               Order Management
             </p>
           </div>
-          <button
-            onClick={fetchOrders}
-            className="w-10 h-10 rounded-full bg-white/15 backdrop-blur-sm border border-white/10 flex items-center justify-center text-white"
-          >
-            <svg
-              className="w-5 h-5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
+          <div className="flex items-center gap-2">
+            {/* Period Selector */}
+            <div className="relative" ref={periodRef}>
+              <button
+                onClick={() => setShowPeriodDropdown(!showPeriodDropdown)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-white/15 backdrop-blur-sm border border-white/10 text-black-600 text-xs font-semibold"
+              >
+                {periodLabels[period]}
+                <svg
+                  className="w-3.5 h-3.5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2.5}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M19 9l-7 7-7-7"
+                  />
+                </svg>
+              </button>
+              {showPeriodDropdown && (
+                <div className="absolute right-0 top-full mt-1 bg-white rounded-xl shadow-xl border border-gray-100 py-1 z-50 min-w-[140px]">
+                  {Object.entries(periodLabels).map(([key, label]) => (
+                    <button
+                      key={key}
+                      onClick={() => {
+                        setPeriod(key);
+                        setShowPeriodDropdown(false);
+                      }}
+                      className={`w-full text-left px-4 py-2 text-sm font-medium transition-colors ${
+                        period === key
+                          ? "text-green-600 bg-green-50 font-semibold"
+                          : "text-gray-700 hover:bg-gray-50"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <button
+              onClick={fetchOrders}
+              className="w-9 h-9 rounded-full bg-white/15 backdrop-blur-sm border border-white/10 flex items-center justify-center text-white"
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-              />
-            </svg>
-          </button>
+              <svg
+                className="w-4.5 h-4.5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                />
+              </svg>
+            </button>
+          </div>
         </div>
         <div className="flex gap-3">
-          <div className="flex-1 bg-white/15 backdrop-blur-sm border border-white/10 p-4 rounded-2xl">
-            <span className="text-white/60 text-[10px] uppercase tracking-widest font-bold">
-              Today's Orders
+          <div className="flex-1 bg-white/15 backdrop-blur-sm border border-white/10 p-3 rounded-2xl">
+            <span className="text-black-900 text-[15px] uppercase tracking-widest font-bold">
+              Orders
             </span>
-            <span className="block text-white text-2xl font-bold mt-1">
-              {getTodayOrdersCount()}
+            <span className="block text-black-900 text-2xl font-bold mt-0.5">
+              {getPeriodOrdersCount()}
             </span>
           </div>
-          <div className="flex-1 bg-white/15 backdrop-blur-sm border border-white/10 p-4 rounded-2xl">
-            <span className="text-white/60 text-[10px] uppercase tracking-widest font-bold">
-              Today's Revenue
+          <div className="flex-1 bg-white/15 backdrop-blur-sm border border-white/10 p-3 rounded-2xl">
+            <span className="text-black-900 text-[15px] uppercase tracking-widest font-bold">
+              Revenue
             </span>
-            <span className="block text-white text-2xl font-bold mt-1">
-              Rs.{calculateTodayRevenue().toFixed(0)}
+            <span className="block text-black-900 text-2xl font-bold mt-0.5">
+              Rs.{getPeriodRevenue().toFixed(0)}
             </span>
           </div>
         </div>
       </div>
 
       {/* Main Content */}
-      <div className="px-4 -mt-14 pb-8">
-        {/* New Order Notification */}
-        {newOrderNotification && (
-          <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 mb-4 animate-pulse shadow-lg">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="text-2xl">🔔</div>
-                <div>
-                  <p className="font-bold text-emerald-800">
-                    {newOrderNotification.message}
-                  </p>
-                  <p className="text-xs text-emerald-600">
-                    {newOrderNotification.timestamp.toLocaleTimeString()}
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setNewOrderNotification(null)}
-                className="text-emerald-600 hover:text-emerald-800 p-1"
-              >
-                <svg
-                  className="w-5 h-5"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M6 18L18 6M6 6l12 12"
-                  />
-                </svg>
-              </button>
-            </div>
-          </div>
-        )}
-
+      <div className="px-4 -mt-10 pb-8">
         {/* Filter Tabs */}
         <div className="flex gap-2 overflow-x-auto pb-3 hide-scrollbar mb-4">
           {[
-            { key: "all", label: "All", count: counts.all },
-            { key: "pending", label: "New", count: counts.pending },
-            { key: "accepted", label: "Active", count: counts.accepted },
-            { key: "delivered", label: "Done", count: counts.delivered },
+            {
+              key: "all",
+              label: "All",
+              count: computeCounts(periodOrders).all,
+            },
+            {
+              key: "pending",
+              label: "New",
+              count: computeCounts(periodOrders).pending,
+            },
+            {
+              key: "accepted",
+              label: "Active",
+              count: computeCounts(periodOrders).accepted,
+            },
+            {
+              key: "delivered",
+              label: "Done",
+              count: computeCounts(periodOrders).delivered,
+            },
           ].map((tab) => (
             <button
               key={tab.key}
               onClick={() => setStatusFilter(tab.key)}
               className={`flex-shrink-0 px-4 py-2 rounded-full text-sm font-semibold transition-all ${
                 statusFilter === tab.key
-                  ? "bg-[#065f46] text-white shadow-md"
+                  ? "bg-[#06C168] text-white shadow-md"
                   : "bg-white text-gray-600 border border-gray-200"
               }`}
             >

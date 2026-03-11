@@ -209,7 +209,7 @@ export default function Earnings() {
           </div>
           <div className="flex-1">
             <p className="text-sm font-medium text-gray-500">
-              {restaurant?.name || "Your Restaurant"}
+              {restaurant?.restaurant_name || "Restaurant"}
             </p>
             <h1 className="text-xl font-bold text-gray-800">
               Financial Overview
