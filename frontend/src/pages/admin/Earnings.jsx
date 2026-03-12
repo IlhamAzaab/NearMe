@@ -71,20 +71,20 @@ export default function Earnings() {
     });
   };
 
-  const getPeriodLabel = () => {
+  const getComparisonLabel = () => {
     switch (period) {
-      case "today":
-        return "Today";
-      case "week":
-        return "Last 7 Days";
-      case "month":
-        return "Last 30 Days";
-      case "year":
-        return "Last Year";
-      default:
-        return "All Time";
+      case "today": return "vs. yesterday";
+      case "week": return "vs. prev 7 days";
+      case "month": return "vs. prev 30 days";
+      case "year": return "vs. prev year";
+      default: return null;
     }
   };
+
+  const comparisonLabel = getComparisonLabel();
+  const pct = earnings?.percentageChange || 0;
+  const isUp = pct >= 0;
+  const showComparison = comparisonLabel && pct !== 0;
 
   // Generate chart path from data
   const generateChartPath = () => {
@@ -237,45 +237,51 @@ export default function Earnings() {
         </div>
 
         {/* Main Revenue Card */}
-        <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-2xl p-6 border border-green-200 shadow-sm">
-          <div className="flex justify-between items-start mb-2">
-            <p className="text-gray-600 text-sm font-semibold uppercase tracking-wider">
-              Net Revenue ({getPeriodLabel()})
+        <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-2xl p-4 border border-green-200 shadow-sm">
+          <div className="flex justify-between items-start mb-1">
+            <p className="text-gray-500 text-xs font-bold uppercase tracking-wider">
+              Net Revenue
             </p>
-            {earnings?.percentageChange !== 0 && (
-              <span
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold ${
-                  earnings?.percentageChange >= 0
-                    ? "bg-green-500 text-white"
-                    : "bg-red-500 text-white"
-                }`}
-              >
-                <svg
-                  className={`w-3 h-3 ${earnings?.percentageChange < 0 ? "rotate-180" : ""}`}
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={3}
-                    d="M5 10l7-7m0 0l7 7m-7-7v18"
-                  />
-                </svg>
-                {Math.abs(earnings?.percentageChange || 0)}%
-              </span>
+            {showComparison && (
+              <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold shadow-sm ${
+                isUp
+                  ? "bg-emerald-500 text-white"
+                  : "bg-red-500 text-white"
+              }`}>
+                <div className={`w-4 h-4 rounded-full flex items-center justify-center ${isUp ? "bg-emerald-400" : "bg-red-400"}`}>
+                  <svg className={`w-2.5 h-2.5 ${!isUp ? "rotate-180" : ""}`} fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 17a.75.75 0 01-.75-.75V5.56L5.03 9.78a.75.75 0 01-1.06-1.06l5.5-5.5a.75.75 0 011.06 0l5.5 5.5a.75.75 0 01-1.06 1.06L10.75 5.56V16.25A.75.75 0 0110 17z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                {Math.abs(pct)}%
+              </div>
             )}
           </div>
-          <p className="text-4xl font-extrabold text-gray-900 tracking-tight">
+          <p className="text-4xl font-extrabold text-gray-900 tracking-tight leading-tight">
             {formatCurrency(earnings?.totalRevenue)}
           </p>
-          <p className="text-gray-500 text-sm mt-1">
-            vs. {formatCurrency(earnings?.lastWeekRevenue)} last week
-          </p>
+
+          {/* Comparison row */}
+          {showComparison ? (
+            <div className="flex items-center gap-2 mt-1 mb-3">
+              <span className={`text-xs font-semibold ${isUp ? "text-emerald-600" : "text-red-500"}`}>
+                {isUp ? "▲" : "▼"} {comparisonLabel}:
+              </span>
+              <span className="text-xs font-bold text-gray-600">
+                {formatCurrency(earnings?.previousRevenue)}
+              </span>
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
+                isUp ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-600"
+              }`}>
+                {isUp ? "+" : ""}{pct}%
+              </span>
+            </div>
+          ) : (
+            <div className="mb-3" />
+          )}
 
           {/* Period Selector */}
-          <div className="mt-4 flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2">
             {[
               { value: "today", label: "Today" },
               { value: "week", label: "7 Days" },

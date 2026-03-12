@@ -1379,7 +1379,7 @@ router.get("/earnings", authenticate, async (req, res) => {
           todaySales: 0,
           todayOrderCount: 0,
           thisWeekRevenue: 0,
-          lastWeekRevenue: 0,
+          previousRevenue: 0,
           percentageChange: 0,
           chartData: [],
           period,
@@ -1430,30 +1430,7 @@ router.get("/earnings", authenticate, async (req, res) => {
 
     const todayOrderCount = todayOrders?.length || 0;
 
-    // Get last week's revenue for comparison
-    const lastWeekStart = new Date(now);
-    lastWeekStart.setDate(lastWeekStart.getDate() - 14);
-    const lastWeekEnd = new Date(now);
-    lastWeekEnd.setDate(lastWeekEnd.getDate() - 7);
-
-    let lastWeekQuery = supabaseAdmin
-      .from("order_financial_details")
-      .select("restaurant_payment")
-      .eq("restaurant_id", restaurantId)
-      .gte("placed_at", lastWeekStart.toISOString())
-      .lt("placed_at", lastWeekEnd.toISOString());
-
-    if (qualifyingOrderIds.length > 0) {
-      lastWeekQuery = lastWeekQuery.in("order_id", qualifyingOrderIds);
-    }
-
-    const { data: lastWeekOrders } = await lastWeekQuery;
-
-    const lastWeekRevenue = (lastWeekOrders || []).reduce((sum, order) => {
-      return sum + parseFloat(order.restaurant_payment || 0);
-    }, 0);
-
-    // Calculate this week's revenue
+    // Calculate this week's revenue (always shown in metric grid)
     const thisWeekStart = new Date(now);
     thisWeekStart.setDate(thisWeekStart.getDate() - 7);
 
@@ -1473,11 +1450,70 @@ router.get("/earnings", authenticate, async (req, res) => {
       return sum + parseFloat(order.restaurant_payment || 0);
     }, 0);
 
-    // Calculate percentage change
+    // Calculate previous period revenue for comparison (period-aware)
+    let previousRevenue = 0;
+    let prevStart = null;
+    let prevEnd = null;
+
+    switch (period) {
+      case "today":
+        // Compare with yesterday
+        prevEnd = new Date(todayStart);
+        prevStart = new Date(todayStart);
+        prevStart.setDate(prevStart.getDate() - 1);
+        break;
+      case "week":
+        // Compare with previous 7 days (days -14 to -7)
+        prevEnd = new Date(now);
+        prevEnd.setDate(prevEnd.getDate() - 7);
+        prevStart = new Date(now);
+        prevStart.setDate(prevStart.getDate() - 14);
+        break;
+      case "month":
+        // Compare with previous 30 days (days -60 to -30)
+        prevEnd = new Date(now);
+        prevEnd.setDate(prevEnd.getDate() - 30);
+        prevStart = new Date(now);
+        prevStart.setDate(prevStart.getDate() - 60);
+        break;
+      case "year":
+        // Compare with previous year
+        prevEnd = new Date(now);
+        prevEnd.setFullYear(prevEnd.getFullYear() - 1);
+        prevStart = new Date(now);
+        prevStart.setFullYear(prevStart.getFullYear() - 2);
+        break;
+      default:
+        // All time - no comparison
+        break;
+    }
+
+    if (prevStart && prevEnd) {
+      let prevQuery = supabaseAdmin
+        .from("order_financial_details")
+        .select("restaurant_payment")
+        .eq("restaurant_id", restaurantId)
+        .gte("placed_at", prevStart.toISOString())
+        .lt("placed_at", prevEnd.toISOString());
+
+      if (qualifyingOrderIds.length > 0) {
+        prevQuery = prevQuery.in("order_id", qualifyingOrderIds);
+      }
+
+      const { data: prevOrders } = await prevQuery;
+      previousRevenue = (prevOrders || []).reduce(
+        (sum, order) => sum + parseFloat(order.restaurant_payment || 0),
+        0,
+      );
+    }
+
+    // Calculate percentage change based on period-aware comparison
     let percentageChange = 0;
-    if (lastWeekRevenue > 0) {
+    if (previousRevenue > 0) {
       percentageChange =
-        ((thisWeekRevenue - lastWeekRevenue) / lastWeekRevenue) * 100;
+        ((totalRevenue - previousRevenue) / previousRevenue) * 100;
+    } else if (totalRevenue > 0 && period !== "all") {
+      percentageChange = 100; // new revenue where there was none before
     }
 
     // Get daily earnings for chart (last 30 days)
@@ -1520,7 +1556,7 @@ router.get("/earnings", authenticate, async (req, res) => {
         todaySales: Math.round(todaySales),
         todayOrderCount,
         thisWeekRevenue: Math.round(thisWeekRevenue),
-        lastWeekRevenue: Math.round(lastWeekRevenue),
+        previousRevenue: Math.round(previousRevenue),
         percentageChange: Math.round(percentageChange * 10) / 10,
         chartData,
         period,
