@@ -928,13 +928,12 @@ router.post(
       // ─── BUILD EARNINGS FIELDS FOR DB ────────────────────────────────────
       const deliverySequence = earningsData.delivery_sequence;
 
-      // Calculate driver_earnings based on delivery sequence
-      // tip_amount is included in driver_earnings (total payout = driver_earnings)
-      const driverEarningsAmount = isFirstDelivery
-        ? (earningsData.base_amount || 0) + tipAmount
-        : (earningsData.extra_earnings || 0) +
-          (earningsData.bonus_amount || 0) +
-          tipAmount;
+      // Calculate driver_earnings = base_amount + extra_earnings + bonus_amount + tip_amount
+      const driverEarningsAmount =
+        (earningsData.base_amount || 0) +
+        (earningsData.extra_earnings || 0) +
+        (earningsData.bonus_amount || 0) +
+        tipAmount;
 
       const earningsFields = {
         delivery_sequence: deliverySequence,
@@ -945,9 +944,7 @@ router.post(
         total_distance_km: earningsData.total_distance_km || 0,
         // Store pending earnings data as JSON (will be applied when delivered)
         pending_earnings: JSON.stringify({
-          ...(isFirstDelivery
-            ? { base_amount: earningsData.base_amount || 0 }
-            : {}),
+          base_amount: earningsData.base_amount || 0,
           extra_earnings: earningsData.extra_earnings || 0,
           bonus_amount: earningsData.bonus_amount || 0,
           tip_amount: tipAmount,

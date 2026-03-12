@@ -387,9 +387,10 @@ SELECT
   o.service_fee,
   o.total_amount as customer_total,
   o.admin_subtotal as restaurant_payment,
+  COALESCE(d.driver_earnings, 0) as driver_payment,
   o.commission_total as food_commission,
   o.service_fee as service_fee_earning,
-  (o.commission_total + o.service_fee) as total_manager_earning
+  (o.commission_total + o.service_fee - COALESCE(d.driver_earnings, 0)) as total_manager_earning
 FROM orders o
 LEFT JOIN deliveries d ON d.order_id = o.id;
 

@@ -73,11 +73,16 @@ export default function Earnings() {
 
   const getComparisonLabel = () => {
     switch (period) {
-      case "today": return "vs. yesterday";
-      case "week": return "vs. prev 7 days";
-      case "month": return "vs. prev 30 days";
-      case "year": return "vs. prev year";
-      default: return null;
+      case "today":
+        return "vs. yesterday";
+      case "week":
+        return "vs. prev 7 days";
+      case "month":
+        return "vs. prev 30 days";
+      case "year":
+        return "vs. prev year";
+      default:
+        return null;
     }
   };
 
@@ -243,14 +248,24 @@ export default function Earnings() {
               Net Revenue
             </p>
             {showComparison && (
-              <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold shadow-sm ${
-                isUp
-                  ? "bg-emerald-500 text-white"
-                  : "bg-red-500 text-white"
-              }`}>
-                <div className={`w-4 h-4 rounded-full flex items-center justify-center ${isUp ? "bg-emerald-400" : "bg-red-400"}`}>
-                  <svg className={`w-2.5 h-2.5 ${!isUp ? "rotate-180" : ""}`} fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 17a.75.75 0 01-.75-.75V5.56L5.03 9.78a.75.75 0 01-1.06-1.06l5.5-5.5a.75.75 0 011.06 0l5.5 5.5a.75.75 0 01-1.06 1.06L10.75 5.56V16.25A.75.75 0 0110 17z" clipRule="evenodd" />
+              <div
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold shadow-sm ${
+                  isUp ? "bg-emerald-500 text-white" : "bg-red-500 text-white"
+                }`}
+              >
+                <div
+                  className={`w-4 h-4 rounded-full flex items-center justify-center ${isUp ? "bg-emerald-400" : "bg-red-400"}`}
+                >
+                  <svg
+                    className={`w-2.5 h-2.5 ${!isUp ? "rotate-180" : ""}`}
+                    fill="currentColor"
+                    viewBox="0 0 20 20"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M10 17a.75.75 0 01-.75-.75V5.56L5.03 9.78a.75.75 0 01-1.06-1.06l5.5-5.5a.75.75 0 011.06 0l5.5 5.5a.75.75 0 01-1.06 1.06L10.75 5.56V16.25A.75.75 0 0110 17z"
+                      clipRule="evenodd"
+                    />
                   </svg>
                 </div>
                 {Math.abs(pct)}%
@@ -264,16 +279,23 @@ export default function Earnings() {
           {/* Comparison row */}
           {showComparison ? (
             <div className="flex items-center gap-2 mt-1 mb-3">
-              <span className={`text-xs font-semibold ${isUp ? "text-emerald-600" : "text-red-500"}`}>
+              <span
+                className={`text-xs font-semibold ${isUp ? "text-emerald-600" : "text-red-500"}`}
+              >
                 {isUp ? "▲" : "▼"} {comparisonLabel}:
               </span>
               <span className="text-xs font-bold text-gray-600">
                 {formatCurrency(earnings?.previousRevenue)}
               </span>
-              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
-                isUp ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-600"
-              }`}>
-                {isUp ? "+" : ""}{pct}%
+              <span
+                className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
+                  isUp
+                    ? "bg-emerald-100 text-emerald-700"
+                    : "bg-red-100 text-red-600"
+                }`}
+              >
+                {isUp ? "+" : ""}
+                {pct}%
               </span>
             </div>
           ) : (

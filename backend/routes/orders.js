@@ -633,25 +633,7 @@ router.post("/place", authenticate, async (req, res) => {
     }
 
     // ========================================================================
-    // STEP 10: Log initial status in history
-    // ========================================================================
-    const { error: historyError } = await supabaseAdmin
-      .from("order_status_history")
-      .insert({
-        order_id: order.id,
-        previous_status: null,
-        new_status: "placed",
-        changed_by: customerId,
-        changed_by_role: "customer",
-      });
-
-    if (historyError) {
-      console.error("Status history insert error:", historyError);
-      // Continue anyway
-    }
-
-    // ========================================================================
-    // STEP 11: Create notification for restaurant
+    // STEP 10: Create notification for restaurant
     // ========================================================================
 
     // Get restaurant admin IDs
@@ -1190,7 +1172,7 @@ router.get("/restaurant/orders", authenticate, async (req, res) => {
   }
 
   const adminId = req.user.id;
-  const { status, limit = 50, offset = 0 } = req.query;
+  const { status, limit = 1000, offset = 0 } = req.query;
 
   try {
     // Get admin's restaurant
@@ -1451,16 +1433,6 @@ router.patch(
       console.log(
         `✅ Delivery ${deliveryId} status updated: ${currentDeliveryStatus} → ${targetDeliveryStatus}`,
       );
-
-      // Log status change (using delivery status)
-      await supabaseAdmin.from("order_status_history").insert({
-        order_id: orderId,
-        from_status: currentDeliveryStatus,
-        to_status: targetDeliveryStatus,
-        changed_by: adminId,
-        changed_by_role: "admin",
-        reason: reason || null,
-      });
 
       // Create notification for customer
       // Map back to user-friendly status names
