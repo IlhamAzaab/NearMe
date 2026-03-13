@@ -4,21 +4,37 @@
  * Commission Rules:
  * - Price ≤ 50: flat commission of Rs. 5
  * - Price > 50 and ≤ 100: flat commission of Rs. 10
- * - Price > 100: 10% commission, rounded up to nearest 10
+ * - Price > 100: configurable % commission from system_config.commission_percentage,
+ *   rounded up to nearest 10
  *
  * Examples:
  * - 30/= → 35/= (30 + 5 commission)
  * - 70/= → 80/= (70 + 10 commission)
- * - 370/= → 410/= (370 + 37 → 40 rounded commission)
- * - 1000/= → 1100/= (1000 + 100 commission, already multiple of 10)
+ * - 370/= @10% → 410/= (370 + 37 → 40 rounded commission)
+ * - 1000/= @10% → 1100/= (1000 + 100 commission, already multiple of 10)
  */
+
+import { getSystemConfig } from "./systemConfig.js";
+
+async function getCommissionPercentage() {
+  try {
+    const config = await getSystemConfig();
+    const pct = parseFloat(config?.commission_percentage);
+    if (!Number.isFinite(pct) || pct <= 0) {
+      return 10;
+    }
+    return pct;
+  } catch {
+    return 10;
+  }
+}
 
 /**
  * Calculate commission for a given price
  * @param {number} price - Original price (admin's price)
  * @returns {number} Commission amount
  */
-function calculateCommission(price) {
+async function calculateCommission(price) {
   if (price === null || price === undefined || price <= 0) {
     return 0;
   }
@@ -35,9 +51,10 @@ function calculateCommission(price) {
     return 10;
   }
 
-  // Price > 100: 10% commission, rounded up to nearest 10
-  const tenPercent = numPrice * 0.1;
-  const roundedUp = Math.ceil(tenPercent / 10) * 10;
+  // Price > 100: configurable commission percentage, rounded up to nearest 10
+  const commissionPercentage = await getCommissionPercentage();
+  const commissionValue = numPrice * (commissionPercentage / 100);
+  const roundedUp = Math.ceil(commissionValue / 10) * 10;
   return roundedUp;
 }
 
@@ -46,13 +63,13 @@ function calculateCommission(price) {
  * @param {number} price - Original price (admin's price)
  * @returns {number} Customer-facing price with commission
  */
-function calculateCustomerPrice(price) {
+async function calculateCustomerPrice(price) {
   if (price === null || price === undefined || price <= 0) {
     return 0;
   }
 
   const numPrice = parseFloat(price);
-  const commission = calculateCommission(numPrice);
+  const commission = await calculateCommission(numPrice);
   return numPrice + commission;
 }
 
@@ -61,7 +78,7 @@ function calculateCustomerPrice(price) {
  * @param {Object} food - Food object with regular_price, offer_price, extra_price, extra_offer_price
  * @returns {Object} Pricing breakdown with admin prices and customer prices
  */
-function getFoodPricing(food) {
+async function getFoodPricing(food) {
   if (!food) return null;
 
   const pricing = {
@@ -96,7 +113,7 @@ function getFoodPricing(food) {
   };
 
   // Regular price (always exists)
-  pricing.commission.regular_commission = calculateCommission(
+  pricing.commission.regular_commission = await calculateCommission(
     pricing.admin.regular_price,
   );
   pricing.customer.regular_price =
@@ -104,7 +121,7 @@ function getFoodPricing(food) {
 
   // Offer price (optional)
   if (pricing.admin.offer_price !== null) {
-    pricing.commission.offer_commission = calculateCommission(
+    pricing.commission.offer_commission = await calculateCommission(
       pricing.admin.offer_price,
     );
     pricing.customer.offer_price =
@@ -113,7 +130,7 @@ function getFoodPricing(food) {
 
   // Extra price (large size - optional)
   if (pricing.admin.extra_price !== null) {
-    pricing.commission.extra_commission = calculateCommission(
+    pricing.commission.extra_commission = await calculateCommission(
       pricing.admin.extra_price,
     );
     pricing.customer.extra_price =
@@ -122,7 +139,7 @@ function getFoodPricing(food) {
 
   // Extra offer price (large size with offer - optional)
   if (pricing.admin.extra_offer_price !== null) {
-    pricing.commission.extra_offer_commission = calculateCommission(
+    pricing.commission.extra_offer_commission = await calculateCommission(
       pricing.admin.extra_offer_price,
     );
     pricing.customer.extra_offer_price =
@@ -156,7 +173,7 @@ function getFoodPricing(food) {
  * @param {Array} orderItems - Array of order items with admin prices and quantities
  * @returns {Object} Order totals breakdown
  */
-function calculateOrderTotals(orderItems) {
+async function calculateOrderTotals(orderItems) {
   let adminPayment = 0; // What manager pays to admin (restaurant)
   let managerEarning = 0; // Commission earned by manager (system)
   let customerSubtotal = 0; // What customer pays for food (excluding delivery/service fees)
@@ -170,7 +187,7 @@ function calculateOrderTotals(orderItems) {
 
     // Customer price includes commission
     const customerUnitPrice =
-      item.customer_unit_price || calculateCustomerPrice(adminUnitPrice);
+      item.customer_unit_price || (await calculateCustomerPrice(adminUnitPrice));
     const customerTotal = parseFloat(customerUnitPrice) * quantity;
 
     // Commission for this item
@@ -194,8 +211,8 @@ function calculateOrderTotals(orderItems) {
  * @param {string} size - 'regular' or 'large'
  * @returns {Object} { adminPrice, customerPrice, commission }
  */
-function getCartItemPrices(food, size = "regular") {
-  const pricing = getFoodPricing(food);
+async function getCartItemPrices(food, size = "regular") {
+  const pricing = await getFoodPricing(food);
 
   if (size === "large" && pricing.admin.extra_price !== null) {
     // Large size
@@ -239,10 +256,10 @@ function getCartItemPrices(food, size = "regular") {
  * @param {Object} food - Original food object from database
  * @returns {Object} Food object with customer prices added
  */
-function addCustomerPricing(food) {
+async function addCustomerPricing(food) {
   if (!food) return null;
 
-  const pricing = getFoodPricing(food);
+  const pricing = await getFoodPricing(food);
 
   return {
     ...food,

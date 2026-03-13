@@ -438,13 +438,14 @@ router.post("/place", authenticate, async (req, res) => {
     let adminSubtotal = 0;
     let commissionTotal = 0;
 
-    const processedItems = cartItems.map((item) => {
+    const processedItems = [];
+    for (const item of cartItems) {
       const food = item.foods;
       let adminPrice, customerPrice, commission;
 
       if (food) {
         // Recalculate from current food prices
-        const prices = getCartItemPrices(food, item.size);
+        const prices = await getCartItemPrices(food, item.size);
         adminPrice = prices.adminPrice;
         customerPrice = prices.customerPrice;
         commission = prices.commission;
@@ -463,7 +464,7 @@ router.post("/place", authenticate, async (req, res) => {
       customerSubtotal += customerTotal;
       commissionTotal += itemCommission;
 
-      return {
+      processedItems.push({
         ...item,
         admin_unit_price: adminPrice,
         admin_total_price: adminTotal,
@@ -471,8 +472,8 @@ router.post("/place", authenticate, async (req, res) => {
         customer_total_price: customerTotal,
         commission_per_item: commission,
         total_commission: itemCommission,
-      };
-    });
+      });
+    }
 
     const subtotal = customerSubtotal; // Customer subtotal includes commission
 

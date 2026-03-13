@@ -42,6 +42,7 @@ export default function OperationsConfig() {
   const [maxExtraTime, setMaxExtraTime] = useState(10);
   const [maxExtraDistance, setMaxExtraDistance] = useState(3);
   const [maxActiveDeliveries, setMaxActiveDeliveries] = useState(5);
+  const [commissionPercentage, setCommissionPercentage] = useState(10);
 
   // Section 3: Service Fee Tiers
   const [serviceFeeTiers, setServiceFeeTiers] = useState([
@@ -103,6 +104,7 @@ export default function OperationsConfig() {
       setMaxExtraTime(config.max_extra_time_minutes);
       setMaxExtraDistance(parseFloat(config.max_extra_distance_km));
       setMaxActiveDeliveries(config.max_active_deliveries);
+      setCommissionPercentage(parseFloat(config.commission_percentage ?? 10));
 
       // Section 3
       const sft =
@@ -199,6 +201,7 @@ export default function OperationsConfig() {
         max_extra_time_minutes: parseInt(maxExtraTime),
         max_extra_distance_km: parseFloat(maxExtraDistance),
         max_active_deliveries: parseInt(maxActiveDeliveries),
+        commission_percentage: parseFloat(commissionPercentage),
         service_fee_tiers: sftPayload,
         delivery_fee_tiers: dftPayload,
         pending_alert_minutes: parseInt(pendingMinutes),
@@ -222,6 +225,16 @@ export default function OperationsConfig() {
         body.night_shift_end === null
       ) {
         setError("Invalid time format. Use HH:MM AM/PM (e.g. 5:00 AM)");
+        setSaving(false);
+        return;
+      }
+
+      if (
+        Number.isNaN(body.commission_percentage) ||
+        body.commission_percentage <= 0 ||
+        body.commission_percentage > 100
+      ) {
+        setError("Commission percentage must be between 0.01 and 100");
         setSaving(false);
         return;
       }
@@ -501,6 +514,22 @@ export default function OperationsConfig() {
             </p>
           </div>
           <div className="p-4 space-y-2">
+            <div className="max-w-xs mb-2">
+              <label className={labelClass}>Commission Percentage (%)</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0.01"
+                max="100"
+                value={commissionPercentage}
+                onChange={(e) => setCommissionPercentage(e.target.value)}
+                className={inputClass}
+              />
+              <p className="text-[10px] text-[#618980] mt-0.5">
+                Applied on food prices above Rs.100 (rounded up to nearest 10)
+              </p>
+            </div>
+
             {/* Header */}
             <div className="grid grid-cols-[1fr_1fr_1fr_40px] gap-2 text-[10px] font-semibold text-[#618980] uppercase tracking-wider">
               <span>Min (Rs.)</span>

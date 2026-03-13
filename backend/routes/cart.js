@@ -120,7 +120,7 @@ router.post("/add", authenticate, async (req, res) => {
     }
 
     // Get prices with commission calculation
-    const { adminPrice, customerPrice, commission } = getCartItemPrices(
+    const { adminPrice, customerPrice, commission } = await getCartItemPrices(
       food,
       actualSize,
     );
@@ -348,7 +348,8 @@ router.get("/", authenticate, async (req, res) => {
 
         // Calculate total using CURRENT prices from foods table with commission
         const currentTime = getSriLankaTimeString();
-        const itemsWithCurrentPrice = items.map((item) => {
+        const itemsWithCurrentPrice = await Promise.all(
+          items.map(async (item) => {
           const food = item.foods;
           let current_unit_price = item.unit_price;
           let current_admin_unit_price =
@@ -367,10 +368,8 @@ router.get("/", authenticate, async (req, res) => {
 
           // Get current price from food if available (with commission)
           if (food && effectiveAvailable) {
-            const { adminPrice, customerPrice, commission } = getCartItemPrices(
-              food,
-              item.size,
-            );
+            const { adminPrice, customerPrice, commission } =
+              await getCartItemPrices(food, item.size);
             current_unit_price = customerPrice;
             current_admin_unit_price = adminPrice;
             current_commission = commission;
@@ -402,7 +401,8 @@ router.get("/", authenticate, async (req, res) => {
             is_available: effectiveAvailable,
             created_at: item.created_at,
           };
-        });
+          }),
+        );
 
         const cart_total = itemsWithCurrentPrice.reduce(
           (sum, item) => sum + item.total_price,
@@ -509,7 +509,7 @@ router.put("/item/:itemId", authenticate, async (req, res) => {
     }
 
     // Get prices with commission
-    const { adminPrice, customerPrice, commission } = getCartItemPrices(
+    const { adminPrice, customerPrice, commission } = await getCartItemPrices(
       food,
       item.size,
     );

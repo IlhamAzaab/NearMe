@@ -250,11 +250,11 @@ export default function Earnings() {
             {showComparison && (
               <div
                 className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold shadow-sm ${
-                  isUp ? "bg-emerald-500 text-white" : "bg-red-500 text-white"
+                  isUp ? "bg-green-100 text-green-600" : "bg-red-100 text-red-600"
                 }`}
               >
                 <div
-                  className={`w-4 h-4 rounded-full flex items-center justify-center ${isUp ? "bg-emerald-400" : "bg-red-400"}`}
+                  className={`w-4 h-4 rounded-full flex items-center justify-center ${isUp ? "bg-green-100" : "bg-red-100"}`}
                 >
                   <svg
                     className={`w-2.5 h-2.5 ${!isUp ? "rotate-180" : ""}`}
@@ -280,23 +280,14 @@ export default function Earnings() {
           {showComparison ? (
             <div className="flex items-center gap-2 mt-1 mb-3">
               <span
-                className={`text-xs font-semibold ${isUp ? "text-emerald-600" : "text-red-500"}`}
+                className={`text-xs font-semibold ${isUp ? "text-black" : "text-black"}`}
               >
                 {isUp ? "▲" : "▼"} {comparisonLabel}:
               </span>
               <span className="text-xs font-bold text-gray-600">
                 {formatCurrency(earnings?.previousRevenue)}
               </span>
-              <span
-                className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
-                  isUp
-                    ? "bg-emerald-100 text-emerald-700"
-                    : "bg-red-100 text-red-600"
-                }`}
-              >
-                {isUp ? "+" : ""}
-                {pct}%
-              </span>
+              
             </div>
           ) : (
             <div className="mb-3" />
@@ -314,10 +305,10 @@ export default function Earnings() {
               <button
                 key={option.value}
                 onClick={() => setPeriod(option.value)}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all ${
                   period === option.value
                     ? "bg-green-500 text-white shadow-md"
-                    : "bg-white text-gray-600 hover:bg-green-50 border border-gray-200"
+                    : "bg-white text-black hover:bg-green-50 border border-gray-200"
                 }`}
               >
                 {option.label}

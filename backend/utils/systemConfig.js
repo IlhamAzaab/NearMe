@@ -147,6 +147,7 @@ function getDefaults() {
     max_extra_time_minutes: 10,
     max_extra_distance_km: 3,
     max_active_deliveries: 5,
+    commission_percentage: 10,
     service_fee_tiers: [
       { min: 0, max: 300, fee: 0 },
       { min: 300, max: 1000, fee: 31 },

@@ -19,6 +19,9 @@ CREATE TABLE IF NOT EXISTS system_config (
   max_extra_distance_km NUMERIC(10,2) NOT NULL DEFAULT 3,
   max_active_deliveries INT NOT NULL DEFAULT 5,
 
+  -- Section 2b: Commission
+  commission_percentage NUMERIC(5,2) NOT NULL DEFAULT 10,
+
   -- Section 3: Service Fee Tiers (stored as JSONB array)
   -- Format: [{"min": 0, "max": 300, "fee": 0}, {"min": 300, "max": 1000, "fee": 31}, ...]
   service_fee_tiers JSONB NOT NULL DEFAULT '[

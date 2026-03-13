@@ -251,7 +251,7 @@ router.get("/stats/monthly", authenticate, async (req, res) => {
     const { data: deliveries, error } = await supabaseAdmin
       .from("deliveries")
       .select(
-        "driver_earnings, tip_amount, base_amount, extra_earnings, bonus_amount",
+        "driver_earnings, delivery_sequence, tip_amount, base_amount, extra_earnings, bonus_amount",
       )
       .eq("driver_id", driverId)
       .eq("status", "delivered")
@@ -263,12 +263,14 @@ router.get("/stats/monthly", authenticate, async (req, res) => {
     }
 
     const totalEarnings = (deliveries || []).reduce((sum, d) => {
-      const earnings =
-        parseFloat(d.driver_earnings || 0) ||
-        parseFloat(d.base_amount || 0) +
-          parseFloat(d.extra_earnings || 0) +
-          parseFloat(d.bonus_amount || 0) +
-          parseFloat(d.tip_amount || 0);
+      const stored = parseFloat(d.driver_earnings || 0);
+      const fallback =
+        parseInt(d.delivery_sequence || 1, 10) === 1
+          ? parseFloat(d.base_amount || 0) + parseFloat(d.tip_amount || 0)
+          : parseFloat(d.extra_earnings || 0) +
+            parseFloat(d.bonus_amount || 0) +
+            parseFloat(d.tip_amount || 0);
+      const earnings = stored || fallback;
       return sum + earnings;
     }, 0);
 
@@ -298,7 +300,7 @@ router.get("/deliveries/recent", authenticate, async (req, res) => {
     const { data: deliveries, error } = await supabaseAdmin
       .from("deliveries")
       .select(
-        `id, status, driver_earnings, tip_amount, base_amount, extra_earnings, bonus_amount, delivered_at, created_at,
+        `id, status, driver_earnings, delivery_sequence, tip_amount, base_amount, extra_earnings, bonus_amount, delivered_at, created_at,
         orders!inner ( order_number, restaurant_name )`,
       )
       .eq("driver_id", driverId)
@@ -314,12 +316,14 @@ router.get("/deliveries/recent", authenticate, async (req, res) => {
     }
 
     const formatted = (deliveries || []).map((d) => {
-      const earnings =
-        parseFloat(d.driver_earnings || 0) ||
-        parseFloat(d.base_amount || 0) +
-          parseFloat(d.extra_earnings || 0) +
-          parseFloat(d.bonus_amount || 0) +
-          parseFloat(d.tip_amount || 0);
+      const stored = parseFloat(d.driver_earnings || 0);
+      const fallback =
+        parseInt(d.delivery_sequence || 1, 10) === 1
+          ? parseFloat(d.base_amount || 0) + parseFloat(d.tip_amount || 0)
+          : parseFloat(d.extra_earnings || 0) +
+            parseFloat(d.bonus_amount || 0) +
+            parseFloat(d.tip_amount || 0);
+      const earnings = stored || fallback;
       return {
         id: d.id,
         order_number: d.orders?.order_number || "N/A",

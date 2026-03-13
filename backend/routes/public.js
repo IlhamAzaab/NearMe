@@ -103,8 +103,8 @@ router.get("/foods", async (req, res) => {
 
     // Map the data to include customer prices with commission + real-time availability
     const currentTime = getSriLankaTimeString();
-    const mappedFoods = (foods || []).map((food) => {
-      const pricedFood = addCustomerPricing(food);
+    const mappedFoods = await Promise.all((foods || []).map(async (food) => {
+      const pricedFood = await addCustomerPricing(food);
       // Real-time availability: combine scheduler flag + time-slot check
       const timeAvailable = isFoodAvailableNow(
         food.available_time,
@@ -120,7 +120,7 @@ router.get("/foods", async (req, res) => {
         price:
           pricedFood.effective_regular_price || pricedFood.regular_price || 0,
       };
-    });
+    }));
 
     return res.json({ foods: mappedFoods });
   } catch (e) {
@@ -200,8 +200,8 @@ router.get("/restaurants/:restaurantId/foods", async (req, res) => {
 
     // Add customer pricing with commission + real-time availability
     const currentTime = getSriLankaTimeString();
-    const pricedFoods = (foods || []).map((food) => {
-      const pricedFood = addCustomerPricing(food);
+    const pricedFoods = await Promise.all((foods || []).map(async (food) => {
+      const pricedFood = await addCustomerPricing(food);
       const timeAvailable = isFoodAvailableNow(
         food.available_time,
         currentTime,
@@ -213,7 +213,7 @@ router.get("/restaurants/:restaurantId/foods", async (req, res) => {
         ...pricedFood,
         is_available: effectiveAvailable,
       };
-    });
+    }));
 
     return res.json({ foods: pricedFoods });
   } catch (e) {
@@ -262,7 +262,7 @@ router.get("/restaurants/:restaurantId/foods/:foodId", async (req, res) => {
       ? false
       : food.is_available && timeAvailable;
     const pricedFood = {
-      ...addCustomerPricing(food),
+      ...(await addCustomerPricing(food)),
       is_available: effectiveAvailable,
     };
 
