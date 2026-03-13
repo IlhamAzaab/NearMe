@@ -1,7 +1,9 @@
 import nodemailer from "nodemailer";
 import dotenv from "dotenv";
 
-dotenv.config();
+if (process.env.NODE_ENV !== "production") {
+  dotenv.config({ path: "../.env" });
+}
 
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST || "smtp.example.com",
@@ -91,7 +93,7 @@ export async function sendVerificationEmail({ to, verificationLink }) {
     process.env.SMTP_HOST === "smtp.example.com"
   ) {
     console.log(
-      "\n========== EMAIL VERIFICATION (DEVELOPMENT MODE) =========="
+      "\n========== EMAIL VERIFICATION (DEVELOPMENT MODE) ==========",
     );
     console.log(`To: ${to}`);
     console.log(`Subject: ${subject}`);

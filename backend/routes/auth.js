@@ -6,7 +6,9 @@ import dotenv from "dotenv";
 import { sendVerificationEmail } from "../utils/email.js";
 import { authenticate } from "../middleware/authenticate.js";
 
-dotenv.config();
+if (process.env.NODE_ENV !== "production") {
+  dotenv.config({ path: "../.env" });
+}
 
 // Separate Supabase client ONLY for signInWithPassword.
 // signInWithPassword sets a user-session on the client it is called on,

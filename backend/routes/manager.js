@@ -22,7 +22,9 @@ import {
 } from "../utils/pushNotificationService.js";
 import dotenv from "dotenv";
 
-dotenv.config();
+if (process.env.NODE_ENV !== "production") {
+  dotenv.config({ path: "../.env" });
+}
 
 const router = express.Router();
 
@@ -2461,6 +2463,33 @@ router.post("/send-notification", authenticate, async (req, res) => {
       return res
         .status(400)
         .json({ message: "recipientIds must be 'all' or a non-empty array." });
+    }
+
+    // Store in scheduled_notifications (with status "sent") so recipient
+    // notification pages and manager history can find it
+    const { error: schedInsertErr } = await supabaseAdmin
+      .from("scheduled_notifications")
+      .insert({
+        role,
+        title: notification.title,
+        body: notification.body,
+        data: {
+          ...notification.data,
+          recipientCount: totalRecipients,
+          recipientIds,
+        },
+        scheduled_at: new Date().toISOString(),
+        recipient_ids: recipientIds === "all" ? null : recipientIds,
+        created_by: req.user.id,
+        status: "sent",
+        sent_at: new Date().toISOString(),
+      });
+
+    if (schedInsertErr) {
+      console.error(
+        "Failed to log to scheduled_notifications:",
+        schedInsertErr,
+      );
     }
 
     // Log the manager's own broadcast action
