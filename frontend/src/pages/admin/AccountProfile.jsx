@@ -233,7 +233,7 @@ export default function AccountProfile() {
   // ── Loading skeleton ──────────────────────────────────────────────────────────
   if (loadingProfile) {
     return (
-      <AdminLayout>
+      <AdminLayout loading={loadingProfile}>
         <div className="max-w-2xl mx-auto space-y-4 skeleton-fade">
           <div className="h-8 w-48 bg-gray-200 rounded-xl" />
           <div className="h-32 w-full bg-gray-200 rounded-2xl" />
@@ -245,7 +245,7 @@ export default function AccountProfile() {
   }
 
   return (
-    <AdminLayout>
+    <AdminLayout loading={loadingProfile}>
       <AnimatedAlert alert={alertState} visible={alertVisible} />
 
       <div className="max-w-2xl mx-auto">

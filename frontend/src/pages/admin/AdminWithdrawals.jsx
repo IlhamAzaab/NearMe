@@ -9,11 +9,20 @@ export default function AdminWithdrawals() {
     total_earnings: 0,
     total_withdrawals: 0,
     remaining_balance: 0,
+    previous_balance: 0,
+    today_earnings: 0,
     today_withdrawals: 0,
+    last_30_days_earnings: 0,
+    last_30_days_withdrawals: 0,
     payment_count: 0,
   });
   const [payments, setPayments] = useState([]);
   const [selectedPayment, setSelectedPayment] = useState(null);
+  const [receiptViewer, setReceiptViewer] = useState({
+    open: false,
+    url: "",
+    type: "image",
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -77,9 +86,31 @@ export default function AdminWithdrawals() {
     });
   };
 
+  const openReceiptViewer = (url, type) => {
+    if (!url) return;
+    setReceiptViewer({
+      open: true,
+      url,
+      type: type === "pdf" ? "pdf" : "image",
+    });
+  };
+
+  const closeReceiptViewer = () => {
+    setReceiptViewer({ open: false, url: "", type: "image" });
+  };
+
+  const getPdfViewerUrl = (url) =>
+    `https://mozilla.github.io/pdf.js/web/viewer.html?file=${encodeURIComponent(url)}`;
+
+  const pendingBalance = Math.max(
+    0,
+    Number(summary.remaining_balance || 0) -
+      Number(summary.today_earnings || 0),
+  );
+
   if (loading) {
     return (
-      <AdminLayout>
+      <AdminLayout loading={loading}>
         <div className="max-w-4xl mx-auto space-y-6">
           <div className="skeleton-fade space-y-2">
             <div className="h-6 w-48 bg-gray-200 rounded" />
@@ -127,7 +158,7 @@ export default function AdminWithdrawals() {
 
   if (error) {
     return (
-      <AdminLayout>
+      <AdminLayout loading={loading}>
         <div className="max-w-4xl mx-auto">
           <div className="bg-red-50 border border-red-200 rounded-2xl p-6 text-center">
             <svg
@@ -157,15 +188,13 @@ export default function AdminWithdrawals() {
   }
 
   return (
-    <AdminLayout>
+    <AdminLayout loading={loading}>
       <div className="max-w-4xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-800">Withdrawals</h1>
-            <p className="text-gray-500 text-sm mt-1">
-              View your payment history
-            </p>
+          <div className="flex flex-col items-end pt-1 px-2">
+            <p className="text-3xl font-medium">Withdrawals</p>
+            <div className="w-24 h-0.75 bg-green-600 rounded-full"></div>
           </div>
           <button
             onClick={fetchData}
@@ -187,95 +216,86 @@ export default function AdminWithdrawals() {
           </button>
         </div>
 
-        {/* Balance Hero Card */}
-        <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-2xl p-6 border border-green-200 shadow-sm">
-          <p className="text-xs font-semibold text-green-700 uppercase tracking-wider mb-2">
+        {/* Total Earned Block */}
+
+        <div className="bg-linear-to-br from-green-50 to-green-100 rounded-2xl p-6 border border-green-200">
+          <p className="text-s font-semibold text-black-600 uppercase tracking-tight">
+            Total Earned
+          </p>
+          <p className="text-4xl font-bold text-gray-900 tracking-tight">
+            Rs.{summary.total_earnings?.toFixed(2)}
+          </p>
+
+          <div className="pt-3 flex flex-col items-start gap-0.5">
+            <p className="text-[10px] font-semibold text-gray-900 uppercase tracking-wider">
+              Total Receive
+            </p>
+            <p className="text-lg font-bold text-green-600 mt-1">
+              Rs.{summary.total_withdrawals?.toFixed(2)}
+            </p>
+          </div>
+        </div>
+
+        {/* Balance To Receive Block */}
+        <div className="bg-white rounded-xl p-4 border border-gray-200 shadow-sm">
+          <p className="text-[14px] font-semibold text-black-600 uppercase tracking-wide">
             Balance to Receive
           </p>
-          <p className="text-4xl font-extrabold text-gray-900 tracking-tight">
+          <p className="text-3xl font-bold text-orange-600 mt-1">
             Rs.{summary.remaining_balance?.toFixed(2)}
           </p>
-          <p className="text-xs text-gray-500 mt-2">
-            This is what the platform owes you
-          </p>
-        </div>
 
-        {/* Stats Grid */}
-        <div className="grid grid-cols-3 gap-3">
-          <div className="bg-white rounded-xl p-4 border border-gray-200 shadow-sm">
-            <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">
-              Total Earned
-            </p>
-            <p className="text-lg font-bold text-gray-900 mt-1">
-              Rs.{summary.total_earnings?.toFixed(0)}
-            </p>
-          </div>
-          <div className="bg-white rounded-xl p-4 border border-gray-200 shadow-sm">
-            <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">
-              Total Received
-            </p>
-            <p className="text-lg font-bold text-green-600 mt-1">
-              Rs.{summary.total_withdrawals?.toFixed(0)}
-            </p>
-          </div>
-          <div className="bg-white rounded-xl p-4 border border-gray-200 shadow-sm">
-            <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">
-              Today
-            </p>
-            <p className="text-lg font-bold text-green-600 mt-1">
-              Rs.{summary.today_withdrawals?.toFixed(0)}
-            </p>
+          <div className="grid grid-cols-2 gap-3 mt-3">
+            <div className="rounded-lg border border-gray-200 px-3 py-2 bg-gray-50">
+              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">
+                Pending Balance
+              </p>
+              <p className="text-base font-bold text-black-600 mt-1">
+                Rs.{pendingBalance.toFixed(2)}
+              </p>
+            </div>
+            <div className="rounded-lg border border-gray-200 px-3 py-2 bg-gray-50">
+              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">
+                Today Earned
+              </p>
+              <p className="text-base font-bold text-black-600 mt-1">
+                Rs.{Number(summary.today_earnings || 0).toFixed(2)}
+              </p>
+            </div>
           </div>
         </div>
 
-        {/* Balance Breakdown Bar */}
+        {/* Last 30 Days Statistics */}
+
         <div className="bg-white rounded-xl p-4 border border-gray-200 shadow-sm">
-          <div className="flex items-center justify-between text-xs mb-3">
-            <span className="text-gray-500 font-medium">Payment Progress</span>
-            <span className="text-gray-500">
-              {summary.total_earnings > 0
-                ? (
-                    (summary.total_withdrawals / summary.total_earnings) *
-                    100
-                  ).toFixed(0)
-                : 0}
-              % received
-            </span>
-          </div>
-          <div className="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-gradient-to-r from-green-400 to-green-600 rounded-full transition-all duration-700"
-              style={{
-                width: `${summary.total_earnings > 0 ? Math.min(100, (summary.total_withdrawals / summary.total_earnings) * 100) : 0}%`,
-              }}
-            />
-          </div>
-          <div className="flex items-center justify-between mt-2 text-[10px]">
-            <span className="text-green-600 font-medium">
-              Received: Rs.{summary.total_withdrawals?.toFixed(0)}
-            </span>
-            <span className="text-amber-600 font-medium">
-              Pending: Rs.{summary.remaining_balance?.toFixed(0)}
-            </span>
+          <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+            <span className="w-1 h-8 rounded-l-4xl bg-green-600"></span>
+            Last 30 Days
+          </h2>
+          <div className="grid grid-cols-2 gap-3 mt-3">
+            <div className="rounded-lg border border-gray-200 px-3 py-2 bg-gray-50">
+              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">
+                Earned
+              </p>
+              <p className="text-base font-bold text-gray-900 mt-1">
+                Rs.{Number(summary.last_30_days_earnings || 0).toFixed(2)}
+              </p>
+            </div>
+            <div className="rounded-lg border border-gray-200 px-3 py-2 bg-gray-50">
+              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">
+                Receive
+              </p>
+              <p className="text-base font-bold text-green-600 mt-1">
+                Rs.{Number(summary.last_30_days_withdrawals || 0).toFixed(2)}
+              </p>
+            </div>
           </div>
         </div>
 
         {/* Payment History */}
         <div>
-          <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2 mb-4">
-            <svg
-              className="w-5 h-5 text-green-600"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-              />
-            </svg>
+          <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+            <span className="w-1 h-8 rounded-l-4xl bg-green-600"></span>
             Payment History ({payments.length})
           </h2>
 
@@ -365,8 +385,11 @@ export default function AdminWithdrawals() {
         {/* Payment Detail Modal */}
         {selectedPayment && (
           <div
-            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-end justify-center"
-            onClick={() => setSelectedPayment(null)}
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-60 flex items-end justify-center"
+            onClick={() => {
+              setSelectedPayment(null);
+              closeReceiptViewer();
+            }}
           >
             <div
               className="bg-white w-full max-w-md rounded-t-3xl animate-slide-up"
@@ -382,7 +405,10 @@ export default function AdminWithdrawals() {
                     Payment Details
                   </h3>
                   <button
-                    onClick={() => setSelectedPayment(null)}
+                    onClick={() => {
+                      setSelectedPayment(null);
+                      closeReceiptViewer();
+                    }}
                     className="p-1 text-gray-400 hover:text-gray-600"
                   >
                     <svg
@@ -451,10 +477,14 @@ export default function AdminWithdrawals() {
                       Transfer Receipt
                     </p>
                     {selectedPayment.proof_type === "pdf" ? (
-                      <a
-                        href={selectedPayment.proof_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openReceiptViewer(
+                            selectedPayment.proof_url,
+                            selectedPayment.proof_type,
+                          )
+                        }
                         className="flex items-center gap-3 bg-gray-50 rounded-xl p-4 hover:bg-gray-100 transition-colors"
                       >
                         <div className="w-12 h-12 rounded-xl bg-red-50 flex items-center justify-center">
@@ -477,7 +507,7 @@ export default function AdminWithdrawals() {
                             View PDF Receipt
                           </p>
                           <p className="text-xs text-gray-400">
-                            Tap to open in browser
+                            Tap to preview here
                           </p>
                         </div>
                         <svg
@@ -493,32 +523,115 @@ export default function AdminWithdrawals() {
                             d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
                           />
                         </svg>
-                      </a>
+                      </button>
                     ) : (
-                      <div className="rounded-xl overflow-hidden border border-gray-200">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openReceiptViewer(
+                            selectedPayment.proof_url,
+                            selectedPayment.proof_type,
+                          )
+                        }
+                        className="rounded-xl overflow-hidden border border-gray-200 w-full text-left"
+                      >
                         <img
                           src={selectedPayment.proof_url}
                           alt="Transfer receipt"
                           className="w-full max-h-64 object-contain bg-gray-50"
-                          onClick={() =>
-                            window.open(selectedPayment.proof_url, "_blank")
-                          }
                         />
                         <div className="bg-gray-50 px-3 py-2 flex items-center justify-between">
                           <span className="text-[10px] text-gray-400">
-                            Tap image to view full size
+                            Tap image to preview full size
                           </span>
-                          <a
-                            href={selectedPayment.proof_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-[10px] text-green-600 font-medium"
-                          >
+                          <span className="text-[10px] text-green-600 font-medium">
                             Open
-                          </a>
+                          </span>
                         </div>
-                      </div>
+                      </button>
                     )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {receiptViewer.open && (
+          <div
+            className="fixed inset-0 bg-black/70 backdrop-blur-sm z-70 flex items-center justify-center p-3"
+            onClick={closeReceiptViewer}
+          >
+            <div
+              className={`bg-white rounded-2xl overflow-hidden shadow-2xl ${
+                receiptViewer.type === "pdf"
+                  ? "w-full max-w-3xl h-[88vh] flex flex-col"
+                  : "w-auto max-w-[92vw] max-h-[88vh]"
+              }`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+                <p className="text-sm font-semibold text-gray-800">
+                  Receipt Preview
+                </p>
+                <button
+                  type="button"
+                  onClick={closeReceiptViewer}
+                  className="p-1 text-gray-500 hover:text-gray-700"
+                  aria-label="Close receipt preview"
+                >
+                  <svg
+                    className="w-5 h-5"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M6 18L18 6M6 6l12 12"
+                    />
+                  </svg>
+                </button>
+              </div>
+
+              <div
+                className={`bg-gray-100 ${
+                  receiptViewer.type === "pdf"
+                    ? "flex-1 min-h-0 flex flex-col"
+                    : ""
+                }`}
+              >
+                {receiptViewer.type === "pdf" ? (
+                  <>
+                    <iframe
+                      title="PDF receipt preview"
+                      src={getPdfViewerUrl(receiptViewer.url)}
+                      className="w-full flex-1 border-0 min-h-0"
+                      loading="lazy"
+                    />
+                    <div className="px-3 py-2 bg-white border-t border-gray-200 flex items-center justify-between">
+                      <span className="text-[11px] text-gray-500">
+                        If preview fails on this device, open the original file.
+                      </span>
+                      <a
+                        href={receiptViewer.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[11px] font-semibold text-green-600"
+                      >
+                        Open file
+                      </a>
+                    </div>
+                  </>
+                ) : (
+                  <div className="overflow-auto p-3">
+                    <img
+                      src={receiptViewer.url}
+                      alt="Receipt preview"
+                      className="max-w-full max-h-[74vh] w-auto h-auto object-contain rounded-lg bg-white mx-auto"
+                    />
                   </div>
                 )}
               </div>

@@ -133,7 +133,7 @@ export default function Earnings() {
 
   if (loading) {
     return (
-      <AdminLayout>
+      <AdminLayout loading={loading}>
         <div className="max-w-4xl mx-auto space-y-6">
           {/* Header skeleton */}
           <div className="flex items-center gap-4 skeleton-fade">
@@ -169,7 +169,7 @@ export default function Earnings() {
           <div className="bg-white rounded-2xl p-6 border border-gray-100 skeleton-fade">
             <div className="h-4 w-24 bg-gray-200 rounded mb-2" />
             <div className="h-8 w-36 bg-gray-200 rounded mb-6" />
-            <div className="h-[180px] bg-gray-100 rounded-lg" />
+            <div className="h-45 bg-gray-100 rounded-lg" />
           </div>
           {/* Orders skeleton */}
           <div className="space-y-3 skeleton-fade">
@@ -195,34 +195,19 @@ export default function Earnings() {
   }
 
   return (
-    <AdminLayout>
+    <AdminLayout loading={loading}>
       <div className="max-w-4xl mx-auto space-y-6">
         {/* Header */}
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-green-500 bg-green-100 flex items-center justify-center">
-            {restaurant?.logo_url ? (
-              <img
-                src={restaurant.logo_url}
-                alt={restaurant.name}
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <span className="text-green-600 font-bold text-lg">
-                {restaurant?.name?.charAt(0) || "R"}
-              </span>
-            )}
-          </div>
-          <div className="flex-1">
-            <p className="text-sm font-medium text-gray-500">
-              {restaurant?.restaurant_name || "Restaurant"}
-            </p>
-            <h1 className="text-xl font-bold text-gray-800">
-              Financial Overview
-            </h1>
+
+        <div className="flex items-center gap-35">
+          
+          <div className="flex flex-col items-end gap-1 pt-1 px-2">
+            <p className="text-3xl font-medium">Earnings</p>
+            <div className="w-16 h-0.75 bg-green-600 rounded-full"></div>
           </div>
           <button
             onClick={() => navigate("/admin/withdrawals")}
-            className="px-4 py-2.5 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-xl font-semibold text-sm shadow-md hover:shadow-lg hover:from-green-600 hover:to-green-700 transition-all flex items-center gap-2"
+            className="px-4 py-2.5 bg-linear-to-r from-green-500 to-green-600 text-white rounded-xl font-semibold text-sm shadow-md hover:shadow-lg hover:from-green-600 hover:to-green-700 transition-all flex items-center gap-2"
           >
             <svg
               className="w-4 h-4"
@@ -242,7 +227,7 @@ export default function Earnings() {
         </div>
 
         {/* Main Revenue Card */}
-        <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-2xl p-4 border border-green-200 shadow-sm">
+        <div className="bg-linear-to-br from-green-50 to-green-100 rounded-2xl p-4 border border-green-200 shadow-sm">
           <div className="flex justify-between items-start mb-1">
             <p className="text-gray-500 text-xs font-bold uppercase tracking-wider">
               Net Revenue
@@ -272,7 +257,7 @@ export default function Earnings() {
               </div>
             )}
           </div>
-          <p className="text-4xl font-extrabold text-gray-900 tracking-tight leading-tight">
+          <p className="text-4xl font-bold text-gray-900 tracking-tight leading-tight">
             {formatCurrency(earnings?.totalRevenue)}
           </p>
 
@@ -360,7 +345,7 @@ export default function Earnings() {
             </span>
           </div>
 
-          <div className="h-[180px] w-full relative">
+          <div className="h-45 w-full relative">
             {earnings?.chartData && earnings.chartData.length > 0 ? (
               <svg
                 width="100%"
@@ -482,7 +467,7 @@ export default function Earnings() {
         </div>
 
         {/* Summary Stats */}
-        <div className="bg-gradient-to-r from-gray-800 to-gray-900 rounded-2xl p-6 text-white">
+        <div className="bg-linear-to-r from-gray-800 to-gray-900 rounded-2xl p-6 text-white">
           <h3 className="text-lg font-bold mb-4">Quick Stats</h3>
           <div className="grid grid-cols-2 gap-4">
             <div>

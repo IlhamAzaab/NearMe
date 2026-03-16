@@ -531,8 +531,45 @@ export default function Orders() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  if (loading) {
+    return (
+      <AdminLayout noPadding loading={loading}>
+        <div className="px-4 py-4 space-y-4">
+          <div className="h-32 bg-gray-100 rounded-2xl skeleton-fade" />
+          <div className="flex gap-2">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="h-9 w-20 bg-gray-100 rounded-full skeleton-fade" />
+            ))}
+          </div>
+          {[...Array(4)].map((_, i) => (
+            <div
+              key={i}
+              className="bg-white rounded-2xl p-4 border border-gray-100 skeleton-fade"
+            >
+              <div className="flex justify-between items-start mb-3">
+                <div className="space-y-2">
+                  <div className="h-4 w-24 bg-gray-200 rounded" />
+                  <div className="h-3 w-32 bg-gray-200 rounded" />
+                </div>
+                <div className="h-6 w-20 bg-gray-200 rounded-full" />
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-gray-200 rounded-lg" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-3 w-3/4 bg-gray-200 rounded" />
+                  <div className="h-3 w-1/2 bg-gray-200 rounded" />
+                </div>
+                <div className="h-5 w-16 bg-gray-200 rounded" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </AdminLayout>
+    );
+  }
+
   return (
-    <AdminLayout noPadding>
+    <AdminLayout noPadding loading={loading}>
       <AnimatedAlert alert={alertState} visible={alertVisible} />
 
       {/* Reject Reason Modal */}
@@ -598,11 +635,9 @@ export default function Orders() {
       {/* Stats Header */}
       <div className="bg-gradient-to-br from-[#24e68c] to-[#06c16a] p-4 pb-14">
         <div className="flex items-center justify-between mb-2">
-          <div>
-            <h1 className="text-black-600 text-xl font-bold">Orders</h1>
-            <p className="text-black-600 text-xs font-medium">
-              Order Management
-            </p>
+            <div className="flex flex-col items-end pt-1 px-2">
+            <p className="text-3xl font-medium">Orders</p>
+            <div className="w-12 h-0.75 bg-black rounded-full"></div>
           </div>
           <div className="flex items-center gap-2">
             {/* Period Selector */}
@@ -741,32 +776,7 @@ export default function Orders() {
         </div>
 
         {/* Orders List */}
-        {loading ? (
-          <div className="space-y-3">
-            {[...Array(4)].map((_, i) => (
-              <div
-                key={i}
-                className="bg-white rounded-2xl p-4 border border-gray-100 skeleton-fade"
-              >
-                <div className="flex justify-between items-start mb-3">
-                  <div className="space-y-2">
-                    <div className="h-4 w-24 bg-gray-200 rounded" />
-                    <div className="h-3 w-32 bg-gray-200 rounded" />
-                  </div>
-                  <div className="h-6 w-20 bg-gray-200 rounded-full" />
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 bg-gray-200 rounded-lg" />
-                  <div className="flex-1 space-y-2">
-                    <div className="h-3 w-3/4 bg-gray-200 rounded" />
-                    <div className="h-3 w-1/2 bg-gray-200 rounded" />
-                  </div>
-                  <div className="h-5 w-16 bg-gray-200 rounded" />
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : filteredOrders.length === 0 ? (
+        {filteredOrders.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16">
             <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
               <svg

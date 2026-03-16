@@ -348,7 +348,7 @@ export default function AdminNotifications() {
         });
 
   return (
-    <AdminLayout noPadding>
+    <AdminLayout noPadding loading={loading}>
       {/* White header */}
       <div className="bg-white sticky top-0 z-10">
         <div className="flex items-center justify-between px-4 py-3">

@@ -16,7 +16,6 @@ export default function AdminDashboard() {
   const [dashboardData, setDashboardData] = useState(null);
   const [recentOrders, setRecentOrders] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [slideIn, setSlideIn] = useState(false);
   const [restaurant, setRestaurant] = useState(null);
   const [toggling, setToggling] = useState(false);
   const [chartPeriod, setChartPeriod] = useState("week");
@@ -43,8 +42,6 @@ export default function AdminDashboard() {
   );
 
   useEffect(() => {
-    setTimeout(() => setSlideIn(true), 50);
-
     const fetchAll = async () => {
       if (!token) return;
       setLoading(true);
@@ -224,7 +221,7 @@ export default function AdminDashboard() {
   // Loading skeleton
   if (loading) {
     return (
-      <AdminLayout>
+      <AdminLayout loading={loading}>
         <div className="space-y-3">
           <div className="bg-white rounded-2xl border border-gray-100 p-4 skeleton-fade">
             <div className="flex items-center justify-between">
@@ -264,13 +261,10 @@ export default function AdminDashboard() {
   const revenueChange = dashboardData?.lifetime?.revenueChange;
 
   return (
-    <AdminLayout>
-      <div
-        className={`transition-all duration-500 ease-in-out ${slideIn ? "translate-x-0 opacity-100" : "translate-x-full opacity-0"}`}
-      >
-        <div className="space-y-3">
+    <AdminLayout loading={loading}>
+      <div className="space-y-3">
           {/* ═══════════ Block 1: Restaurant Header + Store Status ═══════════ */}
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 animate-slideDown">
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
             {/* Top: Logo + Name + Bell */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -333,18 +327,18 @@ export default function AdminDashboard() {
               </div>
             </div>
 
-            {/* Divider + Store Status */}
+            {/* Divider + Restaurant Status */}
             <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between">
               <div>
                 <p className="text-sm font-semibold text-gray-800">
-                  Store Status
+                  Restaurant Status
                 </p>
                 <p
                   className="text-xs mt-0.5 font-medium"
                   style={{ color: restaurant?.is_open ? "#06C168" : "#ef4444" }}
                 >
                   {restaurant?.is_open
-                    ? "Currently accepting orders"
+                    ? "Currently open"
                     : "Currently closed"}
                 </p>
               </div>
@@ -366,21 +360,18 @@ export default function AdminDashboard() {
           {/* ═══════════ Block 2: Today's Performance ═══════════ */}
           {/* Section header */}
           <div className="flex items-center gap-2 px-1">
-            <span
-              className="w-0.5 h-4 rounded-full"
-              style={{ background: "#06C168" }}
-            ></span>
-            <h3 className="text-sm font-semibold text-gray-800">
+            <h3 className="text-m font-bold text-gray-900 flex items-center gap-2">
+                <span
+                  className="w-1 h-8 rounded-l-4xl bg-green-600"
+                 
+                ></span>
               Today's Performance
             </h3>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             {/* Today Sales */}
-            <div
-              className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 animate-fadeInUp"
-              style={{ animationDelay: "0.15s" }}
-            >
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
               <div className="flex items-center justify-between mb-3">
                 <div
                   className="w-10 h-10 rounded-xl flex items-center justify-center"
@@ -412,7 +403,7 @@ export default function AdminDashboard() {
                   {dashboardData?.changes?.salesChange ?? 0}%
                 </span>
               </div>
-              <p className="text-xs text-gray-500 font-medium mb-1">
+              <p className="text-xs text-gray-800 font-medium mb-1">
                 Today's Sales
               </p>
               <p className="text-xl font-bold text-gray-900">
@@ -421,14 +412,11 @@ export default function AdminDashboard() {
             </div>
 
             {/* Today Orders */}
-            <div
-              className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 animate-fadeInUp"
-              style={{ animationDelay: "0.2s" }}
-            >
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
               <div className="flex items-center justify-between mb-3">
-                <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
+                <div className="w-10 h-10 rounded-xl bg-green-50 flex items-center justify-center">
                   <svg
-                    className="w-5 h-5 text-blue-500"
+                    className="w-5 h-5 text-[#06C168]"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -446,11 +434,11 @@ export default function AdminDashboard() {
                   style={{
                     background:
                       (dashboardData?.changes?.ordersChange ?? 0) >= 0
-                        ? "rgba(59,130,246,0.1)"
+                        ? "rgba(6,193,104,0.12)"
                         : "rgba(239,68,68,0.1)",
                     color:
                       (dashboardData?.changes?.ordersChange ?? 0) >= 0
-                        ? "#3b82f6"
+                        ? "#06C168"
                         : "#ef4444",
                   }}
                 >
@@ -458,7 +446,7 @@ export default function AdminDashboard() {
                   {dashboardData?.changes?.ordersChange ?? 0}%
                 </span>
               </div>
-              <p className="text-xs text-gray-500 font-medium mb-1">
+              <p className="text-xs text-gray-800 font-medium mb-1">
                 Today's Orders
               </p>
               <p className="text-xl font-bold text-gray-900">
@@ -467,58 +455,24 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          {/* Avg Order Value strip */}
-          <div
-            className="bg-white rounded-2xl shadow-sm border border-gray-100 px-4 py-3 flex items-center justify-between animate-fadeInUp"
-            style={{ animationDelay: "0.25s" }}
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-purple-50 flex items-center justify-center">
-                <svg
-                  className="w-5 h-5 text-purple-500"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-                  />
-                </svg>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500 font-medium">
-                  Avg Order Value
-                </p>
-                <p className="text-base font-bold text-gray-900">
-                  {formatCurrency(dashboardData?.today?.avgOrderValue)}
-                </p>
-              </div>
-            </div>
-            <ChangeIndicator value={dashboardData?.changes?.avgChange} />
-          </div>
-
           {/* ═══════════ Block 3: 30-Day Performance ═══════════ */}
           {/* Section header */}
           <div className="flex items-center gap-2 px-1">
-            <span
-              className="w-0.5 h-4 rounded-full"
-              style={{ background: "#06C168" }}
-            ></span>
-            <h3 className="text-sm font-semibold text-gray-800">
-              30-Day Performance
+            <h3 className="text-m font-bold text-gray-900 flex items-center gap-2">
+                <span
+                  className="w-1 h-8 rounded-l-4xl bg-green-600"
+                 
+                ></span>
+              Last 30 Day Performance
             </h3>
           </div>
 
           {/* 30-Day Revenue + Orders — full-width green card */}
           <div
-            className="relative rounded-2xl overflow-hidden p-5 shadow-md animate-fadeInUp"
+            className="relative rounded-2xl overflow-hidden p-5 shadow-md"
             style={{
               background:
                 "linear-gradient(135deg, #06C168 0%, #04a857 60%, #038848 100%)",
-              animationDelay: "0.3s",
             }}
           >
             {/* Faded background icon */}
@@ -531,8 +485,8 @@ export default function AdminDashboard() {
                 <path d="M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z" />
               </svg>
             </div>
-            <p className="text-white/80 text-xs font-semibold mb-1">
-              30-Day Revenue
+            <p className="text-white/80 text-s font-semibold mb-1">
+            Revenue
             </p>
             <p className="text-white text-3xl font-bold mb-4">
               {formatCurrency(dashboardData?.lifetime?.totalRevenue)}
@@ -575,49 +529,25 @@ export default function AdminDashboard() {
           {/* ═══════════ Block 4: Menu Overview ═══════════ */}
           {/* Section header */}
           <div className="flex items-center gap-2 px-1">
-            <span
-              className="w-0.5 h-4 rounded-full"
-              style={{ background: "#06C168" }}
-            ></span>
-            <h3 className="text-sm font-semibold text-gray-800">
+            <h3 className="text-m font-bold text-gray-900 flex items-center gap-2">
+                <span
+                  className="w-1 h-8 rounded-l-4xl bg-green-600"
+                 
+                ></span>
               Menu Overview
             </h3>
           </div>
 
           {/* Menu Overview card */}
-          <div
-            className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 animate-fadeInUp"
-            style={{ animationDelay: "0.35s" }}
-          >
-            <div className="flex items-center gap-2.5 mb-4">
-              <div
-                className="w-9 h-9 rounded-xl flex items-center justify-center"
-                style={{ background: "#06C168" }}
-              >
-                <svg
-                  className="w-5 h-5 text-white"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"
-                  />
-                </svg>
-              </div>
-              <h3 className="text-sm font-bold text-gray-900">Menu Overview</h3>
-            </div>
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
             <div className="bg-gray-50 rounded-xl overflow-hidden">
               <div className="flex items-center justify-between px-4 py-3">
                 <div className="flex items-center gap-2.5">
                   <span
                     className="w-2.5 h-2.5 rounded-full"
-                    style={{ background: "#06C168" }}
+                    style={{ background: "#9582C1" }}
                   ></span>
-                  <span className="text-sm text-gray-700">Total Products</span>
+                  <span className="text-sm text-black-900">Total Products</span>
                 </div>
                 <span className="text-sm font-bold text-gray-900">
                   {dashboardData?.products?.total || 0}
@@ -626,8 +556,8 @@ export default function AdminDashboard() {
               <div className="border-t border-gray-100"></div>
               <div className="flex items-center justify-between px-4 py-3">
                 <div className="flex items-center gap-2.5">
-                  <span className="w-2.5 h-2.5 rounded-full bg-blue-400"></span>
-                  <span className="text-sm text-gray-700">Available Items</span>
+                  <span className="w-2.5 h-2.5 rounded-full" style={{ background: "#06C168" }}></span>
+                  <span className="text-sm text-black-900">Available Items</span>
                 </div>
                 <span className="text-sm font-bold text-gray-900">
                   {dashboardData?.products?.available || 0}
@@ -637,15 +567,12 @@ export default function AdminDashboard() {
           </div>
 
           {/* ═══════════ Block 5: Sales Performance Chart ═══════════ */}
-          <div
-            className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 animate-fadeInUp"
-            style={{ animationDelay: "0.4s" }}
-          >
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 gap-2">
-              <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 gap-4">
+              <h3 className="text-m font-bold text-gray-900 flex items-center gap-2">
                 <span
-                  className="w-0.5 h-4 rounded-full"
-                  style={{ background: "#06C168" }}
+                  className="w-1 h-8 rounded-l-4xl bg-green-600"
+                 
                 ></span>
                 Sales Performance
               </h3>
@@ -786,15 +713,12 @@ export default function AdminDashboard() {
           </div>
 
           {/* ═══════════ Block 6: Recent Orders ═══════════ */}
-          <div
-            className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 animate-fadeInUp"
-            style={{ animationDelay: "0.45s" }}
-          >
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+              <h3 className="text-m font-bold text-gray-900 flex items-center gap-2">
                 <span
-                  className="w-0.5 h-4 rounded-full"
-                  style={{ background: "#06C168" }}
+                  className="w-1 h-8 rounded-l-4xl bg-green-600"
+                 
                 ></span>
                 Recent Orders
               </h3>
@@ -920,27 +844,7 @@ export default function AdminDashboard() {
               </div>
             )}
           </div>
-        </div>
       </div>
-
-      {/* Animations */}
-      <style>{`
-        @keyframes fadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-        @keyframes fadeInUp {
-          from { opacity: 0; transform: translateY(20px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes slideDown {
-          from { opacity: 0; transform: translateY(-15px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        .animate-fadeIn { animation: fadeIn 0.6s ease-out; }
-        .animate-fadeInUp { animation: fadeInUp 0.6s ease-out forwards; }
-        .animate-slideDown { animation: slideDown 0.5s ease-out; }
-      `}</style>
     </AdminLayout>
   );
 }

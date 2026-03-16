@@ -35,6 +35,32 @@ export default function ProcessAdminPayment() {
   };
   const [history, setHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [receiptViewer, setReceiptViewer] = useState({
+    open: false,
+    url: "",
+    type: "image",
+  });
+
+  const isPdfProof = (payment) => {
+    const url = payment?.proof_url || "";
+    return payment?.proof_type === "pdf" || /\.pdf(\?|$)/i.test(url);
+  };
+
+  const openReceiptViewer = (payment) => {
+    if (!payment?.proof_url) return;
+    setReceiptViewer({
+      open: true,
+      url: payment.proof_url,
+      type: isPdfProof(payment) ? "pdf" : "image",
+    });
+  };
+
+  const closeReceiptViewer = () => {
+    setReceiptViewer({ open: false, url: "", type: "image" });
+  };
+
+  const getPdfViewerUrl = (url) =>
+    `https://mozilla.github.io/pdf.js/web/viewer.html?file=${encodeURIComponent(url)}`;
 
   const fetchRestaurant = useCallback(async () => {
     try {
@@ -514,10 +540,9 @@ export default function ProcessAdminPayment() {
                           )}
                         </div>
                         {payment.proof_url && (
-                          <a
-                            href={payment.proof_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
+                          <button
+                            type="button"
+                            onClick={() => openReceiptViewer(payment)}
                             className="ml-4 p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                           >
                             <svg
@@ -539,7 +564,7 @@ export default function ProcessAdminPayment() {
                                 d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
                               />
                             </svg>
-                          </a>
+                          </button>
                         )}
                       </div>
                     </div>
@@ -550,6 +575,88 @@ export default function ProcessAdminPayment() {
           </div>
         </div>
       </div>
+
+      {receiptViewer.open && (
+        <div
+          className="fixed inset-0 bg-black/70 backdrop-blur-sm z-70 flex items-center justify-center p-3"
+          onClick={closeReceiptViewer}
+        >
+          <div
+            className={`bg-white rounded-2xl overflow-hidden shadow-2xl ${
+              receiptViewer.type === "pdf"
+                ? "w-full max-w-3xl h-[88vh] flex flex-col"
+                : "w-auto max-w-[92vw] max-h-[88vh]"
+            }`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+              <p className="text-sm font-semibold text-gray-800">
+                Receipt Preview
+              </p>
+              <button
+                type="button"
+                onClick={closeReceiptViewer}
+                className="p-1 text-gray-500 hover:text-gray-700"
+                aria-label="Close receipt preview"
+              >
+                <svg
+                  className="w-5 h-5"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
+              </button>
+            </div>
+
+            <div
+              className={`bg-gray-100 ${
+                receiptViewer.type === "pdf"
+                  ? "flex-1 min-h-0 flex flex-col"
+                  : ""
+              }`}
+            >
+              {receiptViewer.type === "pdf" ? (
+                <>
+                  <iframe
+                    title="PDF receipt preview"
+                    src={getPdfViewerUrl(receiptViewer.url)}
+                    className="w-full flex-1 border-0 min-h-0"
+                    loading="lazy"
+                  />
+                  <div className="px-3 py-2 bg-white border-t border-gray-200 flex items-center justify-between">
+                    <span className="text-[11px] text-gray-500">
+                      If preview fails on this device, open the original file.
+                    </span>
+                    <a
+                      href={receiptViewer.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[11px] font-semibold text-blue-600"
+                    >
+                      Open file
+                    </a>
+                  </div>
+                </>
+              ) : (
+                <div className="overflow-auto p-3">
+                  <img
+                    src={receiptViewer.url}
+                    alt="Receipt preview"
+                    className="max-w-full max-h-[74vh] w-auto h-auto object-contain rounded-lg bg-white mx-auto"
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </ManagerPageLayout>
   );
 }

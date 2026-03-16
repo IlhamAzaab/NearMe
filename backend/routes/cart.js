@@ -350,57 +350,57 @@ router.get("/", authenticate, async (req, res) => {
         const currentTime = getSriLankaTimeString();
         const itemsWithCurrentPrice = await Promise.all(
           items.map(async (item) => {
-          const food = item.foods;
-          let current_unit_price = item.unit_price;
-          let current_admin_unit_price =
-            item.admin_unit_price || item.unit_price;
-          let current_commission = item.commission_per_item || 0;
+            const food = item.foods;
+            let current_unit_price = item.unit_price;
+            let current_admin_unit_price =
+              item.admin_unit_price || item.unit_price;
+            let current_commission = item.commission_per_item || 0;
 
-          // Real-time availability check
-          const timeAvailable = food
-            ? isFoodAvailableNow(food.available_time, currentTime)
-            : false;
-          const effectiveAvailable = food
-            ? food.is_manually_unavailable
-              ? false
-              : food.is_available && timeAvailable
-            : false;
+            // Real-time availability check
+            const timeAvailable = food
+              ? isFoodAvailableNow(food.available_time, currentTime)
+              : false;
+            const effectiveAvailable = food
+              ? food.is_manually_unavailable
+                ? false
+                : food.is_available && timeAvailable
+              : false;
 
-          // Get current price from food if available (with commission)
-          if (food && effectiveAvailable) {
-            const { adminPrice, customerPrice, commission } =
-              await getCartItemPrices(food, item.size);
-            current_unit_price = customerPrice;
-            current_admin_unit_price = adminPrice;
-            current_commission = commission;
-          }
+            // Get current price from food if available (with commission)
+            if (food && effectiveAvailable) {
+              const { adminPrice, customerPrice, commission } =
+                await getCartItemPrices(food, item.size);
+              current_unit_price = customerPrice;
+              current_admin_unit_price = adminPrice;
+              current_commission = commission;
+            }
 
-          const current_total_price = (
-            parseFloat(current_unit_price) * item.quantity
-          ).toFixed(2);
-          const current_admin_total_price = (
-            parseFloat(current_admin_unit_price) * item.quantity
-          ).toFixed(2);
-          const current_total_commission = (
-            parseFloat(current_commission) * item.quantity
-          ).toFixed(2);
+            const current_total_price = (
+              parseFloat(current_unit_price) * item.quantity
+            ).toFixed(2);
+            const current_admin_total_price = (
+              parseFloat(current_admin_unit_price) * item.quantity
+            ).toFixed(2);
+            const current_total_commission = (
+              parseFloat(current_commission) * item.quantity
+            ).toFixed(2);
 
-          return {
-            id: item.id,
-            food_id: item.food_id,
-            food_name: food?.name || item.food_name,
-            food_image_url: food?.image_url || item.food_image_url,
-            size: item.size,
-            quantity: item.quantity,
-            unit_price: parseFloat(current_unit_price),
-            total_price: parseFloat(current_total_price),
-            admin_unit_price: parseFloat(current_admin_unit_price),
-            admin_total_price: parseFloat(current_admin_total_price),
-            commission_per_item: parseFloat(current_commission),
-            total_commission: parseFloat(current_total_commission),
-            is_available: effectiveAvailable,
-            created_at: item.created_at,
-          };
+            return {
+              id: item.id,
+              food_id: item.food_id,
+              food_name: food?.name || item.food_name,
+              food_image_url: food?.image_url || item.food_image_url,
+              size: item.size,
+              quantity: item.quantity,
+              unit_price: parseFloat(current_unit_price),
+              total_price: parseFloat(current_total_price),
+              admin_unit_price: parseFloat(current_admin_unit_price),
+              admin_total_price: parseFloat(current_admin_total_price),
+              commission_per_item: parseFloat(current_commission),
+              total_commission: parseFloat(current_total_commission),
+              is_available: effectiveAvailable,
+              created_at: item.created_at,
+            };
           }),
         );
 

@@ -103,24 +103,26 @@ router.get("/foods", async (req, res) => {
 
     // Map the data to include customer prices with commission + real-time availability
     const currentTime = getSriLankaTimeString();
-    const mappedFoods = await Promise.all((foods || []).map(async (food) => {
-      const pricedFood = await addCustomerPricing(food);
-      // Real-time availability: combine scheduler flag + time-slot check
-      const timeAvailable = isFoodAvailableNow(
-        food.available_time,
-        currentTime,
-      );
-      const effectiveAvailable = food.is_manually_unavailable
-        ? false
-        : food.is_available && timeAvailable;
-      return {
-        ...pricedFood,
-        is_available: effectiveAvailable,
-        // Effective price for display (offer price if exists, otherwise regular)
-        price:
-          pricedFood.effective_regular_price || pricedFood.regular_price || 0,
-      };
-    }));
+    const mappedFoods = await Promise.all(
+      (foods || []).map(async (food) => {
+        const pricedFood = await addCustomerPricing(food);
+        // Real-time availability: combine scheduler flag + time-slot check
+        const timeAvailable = isFoodAvailableNow(
+          food.available_time,
+          currentTime,
+        );
+        const effectiveAvailable = food.is_manually_unavailable
+          ? false
+          : food.is_available && timeAvailable;
+        return {
+          ...pricedFood,
+          is_available: effectiveAvailable,
+          // Effective price for display (offer price if exists, otherwise regular)
+          price:
+            pricedFood.effective_regular_price || pricedFood.regular_price || 0,
+        };
+      }),
+    );
 
     return res.json({ foods: mappedFoods });
   } catch (e) {
@@ -200,20 +202,22 @@ router.get("/restaurants/:restaurantId/foods", async (req, res) => {
 
     // Add customer pricing with commission + real-time availability
     const currentTime = getSriLankaTimeString();
-    const pricedFoods = await Promise.all((foods || []).map(async (food) => {
-      const pricedFood = await addCustomerPricing(food);
-      const timeAvailable = isFoodAvailableNow(
-        food.available_time,
-        currentTime,
-      );
-      const effectiveAvailable = food.is_manually_unavailable
-        ? false
-        : food.is_available && timeAvailable;
-      return {
-        ...pricedFood,
-        is_available: effectiveAvailable,
-      };
-    }));
+    const pricedFoods = await Promise.all(
+      (foods || []).map(async (food) => {
+        const pricedFood = await addCustomerPricing(food);
+        const timeAvailable = isFoodAvailableNow(
+          food.available_time,
+          currentTime,
+        );
+        const effectiveAvailable = food.is_manually_unavailable
+          ? false
+          : food.is_available && timeAvailable;
+        return {
+          ...pricedFood,
+          is_available: effectiveAvailable,
+        };
+      }),
+    );
 
     return res.json({ foods: pricedFoods });
   } catch (e) {

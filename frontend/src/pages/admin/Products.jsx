@@ -154,32 +154,44 @@ export default function Products() {
     );
   };
 
+  if (loading) {
+    return (
+      <AdminLayout loading={loading}>
+        <div className="space-y-3">
+          <div className="h-10 w-40 bg-gray-100 rounded-xl skeleton-fade" />
+          <div className="h-12 w-full bg-gray-100 rounded-2xl skeleton-fade" />
+          <div className="h-12 w-full bg-gray-100 rounded-2xl skeleton-fade" />
+          {[...Array(4)].map((_, i) => (
+            <div
+              key={i}
+              className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 skeleton-fade"
+            >
+              <div className="flex gap-3">
+                <div className="w-16 h-16 bg-gray-100 rounded-xl shrink-0" />
+                <div className="flex-1 space-y-2 pt-1">
+                  <div className="h-4 w-1/2 bg-gray-100 rounded" />
+                  <div className="h-3 w-3/4 bg-gray-100 rounded" />
+                  <div className="h-4 w-16 bg-gray-100 rounded mt-2" />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </AdminLayout>
+    );
+  }
+
   return (
-    <AdminLayout>
+    <AdminLayout loading={loading}>
       <AnimatedAlert alert={alertState} visible={alertVisible} />
-      <div className="space-y-3 animate-fadeIn">
+      <div className="space-y-3">
         {/* ── Header bar ── */}
         <div className="flex items-center justify-between py-1">
           <div className="flex items-center gap-2.5">
-            <div
-              className="w-9 h-9 rounded-xl flex items-center justify-center"
-              style={{ background: "#06C168" }}
-            >
-              <svg
-                className="w-5 h-5 text-white"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"
-                />
-              </svg>
-            </div>
-            <h1 className="text-xl font-bold text-gray-900">Products</h1>
+            <div className="flex flex-col items-end pt-1 px-2">
+            <p className="text-3xl font-medium">Products</p>
+            <div className="w-18 h-0.75 bg-green-600 rounded-full"></div>
+          </div>
           </div>
           <div className="flex items-center gap-2">
             {/* Availability Filter */}
@@ -289,25 +301,7 @@ export default function Products() {
 
         {/* ── Products List ── */}
         <div className="space-y-3">
-          {loading ? (
-            <>
-              {[...Array(4)].map((_, i) => (
-                <div
-                  key={i}
-                  className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 skeleton-fade"
-                >
-                  <div className="flex gap-3">
-                    <div className="w-16 h-16 bg-gray-100 rounded-xl shrink-0" />
-                    <div className="flex-1 space-y-2 pt-1">
-                      <div className="h-4 w-1/2 bg-gray-100 rounded" />
-                      <div className="h-3 w-3/4 bg-gray-100 rounded" />
-                      <div className="h-4 w-16 bg-gray-100 rounded mt-2" />
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </>
-          ) : filteredFoods.length === 0 ? (
+          {filteredFoods.length === 0 ? (
             <div className="text-center py-16 text-gray-500">
               <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-2xl flex items-center justify-center">
                 <svg

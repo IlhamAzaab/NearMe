@@ -187,7 +187,8 @@ async function calculateOrderTotals(orderItems) {
 
     // Customer price includes commission
     const customerUnitPrice =
-      item.customer_unit_price || (await calculateCustomerPrice(adminUnitPrice));
+      item.customer_unit_price ||
+      (await calculateCustomerPrice(adminUnitPrice));
     const customerTotal = parseFloat(customerUnitPrice) * quantity;
 
     // Commission for this item

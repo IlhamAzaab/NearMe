@@ -564,7 +564,11 @@ router.get("/admin/summary", authenticate, adminOnly, async (req, res) => {
           total_earnings: 0,
           total_withdrawals: 0,
           remaining_balance: 0,
+          previous_balance: 0,
+          today_earnings: 0,
           today_withdrawals: 0,
+          last_30_days_earnings: 0,
+          last_30_days_withdrawals: 0,
           payment_count: 0,
         },
       });
@@ -575,7 +579,7 @@ router.get("/admin/summary", authenticate, adminOnly, async (req, res) => {
     // Total earnings from restaurant_payments view
     const { data: payments } = await supabaseAdmin
       .from("restaurant_payments")
-      .select("amount_to_pay")
+      .select("amount_to_pay, order_date")
       .eq("restaurant_id", restaurantId);
 
     const totalEarnings = (payments || []).reduce(
@@ -597,11 +601,26 @@ router.get("/admin/summary", authenticate, adminOnly, async (req, res) => {
 
     const remainingBalance = Math.max(0, totalEarnings - totalWithdrawals);
 
-    // Today's withdrawals
+    // Sri Lanka date helpers for daily and 30-day metrics
     const now = new Date();
     const sriLankaOffset = 5.5 * 60 * 60 * 1000;
     const sriLankaDate = new Date(now.getTime() + sriLankaOffset);
     const todayStr = sriLankaDate.toISOString().split("T")[0];
+    const thirtyDaysAgo = new Date(sriLankaDate);
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 29);
+    const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split("T")[0];
+
+    const todayEarnings = (payments || [])
+      .filter((p) => p.order_date === todayStr)
+      .reduce((sum, p) => sum + parseFloat(p.amount_to_pay || 0), 0);
+
+    const last30DaysEarnings = (payments || [])
+      .filter(
+        (p) => p.order_date >= thirtyDaysAgoStr && p.order_date <= todayStr,
+      )
+      .reduce((sum, p) => sum + parseFloat(p.amount_to_pay || 0), 0);
+
+    // Today's withdrawals
 
     const todayWithdrawals = (adminPayments || [])
       .filter((p) => {
@@ -612,13 +631,30 @@ router.get("/admin/summary", authenticate, adminOnly, async (req, res) => {
       })
       .reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
 
+    const last30DaysWithdrawals = (adminPayments || [])
+      .filter((p) => {
+        const payDate = new Date(
+          new Date(p.created_at).getTime() + sriLankaOffset,
+        )
+          .toISOString()
+          .split("T")[0];
+        return payDate >= thirtyDaysAgoStr && payDate <= todayStr;
+      })
+      .reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
+
+    const previousBalance = Math.max(0, remainingBalance - todayEarnings);
+
     return res.json({
       success: true,
       summary: {
         total_earnings: totalEarnings,
         total_withdrawals: totalWithdrawals,
         remaining_balance: remainingBalance,
+        previous_balance: previousBalance,
+        today_earnings: todayEarnings,
         today_withdrawals: todayWithdrawals,
+        last_30_days_earnings: last30DaysEarnings,
+        last_30_days_withdrawals: last30DaysWithdrawals,
         payment_count: (adminPayments || []).length,
       },
     });
