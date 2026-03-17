@@ -230,6 +230,19 @@ export default function AdminNotificationBanner({
     [onDismiss],
   );
 
+  const handleOpenWithdrawalPayment = useCallback(
+    (notification) => {
+      if (alertSoundRef.current) {
+        alertSoundRef.current.stop();
+      }
+      navigate(
+        `/admin/withdrawals${notification.payment_id ? `?paymentId=${notification.payment_id}` : ""}`,
+      );
+      onDismiss?.(notification.order_id);
+    },
+    [navigate, onDismiss],
+  );
+
   if (!notifications || notifications.length === 0) return null;
 
   return (
@@ -399,6 +412,69 @@ export default function AdminNotificationBanner({
                     }}
                   >
                     Awesome! 🎉
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        if (notification.type === "payment_received") {
+          return (
+            <div
+              key={notification.payment_id || notification.id}
+              className="w-full max-w-md transition-all duration-400 ease-out animate-slideDown"
+            >
+              <div className="bg-white rounded-2xl shadow-[0_8px_40px_rgba(0,0,0,0.18)] border-2 border-emerald-300 overflow-hidden">
+                <div className="flex items-center justify-between px-4 pt-3 pb-1">
+                  <div className="flex items-center gap-2">
+                    <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                    <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">
+                      Payment Notification
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => handleClose(notification.order_id)}
+                    className="text-gray-400 hover:text-gray-600 transition-colors p-0.5"
+                    aria-label="Close"
+                  >
+                    <svg
+                      className="w-4 h-4"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M6 18L18 6M6 6l12 12"
+                      />
+                    </svg>
+                  </button>
+                </div>
+
+                <div className="px-4 pb-4">
+                  <h3 className="text-[#111816] text-base font-bold leading-tight">
+                    {notification.title || "Payment Received"}
+                  </h3>
+                  <p className="text-emerald-600 text-lg font-bold mt-1">
+                    Rs.{Number(notification.amount || 0).toFixed(2)}
+                  </p>
+                  <p className="text-gray-600 text-xs mt-1">
+                    Proof: {(notification.proof_type || "file").toUpperCase()}
+                  </p>
+                  {notification.note && (
+                    <p className="text-gray-500 text-xs mt-1 line-clamp-2">
+                      Note: {notification.note}
+                    </p>
+                  )}
+
+                  <button
+                    onClick={() => handleOpenWithdrawalPayment(notification)}
+                    className="w-full mt-3 bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-sm py-2.5 rounded-xl transition-all"
+                  >
+                    View Transaction
                   </button>
                 </div>
               </div>

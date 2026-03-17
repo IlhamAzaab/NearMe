@@ -367,6 +367,31 @@ export function SocketProvider({ children }) {
       setAdminNotifications((prev) => [milestoneNotif, ...prev]);
     });
 
+    // 💸 PAYMENT RECEIVED (manager -> admin)
+    newSocket.on("admin:payment_received", (data) => {
+      console.log(`[Socket] 💸 ADMIN PAYMENT RECEIVED:`, data);
+
+      try {
+        const audio = new Audio("/notification-tone.wav");
+        audio.volume = 0.7;
+        audio.play().catch(() => {});
+      } catch {}
+
+      const notification = {
+        ...data,
+        id: Date.now(),
+        order_id: `payment-${data.payment_id || Date.now()}`,
+        receivedAt: Date.now(),
+      };
+
+      setAdminNotifications((prev) => {
+        if (data.payment_id && prev.some((n) => n.payment_id === data.payment_id)) {
+          return prev;
+        }
+        return [notification, ...prev];
+      });
+    });
+
     newSocket.on("disconnect", (reason) => {
       console.log(`[Socket] \u274c Admin disconnected: ${reason}`);
       setIsConnected(false);

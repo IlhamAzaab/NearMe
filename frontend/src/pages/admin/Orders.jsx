@@ -810,6 +810,17 @@ export default function Orders() {
               const statusConfig = getStatusConfig(deliveryStatus);
               const driver = getDriver(order);
               const items = order.order_items || [];
+              const showDriverContact =
+                !!driver &&
+                ["accepted", "picked_up", "on_the_way", "at_customer", "delivered"].includes(
+                  deliveryStatus,
+                );
+              const fullDeliveryAddress = [
+                order.delivery_address,
+                order.delivery_city || order.city || order.customer_city,
+              ]
+                .filter(Boolean)
+                .join(", ");
 
               return (
                 <div
@@ -845,7 +856,7 @@ export default function Orders() {
                   </div>
 
                   {/* Customer Info */}
-                  <div className="flex items-center justify-between py-1">
+                  <div className="flex items-start justify-between py-1 gap-3">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center">
                         <svg
@@ -866,74 +877,57 @@ export default function Orders() {
                         <p className="text-sm font-bold text-gray-800 leading-none mb-0.5">
                           {order.customer_name || "Customer"}
                         </p>
-                        <p className="text-xs text-gray-500">
-                          {order.customer_phone || "-"}
-                        </p>
+                        {fullDeliveryAddress && (
+                          <p className="text-xs text-gray-500 mt-1 break-words">
+                            {fullDeliveryAddress}
+                          </p>
+                        )}
                       </div>
                     </div>
-                    {order.customer_phone && (
-                      <a
-                        href={`tel:${order.customer_phone}`}
-                        className="w-9 h-9 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center"
-                      >
-                        <svg
-                          className="w-5 h-5"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                          strokeWidth={2}
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
-                          />
-                        </svg>
-                      </a>
-                    )}
                   </div>
 
                   {/* Food Items Preview */}
                   {items.length > 0 && (
-                    <div className="flex gap-2 overflow-x-auto hide-scrollbar -mx-1 px-1">
-                      {items.slice(0, 4).map((item, idx) => (
+                    <div className="space-y-2">
+                      {items.map((item, idx) => (
                         <div
                           key={idx}
-                          className="flex-shrink-0 flex items-center gap-2 bg-gray-50 p-1.5 pr-3 rounded-lg border border-gray-100"
+                          className="flex items-center gap-2 bg-gray-50 p-2 rounded-lg border border-gray-100"
                         >
                           {item.food_image_url ? (
                             <img
                               src={item.food_image_url}
                               alt={item.food_name}
-                              className="w-8 h-8 rounded-md object-cover"
+                              className="w-9 h-9 rounded-md object-cover"
                             />
                           ) : (
-                            <div className="w-8 h-8 rounded-md bg-gray-200 flex items-center justify-center">
+                            <div className="w-9 h-9 rounded-md bg-gray-200 flex items-center justify-center">
                               <span className="text-xs">🍽️</span>
                             </div>
                           )}
-                          <div className="flex flex-col">
-                            <span className="text-xs font-semibold text-gray-700">
-                              {item.quantity}x{" "}
-                              {item.food_name?.length > 12
-                                ? item.food_name.slice(0, 12) + "..."
-                                : item.food_name}
-                            </span>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-start justify-between gap-2">
+                              <span className="text-xs font-semibold text-gray-700 break-words">
+                                {item.quantity}x {item.food_name || "Food item"}
+                              </span>
+                              <span className="text-xs font-bold text-gray-700 whitespace-nowrap">
+                                Rs.
+                                {parseFloat(
+                                  item.total_price || item.unit_price * item.quantity || 0,
+                                ).toFixed(0)}
+                              </span>
+                            </div>
                             {item.size && (
                               <span className="text-[10px] font-bold uppercase tracking-wide text-emerald-600 bg-emerald-50 rounded px-1 mt-0.5 leading-tight">
                                 {item.size}
                               </span>
                             )}
+                            <p className="text-[10px] text-gray-500 mt-0.5">
+                              Rs.{parseFloat(item.unit_price || 0).toFixed(0)} each
+                            </p>
                           </div>
                         </div>
                       ))}
-                      {items.length > 4 && (
-                        <div className="flex-shrink-0 flex items-center px-3 bg-gray-50 rounded-lg border border-gray-100">
-                          <span className="text-xs font-semibold text-gray-500">
-                            +{items.length - 4} more
-                          </span>
-                        </div>
-                      )}
                     </div>
                   )}
 
@@ -957,9 +951,14 @@ export default function Orders() {
                           <span className="text-xs font-bold text-emerald-700">
                             {driver.full_name || "Driver"}
                           </span>
+                          {showDriverContact && driver.phone && (
+                            <span className="text-xs text-emerald-700/80">
+                              {driver.phone}
+                            </span>
+                          )}
                         </div>
                       </div>
-                      {driver.phone && (
+                      {showDriverContact && driver.phone && (
                         <a
                           href={`tel:${driver.phone}`}
                           className="text-gray-400 hover:text-emerald-600"
@@ -1113,6 +1112,17 @@ function OrderDetailsModal({
   const statusConfig = getStatusConfig(deliveryStatus);
   const driver = getDriver(order);
   const items = order.order_items || [];
+  const showDriverContact =
+    !!driver &&
+    ["accepted", "picked_up", "on_the_way", "at_customer", "delivered"].includes(
+      deliveryStatus,
+    );
+  const fullDeliveryAddress = [
+    order.delivery_address,
+    order.delivery_city || order.city || order.customer_city,
+  ]
+    .filter(Boolean)
+    .join(", ");
 
   const formatDateTime = (value) => {
     if (!value) return "-";
@@ -1187,58 +1197,33 @@ function OrderDetailsModal({
             <h3 className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-3">
               Customer
             </h3>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-full bg-white border border-gray-200 flex items-center justify-center">
-                  <svg
-                    className="w-6 h-6 text-gray-400"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-                    />
-                  </svg>
-                </div>
-                <div>
-                  <p className="font-bold text-gray-800">
-                    {order.customer_name || "Customer"}
-                  </p>
-                  <p className="text-sm text-gray-500">
-                    {order.customer_phone || "-"}
-                  </p>
-                </div>
-              </div>
-              {order.customer_phone && (
-                <a
-                  href={`tel:${order.customer_phone}`}
-                  className="w-10 h-10 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-lg shadow-emerald-500/30"
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-full bg-white border border-gray-200 flex items-center justify-center">
+                <svg
+                  className="w-6 h-6 text-gray-400"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
                 >
-                  <svg
-                    className="w-5 h-5"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
-                    />
-                  </svg>
-                </a>
-              )}
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                  />
+                </svg>
+              </div>
+              <div>
+                <p className="font-bold text-gray-800">
+                  {order.customer_name || "Customer"}
+                </p>
+              </div>
             </div>
-            {order.delivery_address && (
+            {fullDeliveryAddress && (
               <div className="mt-3 pt-3 border-t border-gray-200">
                 <p className="text-xs text-gray-500 mb-1">Delivery Address</p>
                 <p className="text-sm text-gray-700 font-medium">
-                  {order.delivery_address}
+                  {fullDeliveryAddress}
                 </p>
               </div>
             )}
@@ -1263,12 +1248,12 @@ function OrderDetailsModal({
                     <p className="font-bold text-gray-800">
                       {driver.full_name || "Driver"}
                     </p>
-                    <p className="text-sm text-gray-500">
-                      {driver.phone || "-"}
-                    </p>
+                    {showDriverContact && driver.phone && (
+                      <p className="text-sm text-gray-500">{driver.phone}</p>
+                    )}
                   </div>
                 </div>
-                {driver.phone && (
+                {showDriverContact && driver.phone && (
                   <a
                     href={`tel:${driver.phone}`}
                     className="w-10 h-10 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-lg shadow-emerald-500/30"

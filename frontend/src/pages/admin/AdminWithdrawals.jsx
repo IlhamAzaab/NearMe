@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { API_URL } from "../../config";
 import AdminLayout from "../../components/AdminLayout";
 
 export default function AdminWithdrawals() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [summary, setSummary] = useState({
     total_earnings: 0,
     total_withdrawals: 0,
@@ -29,6 +30,23 @@ export default function AdminWithdrawals() {
   useEffect(() => {
     fetchData();
   }, []);
+
+  useEffect(() => {
+    const paymentId = searchParams.get("paymentId");
+    if (!paymentId || payments.length === 0) return;
+
+    const targetPayment = payments.find((p) => p.id === paymentId);
+    if (targetPayment) {
+      setSelectedPayment(targetPayment);
+    }
+  }, [payments, searchParams]);
+
+  const clearPaymentQueryParam = () => {
+    if (!searchParams.has("paymentId")) return;
+    const next = new URLSearchParams(searchParams);
+    next.delete("paymentId");
+    setSearchParams(next, { replace: true });
+  };
 
   const fetchData = async () => {
     try {
@@ -389,6 +407,7 @@ export default function AdminWithdrawals() {
             onClick={() => {
               setSelectedPayment(null);
               closeReceiptViewer();
+              clearPaymentQueryParam();
             }}
           >
             <div
@@ -408,6 +427,7 @@ export default function AdminWithdrawals() {
                     onClick={() => {
                       setSelectedPayment(null);
                       closeReceiptViewer();
+                      clearPaymentQueryParam();
                     }}
                     className="p-1 text-gray-400 hover:text-gray-600"
                   >

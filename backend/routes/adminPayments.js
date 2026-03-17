@@ -3,6 +3,7 @@ import { authenticate } from "../middleware/authenticate.js";
 import { supabaseAdmin } from "../supabaseAdmin.js";
 import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
+import { notifyAdmin } from "../utils/socketManager.js";
 
 const router = express.Router();
 
@@ -417,7 +418,7 @@ router.post(
       // Check restaurant exists
       const { data: restaurant } = await supabaseAdmin
         .from("restaurants")
-        .select("id, restaurant_name")
+        .select("id, restaurant_name, admin_id")
         .eq("id", restaurantId)
         .single();
 
@@ -512,6 +513,23 @@ router.post(
       console.log(
         `[ADMIN-PAYMENTS] ✅ Paid Rs.${payAmount} to ${restaurant.restaurant_name}. New balance: Rs.${newBalance.toFixed(2)}`,
       );
+
+      // Real-time notify restaurant admin about received payment with proof details
+      if (restaurant.admin_id) {
+        notifyAdmin(restaurant.admin_id, "admin:payment_received", {
+          type: "payment_received",
+          title: "Payment Received",
+          message: `Manager sent Rs.${payAmount.toFixed(2)} with ${proofType.toUpperCase()} receipt.`,
+          payment_id: payment.id,
+          restaurant_id: restaurantId,
+          restaurant_name: restaurant.restaurant_name,
+          amount: payAmount,
+          proof_type: proofType,
+          proof_url: proofUrl,
+          note: note || null,
+          created_at: payment.created_at,
+        });
+      }
 
       return res.json({
         success: true,

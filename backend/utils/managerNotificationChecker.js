@@ -359,8 +359,8 @@ async function checkRestaurantMilestones() {
     const { data: todayOrders, error } = await supabaseAdmin
       .from("orders")
       .select("id, restaurant_id, total_amount")
-      .eq("status", "delivered")
-      .gte("delivered_at", todayStart);
+      .not("restaurant_id", "is", null)
+      .gte("placed_at", todayStart);
 
     if (error || !todayOrders || todayOrders.length === 0) return;
 
