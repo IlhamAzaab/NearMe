@@ -538,7 +538,10 @@ export default function Orders() {
           <div className="h-32 bg-gray-100 rounded-2xl skeleton-fade" />
           <div className="flex gap-2">
             {[...Array(4)].map((_, i) => (
-              <div key={i} className="h-9 w-20 bg-gray-100 rounded-full skeleton-fade" />
+              <div
+                key={i}
+                className="h-9 w-20 bg-gray-100 rounded-full skeleton-fade"
+              />
             ))}
           </div>
           {[...Array(4)].map((_, i) => (
@@ -635,7 +638,7 @@ export default function Orders() {
       {/* Stats Header */}
       <div className="bg-gradient-to-br from-[#24e68c] to-[#06c16a] p-4 pb-14">
         <div className="flex items-center justify-between mb-2">
-            <div className="flex flex-col items-end pt-1 px-2">
+          <div className="flex flex-col items-end pt-1 px-2">
             <p className="text-3xl font-medium">Orders</p>
             <div className="w-12 h-0.75 bg-black rounded-full"></div>
           </div>

@@ -179,17 +179,14 @@ export default function RestaurantDetail() {
           const base64String = reader.result;
 
           // Upload to Cloudinary via backend
-          const response = await fetch(
-            `${API_URL}/admin/upload-image`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`,
-              },
-              body: JSON.stringify({ imageData: base64String }),
+          const response = await fetch(`${API_URL}/admin/upload-image`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
             },
-          );
+            body: JSON.stringify({ imageData: base64String }),
+          });
 
           const data = await response.json();
 

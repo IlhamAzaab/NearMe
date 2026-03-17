@@ -200,7 +200,6 @@ export default function Earnings() {
         {/* Header */}
 
         <div className="flex items-center gap-35">
-          
           <div className="flex flex-col items-end gap-1 pt-1 px-2">
             <p className="text-3xl font-medium">Earnings</p>
             <div className="w-16 h-0.75 bg-green-600 rounded-full"></div>
@@ -235,7 +234,9 @@ export default function Earnings() {
             {showComparison && (
               <div
                 className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold shadow-sm ${
-                  isUp ? "bg-green-100 text-green-600" : "bg-red-100 text-red-600"
+                  isUp
+                    ? "bg-green-100 text-green-600"
+                    : "bg-red-100 text-red-600"
                 }`}
               >
                 <div
@@ -272,7 +273,6 @@ export default function Earnings() {
               <span className="text-xs font-bold text-gray-600">
                 {formatCurrency(earnings?.previousRevenue)}
               </span>
-              
             </div>
           ) : (
             <div className="mb-3" />

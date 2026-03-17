@@ -710,7 +710,7 @@ router.get("/orders", authenticate, async (req, res) => {
     const orderIds = (orders || []).map((o) => o.order_id);
     const { data: orderItems } = await supabaseAdmin
       .from("order_items")
-      .select("order_id, food_name, quantity")
+      .select("order_id, food_name, quantity, size, unit_price, total_price")
       .in("order_id", orderIds);
 
     // Get delivery statuses for each order
@@ -740,7 +740,18 @@ router.get("/orders", authenticate, async (req, res) => {
         (itemsByOrder[o.order_id] || [])
           .map((item) => `${item.quantity}x ${item.food_name}`)
           .join(", ") || "No items",
+      item_details: (itemsByOrder[o.order_id] || []).map((item) => ({
+        food_name: item.food_name,
+        quantity: Number(item.quantity || 0),
+        size: item.size || "regular",
+        unit_price: Number(item.unit_price || 0),
+        total_price: Number(item.total_price || 0),
+      })),
       amount: parseFloat(o.restaurant_payment || 0),
+      total_price: (itemsByOrder[o.order_id] || []).reduce(
+        (sum, item) => sum + Number(item.total_price || 0),
+        0,
+      ),
       status: o.status,
       delivery_status: deliveryStatusByOrder[o.order_id] || null,
       time: new Date(o.placed_at).toLocaleString("en-US", {

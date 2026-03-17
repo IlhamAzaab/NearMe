@@ -189,9 +189,9 @@ export default function Products() {
         <div className="flex items-center justify-between py-1">
           <div className="flex items-center gap-2.5">
             <div className="flex flex-col items-end pt-1 px-2">
-            <p className="text-3xl font-medium">Products</p>
-            <div className="w-18 h-0.75 bg-green-600 rounded-full"></div>
-          </div>
+              <p className="text-3xl font-medium">Products</p>
+              <div className="w-18 h-0.75 bg-green-600 rounded-full"></div>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             {/* Availability Filter */}
