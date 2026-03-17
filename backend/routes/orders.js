@@ -693,6 +693,14 @@ router.post("/place", authenticate, async (req, res) => {
           return `${item.quantity}x ${item.food_name}${size}`;
         })
         .join(", ");
+      const itemDetails = processedItems.map((item) => ({
+        food_name: item.food_name,
+        size: item.size || "regular",
+        quantity: Number(item.quantity || 1),
+        unit_price: Number(item.admin_unit_price || item.unit_price || 0),
+        total_price: Number(item.admin_total_price || item.total_price || 0),
+        food_image: item.food_image_url || null,
+      }));
       const firstItemImage = processedItems[0]?.food_image_url || null;
       const firstItemSize = processedItems[0]?.size || "regular";
 
@@ -705,6 +713,7 @@ router.post("/place", authenticate, async (req, res) => {
           order_number: orderNumber,
           items_summary: itemsSummary,
           items_count: processedItems.length,
+          items_details: itemDetails,
           first_item_size: firstItemSize,
           restaurant_total: parseFloat(adminSubtotal || 0),
           total_amount: totalAmount,

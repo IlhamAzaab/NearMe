@@ -286,10 +286,15 @@ export default function AdminNotificationBanner({
   if (!notifications || notifications.length === 0) return null;
 
   return (
-    <div className="fixed top-0 left-0 right-0 z-[9999] flex flex-col items-center gap-2 px-3 pt-3">
+    <div className="fixed top-0 left-0 right-0 z-[9999] flex flex-col items-center gap-2 px-3 pt-3 max-h-[85vh] overflow-y-auto">
       {notifications.map((notification) => {
         const isAccepted = acceptedIds.has(notification.order_id);
         const isAccepting = acceptingId === notification.order_id;
+        const itemDetails = Array.isArray(notification.items_details)
+          ? notification.items_details
+          : [];
+        const hasMultipleItems =
+          itemDetails.length > 1 || Number(notification.items_count || 0) > 1;
 
         // Milestone notification - different UI
         if (notification.isMilestone) {
@@ -540,30 +545,51 @@ export default function AdminNotificationBanner({
             }`}
           >
             <div
-              className={`bg-white rounded-2xl shadow-[0_8px_40px_rgba(0,0,0,0.18)] border-2 overflow-hidden ${
+              className={`bg-white rounded-2xl shadow-[0_8px_40px_rgba(0,0,0,0.18)] border-2 overflow-hidden relative ${
                 isAccepted ? "" : "animate-borderBlink"
               }`}
               style={{ borderColor: isAccepted ? "#06C168" : undefined }}
             >
+              <button
+                onClick={() => handleClose(notification.order_id)}
+                className="absolute top-2 right-2 text-gray-400 hover:text-gray-600 transition-colors p-1"
+                aria-label="Close"
+              >
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
+              </button>
+
               {/* Body */}
-              <div className="px-4 pt-3 pb-3">
+              <div className="px-4 pt-8 pb-3">
                 <div className="flex items-start gap-3">
-                  {/* Food image */}
-                  <div className="flex-shrink-0 w-14 h-14 rounded-xl overflow-hidden bg-gray-100 shadow-sm">
-                    {notification.food_image ? (
-                      <img
-                        src={notification.food_image}
-                        alt=""
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-orange-100 to-orange-200">
-                        <span className="material-symbols-outlined text-orange-500 text-2xl">
-                          restaurant
-                        </span>
-                      </div>
-                    )}
-                  </div>
+                  {!hasMultipleItems && (
+                    <div className="shrink-0 w-14 h-14 rounded-xl overflow-hidden bg-gray-100 shadow-sm">
+                      {notification.food_image ? (
+                        <img
+                          src={notification.food_image}
+                          alt=""
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-orange-100 to-orange-200">
+                          <span className="material-symbols-outlined text-orange-500 text-2xl">
+                            restaurant
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Content */}
                   <div className="flex-1 min-w-0">
@@ -576,12 +602,50 @@ export default function AdminNotificationBanner({
                     >
                       #{notification.order_number}
                     </p>
-                    <p className="text-gray-500 text-xs mt-0.5 line-clamp-1">
-                      {notification.items_summary || notification.message}
-                    </p>
-                    <p className="text-[11px] mt-1 text-gray-500">
-                      Size: {notification.first_item_size || "regular"}
-                    </p>
+                    {itemDetails.length > 0 ? (
+                      <div className="text-gray-600 text-xs mt-1 space-y-1">
+                        {itemDetails.map((item, idx) => {
+                          const qty = Number(item.quantity || 1);
+                          const unitPrice = Number(item.unit_price || 0);
+                          const lineTotal = Number(
+                            item.total_price ?? qty * unitPrice,
+                          );
+                          const size =
+                            item.size && item.size !== "regular"
+                              ? ` (${item.size})`
+                              : "";
+
+                          return (
+                            <div
+                              key={`${item.food_name || "item"}-${idx}`}
+                              className="flex items-center justify-between gap-3"
+                            >
+                              <p className="leading-tight break-words text-gray-700">
+                                {qty}x {item.food_name || "Item"}
+                                {size}
+                              </p>
+                              <p className="font-semibold whitespace-nowrap" style={{ color: "#06C168" }}>
+                                Rs.{lineTotal.toFixed(2)}
+                              </p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="text-gray-500 text-xs mt-0.5 space-y-0.5">
+                        {(notification.items_summary || notification.message || "")
+                          .split(",")
+                          .map((itemText, idx) => {
+                            const text = itemText.trim();
+                            if (!text) return null;
+                            return (
+                              <p key={idx} className="leading-tight break-words">
+                                {text}
+                              </p>
+                            );
+                          })}
+                      </div>
+                    )}
                   </div>
 
                   <div className="text-right shrink-0">

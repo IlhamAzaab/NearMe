@@ -1,7 +1,6 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import AdminLayout from "../../components/AdminLayout";
-import supabaseClient from "../../supabaseClient";
 import { API_URL } from "../../config";
 import {
   AreaChart,
@@ -20,8 +19,6 @@ export default function AdminDashboard() {
   const [restaurant, setRestaurant] = useState(null);
   const [toggling, setToggling] = useState(false);
   const [chartPeriod, setChartPeriod] = useState("week");
-  const [newIncomingOrder, setNewIncomingOrder] = useState(null);
-  const [processingOrderId, setProcessingOrderId] = useState(null);
   const navigate = useNavigate();
 
   const token = localStorage.getItem("token");
@@ -84,35 +81,6 @@ export default function AdminDashboard() {
     };
     fetchAll();
   }, [token, chartPeriod, fetchDashboardStats, fetchRecentOrders]);
-
-  useEffect(() => {
-    if (!token) return;
-
-    const subscription = supabaseClient
-      .channel("admin-dashboard:new-deliveries")
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "deliveries",
-        },
-        async () => {
-          const latestOrders = await fetchRecentOrders();
-          const latestPlaced = latestOrders.find(
-            (order) => (order.delivery_status || order.status) === "placed",
-          );
-          if (latestPlaced) {
-            setNewIncomingOrder(latestPlaced);
-          }
-        },
-      )
-      .subscribe();
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, [token, fetchRecentOrders]);
 
   // Re-fetch chart data when period changes (skip initial load)
   useEffect(() => {
@@ -260,68 +228,6 @@ export default function AdminDashboard() {
     };
   };
 
-  const getPrimaryOrderItem = (order) => {
-    const first = order?.item_details?.[0];
-    if (!first) {
-      return {
-        food_name: "Order item",
-        quantity: 1,
-        size: "regular",
-        unit_price: 0,
-        total_price: order?.total_price || order?.amount || 0,
-      };
-    }
-    return {
-      food_name: first.food_name || "Order item",
-      quantity: Number(first.quantity || 1),
-      size: first.size || "regular",
-      unit_price: Number(first.unit_price || 0),
-      total_price: Number(first.total_price || 0),
-    };
-  };
-
-  const handleDashboardOrderAction = async (orderId, status) => {
-    setProcessingOrderId(orderId);
-    try {
-      const res = await fetch(`${API_URL}/orders/restaurant/orders/${orderId}/status`, {
-        method: "PATCH",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          status,
-          reason:
-            status === "rejected" ? "Rejected from dashboard quick action" : undefined,
-        }),
-      });
-
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.message || `Failed to ${status} order`);
-      }
-
-      setRecentOrders((prev) =>
-        prev.map((order) =>
-          order.id === orderId
-            ? {
-                ...order,
-                delivery_status: status === "accepted" ? "pending" : "failed",
-              }
-            : order,
-        ),
-      );
-
-      if (newIncomingOrder?.id === orderId) {
-        setNewIncomingOrder(null);
-      }
-    } catch (err) {
-      console.error("Dashboard order action error:", err);
-    } finally {
-      setProcessingOrderId(null);
-    }
-  };
-
   // Loading skeleton
   if (loading) {
     return (
@@ -363,14 +269,6 @@ export default function AdminDashboard() {
   }
 
   const revenueChange = dashboardData?.lifetime?.revenueChange;
-  const activeNewOrder =
-    newIncomingOrder &&
-    (newIncomingOrder.delivery_status || newIncomingOrder.status) === "placed"
-      ? newIncomingOrder
-      : null;
-  const activeNewOrderItem = activeNewOrder
-    ? getPrimaryOrderItem(activeNewOrder)
-    : null;
 
   return (
     <AdminLayout loading={loading}>
@@ -466,85 +364,6 @@ export default function AdminDashboard() {
             </button>
           </div>
 
-          {activeNewOrder && activeNewOrderItem && (
-            <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/70 p-3 sm:p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">
-                    New Order Arrived
-                  </p>
-                  <p className="text-sm font-bold text-gray-900 mt-0.5">
-                    #{activeNewOrder.order_number}
-                  </p>
-                </div>
-                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100 text-amber-700">
-                  Action Required
-                </span>
-              </div>
-
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <div className="rounded-lg bg-white border border-amber-100 p-2">
-                  <p className="text-[10px] text-gray-500 uppercase">Food</p>
-                  <p className="text-xs font-semibold text-gray-900 truncate">
-                    {activeNewOrderItem.food_name}
-                  </p>
-                </div>
-                <div className="rounded-lg bg-white border border-amber-100 p-2">
-                  <p className="text-[10px] text-gray-500 uppercase">Quantity</p>
-                  <p className="text-xs font-semibold text-gray-900">
-                    {activeNewOrderItem.quantity}
-                  </p>
-                </div>
-                <div className="rounded-lg bg-white border border-amber-100 p-2">
-                  <p className="text-[10px] text-gray-500 uppercase">Size</p>
-                  <p className="text-xs font-semibold text-gray-900 capitalize">
-                    {activeNewOrderItem.size}
-                  </p>
-                </div>
-                <div className="rounded-lg bg-white border border-amber-100 p-2">
-                  <p className="text-[10px] text-gray-500 uppercase">Price</p>
-                  <p className="text-xs font-semibold text-gray-900">
-                    {formatCurrency(activeNewOrderItem.unit_price)}
-                  </p>
-                </div>
-              </div>
-
-              <div className="mt-2 rounded-lg bg-white border border-amber-100 p-2 flex items-center justify-between">
-                <p className="text-[11px] font-medium text-gray-600 uppercase">
-                  Total Price
-                </p>
-                <p className="text-sm font-bold" style={{ color: "#06C168" }}>
-                  {formatCurrency(
-                    activeNewOrder.total_price ||
-                      activeNewOrderItem.total_price ||
-                      activeNewOrder.amount,
-                  )}
-                </p>
-              </div>
-
-              <div className="mt-3 flex items-center gap-2">
-                <button
-                  onClick={() =>
-                    handleDashboardOrderAction(activeNewOrder.id, "accepted")
-                  }
-                  disabled={processingOrderId === activeNewOrder.id}
-                  className="flex-1 h-9 rounded-lg text-sm font-semibold text-white transition-opacity disabled:opacity-60"
-                  style={{ backgroundColor: "#06C168" }}
-                >
-                  Accept
-                </button>
-                <button
-                  onClick={() =>
-                    handleDashboardOrderAction(activeNewOrder.id, "rejected")
-                  }
-                  disabled={processingOrderId === activeNewOrder.id}
-                  className="flex-1 h-9 rounded-lg text-sm font-semibold border border-red-200 text-red-600 bg-white transition-opacity disabled:opacity-60"
-                >
-                  Reject
-                </button>
-              </div>
-            </div>
-          )}
         </div>
 
         {/* ═══════════ Block 2: Today's Performance ═══════════ */}
