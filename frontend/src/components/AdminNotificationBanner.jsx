@@ -4,9 +4,9 @@
  * Full-screen overlay notification for restaurant admins when new orders arrive.
  * Features:
  * - Blinking border animation until interaction
- * - Alert sound that loops until Accept or Details is clicked
+ * - Alert sound that loops until an action is taken
  * - "Accept Order" button that accepts the order via API
- * - "Details" button that navigates to admin orders page
+ * - "Reject" button that requires rejection reason and notifies customer
  * - Only dismisses on explicit 'X' click (never auto-dismisses)
  * - Matches the design from the provided mockup
  */
@@ -98,6 +98,9 @@ export default function AdminNotificationBanner({
 }) {
   const navigate = useNavigate();
   const [acceptingId, setAcceptingId] = useState(null);
+  const [rejectingId, setRejectingId] = useState(null);
+  const [rejectTarget, setRejectTarget] = useState(null);
+  const [rejectReason, setRejectReason] = useState("");
   const [acceptedIds, setAcceptedIds] = useState(new Set());
   const alertSoundRef = useRef(null);
 
@@ -205,19 +208,56 @@ export default function AdminNotificationBanner({
     [acceptingId, acceptedIds, notifications, onAccepted, onDismiss],
   );
 
-  const handleViewDetails = useCallback(
-    (notification) => {
-      // Stop sound
-      if (alertSoundRef.current) {
-        alertSoundRef.current.stop();
+  const openRejectModal = useCallback((notification) => {
+    if (alertSoundRef.current) {
+      alertSoundRef.current.stop();
+    }
+    setRejectTarget(notification);
+    setRejectReason("");
+  }, []);
+
+  const closeRejectModal = useCallback(() => {
+    setRejectTarget(null);
+    setRejectReason("");
+  }, []);
+
+  const handleRejectOrder = useCallback(async () => {
+    if (!rejectTarget?.order_id || !rejectReason.trim()) return;
+
+    const orderId = rejectTarget.order_id;
+    setRejectingId(orderId);
+
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch(
+        `${API_URL}/orders/restaurant/orders/${orderId}/status`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            status: "rejected",
+            reason: rejectReason.trim(),
+          }),
+        },
+      );
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || "Failed to reject order");
       }
-      // Navigate to admin orders page
-      navigate("/admin/orders");
-      // Dismiss the notification
-      onDismiss?.(notification.order_id);
-    },
-    [navigate, onDismiss],
-  );
+
+      onDismiss?.(orderId);
+      closeRejectModal();
+    } catch (err) {
+      console.error("Reject order error:", err);
+      alert(err.message || "Network error. Please try again.");
+    } finally {
+      setRejectingId(null);
+    }
+  }, [closeRejectModal, onDismiss, rejectReason, rejectTarget]);
 
   const handleClose = useCallback(
     (orderId) => {
@@ -259,14 +299,14 @@ export default function AdminNotificationBanner({
               className="w-full max-w-md transition-all duration-400 ease-out animate-slideDown"
             >
               <div
-                className="rounded-2xl shadow-[0_8px_40px_rgba(0,0,0,0.18)] border-2 border-green-400 overflow-hidden"
-                style={{ background: "#1a1a2e" }}
+                className="rounded-2xl shadow-[0_8px_40px_rgba(0,0,0,0.18)] border-2 overflow-hidden"
+                style={{ borderColor: "#06C168", background: "#1a1a2e" }}
               >
                 {/* Header */}
                 <div
                   style={{
                     background:
-                      "linear-gradient(135deg, #22c55e 0%, #16a34a 100%)",
+                      "linear-gradient(135deg, #06C168 0%, #059e56 100%)",
                     padding: "10px 14px",
                     display: "flex",
                     alignItems: "center",
@@ -355,7 +395,7 @@ export default function AdminNotificationBanner({
                           display: "block",
                           fontSize: 17,
                           fontWeight: 800,
-                          color: "#22c55e",
+                          color: "#06C168",
                         }}
                       >
                         Rs.{(notification.today_revenue || 0).toLocaleString()}
@@ -389,7 +429,7 @@ export default function AdminNotificationBanner({
                           display: "block",
                           fontSize: 17,
                           fontWeight: 800,
-                          color: "#22c55e",
+                          color: "#06C168",
                         }}
                       >
                         {notification.today_orders || notification.milestone}
@@ -408,7 +448,7 @@ export default function AdminNotificationBanner({
                       fontWeight: 700,
                       cursor: "pointer",
                       background:
-                        "linear-gradient(135deg, #22c55e 0%, #16a34a 100%)",
+                        "linear-gradient(135deg, #06C168 0%, #059e56 100%)",
                     }}
                   >
                     Awesome! 🎉
@@ -425,10 +465,16 @@ export default function AdminNotificationBanner({
               key={notification.payment_id || notification.id}
               className="w-full max-w-md transition-all duration-400 ease-out animate-slideDown"
             >
-              <div className="bg-white rounded-2xl shadow-[0_8px_40px_rgba(0,0,0,0.18)] border-2 border-emerald-300 overflow-hidden">
+              <div
+                className="bg-white rounded-2xl shadow-[0_8px_40px_rgba(0,0,0,0.18)] border-2 overflow-hidden"
+                style={{ borderColor: "#06C168" }}
+              >
                 <div className="flex items-center justify-between px-4 pt-3 pb-1">
                   <div className="flex items-center gap-2">
-                    <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                    <span
+                      className="inline-block w-2.5 h-2.5 rounded-full animate-pulse"
+                      style={{ backgroundColor: "#06C168" }}
+                    />
                     <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">
                       Payment Notification
                     </span>
@@ -458,7 +504,10 @@ export default function AdminNotificationBanner({
                   <h3 className="text-[#111816] text-base font-bold leading-tight">
                     {notification.title || "Payment Received"}
                   </h3>
-                  <p className="text-emerald-600 text-lg font-bold mt-1">
+                  <p
+                    className="text-lg font-bold mt-1"
+                    style={{ color: "#06C168" }}
+                  >
                     Rs.{Number(notification.amount || 0).toFixed(2)}
                   </p>
                   <p className="text-gray-600 text-xs mt-1">
@@ -472,7 +521,8 @@ export default function AdminNotificationBanner({
 
                   <button
                     onClick={() => handleOpenWithdrawalPayment(notification)}
-                    className="w-full mt-3 bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-sm py-2.5 rounded-xl transition-all"
+                    className="w-full mt-3 text-white font-bold text-sm py-2.5 rounded-xl transition-all"
+                    style={{ backgroundColor: "#06C168" }}
                   >
                     View Transaction
                   </button>
@@ -491,49 +541,12 @@ export default function AdminNotificationBanner({
           >
             <div
               className={`bg-white rounded-2xl shadow-[0_8px_40px_rgba(0,0,0,0.18)] border-2 overflow-hidden ${
-                isAccepted ? "border-green-400" : "animate-borderBlink"
+                isAccepted ? "" : "animate-borderBlink"
               }`}
+              style={{ borderColor: isAccepted ? "#06C168" : undefined }}
             >
-              {/* Header */}
-              <div className="flex items-center justify-between px-4 pt-3 pb-1">
-                <div className="flex items-center gap-2">
-                  <span
-                    className={`inline-block w-2.5 h-2.5 rounded-full ${
-                      isAccepted ? "bg-green-400" : "bg-green-500 animate-pulse"
-                    }`}
-                  />
-                  <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">
-                    New Notification
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[11px] text-gray-400 font-medium">
-                    just now
-                  </span>
-                  <button
-                    onClick={() => handleClose(notification.order_id)}
-                    className="text-gray-400 hover:text-gray-600 transition-colors p-0.5"
-                    aria-label="Close"
-                  >
-                    <svg
-                      className="w-4 h-4"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M6 18L18 6M6 6l12 12"
-                      />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-
               {/* Body */}
-              <div className="px-4 pb-3">
+              <div className="px-4 pt-3 pb-3">
                 <div className="flex items-start gap-3">
                   {/* Food image */}
                   <div className="flex-shrink-0 w-14 h-14 rounded-xl overflow-hidden bg-gray-100 shadow-sm">
@@ -557,11 +570,26 @@ export default function AdminNotificationBanner({
                     <h3 className="text-[#111816] text-base font-bold leading-tight">
                       {isAccepted ? "Order Accepted!" : "New Order Arrived!"}
                     </h3>
-                    <p className="text-[#13ecb9] text-sm font-bold mt-0.5">
+                    <p
+                      className="text-sm font-bold mt-0.5"
+                      style={{ color: "#06C168" }}
+                    >
                       #{notification.order_number}
                     </p>
                     <p className="text-gray-500 text-xs mt-0.5 line-clamp-1">
                       {notification.items_summary || notification.message}
+                    </p>
+                    <p className="text-[11px] mt-1 text-gray-500">
+                      Size: {notification.first_item_size || "regular"}
+                    </p>
+                  </div>
+
+                  <div className="text-right shrink-0">
+                    <p className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">
+                      Price
+                    </p>
+                    <p className="text-2xl font-extrabold leading-none" style={{ color: "#06C168" }}>
+                      Rs.{Number(notification.restaurant_total ?? notification.total_amount ?? 0).toFixed(2)}
                     </p>
                   </div>
                 </div>
@@ -572,7 +600,8 @@ export default function AdminNotificationBanner({
                     <button
                       onClick={() => handleAcceptOrder(notification)}
                       disabled={isAccepting}
-                      className="flex-1 bg-[#13ec37] hover:bg-[#10d630] active:scale-[0.97] text-white font-bold text-sm py-2.5 rounded-xl transition-all disabled:opacity-60 disabled:cursor-not-allowed shadow-sm"
+                      className="flex-1 active:scale-[0.97] text-white font-bold text-sm py-2.5 rounded-xl transition-all disabled:opacity-60 disabled:cursor-not-allowed shadow-sm"
+                      style={{ backgroundColor: "#06C168" }}
                     >
                       {isAccepting ? (
                         <span className="flex items-center justify-center gap-2">
@@ -601,9 +630,22 @@ export default function AdminNotificationBanner({
                         "Accept Order"
                       )}
                     </button>
+                    <button
+                      onClick={() => openRejectModal(notification)}
+                      disabled={
+                        isAccepting || rejectingId === notification.order_id
+                      }
+                      className="px-4 py-2.5 rounded-xl font-bold text-sm border transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                      style={{ borderColor: "#06C168", color: "#06C168" }}
+                    >
+                      Reject
+                    </button>
                   </div>
                 ) : (
-                  <div className="flex items-center justify-center gap-2 mt-3 py-2 text-green-600 font-bold text-sm">
+                  <div
+                    className="flex items-center justify-center gap-2 mt-3 py-2 font-bold text-sm"
+                    style={{ color: "#06C168" }}
+                  >
                     <span className="material-symbols-outlined text-lg">
                       check_circle
                     </span>
@@ -611,43 +653,65 @@ export default function AdminNotificationBanner({
                   </div>
                 )}
 
-                {/* Secondary actions */}
-                {!isAccepted && (
-                  <div className="flex items-center justify-center gap-4 mt-2">
-                    <button
-                      onClick={() => handleViewDetails(notification)}
-                      className="flex items-center gap-1.5 text-gray-500 hover:text-gray-700 text-xs font-semibold py-1.5 px-3 rounded-lg hover:bg-gray-50 transition-colors"
-                    >
-                      <span className="material-symbols-outlined text-sm">
-                        receipt_long
-                      </span>
-                      Print Receipt
-                    </button>
-                    <button
-                      onClick={() => handleClose(notification.order_id)}
-                      className="flex items-center gap-1.5 text-gray-400 hover:text-gray-600 text-xs font-semibold py-1.5 px-3 rounded-lg hover:bg-gray-50 transition-colors"
-                    >
-                      <svg
-                        className="w-3.5 h-3.5"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M6 18L18 6M6 6l12 12"
-                        />
-                      </svg>
-                    </button>
-                  </div>
-                )}
               </div>
             </div>
           </div>
         );
       })}
+
+      {rejectTarget && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50 px-4">
+          <div
+            className="w-full max-w-md bg-white rounded-2xl shadow-2xl border"
+            style={{ borderColor: "#06C168" }}
+          >
+            <div
+              className="px-4 py-3 border-b"
+              style={{ borderColor: "#dcfce7" }}
+            >
+              <h4 className="text-base font-bold" style={{ color: "#06C168" }}>
+                Reject Order #{rejectTarget.order_number}
+              </h4>
+              <p className="text-xs text-gray-500 mt-1">
+                Rejection reason is required and will be sent to the customer.
+              </p>
+            </div>
+            <div className="p-4">
+              <textarea
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                rows={4}
+                autoFocus
+                placeholder="Enter rejection reason"
+                className="w-full border rounded-xl px-3 py-2 text-sm focus:outline-none"
+                style={{ borderColor: "#86efac" }}
+              />
+              <div className="mt-3 flex gap-2">
+                <button
+                  onClick={closeRejectModal}
+                  disabled={rejectingId === rejectTarget.order_id}
+                  className="flex-1 py-2.5 rounded-xl text-sm font-semibold border text-gray-600"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleRejectOrder}
+                  disabled={
+                    !rejectReason.trim() ||
+                    rejectingId === rejectTarget.order_id
+                  }
+                  className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-60"
+                  style={{ backgroundColor: "#06C168" }}
+                >
+                  {rejectingId === rejectTarget.order_id
+                    ? "Rejecting..."
+                    : "Confirm Reject"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <style>{`
         @keyframes slideDown {
@@ -665,12 +729,12 @@ export default function AdminNotificationBanner({
         }
         @keyframes borderBlink {
           0%, 100% {
-            border-color: #13ecb9;
-            box-shadow: 0 0 0 0 rgba(19, 236, 185, 0);
+            border-color: #06C168;
+            box-shadow: 0 0 0 0 rgba(6, 193, 104, 0);
           }
           50% {
-            border-color: #10d630;
-            box-shadow: 0 0 20px 4px rgba(19, 236, 55, 0.25);
+            border-color: #059e56;
+            box-shadow: 0 0 20px 4px rgba(6, 193, 104, 0.3);
           }
         }
         .animate-borderBlink {

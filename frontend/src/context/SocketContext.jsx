@@ -385,7 +385,10 @@ export function SocketProvider({ children }) {
       };
 
       setAdminNotifications((prev) => {
-        if (data.payment_id && prev.some((n) => n.payment_id === data.payment_id)) {
+        if (
+          data.payment_id &&
+          prev.some((n) => n.payment_id === data.payment_id)
+        ) {
           return prev;
         }
         return [notification, ...prev];

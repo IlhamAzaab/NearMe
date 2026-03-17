@@ -812,9 +812,13 @@ export default function Orders() {
               const items = order.order_items || [];
               const showDriverContact =
                 !!driver &&
-                ["accepted", "picked_up", "on_the_way", "at_customer", "delivered"].includes(
-                  deliveryStatus,
-                );
+                [
+                  "accepted",
+                  "picked_up",
+                  "on_the_way",
+                  "at_customer",
+                  "delivered",
+                ].includes(deliveryStatus);
               const fullDeliveryAddress = [
                 order.delivery_address,
                 order.delivery_city || order.city || order.customer_city,
@@ -913,7 +917,9 @@ export default function Orders() {
                               <span className="text-xs font-bold text-gray-700 whitespace-nowrap">
                                 Rs.
                                 {parseFloat(
-                                  item.total_price || item.unit_price * item.quantity || 0,
+                                  item.total_price ||
+                                    item.unit_price * item.quantity ||
+                                    0,
                                 ).toFixed(0)}
                               </span>
                             </div>
@@ -923,7 +929,8 @@ export default function Orders() {
                               </span>
                             )}
                             <p className="text-[10px] text-gray-500 mt-0.5">
-                              Rs.{parseFloat(item.unit_price || 0).toFixed(0)} each
+                              Rs.{parseFloat(item.unit_price || 0).toFixed(0)}{" "}
+                              each
                             </p>
                           </div>
                         </div>
@@ -1114,9 +1121,13 @@ function OrderDetailsModal({
   const items = order.order_items || [];
   const showDriverContact =
     !!driver &&
-    ["accepted", "picked_up", "on_the_way", "at_customer", "delivered"].includes(
-      deliveryStatus,
-    );
+    [
+      "accepted",
+      "picked_up",
+      "on_the_way",
+      "at_customer",
+      "delivered",
+    ].includes(deliveryStatus);
   const fullDeliveryAddress = [
     order.delivery_address,
     order.delivery_city || order.city || order.customer_city,

@@ -137,7 +137,7 @@ async function checkUnassignedDeliveries() {
         orderNumber: delivery.orders?.order_number || "N/A",
         restaurantName: delivery.orders?.restaurant_name || "Restaurant",
         waitingMinutes: waitMinutes,
-      }).catch(err => console.error('[NotifChecker] Push alert error:', err));
+      }).catch((err) => console.error("[NotifChecker] Push alert error:", err));
 
       sentUnassignedAlerts.add(delivery.id);
     }
@@ -207,18 +207,20 @@ async function checkManagerOrderMilestone() {
       // 📱 PUSH NOTIFICATION: Notify all managers about milestone
       // Get all manager user IDs
       const { data: managers } = await supabaseAdmin
-        .from('users')
-        .select('id')
-        .eq('role', 'manager');
+        .from("users")
+        .select("id")
+        .eq("role", "manager");
 
       if (managers && managers.length > 0) {
         for (const mgr of managers) {
-          sendMilestoneNotification(mgr.id, 'manager', {
+          sendMilestoneNotification(mgr.id, "manager", {
             milestone,
             todayCount: total,
             todayRevenue: parseFloat(todayRevenue.toFixed(2)),
             message: `🎉 ${milestone} Orders Completed Today! Total revenue: Rs. ${todayRevenue.toFixed(2)}`,
-          }).catch(err => console.error('[NotifChecker] Manager milestone push error:', err));
+          }).catch((err) =>
+            console.error("[NotifChecker] Manager milestone push error:", err),
+          );
         }
       }
 
@@ -335,11 +337,13 @@ async function checkDriverMilestones() {
         });
 
         // 📱 PUSH NOTIFICATION: Notify driver about milestone
-        sendMilestoneNotification(driverId, 'driver', {
+        sendMilestoneNotification(driverId, "driver", {
           milestone,
           todayCount: count,
           message: `🎉 You completed ${milestone} deliveries today! Keep it up!`,
-        }).catch(err => console.error('[NotifChecker] Driver milestone push error:', err));
+        }).catch((err) =>
+          console.error("[NotifChecker] Driver milestone push error:", err),
+        );
 
         driverMilestones.set(driverId, milestone);
       }
@@ -403,12 +407,14 @@ async function checkRestaurantMilestones() {
             });
 
             // 📱 PUSH NOTIFICATION: Notify admin about restaurant milestone
-            sendMilestoneNotification(admin.id, 'admin', {
+            sendMilestoneNotification(admin.id, "admin", {
               milestone,
               todayCount: data.count,
               todayRevenue: parseFloat(data.revenue.toFixed(2)),
               message: `🎉 ${milestone} Orders Completed Today! Revenue: Rs. ${data.revenue.toFixed(2)}`,
-            }).catch(err => console.error('[NotifChecker] Admin milestone push error:', err));
+            }).catch((err) =>
+              console.error("[NotifChecker] Admin milestone push error:", err),
+            );
           }
         }
 

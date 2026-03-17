@@ -694,6 +694,7 @@ router.post("/place", authenticate, async (req, res) => {
         })
         .join(", ");
       const firstItemImage = processedItems[0]?.food_image_url || null;
+      const firstItemSize = processedItems[0]?.size || "regular";
 
       for (const admin of admins) {
         notifyAdmin(admin.id, "order:new_order", {
@@ -704,6 +705,8 @@ router.post("/place", authenticate, async (req, res) => {
           order_number: orderNumber,
           items_summary: itemsSummary,
           items_count: processedItems.length,
+          first_item_size: firstItemSize,
+          restaurant_total: parseFloat(adminSubtotal || 0),
           total_amount: totalAmount,
           customer_name: customer.username,
           food_image: firstItemImage,
