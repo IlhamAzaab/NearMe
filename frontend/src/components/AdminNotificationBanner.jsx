@@ -610,10 +610,9 @@ export default function AdminNotificationBanner({
                           const lineTotal = Number(
                             item.total_price ?? qty * unitPrice,
                           );
-                          const size =
-                            item.size && item.size !== "regular"
-                              ? ` (${item.size})`
-                              : "";
+                          const size = item.size
+                            ? ` (${item.size})`
+                            : "";
 
                           return (
                             <div
@@ -622,7 +621,7 @@ export default function AdminNotificationBanner({
                             >
                               <p className="leading-tight break-words text-gray-700">
                                 {qty}x {item.food_name || "Item"}
-                                {size}
+                                <span className="text-gray-400 text-[10px] ml-0.5">{size}</span>
                               </p>
                               <p className="font-semibold whitespace-nowrap" style={{ color: "#06C168" }}>
                                 Rs.{lineTotal.toFixed(2)}

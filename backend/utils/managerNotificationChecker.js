@@ -360,13 +360,35 @@ async function checkRestaurantMilestones() {
   try {
     const todayStart = getTodayStartUTC();
 
-    const { data: todayOrders, error } = await supabaseAdmin
-      .from("orders")
-      .select("id, restaurant_id, total_amount")
-      .not("restaurant_id", "is", null)
-      .gte("placed_at", todayStart);
+    // Only count orders where driver has picked up or beyond
+    // Before pickup, money is not paid to admin
+    const qualifyingStatuses = ["picked_up", "on_the_way", "at_customer", "delivered"];
 
-    if (error || !todayOrders || todayOrders.length === 0) return;
+    const { data: todayDeliveries, error: delError } = await supabaseAdmin
+      .from("deliveries")
+      .select("order_id, status")
+      .in("status", qualifyingStatuses)
+      .gte("updated_at", todayStart);
+
+    if (delError || !todayDeliveries || todayDeliveries.length === 0) return;
+
+    const qualifyingOrderIds = todayDeliveries.map((d) => d.order_id);
+
+    // Batch fetch orders in groups of 100
+    let todayOrders = [];
+    const batchSize = 100;
+    for (let i = 0; i < qualifyingOrderIds.length; i += batchSize) {
+      const batch = qualifyingOrderIds.slice(i, i + batchSize);
+      const { data: orders, error } = await supabaseAdmin
+        .from("orders")
+        .select("id, restaurant_id, total_amount")
+        .in("id", batch)
+        .not("restaurant_id", "is", null);
+      if (error) continue;
+      if (orders) todayOrders = todayOrders.concat(orders);
+    }
+
+    if (todayOrders.length === 0) return;
 
     // Group by restaurant
     const restaurantData = {};
