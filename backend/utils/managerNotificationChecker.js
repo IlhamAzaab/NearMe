@@ -408,11 +408,14 @@ async function checkRestaurantMilestones() {
       const lastMilestone = restaurantMilestones.get(restaurantId) || 0;
 
       if (milestone > lastMilestone && milestone > 0) {
-        // Find the admin(s) for this restaurant
-        const { data: admins } = await supabaseAdmin
-          .from("admins")
-          .select("id")
-          .eq("restaurant_id", restaurantId);
+        // Find the admin for this restaurant via the restaurants table
+        const { data: restaurant } = await supabaseAdmin
+          .from("restaurants")
+          .select("admin_id")
+          .eq("id", restaurantId)
+          .maybeSingle();
+
+        const admins = restaurant?.admin_id ? [{ id: restaurant.admin_id }] : [];
 
         if (admins && admins.length > 0) {
           for (const admin of admins) {

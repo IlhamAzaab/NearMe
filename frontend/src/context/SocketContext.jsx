@@ -85,6 +85,9 @@ export function SocketProvider({ children }) {
 
       console.log(`[Socket] Connecting as driver: ${driverId}`);
 
+      // Get the current JWT token for authentication
+      const token = localStorage.getItem("token");
+
       const newSocket = io(SOCKET_URL, {
         transports: ["websocket", "polling"],
         reconnection: true,
@@ -94,6 +97,10 @@ export function SocketProvider({ children }) {
         timeout: 20000,
         autoConnect: true,
         forceNew: true, // Force a new connection
+        auth: {
+          token: token || "",
+          driverId: driverId,
+        },
       });
 
       newSocket.on("connect", () => {
@@ -181,6 +188,9 @@ export function SocketProvider({ children }) {
 
     console.log(`[Socket] Connecting as customer: ${customerId}`);
 
+    // Get the current JWT token for authentication
+    const token = localStorage.getItem("token");
+
     const newSocket = io(SOCKET_URL, {
       transports: ["websocket", "polling"],
       reconnection: true,
@@ -190,6 +200,10 @@ export function SocketProvider({ children }) {
       timeout: 20000,
       autoConnect: true,
       forceNew: true, // Force a new connection
+      auth: {
+        token: token || "",
+        customerId: customerId,
+      },
     });
 
     newSocket.on("connect", () => {
@@ -284,6 +298,9 @@ export function SocketProvider({ children }) {
 
     console.log(`[Socket] Connecting as admin: ${adminId}`);
 
+    // Get the current JWT token for authentication
+    const token = localStorage.getItem("token");
+
     const newSocket = io(SOCKET_URL, {
       transports: ["websocket", "polling"],
       reconnection: true,
@@ -293,6 +310,10 @@ export function SocketProvider({ children }) {
       timeout: 20000,
       autoConnect: true,
       forceNew: true,
+      auth: {
+        token: token || "",
+        adminId: adminId,
+      },
     });
 
     newSocket.on("connect", () => {
@@ -440,6 +461,9 @@ export function SocketProvider({ children }) {
 
     console.log(`[Socket] Connecting as manager: ${managerId}`);
 
+    // Get the current JWT token for authentication
+    const token = localStorage.getItem("token");
+
     const newSocket = io(SOCKET_URL, {
       transports: ["websocket", "polling"],
       reconnection: true,
@@ -449,6 +473,10 @@ export function SocketProvider({ children }) {
       timeout: 20000,
       autoConnect: true,
       forceNew: true,
+      auth: {
+        token: token || "",
+        managerId: managerId,
+      },
     });
 
     newSocket.on("connect", () => {

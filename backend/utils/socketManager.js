@@ -6,6 +6,12 @@
  */
 
 import { Server } from "socket.io";
+import jwt from "jsonwebtoken";
+import dotenv from "dotenv";
+
+if (process.env.NODE_ENV !== "production") {
+  dotenv.config({ path: "../.env" });
+}
 
 let io = null;
 
@@ -20,6 +26,24 @@ const connectedAdmins = new Map(); // adminId -> { socketId, connectedAt }
 
 // Track connected managers with their socket IDs
 const connectedManagers = new Map(); // managerId -> { socketId, connectedAt }
+
+/**
+ * Verify JWT token from socket auth
+ * @param {string} token - JWT token
+ * @returns {Object|null} - Decoded payload or null if invalid
+ */
+function verifySocketToken(token) {
+  if (!token || token === "null" || token === "undefined") {
+    return null;
+  }
+  try {
+    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    return payload;
+  } catch (err) {
+    console.warn("[Socket] Token verification failed:", err.message);
+    return null;
+  }
+}
 
 /**
  * Initialize Socket.io server
@@ -48,6 +72,28 @@ export function initializeSocket(server) {
 
   console.log("🔌 Socket.io server initialized");
 
+  // Add authentication middleware
+  io.use((socket, next) => {
+    const token = socket.handshake.auth.token;
+
+    if (token) {
+      const payload = verifySocketToken(token);
+      if (payload) {
+        socket.userId = payload.id;
+        socket.userRole = payload.role;
+        console.log(`[Socket] Authenticated user: ${socket.userId} (role: ${socket.userRole})`);
+        return next();
+      }
+    }
+
+    // Allow connections without token for now (backward compatibility)
+    // but log it as a warning
+    if (token) {
+      console.warn(`[Socket] Connection with invalid token from ${socket.id}`);
+    }
+    next();
+  });
+
   io.on("connection", (socket) => {
     console.log(`🔗 New socket connection: ${socket.id}`);
 
@@ -64,6 +110,7 @@ export function initializeSocket(server) {
       connectedDrivers.set(driverId, {
         socketId: socket.id,
         connectedAt: new Date(),
+        userId: socket.userId,
       });
 
       // Join driver-specific room
@@ -96,6 +143,7 @@ export function initializeSocket(server) {
       connectedCustomers.set(customerId, {
         socketId: socket.id,
         connectedAt: new Date(),
+        userId: socket.userId,
       });
 
       // Join customer-specific room for targeted notifications
@@ -136,6 +184,7 @@ export function initializeSocket(server) {
       connectedAdmins.set(adminId, {
         socketId: socket.id,
         connectedAt: new Date(),
+        userId: socket.userId,
       });
 
       // Join admin-specific room for targeted notifications
@@ -173,6 +222,7 @@ export function initializeSocket(server) {
       connectedManagers.set(managerId, {
         socketId: socket.id,
         connectedAt: new Date(),
+        userId: socket.userId,
       });
 
       socket.join(`manager:${managerId}`);

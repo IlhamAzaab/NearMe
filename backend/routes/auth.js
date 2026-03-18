@@ -834,7 +834,7 @@ router.post("/login", async (req, res) => {
       const token = jwt.sign(
         { id: userId, role: roleData.role },
         process.env.JWT_SECRET,
-        { expiresIn: "7d" },
+        { expiresIn: "180d" }, // 6 months for production-level session
       );
 
       return res.json({
@@ -850,7 +850,7 @@ router.post("/login", async (req, res) => {
     const token = jwt.sign(
       { id: userId, role: roleData.role },
       process.env.JWT_SECRET,
-      { expiresIn: "7d" },
+      { expiresIn: "180d" }, // 6 months for production-level session
     );
 
     res.json({
@@ -1251,7 +1251,7 @@ router.post("/verify-otp", async (req, res) => {
     const token = jwt.sign(
       { id: userId, role: user?.role || "customer" },
       process.env.JWT_SECRET,
-      { expiresIn: "7d" },
+      { expiresIn: "180d" }, // 6 months for production-level session
     );
 
     console.log(`✅ OTP verified for user ${userId}`);
@@ -1333,6 +1333,72 @@ p{color:#6b7280;font-size:14px;line-height:1.5;margin-bottom:16px}
 <p>Your email has been confirmed successfully. You can now login to your account.</p>
 <a class="btn" href="${frontendUrl}/login">Go to Login</a>
 </div></body></html>`);
+});
+
+/**
+ * POST /auth/refresh-token
+ * Refresh JWT token for all roles (customer, admin, driver, manager).
+ * If the current token is valid (even if close to expiry), issue a new 180-day token.
+ * This enables "stay logged in forever" like Uber Eats.
+ */
+router.post("/refresh-token", authenticate, async (req, res) => {
+  try {
+    const { id, role } = req.user;
+
+    // Verify user still exists and is active
+    let userExists = false;
+
+    if (role === "customer") {
+      const { data } = await supabaseAdmin
+        .from("customers")
+        .select("id")
+        .eq("id", id)
+        .maybeSingle();
+      userExists = !!data;
+    } else if (role === "admin") {
+      const { data } = await supabaseAdmin
+        .from("admins")
+        .select("user_id")
+        .eq("user_id", id)
+        .maybeSingle();
+      userExists = !!data;
+    } else if (role === "driver") {
+      const { data } = await supabaseAdmin
+        .from("drivers")
+        .select("id")
+        .eq("id", id)
+        .maybeSingle();
+      userExists = !!data;
+    } else if (role === "manager") {
+      const { data } = await supabaseAdmin
+        .from("managers")
+        .select("user_id")
+        .eq("user_id", id)
+        .maybeSingle();
+      userExists = !!data;
+    }
+
+    if (!userExists) {
+      return res.status(401).json({ message: "User no longer exists" });
+    }
+
+    // Issue a fresh 180-day token
+    const newToken = jwt.sign({ id, role }, process.env.JWT_SECRET, {
+      expiresIn: "180d",
+    });
+
+    console.log(`🔄 Token refreshed for ${role} (id: ${id})`);
+
+    res.json({
+      token: newToken,
+      role,
+      userId: id,
+      message: "Token refreshed successfully",
+    });
+  } catch (error) {
+    console.error("Refresh token error:", error);
+    res.status(500).json({ message: "Failed to refresh token" });
+  }
 });
 
 export default router;

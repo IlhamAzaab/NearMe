@@ -1,20 +1,58 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import {
   MapContainer,
   TileLayer,
   Marker,
-  Popup,
   useMapEvents,
   useMap,
 } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import AdminLayout from "../../components/AdminLayout";
-import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
 import { API_URL } from "../../config";
+import { useAdminData, CACHE_KEYS } from "../../context/AdminCacheContext";
 
-// Component to handle map clicks for location selection
-function LocationMarker({ position, setPosition, isEditing }) {
+// Custom draggable marker icon
+const createCustomIcon = (isDragging = false) => {
+  return L.divIcon({
+    className: "custom-marker",
+    html: `
+      <div class="marker-container ${isDragging ? "dragging" : ""}">
+        <div class="marker-pin">
+          <div class="marker-inner"></div>
+        </div>
+        <div class="marker-shadow"></div>
+      </div>
+    `,
+    iconSize: [40, 50],
+    iconAnchor: [20, 50],
+  });
+};
+
+// Component for draggable marker
+function DraggableMarker({ position, setPosition, isEditing }) {
+  const [dragging, setDragging] = useState(false);
+  const markerRef = useRef(null);
+
+  const eventHandlers = useMemo(
+    () => ({
+      dragstart() {
+        setDragging(true);
+      },
+      dragend() {
+        const marker = markerRef.current;
+        if (marker != null) {
+          const latlng = marker.getLatLng();
+          setPosition([latlng.lat, latlng.lng]);
+        }
+        setDragging(false);
+      },
+    }),
+    [setPosition]
+  );
+
+  const icon = useMemo(() => createCustomIcon(dragging), [dragging]);
+
   useMapEvents({
     click(e) {
       if (isEditing) {
@@ -24,28 +62,29 @@ function LocationMarker({ position, setPosition, isEditing }) {
   });
 
   return position ? (
-    <Marker position={position}>
-      <Popup>
-        <div className="text-center">
-          <p className="font-semibold">Restaurant Location</p>
-          <p className="text-xs text-gray-600">
-            {position[0].toFixed(6)}, {position[1].toFixed(6)}
-          </p>
-        </div>
-      </Popup>
-    </Marker>
+    <Marker
+      draggable={isEditing}
+      eventHandlers={eventHandlers}
+      position={position}
+      ref={markerRef}
+      icon={icon}
+    />
   ) : null;
 }
 
-// Component to recenter map when position changes
-function MapController({ center }) {
+// Component to smoothly fly to position
+function MapController({ center, shouldAnimate }) {
   const map = useMap();
 
   useEffect(() => {
     if (center) {
-      map.setView(center, 15);
+      if (shouldAnimate) {
+        map.flyTo(center, 16, { duration: 1.5 });
+      } else {
+        map.setView(center, 16);
+      }
     }
-  }, [center, map]);
+  }, [center, map, shouldAnimate]);
 
   return null;
 }
@@ -62,16 +101,11 @@ L.Icon.Default.mergeOptions({
 });
 
 export default function RestaurantDetail() {
-  const [restaurant, setRestaurant] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setRawError] = useState(null);
-  const { alert: alertState, visible: alertVisible, showError } = useAlert();
-  const setError = (msg) => {
-    setRawError(msg);
-    if (msg) showError(msg);
-  };
+  const token = localStorage.getItem("token");
   const [editing, setEditing] = useState(false);
-  const [uploading, setUploading] = useState(null); // 'logo' | 'cover' | null
+  const [uploading, setUploading] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState(null);
   const [formData, setFormData] = useState({
     restaurant_name: "",
     address: "",
@@ -86,146 +120,107 @@ export default function RestaurantDetail() {
   });
   const [mapPosition, setMapPosition] = useState(null);
   const [locating, setLocating] = useState(false);
+  const [shouldAnimateMap, setShouldAnimateMap] = useState(false);
 
-  const token = localStorage.getItem("token");
+  // Use cached data hook
+  const fetchRestaurant = useCallback(async () => {
+    if (!token) throw new Error("No authentication token");
+    const res = await fetch(`${API_URL}/admin/restaurant`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.message || "Failed to load restaurant");
+    return data.restaurant;
+  }, [token]);
 
+  const { data: restaurant, loading, refreshing, error, refresh } = useAdminData(
+    CACHE_KEYS.RESTAURANT,
+    fetchRestaurant
+  );
+
+  // Update form data when restaurant data changes
   useEffect(() => {
-    fetchRestaurant();
-  }, []);
-
-  const fetchRestaurant = async () => {
-    if (!token) {
-      setError("No authentication token found");
-      setLoading(false);
-      return;
-    }
-
-    try {
-      const res = await fetch(`${API_URL}/admin/restaurant`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        setError(data?.message || "Failed to load restaurant");
-        setLoading(false);
-        return;
-      }
-
-      setRestaurant(data.restaurant);
+    if (restaurant) {
       setFormData({
-        restaurant_name: data.restaurant.restaurant_name || "",
-        address: data.restaurant.address || "",
-        city: data.restaurant.city || "",
-        postal_code: data.restaurant.postal_code || "",
-        opening_time: data.restaurant.opening_time || "",
-        close_time: data.restaurant.close_time || "",
-        logo_url: data.restaurant.logo_url || "",
-        cover_image_url: data.restaurant.cover_image_url || "",
-        latitude: data.restaurant.latitude || null,
-        longitude: data.restaurant.longitude || null,
+        restaurant_name: restaurant.restaurant_name || "",
+        address: restaurant.address || "",
+        city: restaurant.city || "",
+        postal_code: restaurant.postal_code || "",
+        opening_time: restaurant.opening_time || "",
+        close_time: restaurant.close_time || "",
+        logo_url: restaurant.logo_url || "",
+        cover_image_url: restaurant.cover_image_url || "",
+        latitude: restaurant.latitude || null,
+        longitude: restaurant.longitude || null,
       });
-      // Set map position
-      if (data.restaurant.latitude && data.restaurant.longitude) {
+      if (restaurant.latitude && restaurant.longitude) {
         setMapPosition([
-          Number(data.restaurant.latitude),
-          Number(data.restaurant.longitude),
+          Number(restaurant.latitude),
+          Number(restaurant.longitude),
         ]);
       }
-      setLoading(false);
-    } catch (err) {
-      console.error("Error fetching restaurant:", err);
-      setError("Network error while loading restaurant");
-      setLoading(false);
     }
+  }, [restaurant]);
+
+  const showToast = (message, type = "success") => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
   };
 
   const handleInputChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value,
-    });
+    setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
   const handleImageUpload = async (event, imageType) => {
     const file = event.target.files[0];
     if (!file) return;
 
-    // Validate file type
     if (!file.type.startsWith("image/")) {
-      setError("Please select a valid image file");
+      showToast("Please select a valid image file", "error");
       return;
     }
 
-    // Validate file size (max 5MB)
     if (file.size > 5 * 1024 * 1024) {
-      setError("Image size must be less than 5MB");
+      showToast("Image size must be less than 5MB", "error");
       return;
     }
 
     try {
       setUploading(imageType);
-      setError(null);
-
-      // Read file as base64
       const reader = new FileReader();
       reader.readAsDataURL(file);
 
       reader.onload = async () => {
         try {
-          const base64String = reader.result;
-
-          // Upload to Cloudinary via backend
           const response = await fetch(`${API_URL}/admin/upload-image`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
               Authorization: `Bearer ${token}`,
             },
-            body: JSON.stringify({ imageData: base64String }),
+            body: JSON.stringify({ imageData: reader.result }),
           });
-
           const data = await response.json();
+          if (!response.ok) throw new Error(data.message);
 
-          if (!response.ok) {
-            throw new Error(data.message || "Failed to upload image");
-          }
-
-          // Update formData with the new image URL
-          const fieldName =
-            imageType === "logo" ? "logo_url" : "cover_image_url";
-          setFormData({
-            ...formData,
-            [fieldName]: data.url,
-          });
-
+          const fieldName = imageType === "logo" ? "logo_url" : "cover_image_url";
+          setFormData({ ...formData, [fieldName]: data.url });
+          showToast(`${imageType === "logo" ? "Logo" : "Cover image"} uploaded!`);
           setUploading(null);
         } catch (err) {
-          console.error("Error uploading image:", err);
-          setError(err.message || "Failed to upload image");
+          showToast(err.message || "Failed to upload image", "error");
           setUploading(null);
         }
       };
-
-      reader.onerror = () => {
-        setError("Failed to read image file");
-        setUploading(null);
-      };
     } catch (err) {
-      console.error("Error processing image:", err);
-      setError("Failed to process image");
+      showToast("Failed to process image", "error");
       setUploading(null);
     }
   };
 
   const handleSave = async () => {
-    if (!token) {
-      setError("No authentication token found");
-      return;
-    }
+    if (!token) return;
+    setSaving(true);
 
     try {
       const res = await fetch(`${API_URL}/admin/restaurant`, {
@@ -236,50 +231,85 @@ export default function RestaurantDetail() {
         },
         body: JSON.stringify(formData),
       });
-
       const data = await res.json();
+      if (!res.ok) throw new Error(data?.message || "Failed to update");
 
-      if (!res.ok) {
-        setError(data?.message || "Failed to update restaurant");
-        return;
-      }
-
-      setRestaurant(data.restaurant);
       setEditing(false);
-      setError(null);
+      showToast("Restaurant details saved successfully!");
+      refresh();
     } catch (err) {
-      console.error("Error updating restaurant:", err);
-      setError("Network error while updating restaurant");
+      showToast(err.message || "Failed to save", "error");
+    } finally {
+      setSaving(false);
     }
   };
 
-  if (loading) {
+  const handleCancel = () => {
+    setEditing(false);
+    if (restaurant) {
+      setFormData({
+        restaurant_name: restaurant.restaurant_name || "",
+        address: restaurant.address || "",
+        city: restaurant.city || "",
+        postal_code: restaurant.postal_code || "",
+        opening_time: restaurant.opening_time || "",
+        close_time: restaurant.close_time || "",
+        logo_url: restaurant.logo_url || "",
+        cover_image_url: restaurant.cover_image_url || "",
+        latitude: restaurant.latitude || null,
+        longitude: restaurant.longitude || null,
+      });
+      if (restaurant.latitude && restaurant.longitude) {
+        setMapPosition([
+          Number(restaurant.latitude),
+          Number(restaurant.longitude),
+        ]);
+      }
+    }
+  };
+
+  const handleUseCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      showToast("Geolocation is not supported", "error");
+      return;
+    }
+    setLocating(true);
+    setShouldAnimateMap(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords;
+        setMapPosition([latitude, longitude]);
+        setFormData((prev) => ({ ...prev, latitude, longitude }));
+        setLocating(false);
+        showToast("Location updated!");
+      },
+      () => {
+        showToast("Unable to get your location", "error");
+        setLocating(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
+  // Show skeleton only on initial load with no cached data
+  if (loading && !restaurant) {
     return (
       <AdminLayout>
-        <div className="max-w-4xl mx-auto space-y-6 skeleton-fade">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="h-6 w-48 bg-gray-200 rounded" />
-              <div className="h-4 w-64 bg-gray-200 rounded mt-2" />
-            </div>
-            <div className="h-10 w-28 bg-gray-200 rounded-xl" />
-          </div>
-          <div className="h-40 w-full bg-gray-200 rounded-xl" />
-          <div className="flex items-center gap-4">
-            <div className="w-20 h-20 bg-gray-200 rounded-full" />
-            <div className="space-y-2 flex-1">
-              <div className="h-4 w-32 bg-gray-200 rounded" />
-              <div className="h-3 w-48 bg-gray-200 rounded" />
+        <div className="space-y-4 animate-pulse">
+          <div className="h-48 bg-gray-200 rounded-2xl" />
+          <div className="flex gap-4">
+            <div className="w-24 h-24 bg-gray-200 rounded-xl" />
+            <div className="flex-1 space-y-2">
+              <div className="h-6 bg-gray-200 rounded w-1/2" />
+              <div className="h-4 bg-gray-200 rounded w-1/3" />
             </div>
           </div>
-          <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
             {[...Array(4)].map((_, i) => (
-              <div key={i} className="space-y-2">
-                <div className="h-3 w-24 bg-gray-200 rounded" />
-                <div className="h-10 w-full bg-gray-200 rounded-xl" />
-              </div>
+              <div key={i} className="h-16 bg-gray-200 rounded-xl" />
             ))}
           </div>
+          <div className="h-64 bg-gray-200 rounded-2xl" />
         </div>
       </AdminLayout>
     );
@@ -288,10 +318,17 @@ export default function RestaurantDetail() {
   if (error && !restaurant) {
     return (
       <AdminLayout>
-        <div className="max-w-4xl mx-auto">
-          <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg">
-            {error}
+        <div className="flex flex-col items-center justify-center min-h-[50vh] text-center">
+          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4">
+            <svg className="w-8 h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
           </div>
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">Unable to load restaurant</h3>
+          <p className="text-gray-500 mb-4">{error}</p>
+          <button onClick={refresh} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+            Try Again
+          </button>
         </div>
       </AdminLayout>
     );
@@ -299,375 +336,492 @@ export default function RestaurantDetail() {
 
   return (
     <AdminLayout>
-      <AnimatedAlert alert={alertState} visible={alertVisible} />
-      <div className="max-w-4xl mx-auto space-y-4 sm:space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-green-600 via-green-500 to-green-600 bg-clip-text text-transparent">
-              Restaurant Details
-            </h1>
-            <p className="text-gray-600 mt-1 text-sm sm:text-base">
-              Manage your restaurant information and settings.
-            </p>
-          </div>
-          {!editing ? (
-            <button
-              onClick={() => setEditing(true)}
-              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition whitespace-nowrap text-sm sm:text-base"
-            >
-              Edit Details
-            </button>
+      {/* Toast Notification */}
+      {toast && (
+        <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-xl shadow-lg flex items-center gap-2 animate-slideIn ${
+          toast.type === "error" ? "bg-red-500 text-white" : "bg-green-500 text-white"
+        }`}>
+          {toast.type === "error" ? (
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
           ) : (
-            <div className="flex gap-2">
-              <button
-                onClick={() => {
-                  setEditing(false);
-                  setFormData({
-                    restaurant_name: restaurant.restaurant_name || "",
-                    address: restaurant.address || "",
-                    city: restaurant.city || "",
-                    postal_code: restaurant.postal_code || "",
-                    opening_time: restaurant.opening_time || "",
-                    close_time: restaurant.close_time || "",
-                    logo_url: restaurant.logo_url || "",
-                    cover_image_url: restaurant.cover_image_url || "",
-                    latitude: restaurant.latitude || null,
-                    longitude: restaurant.longitude || null,
-                  });
-                  // Reset map position
-                  if (restaurant.latitude && restaurant.longitude) {
-                    setMapPosition([
-                      Number(restaurant.latitude),
-                      Number(restaurant.longitude),
-                    ]);
-                  }
-                }}
-                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSave}
-                disabled={uploading !== null}
-                className={`px-4 py-2 rounded-lg transition ${
-                  uploading !== null
-                    ? "bg-gray-400 text-white cursor-not-allowed"
-                    : "bg-green-600 text-white hover:bg-green-700"
-                }`}
-              >
-                {uploading !== null ? "Uploading..." : "Save Changes"}
-              </button>
-            </div>
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
           )}
+          <span className="font-medium">{toast.message}</span>
+        </div>
+      )}
+
+      {/* Refreshing indicator */}
+      {refreshing && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-white shadow-lg rounded-full px-4 py-2 flex items-center gap-2">
+          <div className="w-4 h-4 border-2 border-green-500 border-t-transparent rounded-full animate-spin" />
+          <span className="text-sm text-gray-600">Updating...</span>
+        </div>
+      )}
+
+      <div className={`space-y-4 transition-all duration-500 ${refreshing ? "opacity-80" : "opacity-100"}`}>
+        {/* Cover Image Section */}
+        <div className="relative rounded-2xl overflow-hidden shadow-lg group">
+          <div className="h-48 sm:h-56 bg-gradient-to-br from-green-400 to-green-600">
+            {formData.cover_image_url ? (
+              <img
+                src={formData.cover_image_url}
+                alt="Cover"
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center">
+                <svg className="w-16 h-16 text-white/30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+              </div>
+            )}
+          </div>
+
+          {/* Overlay gradient */}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
+
+          {/* Edit cover button */}
+          {editing && (
+            <label className="absolute top-4 right-4 px-3 py-2 bg-white/90 backdrop-blur rounded-lg cursor-pointer hover:bg-white transition flex items-center gap-2 text-sm font-medium text-gray-700">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              {uploading === "cover" ? "Uploading..." : "Change Cover"}
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => handleImageUpload(e, "cover")}
+                disabled={uploading !== null}
+                className="hidden"
+              />
+            </label>
+          )}
+
+          {/* Logo */}
+          <div className="absolute -bottom-12 left-4 sm:left-6">
+            <div className="relative">
+              <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl border-4 border-white bg-white shadow-xl overflow-hidden">
+                {formData.logo_url ? (
+                  <img src={formData.logo_url} alt="Logo" className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center">
+                    <span className="text-3xl font-bold text-white">
+                      {formData.restaurant_name?.charAt(0) || "R"}
+                    </span>
+                  </div>
+                )}
+              </div>
+              {editing && (
+                <label className="absolute -bottom-1 -right-1 w-8 h-8 bg-green-500 rounded-full flex items-center justify-center cursor-pointer hover:bg-green-600 transition shadow-lg">
+                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => handleImageUpload(e, "logo")}
+                    disabled={uploading !== null}
+                    className="hidden"
+                  />
+                </label>
+              )}
+            </div>
+          </div>
+
+          {/* Edit/Save buttons */}
+          <div className="absolute bottom-4 right-4 flex gap-2">
+            {!editing ? (
+              <button
+                onClick={() => setEditing(true)}
+                className="px-4 py-2 bg-white text-green-600 font-semibold rounded-xl shadow-lg hover:shadow-xl transition flex items-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                </svg>
+                Edit
+              </button>
+            ) : (
+              <>
+                <button
+                  onClick={handleCancel}
+                  className="px-4 py-2 bg-white/90 text-gray-700 font-semibold rounded-xl shadow hover:bg-white transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSave}
+                  disabled={saving || uploading !== null}
+                  className="px-4 py-2 bg-green-500 text-white font-semibold rounded-xl shadow-lg hover:bg-green-600 transition flex items-center gap-2 disabled:opacity-50"
+                >
+                  {saving ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      Save
+                    </>
+                  )}
+                </button>
+              </>
+            )}
+          </div>
         </div>
 
-        {restaurant && (
-          <div className="bg-white rounded-lg shadow border border-green-100 p-4 sm:p-6 space-y-4 sm:space-y-6">
-            {/* Logo Section */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Restaurant Logo
-              </label>
-              <div className="flex items-center gap-4">
-                <div className="w-32 h-32 bg-gray-200 rounded-lg flex items-center justify-center overflow-hidden">
-                  {formData.logo_url ? (
-                    <img
-                      src={formData.logo_url}
-                      alt="Logo"
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <span className="text-gray-400 text-xs text-center">
-                      No logo uploaded
-                    </span>
-                  )}
-                </div>
-                {editing && (
-                  <div>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => handleImageUpload(e, "logo")}
-                      disabled={uploading !== null}
-                      className="hidden"
-                      id="logo-upload"
-                    />
-                    <label
-                      htmlFor="logo-upload"
-                      className={`px-4 py-2 rounded-lg cursor-pointer inline-block transition ${
-                        uploading === "logo"
-                          ? "bg-gray-400 text-white cursor-not-allowed"
-                          : "bg-blue-600 text-white hover:bg-blue-700"
-                      }`}
-                    >
-                      {uploading === "logo" ? "Uploading..." : "Change Logo"}
-                    </label>
-                  </div>
-                )}
-              </div>
+        {/* Restaurant Info Card */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6 mt-14">
+          {/* Name and Status */}
+          <div className="mb-6">
+            {editing ? (
+              <input
+                type="text"
+                name="restaurant_name"
+                value={formData.restaurant_name}
+                onChange={handleInputChange}
+                className="text-xl sm:text-2xl font-bold text-gray-900 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 w-full focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                placeholder="Restaurant Name"
+              />
+            ) : (
+              <h1 className="text-xl sm:text-2xl font-bold text-gray-900">{formData.restaurant_name || "Your Restaurant"}</h1>
+            )}
+            <div className="flex items-center gap-2 mt-2">
+              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">
+                <span className="w-1.5 h-1.5 bg-green-500 rounded-full mr-1.5 animate-pulse" />
+                Active
+              </span>
+              <span className="text-sm text-gray-500">Premium Partner</span>
             </div>
+          </div>
 
-            {/* Cover Image Section */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Cover Image
+          {/* Info Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Address */}
+            <div className="sm:col-span-2">
+              <label className="flex items-center gap-2 text-sm font-medium text-gray-500 mb-2">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                Address
               </label>
-              <div className="space-y-3">
-                <div className="w-full h-48 bg-gray-200 rounded-lg flex items-center justify-center overflow-hidden">
-                  {formData.cover_image_url ? (
-                    <img
-                      src={formData.cover_image_url}
-                      alt="Cover"
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <span className="text-gray-400">
-                      No cover image uploaded
-                    </span>
-                  )}
-                </div>
-                {editing && (
-                  <div>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => handleImageUpload(e, "cover")}
-                      disabled={uploading !== null}
-                      className="hidden"
-                      id="cover-upload"
-                    />
-                    <label
-                      htmlFor="cover-upload"
-                      className={`px-4 py-2 rounded-lg cursor-pointer inline-block transition ${
-                        uploading === "cover"
-                          ? "bg-gray-400 text-white cursor-not-allowed"
-                          : "bg-blue-600 text-white hover:bg-blue-700"
-                      }`}
-                    >
-                      {uploading === "cover"
-                        ? "Uploading..."
-                        : "Change Cover Image"}
-                    </label>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Form Fields */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Restaurant Name
-                </label>
-                <input
-                  type="text"
-                  name="restaurant_name"
-                  value={formData.restaurant_name}
-                  onChange={handleInputChange}
-                  disabled={!editing}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600 disabled:bg-gray-100 disabled:cursor-not-allowed"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  City
-                </label>
-                <input
-                  type="text"
-                  name="city"
-                  value={formData.city}
-                  onChange={handleInputChange}
-                  disabled={!editing}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600 disabled:bg-gray-100 disabled:cursor-not-allowed"
-                />
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Address
-                </label>
+              {editing ? (
                 <input
                   type="text"
                   name="address"
                   value={formData.address}
                   onChange={handleInputChange}
-                  disabled={!editing}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition"
+                  placeholder="Enter address"
                 />
-              </div>
+              ) : (
+                <p className="text-gray-900 font-medium">{formData.address || "Not set"}</p>
+              )}
+            </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Postal Code
-                </label>
+            {/* City */}
+            <div>
+              <label className="flex items-center gap-2 text-sm font-medium text-gray-500 mb-2">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                </svg>
+                City
+              </label>
+              {editing ? (
+                <input
+                  type="text"
+                  name="city"
+                  value={formData.city}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition"
+                  placeholder="Enter city"
+                />
+              ) : (
+                <p className="text-gray-900 font-medium">{formData.city || "Not set"}</p>
+              )}
+            </div>
+
+            {/* Postal Code */}
+            <div>
+              <label className="flex items-center gap-2 text-sm font-medium text-gray-500 mb-2">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+                Postal Code
+              </label>
+              {editing ? (
                 <input
                   type="text"
                   name="postal_code"
                   value={formData.postal_code}
                   onChange={handleInputChange}
-                  disabled={!editing}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition"
+                  placeholder="Enter postal code"
                 />
-              </div>
+              ) : (
+                <p className="text-gray-900 font-medium">{formData.postal_code || "Not set"}</p>
+              )}
+            </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Opening Time
-                </label>
+            {/* Opening Time */}
+            <div>
+              <label className="flex items-center gap-2 text-sm font-medium text-gray-500 mb-2">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Opening Time
+              </label>
+              {editing ? (
                 <input
                   type="time"
                   name="opening_time"
                   value={formData.opening_time}
                   onChange={handleInputChange}
-                  disabled={!editing}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition"
                 />
-              </div>
+              ) : (
+                <p className="text-gray-900 font-medium">
+                  {formData.opening_time
+                    ? new Date(`2000-01-01T${formData.opening_time}`).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                    : "Not set"}
+                </p>
+              )}
+            </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Closing Time
-                </label>
+            {/* Closing Time */}
+            <div>
+              <label className="flex items-center gap-2 text-sm font-medium text-gray-500 mb-2">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                </svg>
+                Closing Time
+              </label>
+              {editing ? (
                 <input
                   type="time"
                   name="close_time"
                   value={formData.close_time}
                   onChange={handleInputChange}
-                  disabled={!editing}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition"
                 />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Restaurant Location Map */}
-        {restaurant && (
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-semibold text-gray-800 mb-4">
-              Restaurant Location
-              {editing && (
-                <span className="text-sm font-normal text-indigo-600 ml-2">
-                  (Click on map to change location)
-                </span>
-              )}
-            </h2>
-            <div className="mb-3">
-              <p className="text-sm text-gray-600">
-                <span className="font-medium">Address: </span>
-                {formData.address || "N/A"}
-                {formData.city && `, ${formData.city}`}
-              </p>
-              {mapPosition && (
-                <p className="text-xs text-gray-500 mt-1">
-                  Coordinates: {mapPosition[0].toFixed(6)},{" "}
-                  {mapPosition[1].toFixed(6)}
+              ) : (
+                <p className="text-gray-900 font-medium">
+                  {formData.close_time
+                    ? new Date(`2000-01-01T${formData.close_time}`).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                    : "Not set"}
                 </p>
               )}
             </div>
+          </div>
+        </div>
 
-            {/* Use My Location Button - Only when editing */}
-            {editing && (
-              <button
-                type="button"
-                onClick={() => {
-                  if (!navigator.geolocation) {
-                    setError("Geolocation is not supported by your browser");
-                    return;
-                  }
-                  setLocating(true);
-                  navigator.geolocation.getCurrentPosition(
-                    (pos) => {
-                      const { latitude, longitude } = pos.coords;
-                      setMapPosition([latitude, longitude]);
-                      setFormData((prev) => ({
-                        ...prev,
-                        latitude: latitude,
-                        longitude: longitude,
-                      }));
-                      setLocating(false);
-                    },
-                    (err) => {
-                      console.error("Geolocation error:", err);
-                      setError(
-                        "Unable to get your location. Please select manually on the map.",
-                      );
-                      setLocating(false);
-                    },
-                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
-                  );
-                }}
-                disabled={locating}
-                className="mb-3 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition"
-              >
-                {locating
-                  ? "Getting location..."
-                  : "📍 Use My Current Location"}
-              </button>
-            )}
-
-            <div
-              className={`rounded-lg overflow-hidden border ${
-                editing ? "border-green-400 border-2" : "border-gray-300"
-              }`}
-            >
-              <MapContainer
-                center={mapPosition || [7.8731, 80.7718]}
-                zoom={15}
-                style={{ height: "350px", width: "100%" }}
-                scrollWheelZoom={editing}
-              >
-                <TileLayer
-                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                />
-                <LocationMarker
-                  position={mapPosition}
-                  setPosition={(pos) => {
-                    setMapPosition(pos);
-                    setFormData((prev) => ({
-                      ...prev,
-                      latitude: pos[0],
-                      longitude: pos[1],
-                    }));
-                  }}
-                  isEditing={editing}
-                />
-                <MapController center={mapPosition} />
-              </MapContainer>
+        {/* Location Map Card */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="p-4 sm:p-6 border-b border-gray-100">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                  <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  Restaurant Location
+                </h2>
+                {editing && (
+                  <p className="text-sm text-gray-500 mt-1">Drag the pin or click on the map to set location</p>
+                )}
+              </div>
+              {editing && (
+                <button
+                  onClick={handleUseCurrentLocation}
+                  disabled={locating}
+                  className="px-4 py-2 bg-green-50 text-green-600 font-medium rounded-xl hover:bg-green-100 transition flex items-center gap-2 disabled:opacity-50"
+                >
+                  {locating ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-green-500 border-t-transparent rounded-full animate-spin" />
+                      Locating...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                      </svg>
+                      Use My Location
+                    </>
+                  )}
+                </button>
+              )}
             </div>
 
-            {/* Coordinate Display */}
             {mapPosition && (
-              <div className="grid grid-cols-2 gap-4 mt-4">
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1">
-                    Latitude
-                  </label>
-                  <input
-                    type="text"
-                    className="w-full border rounded-lg p-2 bg-gray-100 text-sm"
-                    value={mapPosition[0].toFixed(6)}
-                    readOnly
-                  />
+              <div className="flex items-center gap-4 mt-3">
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 rounded-lg">
+                  <span className="text-xs text-gray-500">Lat:</span>
+                  <span className="text-sm font-mono font-medium text-gray-700">{mapPosition[0].toFixed(6)}</span>
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1">
-                    Longitude
-                  </label>
-                  <input
-                    type="text"
-                    className="w-full border rounded-lg p-2 bg-gray-100 text-sm"
-                    value={mapPosition[1].toFixed(6)}
-                    readOnly
-                  />
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 rounded-lg">
+                  <span className="text-xs text-gray-500">Lng:</span>
+                  <span className="text-sm font-mono font-medium text-gray-700">{mapPosition[1].toFixed(6)}</span>
                 </div>
               </div>
             )}
           </div>
-        )}
+
+          {/* Map */}
+          <div className={`relative ${editing ? "ring-2 ring-green-500 ring-inset" : ""}`}>
+            <MapContainer
+              center={mapPosition || [7.8731, 80.7718]}
+              zoom={16}
+              style={{ height: "350px", width: "100%" }}
+              scrollWheelZoom={editing}
+              dragging={editing}
+              doubleClickZoom={editing}
+              zoomControl={true}
+            >
+              <TileLayer
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              />
+              <DraggableMarker
+                position={mapPosition}
+                setPosition={(pos) => {
+                  setMapPosition(pos);
+                  setFormData((prev) => ({ ...prev, latitude: pos[0], longitude: pos[1] }));
+                }}
+                isEditing={editing}
+              />
+              <MapController center={mapPosition} shouldAnimate={shouldAnimateMap} />
+            </MapContainer>
+
+            {/* Edit mode indicator */}
+            {editing && (
+              <div className="absolute bottom-4 left-4 px-3 py-2 bg-green-500 text-white text-sm font-medium rounded-lg shadow-lg flex items-center gap-2">
+                <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
+                Edit Mode - Drag pin to move
+              </div>
+            )}
+          </div>
+        </div>
       </div>
+
+      {/* Custom styles for marker */}
+      <style>{`
+        .custom-marker {
+          background: transparent;
+          border: none;
+        }
+
+        .marker-container {
+          position: relative;
+          width: 40px;
+          height: 50px;
+        }
+
+        .marker-pin {
+          position: absolute;
+          top: 0;
+          left: 50%;
+          transform: translateX(-50%);
+          width: 30px;
+          height: 40px;
+          background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+          border-radius: 50% 50% 50% 0;
+          transform: translateX(-50%) rotate(-45deg);
+          box-shadow: 0 4px 12px rgba(34, 197, 94, 0.4);
+          transition: all 0.3s ease;
+        }
+
+        .marker-inner {
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%) rotate(45deg);
+          width: 14px;
+          height: 14px;
+          background: white;
+          border-radius: 50%;
+        }
+
+        .marker-shadow {
+          position: absolute;
+          bottom: 0;
+          left: 50%;
+          transform: translateX(-50%);
+          width: 20px;
+          height: 6px;
+          background: rgba(0, 0, 0, 0.2);
+          border-radius: 50%;
+          transition: all 0.3s ease;
+        }
+
+        .marker-container.dragging .marker-pin {
+          transform: translateX(-50%) rotate(-45deg) scale(1.2);
+          box-shadow: 0 8px 24px rgba(34, 197, 94, 0.5);
+        }
+
+        .marker-container.dragging .marker-shadow {
+          width: 16px;
+          height: 4px;
+          opacity: 0.6;
+        }
+
+        @keyframes slideIn {
+          from {
+            transform: translateX(100%);
+            opacity: 0;
+          }
+          to {
+            transform: translateX(0);
+            opacity: 1;
+          }
+        }
+
+        .animate-slideIn {
+          animation: slideIn 0.3s ease-out forwards;
+        }
+
+        .leaflet-container {
+          font-family: inherit;
+        }
+
+        .leaflet-control-zoom {
+          border: none !important;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+        }
+
+        .leaflet-control-zoom a {
+          border-radius: 8px !important;
+          border: none !important;
+          background: white !important;
+          color: #374151 !important;
+          width: 32px !important;
+          height: 32px !important;
+          line-height: 32px !important;
+          font-size: 16px !important;
+        }
+
+        .leaflet-control-zoom a:hover {
+          background: #f3f4f6 !important;
+        }
+
+        .leaflet-control-zoom-in {
+          border-radius: 8px 8px 0 0 !important;
+        }
+
+        .leaflet-control-zoom-out {
+          border-radius: 0 0 8px 8px !important;
+        }
+      `}</style>
     </AdminLayout>
   );
 }

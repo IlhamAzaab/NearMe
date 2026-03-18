@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import AdminLayout from "../../components/AdminLayout";
 import { API_URL } from "../../config";
+import { useAdminCache, CACHE_KEYS } from "../../context/AdminCacheContext";
 import {
   AreaChart,
   Area,
@@ -12,20 +13,34 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
-export default function AdminDashboard() {
-  const [dashboardData, setDashboardData] = useState(null);
-  const [recentOrders, setRecentOrders] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [restaurant, setRestaurant] = useState(null);
-  const [toggling, setToggling] = useState(false);
-  const [chartPeriod, setChartPeriod] = useState("week");
-  const navigate = useNavigate();
+// Cache key helper for dashboard with period
+const getDashboardCacheKey = (period) => `${CACHE_KEYS.DASHBOARD}_${period}`;
 
+export default function AdminDashboard() {
+  const { getCache, setCache } = useAdminCache();
+  const navigate = useNavigate();
   const token = localStorage.getItem("token");
 
-  // Fetch dashboard stats (can be called separately for chart period changes)
+  // Initialize state from cache for instant display
+  const [chartPeriod, setChartPeriod] = useState("week");
+  const [dashboardData, setDashboardData] = useState(() =>
+    getCache(getDashboardCacheKey("week")),
+  );
+  const [recentOrders, setRecentOrders] = useState(
+    () => getCache("admin_recent_orders") || [],
+  );
+  const [restaurant, setRestaurant] = useState(() =>
+    getCache(CACHE_KEYS.RESTAURANT),
+  );
+  const [loading, setLoading] = useState(
+    !getCache(getDashboardCacheKey("week")),
+  );
+  const [refreshing, setRefreshing] = useState(false);
+  const [toggling, setToggling] = useState(false);
+
+  // Fetch dashboard stats
   const fetchDashboardStats = useCallback(
-    async (period) => {
+    async (period, isBackground = false) => {
       if (!token) return;
       try {
         const res = await fetch(
@@ -33,14 +48,18 @@ export default function AdminDashboard() {
           { headers: { Authorization: `Bearer ${token}` } },
         );
         const data = await res.json();
-        if (res.ok) setDashboardData(data);
+        if (res.ok) {
+          setDashboardData(data);
+          setCache(getDashboardCacheKey(period), data);
+        }
       } catch (err) {
         console.error("Dashboard stats error:", err);
       }
     },
-    [token],
+    [token, setCache],
   );
 
+  // Fetch recent orders
   const fetchRecentOrders = useCallback(async () => {
     if (!token) return [];
     try {
@@ -50,47 +69,110 @@ export default function AdminDashboard() {
       const data = await res.json();
       const orders = data?.orders || [];
       setRecentOrders(orders);
+      setCache("admin_recent_orders", orders);
       return orders;
     } catch (err) {
       console.error("Dashboard recent orders error:", err);
       return [];
     }
-  }, [token]);
+  }, [token, setCache]);
 
+  // Fetch restaurant data
+  const fetchRestaurant = useCallback(async () => {
+    if (!token) return null;
+    try {
+      const res = await fetch(`${API_URL}/admin/restaurant`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (res.status === 401) {
+        console.error("Token expired or invalid. Redirecting to login.");
+        localStorage.removeItem("token");
+        localStorage.removeItem("role");
+        navigate("/login");
+        return null;
+      }
+
+      const data = await res.json();
+      if (data.restaurant) {
+        setRestaurant(data.restaurant);
+        setCache(CACHE_KEYS.RESTAURANT, data.restaurant);
+        return data.restaurant;
+      }
+    } catch (err) {
+      console.error("Restaurant fetch error:", err);
+    }
+    return null;
+  }, [token, navigate, setCache]);
+
+  // Initial fetch
   useEffect(() => {
     const fetchAll = async () => {
-      if (!token) return;
-      setLoading(true);
-      try {
+      if (!token) {
+        navigate("/login");
+        return;
+      }
+
+      // Check if we have cached data
+      const cachedDashboard = getCache(getDashboardCacheKey(chartPeriod));
+      const cachedOrders = getCache("admin_recent_orders");
+      const cachedRestaurant = getCache(CACHE_KEYS.RESTAURANT);
+
+      if (cachedDashboard && cachedOrders && cachedRestaurant) {
+        // Show cached data instantly
+        setDashboardData(cachedDashboard);
+        setRecentOrders(cachedOrders);
+        setRestaurant(cachedRestaurant);
+        setLoading(false);
+        // Fetch fresh data in background
+        setRefreshing(true);
+        await Promise.all([
+          fetchDashboardStats(chartPeriod, true),
+          fetchRecentOrders(),
+          fetchRestaurant(),
+        ]);
+        setRefreshing(false);
+      } else {
+        // No cache, show loading
+        setLoading(true);
         await Promise.all([
           fetchDashboardStats(chartPeriod),
           fetchRecentOrders(),
-          fetch(`${API_URL}/admin/restaurant`, {
-            headers: { Authorization: `Bearer ${token}` },
-          })
-            .then((r) => r.json())
-            .then((d) => {
-              if (d.restaurant) setRestaurant(d.restaurant);
-            }),
+          fetchRestaurant(),
         ]);
-      } catch (err) {
-        console.error("Dashboard fetch error:", err);
-      } finally {
         setLoading(false);
       }
     };
     fetchAll();
-  }, [token, chartPeriod, fetchDashboardStats, fetchRecentOrders]);
+  }, [token]);
 
-  // Re-fetch chart data when period changes (skip initial load)
+  // Handle chart period change
   useEffect(() => {
     if (!loading && token) {
-      fetchDashboardStats(chartPeriod);
+      // Check cache for this period
+      const cached = getCache(getDashboardCacheKey(chartPeriod));
+      if (cached) {
+        setDashboardData(cached);
+        // Refresh in background
+        fetchDashboardStats(chartPeriod, true);
+      } else {
+        fetchDashboardStats(chartPeriod);
+      }
     }
   }, [chartPeriod]);
 
   const toggleRestaurantOpen = async () => {
     if (toggling) return;
+
+    // Check if token exists before making request
+    if (!token) {
+      console.error("No auth token found. Redirecting to login.");
+      localStorage.removeItem("token");
+      localStorage.removeItem("role");
+      navigate("/login");
+      return;
+    }
+
     setToggling(true);
     setRestaurant((prev) =>
       prev ? { ...prev, is_open: !prev.is_open } : prev,
@@ -104,14 +186,26 @@ export default function AdminDashboard() {
         },
       });
       const data = await res.json();
+
+      // Handle 401 Unauthorized - token expired or invalid
+      if (res.status === 401) {
+        console.error("Token expired or invalid:", data.message);
+        localStorage.removeItem("token");
+        localStorage.removeItem("role");
+        navigate("/login");
+        return;
+      }
+
       if (res.ok && data.restaurant) {
         setRestaurant(data.restaurant);
       } else {
+        console.error("Toggle restaurant failed:", data.message);
         setRestaurant((prev) =>
           prev ? { ...prev, is_open: !prev.is_open } : prev,
         );
       }
-    } catch {
+    } catch (err) {
+      console.error("Toggle restaurant error:", err);
       setRestaurant((prev) =>
         prev ? { ...prev, is_open: !prev.is_open } : prev,
       );
@@ -228,40 +322,40 @@ export default function AdminDashboard() {
     };
   };
 
-  // Loading skeleton
-  if (loading) {
+  // Loading skeleton - only show on initial load with no cached data
+  if (loading && !dashboardData && !restaurant) {
     return (
       <AdminLayout loading={loading}>
         <div className="space-y-3">
           <div className="bg-white rounded-2xl border border-gray-100 p-4 skeleton-fade">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 bg-gray-100 rounded-xl" />
+                <div className="w-12 h-12 bg-gray-100 rounded-xl animate-pulse" />
                 <div className="space-y-2">
-                  <div className="h-4 w-32 bg-gray-100 rounded" />
-                  <div className="h-3 w-24 bg-gray-100 rounded" />
+                  <div className="h-4 w-32 bg-gray-100 rounded animate-pulse" />
+                  <div className="h-3 w-24 bg-gray-100 rounded animate-pulse" />
                 </div>
               </div>
-              <div className="w-8 h-8 bg-gray-100 rounded-full" />
+              <div className="w-8 h-8 bg-gray-100 rounded-full animate-pulse" />
             </div>
             <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between">
-              <div className="h-4 w-28 bg-gray-100 rounded" />
-              <div className="w-12 h-6 bg-gray-100 rounded-full" />
+              <div className="h-4 w-28 bg-gray-100 rounded animate-pulse" />
+              <div className="w-12 h-6 bg-gray-100 rounded-full animate-pulse" />
             </div>
           </div>
-          <div className="h-32 bg-gray-100 rounded-2xl skeleton-fade" />
+          <div className="h-32 bg-gray-100 rounded-2xl skeleton-fade animate-pulse" />
           <div className="grid grid-cols-2 gap-3">
             {[...Array(2)].map((_, i) => (
               <div
                 key={i}
-                className="bg-white rounded-2xl p-4 border border-gray-100 skeleton-fade h-28"
+                className="bg-white rounded-2xl p-4 border border-gray-100 skeleton-fade h-28 animate-pulse"
               />
             ))}
           </div>
-          <div className="bg-white rounded-2xl p-4 border border-gray-100 skeleton-fade h-28" />
+          <div className="bg-white rounded-2xl p-4 border border-gray-100 skeleton-fade h-28 animate-pulse" />
           <div className="bg-white rounded-2xl p-4 border border-gray-100 skeleton-fade">
-            <div className="h-4 w-36 bg-gray-100 rounded mb-4" />
-            <div className="h-56 bg-gray-50 rounded-xl" />
+            <div className="h-4 w-36 bg-gray-100 rounded mb-4 animate-pulse" />
+            <div className="h-56 bg-gray-50 rounded-xl animate-pulse" />
           </div>
         </div>
       </AdminLayout>
@@ -271,8 +365,18 @@ export default function AdminDashboard() {
   const revenueChange = dashboardData?.lifetime?.revenueChange;
 
   return (
-    <AdminLayout loading={loading}>
-      <div className="space-y-3">
+    <AdminLayout loading={false}>
+      {/* Refreshing indicator */}
+      {refreshing && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-white shadow-lg rounded-full px-4 py-2 flex items-center gap-2 animate-fadeIn">
+          <div className="w-4 h-4 border-2 border-green-500 border-t-transparent rounded-full animate-spin" />
+          <span className="text-sm text-gray-600">Updating...</span>
+        </div>
+      )}
+
+      <div
+        className={`space-y-3 transition-opacity duration-300 ${refreshing ? "opacity-90" : "opacity-100"}`}
+      >
         {/* ═══════════ Block 1: Restaurant Header + Store Status ═══════════ */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
           {/* Top: Logo + Name + Bell */}
@@ -363,7 +467,6 @@ export default function AdminDashboard() {
               />
             </button>
           </div>
-
         </div>
 
         {/* ═══════════ Block 2: Today's Performance ═══════════ */}

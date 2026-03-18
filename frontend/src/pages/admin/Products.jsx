@@ -3,11 +3,19 @@ import { useNavigate } from "react-router-dom";
 import AdminLayout from "../../components/AdminLayout";
 import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
 import { API_URL } from "../../config";
+import { useAdminCache, CACHE_KEYS } from "../../context/AdminCacheContext";
 
 export default function Products() {
   const navigate = useNavigate();
-  const [foods, setFoods] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { getCache, setCache } = useAdminCache();
+  const token = localStorage.getItem("token");
+
+  // Initialize from cache for instant display
+  const cachedProducts = getCache(CACHE_KEYS.PRODUCTS);
+
+  const [foods, setFoods] = useState(cachedProducts || []);
+  const [loading, setLoading] = useState(!cachedProducts);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setRawError] = useState(null);
   const {
     alert: alertState,
@@ -24,8 +32,6 @@ export default function Products() {
   const [search, setSearch] = useState("");
   const [availabilityFilter, setAvailabilityFilter] = useState("all");
 
-  const token = localStorage.getItem("token");
-
   useEffect(() => {
     fetchFoods();
   }, []);
@@ -33,7 +39,12 @@ export default function Products() {
   const fetchFoods = async () => {
     if (!token) return;
 
-    setLoading(true);
+    // Use refreshing state if we have cached data
+    if (cachedProducts) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     setError(null);
 
     try {
@@ -45,13 +56,17 @@ export default function Products() {
       if (!res.ok) {
         setError(data?.message || "Failed to load products");
       } else {
-        setFoods(data.foods || []);
+        const fetchedFoods = data.foods || [];
+        setFoods(fetchedFoods);
+        // Cache the products
+        setCache(CACHE_KEYS.PRODUCTS, fetchedFoods);
       }
     } catch (err) {
       setError("Network error while loading products");
       console.error(err);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
@@ -66,7 +81,10 @@ export default function Products() {
       });
 
       if (res.ok) {
-        setFoods(foods.filter((f) => f.id !== foodId));
+        const updatedFoods = foods.filter((f) => f.id !== foodId);
+        setFoods(updatedFoods);
+        // Update cache
+        setCache(CACHE_KEYS.PRODUCTS, updatedFoods);
       } else {
         const data = await res.json();
         showError(data?.message || "Failed to delete product");
@@ -154,17 +172,18 @@ export default function Products() {
     );
   };
 
-  if (loading) {
+  // Show loading skeleton only on initial load with no cached data
+  if (loading && foods.length === 0) {
     return (
       <AdminLayout loading={loading}>
         <div className="space-y-3">
-          <div className="h-10 w-40 bg-gray-100 rounded-xl skeleton-fade" />
-          <div className="h-12 w-full bg-gray-100 rounded-2xl skeleton-fade" />
-          <div className="h-12 w-full bg-gray-100 rounded-2xl skeleton-fade" />
+          <div className="h-10 w-40 bg-gray-100 rounded-xl animate-pulse" />
+          <div className="h-12 w-full bg-gray-100 rounded-2xl animate-pulse" />
+          <div className="h-12 w-full bg-gray-100 rounded-2xl animate-pulse" />
           {[...Array(4)].map((_, i) => (
             <div
               key={i}
-              className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 skeleton-fade"
+              className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 animate-pulse"
             >
               <div className="flex gap-3">
                 <div className="w-16 h-16 bg-gray-100 rounded-xl shrink-0" />
@@ -182,9 +201,18 @@ export default function Products() {
   }
 
   return (
-    <AdminLayout loading={loading}>
+    <AdminLayout loading={false}>
       <AnimatedAlert alert={alertState} visible={alertVisible} />
-      <div className="space-y-3">
+
+      {/* Refreshing indicator */}
+      {refreshing && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-white shadow-lg rounded-full px-4 py-2 flex items-center gap-2">
+          <div className="w-4 h-4 border-2 border-green-500 border-t-transparent rounded-full animate-spin" />
+          <span className="text-sm text-gray-600">Updating...</span>
+        </div>
+      )}
+
+      <div className={`space-y-3 transition-opacity duration-300 ${refreshing ? "opacity-90" : "opacity-100"}`}>
         {/* ── Header bar ── */}
         <div className="flex items-center justify-between py-1">
           <div className="flex items-center gap-2.5">

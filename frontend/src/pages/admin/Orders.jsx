@@ -1,15 +1,22 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { API_URL } from "../../config";
-import supabaseClient from "../../supabaseClient";
 import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
 import AdminLayout from "../../components/AdminLayout";
+import { useAdminCache, CACHE_KEYS } from "../../context/AdminCacheContext";
 
 export default function Orders() {
   const navigate = useNavigate();
+  const { getCache, setCache } = useAdminCache();
   const [searchParams] = useSearchParams();
-  const [orders, setOrders] = useState([]);
-  const [loading, setLoading] = useState(true);
+
+  // Initialize from cache for instant display
+  const cachedOrders = getCache(CACHE_KEYS.ORDERS);
+  const cachedRestaurant = getCache(CACHE_KEYS.RESTAURANT);
+
+  const [orders, setOrders] = useState(cachedOrders || []);
+  const [loading, setLoading] = useState(!cachedOrders);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setRawError] = useState(null);
   const [actionError, setRawActionError] = useState(null);
   const {
@@ -30,15 +37,15 @@ export default function Orders() {
     searchParams.get("status") || "all",
   );
   const [selectedOrder, setSelectedOrder] = useState(null);
-  const [counts, setCounts] = useState({
-    all: 0,
-    pending: 0,
-    accepted: 0,
-    delivered: 0,
+  const [counts, setCounts] = useState(() => {
+    if (cachedOrders) {
+      return computeCountsStatic(cachedOrders);
+    }
+    return { all: 0, pending: 0, accepted: 0, delivered: 0 };
   });
   const [processingOrderId, setProcessingOrderId] = useState(null);
   const [newOrderNotification, setNewOrderNotification] = useState(null);
-  const [restaurant, setRestaurant] = useState(null);
+  const [restaurant, setRestaurant] = useState(cachedRestaurant);
   const [rejectModal, setRejectModal] = useState({
     open: false,
     orderId: null,
@@ -66,6 +73,25 @@ export default function Orders() {
     const dels = normalizeDeliveries(order?.deliveries);
     return dels[0]?.drivers || null;
   };
+
+  // Static version for initial state
+  function computeCountsStatic(list) {
+    const allOrders = list || [];
+    const getStatus = (order) => {
+      const dels = order?.deliveries ? (Array.isArray(order.deliveries) ? order.deliveries : [order.deliveries]) : [];
+      return dels[0]?.status || order?.delivery_status || order?.status || "placed";
+    };
+    const pending = allOrders.filter((o) => getStatus(o) === "placed").length;
+    const accepted = allOrders.filter((o) => {
+      const s = getStatus(o);
+      return s === "pending" || s === "accepted";
+    }).length;
+    const delivered = allOrders.filter((o) => {
+      const s = getStatus(o);
+      return s === "picked_up" || s === "on_the_way" || s === "at_customer" || s === "delivered";
+    }).length;
+    return { all: allOrders.length, pending, accepted, delivered };
+  }
 
   const computeCounts = (list) => {
     const allOrders = list || [];
@@ -95,14 +121,23 @@ export default function Orders() {
   };
 
   const fetchOrders = async (silent = false) => {
-    if (!silent) setLoading(true);
+    if (!silent) {
+      if (cachedOrders) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
+    }
     setError(null);
 
     try {
       const token = localStorage.getItem("token");
       if (!token) {
         setError("Missing auth token. Please sign in again.");
-        if (!silent) setLoading(false);
+        if (!silent) {
+          setLoading(false);
+          setRefreshing(false);
+        }
         return;
       }
 
@@ -119,13 +154,19 @@ export default function Orders() {
       }
 
       const data = await response.json();
-      setOrders(data.orders || []);
-      setCounts(computeCounts(data.orders));
+      const fetchedOrders = data.orders || [];
+      setOrders(fetchedOrders);
+      setCounts(computeCounts(fetchedOrders));
+      // Cache the orders
+      setCache(CACHE_KEYS.ORDERS, fetchedOrders);
     } catch (err) {
       console.error("Failed to fetch orders", err);
       if (!silent) setError(err.message || "Failed to fetch orders");
     } finally {
-      if (!silent) setLoading(false);
+      if (!silent) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   };
 
@@ -153,80 +194,96 @@ export default function Orders() {
     fetchRestaurant();
     fetchOrders();
 
-    // Set up real-time subscription for new deliveries
-    const subscription = supabaseClient
-      .channel("deliveries:new-inserts")
-      .on(
-        "postgres_changes",
-        {
+    // Set up real-time subscriptions with error handling
+    // App will work even if realtime fails - falls back to polling
+    let cleanupDeliveries = null;
+    let cleanupStatusUpdates = null;
+
+    const setupRealtimeSubscriptions = async () => {
+      try {
+        const { createResilientSubscription } = await import("../../utils/realtimeHelper");
+
+        // Subscribe to new deliveries
+        const deliverySub = createResilientSubscription({
+          channelName: `deliveries:new-inserts-${Date.now()}`,
+          table: "deliveries",
           event: "INSERT",
-          schema: "public",
-          table: "deliveries",
-        },
-        (payload) => {
-          console.log("New delivery created:", payload);
-          setNewOrderNotification({
-            message: "New order received! 🔔",
-            timestamp: new Date(),
-          });
-          setTimeout(() => setNewOrderNotification(null), 5000);
-          fetchOrdersRef.current?.(true);
-        },
-      )
-      .subscribe();
-
-    // Subscribe to delivery status changes to update revenue/counts in real-time
-    const statusSubscription = supabaseClient
-      .channel("deliveries:status-updates")
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "deliveries",
-        },
-        (payload) => {
-          const updatedDelivery = payload.new;
-          console.log(
-            "Delivery status updated:",
-            updatedDelivery?.status,
-            "delivery_id:",
-            updatedDelivery?.id,
-          );
-
-          // Immediately update local state for instant UI feedback
-          setOrders((prevOrders) => {
-            const newOrders = prevOrders.map((order) => {
-              const dels = normalizeDeliveries(order.deliveries);
-              if (dels.some((d) => d.id === updatedDelivery.id)) {
-                return {
-                  ...order,
-                  deliveries: dels.map((d) =>
-                    d.id === updatedDelivery.id
-                      ? {
-                          ...d,
-                          status: updatedDelivery.status,
-                          driver_id: updatedDelivery.driver_id,
-                        }
-                      : d,
-                  ),
-                };
-              }
-              return order;
+          onData: (payload) => {
+            console.log("New delivery created:", payload);
+            setNewOrderNotification({
+              message: "New order received! 🔔",
+              timestamp: new Date(),
             });
-            setCounts(computeCounts(newOrders));
-            return newOrders;
-          });
+            setTimeout(() => setNewOrderNotification(null), 5000);
+            fetchOrdersRef.current?.(true);
+          },
+          onError: (err) => {
+            console.warn("[Realtime] Delivery subscription error:", err?.message);
+          },
+        });
+        cleanupDeliveries = deliverySub.unsubscribe;
 
-          // Also do a silent background fetch to get any additional data (driver info, etc.)
-          fetchOrdersRef.current?.(true);
-        },
-      )
-      .subscribe();
+        // Subscribe to delivery status updates
+        const statusSub = createResilientSubscription({
+          channelName: `deliveries:status-updates-${Date.now()}`,
+          table: "deliveries",
+          event: "UPDATE",
+          onData: (payload) => {
+            const updatedDelivery = payload.new;
+            console.log(
+              "Delivery status updated:",
+              updatedDelivery?.status,
+              "delivery_id:",
+              updatedDelivery?.id,
+            );
+
+            // Immediately update local state for instant UI feedback
+            setOrders((prevOrders) => {
+              const newOrders = prevOrders.map((order) => {
+                const dels = normalizeDeliveries(order.deliveries);
+                if (dels.some((d) => d.id === updatedDelivery.id)) {
+                  return {
+                    ...order,
+                    deliveries: dels.map((d) =>
+                      d.id === updatedDelivery.id
+                        ? {
+                            ...d,
+                            status: updatedDelivery.status,
+                            driver_id: updatedDelivery.driver_id,
+                          }
+                        : d,
+                    ),
+                  };
+                }
+                return order;
+              });
+              setCounts(computeCounts(newOrders));
+              return newOrders;
+            });
+
+            fetchOrdersRef.current?.(true);
+          },
+          onError: (err) => {
+            console.warn("[Realtime] Status subscription error:", err?.message);
+          },
+        });
+        cleanupStatusUpdates = statusSub.unsubscribe;
+      } catch (err) {
+        console.warn("[Realtime] Failed to set up subscriptions, using polling fallback:", err?.message);
+      }
+    };
+
+    setupRealtimeSubscriptions();
+
+    // Fallback: Poll for updates every 30 seconds
+    const pollingInterval = setInterval(() => {
+      fetchOrdersRef.current?.(true);
+    }, 30000);
 
     return () => {
-      subscription.unsubscribe();
-      statusSubscription.unsubscribe();
+      clearInterval(pollingInterval);
+      cleanupDeliveries?.();
+      cleanupStatusUpdates?.();
     };
   }, []);
 
@@ -531,23 +588,24 @@ export default function Orders() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  if (loading) {
+  // Show loading skeleton only on initial load with no cached data
+  if (loading && orders.length === 0) {
     return (
       <AdminLayout noPadding loading={loading}>
         <div className="px-4 py-4 space-y-4">
-          <div className="h-32 bg-gray-100 rounded-2xl skeleton-fade" />
+          <div className="h-32 bg-gray-100 rounded-2xl animate-pulse" />
           <div className="flex gap-2">
             {[...Array(4)].map((_, i) => (
               <div
                 key={i}
-                className="h-9 w-20 bg-gray-100 rounded-full skeleton-fade"
+                className="h-9 w-20 bg-gray-100 rounded-full animate-pulse"
               />
             ))}
           </div>
           {[...Array(4)].map((_, i) => (
             <div
               key={i}
-              className="bg-white rounded-2xl p-4 border border-gray-100 skeleton-fade"
+              className="bg-white rounded-2xl p-4 border border-gray-100 animate-pulse"
             >
               <div className="flex justify-between items-start mb-3">
                 <div className="space-y-2">
@@ -572,8 +630,16 @@ export default function Orders() {
   }
 
   return (
-    <AdminLayout noPadding loading={loading}>
+    <AdminLayout noPadding loading={false}>
       <AnimatedAlert alert={alertState} visible={alertVisible} />
+
+      {/* Refreshing indicator */}
+      {refreshing && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-white shadow-lg rounded-full px-4 py-2 flex items-center gap-2">
+          <div className="w-4 h-4 border-2 border-green-500 border-t-transparent rounded-full animate-spin" />
+          <span className="text-sm text-gray-600">Updating...</span>
+        </div>
+      )}
 
       {/* Reject Reason Modal */}
       {rejectModal.open && (

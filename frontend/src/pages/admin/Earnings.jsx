@@ -2,15 +2,23 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import AdminLayout from "../../components/AdminLayout";
 import { API_URL } from "../../config";
+import { useAdminCache, CACHE_KEYS } from "../../context/AdminCacheContext";
 
 export default function Earnings() {
   const navigate = useNavigate();
-  const [earnings, setEarnings] = useState(null);
-  const [payouts, setPayouts] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [period, setPeriod] = useState("all");
-  const [restaurant, setRestaurant] = useState(null);
+  const { getCache, setCache } = useAdminCache();
   const token = localStorage.getItem("token");
+
+  // Initialize from cache for instant display
+  const cachedEarnings = getCache(CACHE_KEYS.EARNINGS);
+  const cachedRestaurant = getCache(CACHE_KEYS.RESTAURANT);
+
+  const [earnings, setEarnings] = useState(cachedEarnings);
+  const [payouts, setPayouts] = useState([]);
+  const [loading, setLoading] = useState(!cachedEarnings);
+  const [refreshing, setRefreshing] = useState(false);
+  const [period, setPeriod] = useState("all");
+  const [restaurant, setRestaurant] = useState(cachedRestaurant);
 
   useEffect(() => {
     fetchData();
@@ -18,7 +26,13 @@ export default function Earnings() {
 
   const fetchData = async () => {
     if (!token) return;
-    setLoading(true);
+
+    // Use refreshing state if we have cached data
+    if (cachedEarnings) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
 
     try {
       // Fetch earnings
@@ -31,6 +45,7 @@ export default function Earnings() {
       const earningsData = await earningsRes.json();
       if (earningsRes.ok) {
         setEarnings(earningsData.earnings);
+        setCache(CACHE_KEYS.EARNINGS, earningsData.earnings);
       }
 
       // Fetch payouts
@@ -49,11 +64,13 @@ export default function Earnings() {
       const restaurantData = await restaurantRes.json();
       if (restaurantRes.ok) {
         setRestaurant(restaurantData.restaurant);
+        setCache(CACHE_KEYS.RESTAURANT, restaurantData.restaurant);
       }
     } catch (error) {
       console.error("Error fetching earnings data:", error);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
@@ -131,12 +148,13 @@ export default function Earnings() {
 
   const { path: chartPath, fillPath: chartFillPath } = generateChartPath();
 
-  if (loading) {
+  // Show loading skeleton only on initial load with no cached data
+  if (loading && !earnings) {
     return (
       <AdminLayout loading={loading}>
         <div className="max-w-4xl mx-auto space-y-6">
           {/* Header skeleton */}
-          <div className="flex items-center gap-4 skeleton-fade">
+          <div className="flex items-center gap-4 animate-pulse">
             <div className="w-12 h-12 bg-gray-200 rounded-full" />
             <div className="space-y-2">
               <div className="h-3 w-32 bg-gray-200 rounded" />
@@ -144,7 +162,7 @@ export default function Earnings() {
             </div>
           </div>
           {/* Revenue card skeleton */}
-          <div className="bg-green-100 rounded-2xl p-6 skeleton-fade">
+          <div className="bg-green-100 rounded-2xl p-6 animate-pulse">
             <div className="h-3 w-28 bg-green-200 rounded mb-3" />
             <div className="h-10 w-48 bg-green-200 rounded mb-2" />
             <div className="h-3 w-36 bg-green-200 rounded mb-4" />
@@ -155,7 +173,7 @@ export default function Earnings() {
             </div>
           </div>
           {/* Metric grid skeleton */}
-          <div className="grid grid-cols-2 gap-4 skeleton-fade">
+          <div className="grid grid-cols-2 gap-4 animate-pulse">
             <div className="bg-white rounded-xl p-5 border border-gray-200">
               <div className="h-3 w-20 bg-gray-200 rounded mb-2" />
               <div className="h-7 w-28 bg-gray-200 rounded" />
@@ -166,13 +184,13 @@ export default function Earnings() {
             </div>
           </div>
           {/* Chart skeleton */}
-          <div className="bg-white rounded-2xl p-6 border border-gray-100 skeleton-fade">
+          <div className="bg-white rounded-2xl p-6 border border-gray-100 animate-pulse">
             <div className="h-4 w-24 bg-gray-200 rounded mb-2" />
             <div className="h-8 w-36 bg-gray-200 rounded mb-6" />
             <div className="h-45 bg-gray-100 rounded-lg" />
           </div>
           {/* Orders skeleton */}
-          <div className="space-y-3 skeleton-fade">
+          <div className="space-y-3 animate-pulse">
             {[...Array(3)].map((_, i) => (
               <div
                 key={i}
@@ -195,8 +213,16 @@ export default function Earnings() {
   }
 
   return (
-    <AdminLayout loading={loading}>
-      <div className="max-w-4xl mx-auto space-y-6">
+    <AdminLayout loading={false}>
+      {/* Refreshing indicator */}
+      {refreshing && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-white shadow-lg rounded-full px-4 py-2 flex items-center gap-2">
+          <div className="w-4 h-4 border-2 border-green-500 border-t-transparent rounded-full animate-spin" />
+          <span className="text-sm text-gray-600">Updating...</span>
+        </div>
+      )}
+
+      <div className={`max-w-4xl mx-auto space-y-6 transition-opacity duration-300 ${refreshing ? "opacity-90" : "opacity-100"}`}>
         {/* Header */}
 
         <div className="flex items-center gap-35">

@@ -9,7 +9,7 @@
  * Renders the AdminNotificationBanner for real-time new order alerts.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import { useSocket } from "../context/SocketContext";
 import AdminNotificationBanner from "./AdminNotificationBanner";
 import { useLocation } from "react-router-dom";
@@ -23,57 +23,70 @@ export default function AdminSocketConnector() {
     dismissAdminNotification,
   } = useSocket();
   const hasConnected = useRef(false);
+  const currentRole = useRef(null);
   const location = useLocation();
 
-  // Auto-connect when admin is logged in
-  useEffect(() => {
+  // Check if we should connect - validates all required data
+  const shouldConnect = useCallback(() => {
     const role = localStorage.getItem("role");
     const token = localStorage.getItem("token");
     const userId = localStorage.getItem("userId");
 
-    // Only connect if user is a logged-in admin and not yet connected
-    if (
+    return !!(
       role === "admin" &&
       token &&
+      token !== "null" &&
+      token !== "undefined" &&
       userId &&
-      !hasConnected.current &&
-      !isConnected
-    ) {
+      userId !== "null" &&
+      userId !== "undefined"
+    );
+  }, []);
+
+  // Auto-connect when admin is logged in
+  useEffect(() => {
+    const role = localStorage.getItem("role");
+    const userId = localStorage.getItem("userId");
+
+    // Track role changes to handle switching between roles
+    if (currentRole.current && currentRole.current !== role) {
+      console.log("[AdminSocket] Role changed from", currentRole.current, "to", role);
+      if (hasConnected.current) {
+        disconnect();
+        hasConnected.current = false;
+      }
+    }
+    currentRole.current = role;
+
+    // Only connect if user is a logged-in admin and not yet connected
+    if (shouldConnect() && !hasConnected.current && !isConnected) {
       console.log("[AdminSocket] Auto-connecting admin:", userId);
       connectAsAdmin(userId);
       hasConnected.current = true;
     }
 
     // If user logged out or changed role, disconnect
-    if (hasConnected.current && (!token || role !== "admin")) {
+    if (hasConnected.current && !shouldConnect()) {
       console.log("[AdminSocket] User no longer an admin, disconnecting");
       disconnect();
       hasConnected.current = false;
     }
-  }, [connectAsAdmin, disconnect, location.pathname, isConnected]);
+  }, [connectAsAdmin, disconnect, location.pathname, isConnected, shouldConnect]);
 
   // Listen for auth changes via storage events (login/logout in another tab)
   useEffect(() => {
     const handleStorageChange = (e) => {
-      if (e.key === "token" || e.key === "role") {
-        const role = localStorage.getItem("role");
-        const token = localStorage.getItem("token");
+      if (e.key === "token" || e.key === "role" || e.key === "userId") {
         const userId = localStorage.getItem("userId");
 
-        if (
-          role === "admin" &&
-          token &&
-          userId &&
-          !isConnected &&
-          !hasConnected.current
-        ) {
+        if (shouldConnect() && !isConnected && !hasConnected.current) {
           console.log(
             "[AdminSocket] Storage change - connecting admin:",
             userId,
           );
           connectAsAdmin(userId);
           hasConnected.current = true;
-        } else if ((role !== "admin" || !token) && hasConnected.current) {
+        } else if (!shouldConnect() && hasConnected.current) {
           console.log("[AdminSocket] Storage change - disconnecting admin");
           disconnect();
           hasConnected.current = false;
@@ -83,7 +96,7 @@ export default function AdminSocketConnector() {
 
     window.addEventListener("storage", handleStorageChange);
     return () => window.removeEventListener("storage", handleStorageChange);
-  }, [connectAsAdmin, disconnect, isConnected]);
+  }, [connectAsAdmin, disconnect, isConnected, shouldConnect]);
 
   // Cleanup on unmount
   useEffect(() => {

@@ -7,7 +7,7 @@
  * so notifications work across ALL customer pages.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import { useSocket } from "../context/SocketContext";
 import CustomerNotificationBanner from "./CustomerNotificationBanner";
 import { useNavigate, useLocation } from "react-router-dom";
@@ -21,58 +21,72 @@ export default function CustomerSocketConnector() {
     clearCustomerNotification,
   } = useSocket();
   const hasConnected = useRef(false);
+  const currentRole = useRef(null);
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Re-check connection on every route change (catches post-login navigation)
-  useEffect(() => {
+  // Check if we should connect - validates all required data
+  const shouldConnect = useCallback(() => {
     const role = localStorage.getItem("role");
     const token = localStorage.getItem("token");
     const userId = localStorage.getItem("userId");
 
-    // Only connect if user is a logged-in customer and not yet connected
-    if (
+    // Validate that all required data exists and role is customer
+    return !!(
       role === "customer" &&
       token &&
+      token !== "null" &&
+      token !== "undefined" &&
       userId &&
-      !hasConnected.current &&
-      !isConnected
-    ) {
+      userId !== "null" &&
+      userId !== "undefined"
+    );
+  }, []);
+
+  // Re-check connection on every route change (catches post-login navigation)
+  useEffect(() => {
+    const role = localStorage.getItem("role");
+    const userId = localStorage.getItem("userId");
+
+    // Track role changes to handle switching between roles
+    if (currentRole.current && currentRole.current !== role) {
+      console.log("[CustomerSocket] Role changed from", currentRole.current, "to", role);
+      if (hasConnected.current) {
+        disconnect();
+        hasConnected.current = false;
+      }
+    }
+    currentRole.current = role;
+
+    // Only connect if user is a logged-in customer and not yet connected
+    if (shouldConnect() && !hasConnected.current && !isConnected) {
       console.log("[CustomerSocket] Auto-connecting customer:", userId);
       connectAsCustomer(userId);
       hasConnected.current = true;
     }
 
     // If user logged out or changed role, disconnect
-    if (hasConnected.current && (!token || role !== "customer")) {
+    if (hasConnected.current && !shouldConnect()) {
       console.log("[CustomerSocket] User no longer a customer, disconnecting");
       disconnect();
       hasConnected.current = false;
     }
-  }, [connectAsCustomer, disconnect, location.pathname, isConnected]);
+  }, [connectAsCustomer, disconnect, location.pathname, isConnected, shouldConnect]);
 
   // Listen for auth changes via storage events (login/logout in another tab)
   useEffect(() => {
     const handleStorageChange = (e) => {
-      if (e.key === "token" || e.key === "role") {
-        const role = localStorage.getItem("role");
-        const token = localStorage.getItem("token");
+      if (e.key === "token" || e.key === "role" || e.key === "userId") {
         const userId = localStorage.getItem("userId");
 
-        if (
-          role === "customer" &&
-          token &&
-          userId &&
-          !isConnected &&
-          !hasConnected.current
-        ) {
+        if (shouldConnect() && !isConnected && !hasConnected.current) {
           console.log(
             "[CustomerSocket] Storage change - connecting customer:",
             userId,
           );
           connectAsCustomer(userId);
           hasConnected.current = true;
-        } else if ((role !== "customer" || !token) && hasConnected.current) {
+        } else if (!shouldConnect() && hasConnected.current) {
           console.log(
             "[CustomerSocket] Storage change - disconnecting customer",
           );
@@ -84,7 +98,7 @@ export default function CustomerSocketConnector() {
 
     window.addEventListener("storage", handleStorageChange);
     return () => window.removeEventListener("storage", handleStorageChange);
-  }, [connectAsCustomer, disconnect, isConnected]);
+  }, [connectAsCustomer, disconnect, isConnected, shouldConnect]);
 
   // Cleanup on unmount
   useEffect(() => {
