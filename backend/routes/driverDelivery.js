@@ -45,6 +45,11 @@ import {
   sendDeliveryStatusNotification,
   sendDeliveryStatusToAdmin,
 } from "../utils/pushNotificationService.js";
+import {
+  getSriLankaDayRange,
+  getSriLankaDayRangeFromDateStr,
+  shiftSriLankaDateString,
+} from "../utils/sriLankaTime.js";
 
 const router = express.Router();
 
@@ -3274,25 +3279,24 @@ router.get("/earnings/summary", authenticate, driverOnly, async (req, res) => {
 
   try {
     // Build date filter based on period
-    let dateFilter = "";
-    const now = new Date();
-    const todayStart = now.toISOString().split("T")[0]; // YYYY-MM-DD for today
+    let periodStart = null;
+    const { dateStr: todayDateStr, start: todayStart } = getSriLankaDayRange();
 
     switch (period) {
       case "today":
-        dateFilter = todayStart;
+        periodStart = todayStart;
         break;
       case "week":
-        const weekStart = new Date(now);
-        weekStart.setDate(now.getDate() - now.getDay()); // Start of week (Sunday)
-        dateFilter = weekStart.toISOString().split("T")[0];
+        // Last 7 Sri Lanka calendar days including today.
+        periodStart = getSriLankaDayRangeFromDateStr(
+          shiftSriLankaDateString(todayDateStr, -6),
+        ).start;
         break;
       case "month":
-        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-        dateFilter = monthStart.toISOString().split("T")[0];
+        periodStart = `${todayDateStr.slice(0, 7)}-01T00:00:00+05:30`;
         break;
       case "all":
-        dateFilter = null;
+        periodStart = null;
         break;
     }
 
@@ -3305,8 +3309,8 @@ router.get("/earnings/summary", authenticate, driverOnly, async (req, res) => {
       .eq("driver_id", driverId)
       .eq("status", "delivered");
 
-    if (dateFilter) {
-      query = query.gte("delivered_at", dateFilter);
+    if (periodStart) {
+      query = query.gte("delivered_at", periodStart);
     }
 
     const { data: deliveries, error } = await query;

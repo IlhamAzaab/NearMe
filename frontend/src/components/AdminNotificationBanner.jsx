@@ -621,9 +621,7 @@ export default function AdminNotificationBanner({
                           const lineTotal = Number(
                             item.total_price ?? qty * unitPrice,
                           );
-                          const size = item.size
-                            ? ` (${item.size})`
-                            : "";
+                          const size = item.size ? ` (${item.size})` : "";
 
                           return (
                             <div
@@ -632,9 +630,14 @@ export default function AdminNotificationBanner({
                             >
                               <p className="leading-tight break-words text-gray-700">
                                 {qty}x {item.food_name || "Item"}
-                                <span className="text-gray-400 text-[10px] ml-0.5">{size}</span>
+                                <span className="text-gray-400 text-[10px] ml-0.5">
+                                  {size}
+                                </span>
                               </p>
-                              <p className="font-semibold whitespace-nowrap" style={{ color: "#06C168" }}>
+                              <p
+                                className="font-semibold whitespace-nowrap"
+                                style={{ color: "#06C168" }}
+                              >
                                 Rs.{lineTotal.toFixed(2)}
                               </p>
                             </div>
@@ -643,13 +646,20 @@ export default function AdminNotificationBanner({
                       </div>
                     ) : (
                       <div className="text-gray-500 text-xs mt-0.5 space-y-0.5">
-                        {(notification.items_summary || notification.message || "")
+                        {(
+                          notification.items_summary ||
+                          notification.message ||
+                          ""
+                        )
                           .split(",")
                           .map((itemText, idx) => {
                             const text = itemText.trim();
                             if (!text) return null;
                             return (
-                              <p key={idx} className="leading-tight break-words">
+                              <p
+                                key={idx}
+                                className="leading-tight break-words"
+                              >
                                 {text}
                               </p>
                             );
@@ -662,8 +672,16 @@ export default function AdminNotificationBanner({
                     <p className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">
                       Price
                     </p>
-                    <p className="text-2xl font-extrabold leading-none" style={{ color: "#06C168" }}>
-                      Rs.{Number(notification.restaurant_total ?? notification.total_amount ?? 0).toFixed(2)}
+                    <p
+                      className="text-2xl font-extrabold leading-none"
+                      style={{ color: "#06C168" }}
+                    >
+                      Rs.
+                      {Number(
+                        notification.restaurant_total ??
+                          notification.total_amount ??
+                          0,
+                      ).toFixed(2)}
                     </p>
                   </div>
                 </div>
@@ -726,7 +744,6 @@ export default function AdminNotificationBanner({
                     Order Accepted!
                   </div>
                 )}
-
               </div>
             </div>
           </div>

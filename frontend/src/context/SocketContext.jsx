@@ -18,6 +18,7 @@ import { io } from "socket.io-client";
 import { API_URL } from "../config";
 
 const SOCKET_URL = API_URL || "http://localhost:5000";
+const ADMIN_REMINDER_SNOOZE_KEY = "adminReminderSnoozeUntil";
 
 // Default context value to prevent null errors
 const defaultContextValue = {
@@ -62,6 +63,42 @@ export function SocketProvider({ children }) {
   const reconnectAttempts = useRef(0);
   const socketRef = useRef(null);
   const maxReconnectAttempts = 5;
+
+  const getReminderSnoozeMap = useCallback(() => {
+    try {
+      const raw = localStorage.getItem(ADMIN_REMINDER_SNOOZE_KEY);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
+    }
+  }, []);
+
+  const setReminderSnoozeMap = useCallback((map) => {
+    try {
+      localStorage.setItem(ADMIN_REMINDER_SNOOZE_KEY, JSON.stringify(map));
+    } catch {
+      // Ignore storage errors.
+    }
+  }, []);
+
+  const isReminderSnoozed = useCallback(
+    (orderId) => {
+      const map = getReminderSnoozeMap();
+      const until = Number(map[orderId] || 0);
+      if (!until) return false;
+
+      if (Date.now() >= until) {
+        delete map[orderId];
+        setReminderSnoozeMap(map);
+        return false;
+      }
+
+      return true;
+    },
+    [getReminderSnoozeMap, setReminderSnoozeMap],
+  );
 
   // Initialize socket connection for drivers
   const connectAsDriver = useCallback(
@@ -334,6 +371,15 @@ export function SocketProvider({ children }) {
       console.log(`[Socket] \ud83d\udea8 NEW ORDER FOR ADMIN:`, data);
       console.log(`[Socket] \u23f0 Received at: ${new Date().toISOString()}`);
 
+      if (data?.type === "order_reminder" && data?.order_id) {
+        if (isReminderSnoozed(data.order_id)) {
+          console.log(
+            `[Socket] Reminder snoozed for order ${data.order_id}; skipping alert`,
+          );
+          return;
+        }
+      }
+
       // Play notification sound (single ring)
       try {
         const audio = new Audio("/notification-tone.wav");
@@ -575,9 +621,23 @@ export function SocketProvider({ children }) {
   }, []);
 
   // Dismiss a specific admin notification by order_id
-  const dismissAdminNotification = useCallback((orderId) => {
-    setAdminNotifications((prev) => prev.filter((n) => n.order_id !== orderId));
-  }, []);
+  const dismissAdminNotification = useCallback(
+    (orderId) => {
+      setAdminNotifications((prev) => {
+        const target = prev.find((n) => n.order_id === orderId);
+
+        // Dismissing reminder acts like a 10-minute snooze for that order.
+        if (target?.type === "order_reminder" && orderId) {
+          const map = getReminderSnoozeMap();
+          map[orderId] = Date.now() + 10 * 60 * 1000;
+          setReminderSnoozeMap(map);
+        }
+
+        return prev.filter((n) => n.order_id !== orderId);
+      });
+    },
+    [getReminderSnoozeMap, setReminderSnoozeMap],
+  );
 
   // Clear all admin notifications
   const clearAllAdminNotifications = useCallback(() => {

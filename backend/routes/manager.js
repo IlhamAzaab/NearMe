@@ -20,6 +20,12 @@ import {
   sendPushNotification,
   sendBroadcastNotification,
 } from "../utils/pushNotificationService.js";
+import {
+  getSriLankaDayRange,
+  getSriLankaDayRangeFromDateStr,
+  getSriLankaDateKey,
+  shiftSriLankaDateString,
+} from "../utils/sriLankaTime.js";
 import dotenv from "dotenv";
 
 if (process.env.NODE_ENV !== "production") {
@@ -1167,18 +1173,19 @@ router.get("/dashboard-stats", authenticate, async (req, res) => {
     }
 
     const now = new Date();
-    const todayStart = new Date(now);
-    todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date(now);
-    todayEnd.setHours(23, 59, 59, 999);
+    const {
+      dateStr: todayDateStr,
+      start: todayStart,
+      end: todayEnd,
+    } = getSriLankaDayRange(now);
 
     // ---- 1. Today's delivered orders with earnings ----
     const { data: todayDeliveries, error: delErr } = await supabaseAdmin
       .from("deliveries")
       .select("order_id, driver_earnings, status, driver_id, delivered_at")
       .eq("status", "delivered")
-      .gte("delivered_at", todayStart.toISOString())
-      .lte("delivered_at", todayEnd.toISOString());
+      .gte("delivered_at", todayStart)
+      .lte("delivered_at", todayEnd);
 
     if (delErr) {
       console.error("Dashboard deliveries error:", delErr);
@@ -1361,22 +1368,17 @@ router.get("/dashboard-stats", authenticate, async (req, res) => {
     // ---- 3. Last 7 days graph data ----
     const graphDays = [];
     for (let i = 6; i >= 0; i--) {
-      const d = new Date(now);
-      d.setDate(d.getDate() - i);
-      d.setHours(0, 0, 0, 0);
+      const dayDateStr = shiftSriLankaDateString(todayDateStr, -i);
+      const dayRange = getSriLankaDayRangeFromDateStr(dayDateStr);
+      const dayStart = new Date(dayRange.start);
       graphDays.push({
-        date: d.toISOString().split("T")[0],
-        label: d.toLocaleDateString("en-US", { weekday: "short" }),
-        start: new Date(d),
-        end: new Date(
-          d.getFullYear(),
-          d.getMonth(),
-          d.getDate(),
-          23,
-          59,
-          59,
-          999,
-        ),
+        date: dayDateStr,
+        label: dayStart.toLocaleDateString("en-US", {
+          weekday: "short",
+          timeZone: "Asia/Colombo",
+        }),
+        start: dayRange.start,
+        end: dayRange.end,
       });
     }
 
@@ -1386,8 +1388,8 @@ router.get("/dashboard-stats", authenticate, async (req, res) => {
       .from("deliveries")
       .select("order_id, driver_earnings, delivered_at")
       .eq("status", "delivered")
-      .gte("delivered_at", weekStart.toISOString())
-      .lte("delivered_at", todayEnd.toISOString());
+      .gte("delivered_at", weekStart)
+      .lte("delivered_at", todayEnd);
 
     const weekOrderIds = (weekDeliveries || []).map((d) => d.order_id);
     const weekDeliveriesMap = {};
@@ -1408,12 +1410,11 @@ router.get("/dashboard-stats", authenticate, async (req, res) => {
     }
 
     const earningsGraph = graphDays.map((day) => {
-      // Filter by delivery date, not order placed_at
+      // Filter by Sri Lanka delivery date, not by UTC day.
       const dayOrders = weekOrders.filter((o) => {
         const deliveredAt = weekDeliveriesMap[o.id]?.delivered_at;
         if (!deliveredAt) return false;
-        const delivered = new Date(deliveredAt);
-        return delivered >= day.start && delivered <= day.end;
+        return getSriLankaDateKey(deliveredAt) === day.date;
       });
       let sales = 0;
       let earnings = 0;
@@ -1476,25 +1477,33 @@ router.get("/earnings/summary", authenticate, async (req, res) => {
       startDate = new Date(from);
       endDate = new Date(to);
     } else if (period === "daily") {
-      startDate = new Date(now);
-      startDate.setHours(0, 0, 0, 0);
-      endDate = new Date(now);
-      endDate.setHours(23, 59, 59, 999);
+      const todayRange = getSriLankaDayRange(now);
+      startDate = new Date(todayRange.start);
+      endDate = new Date(todayRange.end);
     } else if (period === "yesterday") {
-      startDate = new Date(now);
-      startDate.setDate(startDate.getDate() - 1);
-      startDate.setHours(0, 0, 0, 0);
-      endDate = new Date(now);
-      endDate.setDate(endDate.getDate() - 1);
-      endDate.setHours(23, 59, 59, 999);
+      const yesterdayDateStr = shiftSriLankaDateString(
+        getSriLankaDayRange(now).dateStr,
+        -1,
+      );
+      const yesterdayRange = getSriLankaDayRangeFromDateStr(yesterdayDateStr);
+      startDate = new Date(yesterdayRange.start);
+      endDate = new Date(yesterdayRange.end);
     } else if (period === "weekly") {
-      startDate = new Date(now);
-      startDate.setDate(now.getDate() - 7);
-      startDate.setHours(0, 0, 0, 0);
+      const weekStartDateStr = shiftSriLankaDateString(
+        getSriLankaDayRange(now).dateStr,
+        -6,
+      );
+      startDate = new Date(
+        getSriLankaDayRangeFromDateStr(weekStartDateStr).start,
+      );
       endDate = new Date(now);
     } else if (period === "monthly") {
-      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+      const todayDateStr = getSriLankaDayRange(now).dateStr;
+      const monthStartDateStr = `${todayDateStr.slice(0, 7)}-01`;
+      startDate = new Date(
+        getSriLankaDayRangeFromDateStr(monthStartDateStr).start,
+      );
+      endDate = new Date(getSriLankaDayRangeFromDateStr(todayDateStr).end);
     }
 
     // Manager earnings only count when delivery is completed (delivered)

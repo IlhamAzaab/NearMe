@@ -2,6 +2,12 @@ import express from "express";
 import { supabaseAdmin } from "../supabaseAdmin.js";
 import { authenticate } from "../middleware/authenticate.js";
 import { v2 as cloudinary } from "cloudinary";
+import {
+  getSriLankaDayRange,
+  getSriLankaDayRangeFromDateStr,
+  getSriLankaDateKey,
+  shiftSriLankaDateString,
+} from "../utils/sriLankaTime.js";
 
 const router = express.Router();
 
@@ -1317,149 +1323,105 @@ router.get("/earnings", authenticate, async (req, res) => {
 
     const restaurantId = adminData.restaurant_id;
 
-    // Calculate date ranges
+    // Admin earnings are counted at actual delivery completion time.
     const now = new Date();
-    let dateFilter = null;
+    const {
+      dateStr: todayDateStr,
+      start: todayStart,
+      end: todayEnd,
+    } = getSriLankaDayRange(now);
+
+    const inRange = (timestamp, start, end) => {
+      if (!timestamp) return false;
+      if (start && timestamp < start) return false;
+      if (end && timestamp > end) return false;
+      return true;
+    };
+
+    let periodStart = null;
+    let periodEnd = null;
 
     switch (period) {
       case "today":
-        const todayStart = new Date(now);
-        todayStart.setHours(0, 0, 0, 0);
-        dateFilter = { start: todayStart.toISOString() };
+        periodStart = todayStart;
+        periodEnd = todayEnd;
         break;
-      case "week":
-        const weekStart = new Date(now);
-        weekStart.setDate(weekStart.getDate() - 7);
-        dateFilter = { start: weekStart.toISOString() };
+      case "week": {
+        const weekStartDateStr = shiftSriLankaDateString(todayDateStr, -6);
+        periodStart = getSriLankaDayRangeFromDateStr(weekStartDateStr).start;
+        periodEnd = todayEnd;
         break;
-      case "month":
-        const monthStart = new Date(now);
-        monthStart.setDate(monthStart.getDate() - 30);
-        dateFilter = { start: monthStart.toISOString() };
+      }
+      case "month": {
+        const monthStartDateStr = `${todayDateStr.slice(0, 7)}-01`;
+        periodStart = getSriLankaDayRangeFromDateStr(monthStartDateStr).start;
+        periodEnd = todayEnd;
         break;
-      case "year":
-        const yearStart = new Date(now);
-        yearStart.setFullYear(yearStart.getFullYear() - 1);
-        dateFilter = { start: yearStart.toISOString() };
+      }
+      case "year": {
+        const yearStartDateStr = `${todayDateStr.slice(0, 4)}-01-01`;
+        periodStart = getSriLankaDayRangeFromDateStr(yearStartDateStr).start;
+        periodEnd = todayEnd;
         break;
-      case "custom":
-        if (startDate)
-          dateFilter = { start: new Date(startDate).toISOString() };
-        if (endDate)
-          dateFilter = { ...dateFilter, end: new Date(endDate).toISOString() };
+      }
+      case "custom": {
+        if (startDate && /^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
+          periodStart = getSriLankaDayRangeFromDateStr(startDate).start;
+        } else if (startDate) {
+          periodStart = new Date(startDate).toISOString();
+        }
+        if (endDate && /^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+          periodEnd = getSriLankaDayRangeFromDateStr(endDate).end;
+        } else if (endDate) {
+          periodEnd = new Date(endDate).toISOString();
+        }
         break;
+      }
       default:
-        // all - no filter
         break;
     }
 
-    // Admin (restaurant) earns when driver picks up the order
-    // First get order IDs where delivery status is picked_up or later
-    const { data: qualifyingDeliveries, error: qualDelError } =
-      await supabaseAdmin
-        .from("deliveries")
-        .select("order_id")
-        .in("status", ["picked_up", "on_the_way", "at_customer", "delivered"]);
+    const { data: deliveredRows, error: deliveredError } = await supabaseAdmin
+      .from("deliveries")
+      .select(
+        "order_id, delivered_at, orders!inner(restaurant_id, admin_subtotal)",
+      )
+      .eq("status", "delivered")
+      .eq("orders.restaurant_id", restaurantId)
+      .not("delivered_at", "is", null);
 
-    if (qualDelError) {
-      console.error("Qualifying deliveries fetch error:", qualDelError);
+    if (deliveredError) {
+      console.error("Delivered rows fetch error:", deliveredError);
       return res.status(500).json({ message: "Failed to fetch earnings data" });
     }
 
-    const qualifyingOrderIds = (qualifyingDeliveries || []).map(
-      (d) => d.order_id,
+    const records = (deliveredRows || []).map((row) => ({
+      delivered_at: row.delivered_at,
+      amount: parseFloat(row.orders?.admin_subtotal || 0),
+    }));
+
+    const periodRecords = records.filter((r) =>
+      inRange(r.delivered_at, periodStart, periodEnd),
     );
 
-    // Use order_financial_details view for consistent financial data
-    // restaurant_payment = admin_subtotal (what admin receives)
-    // Only count orders where driver has picked up (delivery status >= picked_up)
-    let totalQuery = supabaseAdmin
-      .from("order_financial_details")
-      .select("restaurant_payment, placed_at")
-      .eq("restaurant_id", restaurantId);
+    const totalRevenue = periodRecords.reduce((sum, r) => sum + r.amount, 0);
+    const totalOrders = periodRecords.length;
 
-    // Only include orders with qualifying deliveries
-    if (qualifyingOrderIds.length > 0) {
-      totalQuery = totalQuery.in("order_id", qualifyingOrderIds);
-    } else {
-      // No qualifying orders, return empty earnings
-      return res.json({
-        earnings: {
-          totalRevenue: 0,
-          totalOrders: 0,
-          todaySales: 0,
-          todayOrderCount: 0,
-          thisWeekRevenue: 0,
-          previousRevenue: 0,
-          percentageChange: 0,
-          chartData: [],
-          period,
-        },
-      });
-    }
+    const todayRecords = records.filter((r) =>
+      inRange(r.delivered_at, todayStart, todayEnd),
+    );
+    const todaySales = todayRecords.reduce((sum, r) => sum + r.amount, 0);
+    const todayOrderCount = todayRecords.length;
 
-    if (dateFilter?.start) {
-      totalQuery = totalQuery.gte("placed_at", dateFilter.start);
-    }
-    if (dateFilter?.end) {
-      totalQuery = totalQuery.lte("placed_at", dateFilter.end);
-    }
-
-    const { data: orders, error: ordersError } = await totalQuery;
-
-    if (ordersError) {
-      console.error("Orders fetch error:", ordersError);
-      return res.status(500).json({ message: "Failed to fetch earnings data" });
-    }
-
-    // Calculate totals using restaurant_payment (what admin receives)
-    const totalRevenue = (orders || []).reduce((sum, order) => {
-      return sum + parseFloat(order.restaurant_payment || 0);
-    }, 0);
-
-    const totalOrders = orders?.length || 0;
-
-    // Get today's sales separately
-    const todayStart = new Date(now);
-    todayStart.setHours(0, 0, 0, 0);
-
-    let todayQuery = supabaseAdmin
-      .from("order_financial_details")
-      .select("restaurant_payment")
-      .eq("restaurant_id", restaurantId)
-      .gte("placed_at", todayStart.toISOString());
-
-    if (qualifyingOrderIds.length > 0) {
-      todayQuery = todayQuery.in("order_id", qualifyingOrderIds);
-    }
-
-    const { data: todayOrders, error: todayError } = await todayQuery;
-
-    const todaySales = (todayOrders || []).reduce((sum, order) => {
-      return sum + parseFloat(order.restaurant_payment || 0);
-    }, 0);
-
-    const todayOrderCount = todayOrders?.length || 0;
-
-    // Calculate this week's revenue (always shown in metric grid)
-    const thisWeekStart = new Date(now);
-    thisWeekStart.setDate(thisWeekStart.getDate() - 7);
-
-    let thisWeekQuery = supabaseAdmin
-      .from("order_financial_details")
-      .select("restaurant_payment")
-      .eq("restaurant_id", restaurantId)
-      .gte("placed_at", thisWeekStart.toISOString());
-
-    if (qualifyingOrderIds.length > 0) {
-      thisWeekQuery = thisWeekQuery.in("order_id", qualifyingOrderIds);
-    }
-
-    const { data: thisWeekOrders } = await thisWeekQuery;
-
-    const thisWeekRevenue = (thisWeekOrders || []).reduce((sum, order) => {
-      return sum + parseFloat(order.restaurant_payment || 0);
-    }, 0);
+    const weekStartDateStr = shiftSriLankaDateString(todayDateStr, -6);
+    const weekStart = getSriLankaDayRangeFromDateStr(weekStartDateStr).start;
+    const thisWeekRecords = records.filter((r) =>
+      inRange(r.delivered_at, weekStart, todayEnd),
+    );
+    const thisWeekRevenue = thisWeekRecords.reduce(
+      (sum, r) => sum + r.amount,
+      0,
+    );
 
     // Calculate previous period revenue for comparison (period-aware)
     let previousRevenue = 0;
@@ -1467,55 +1429,42 @@ router.get("/earnings", authenticate, async (req, res) => {
     let prevEnd = null;
 
     switch (period) {
-      case "today":
-        // Compare with yesterday
-        prevEnd = new Date(todayStart);
-        prevStart = new Date(todayStart);
-        prevStart.setDate(prevStart.getDate() - 1);
+      case "today": {
+        const yesterdayDateStr = shiftSriLankaDateString(todayDateStr, -1);
+        const yesterdayRange = getSriLankaDayRangeFromDateStr(yesterdayDateStr);
+        prevStart = yesterdayRange.start;
+        prevEnd = yesterdayRange.end;
         break;
-      case "week":
-        // Compare with previous 7 days (days -14 to -7)
-        prevEnd = new Date(now);
-        prevEnd.setDate(prevEnd.getDate() - 7);
-        prevStart = new Date(now);
-        prevStart.setDate(prevStart.getDate() - 14);
+      }
+      case "week": {
+        const prevWeekStartStr = shiftSriLankaDateString(todayDateStr, -13);
+        const prevWeekEndStr = shiftSriLankaDateString(todayDateStr, -7);
+        prevStart = getSriLankaDayRangeFromDateStr(prevWeekStartStr).start;
+        prevEnd = getSriLankaDayRangeFromDateStr(prevWeekEndStr).end;
         break;
-      case "month":
-        // Compare with previous 30 days (days -60 to -30)
-        prevEnd = new Date(now);
-        prevEnd.setDate(prevEnd.getDate() - 30);
-        prevStart = new Date(now);
-        prevStart.setDate(prevStart.getDate() - 60);
+      }
+      case "month": {
+        const prevMonthStartStr = shiftSriLankaDateString(todayDateStr, -59);
+        const prevMonthEndStr = shiftSriLankaDateString(todayDateStr, -30);
+        prevStart = getSriLankaDayRangeFromDateStr(prevMonthStartStr).start;
+        prevEnd = getSriLankaDayRangeFromDateStr(prevMonthEndStr).end;
         break;
-      case "year":
-        // Compare with previous year
-        prevEnd = new Date(now);
-        prevEnd.setFullYear(prevEnd.getFullYear() - 1);
-        prevStart = new Date(now);
-        prevStart.setFullYear(prevStart.getFullYear() - 2);
+      }
+      case "year": {
+        const prevYearStartStr = shiftSriLankaDateString(todayDateStr, -730);
+        const prevYearEndStr = shiftSriLankaDateString(todayDateStr, -366);
+        prevStart = getSriLankaDayRangeFromDateStr(prevYearStartStr).start;
+        prevEnd = getSriLankaDayRangeFromDateStr(prevYearEndStr).end;
         break;
+      }
       default:
-        // All time - no comparison
         break;
     }
 
     if (prevStart && prevEnd) {
-      let prevQuery = supabaseAdmin
-        .from("order_financial_details")
-        .select("restaurant_payment")
-        .eq("restaurant_id", restaurantId)
-        .gte("placed_at", prevStart.toISOString())
-        .lt("placed_at", prevEnd.toISOString());
-
-      if (qualifyingOrderIds.length > 0) {
-        prevQuery = prevQuery.in("order_id", qualifyingOrderIds);
-      }
-
-      const { data: prevOrders } = await prevQuery;
-      previousRevenue = (prevOrders || []).reduce(
-        (sum, order) => sum + parseFloat(order.restaurant_payment || 0),
-        0,
-      );
+      previousRevenue = records
+        .filter((r) => inRange(r.delivered_at, prevStart, prevEnd))
+        .reduce((sum, r) => sum + r.amount, 0);
     }
 
     // Calculate percentage change based on period-aware comparison
@@ -1527,32 +1476,20 @@ router.get("/earnings", authenticate, async (req, res) => {
       percentageChange = 100; // new revenue where there was none before
     }
 
-    // Get daily earnings for chart (last 30 days)
-    const thirtyDaysAgo = new Date(now);
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    // Get daily earnings for chart (last 30 Sri Lanka days)
+    const chartStartDateStr = shiftSriLankaDateString(todayDateStr, -29);
+    const chartStart = getSriLankaDayRangeFromDateStr(chartStartDateStr).start;
 
-    let chartQuery = supabaseAdmin
-      .from("order_financial_details")
-      .select("restaurant_payment, placed_at")
-      .eq("restaurant_id", restaurantId)
-      .gte("placed_at", thirtyDaysAgo.toISOString())
-      .order("placed_at", { ascending: true });
-
-    if (qualifyingOrderIds.length > 0) {
-      chartQuery = chartQuery.in("order_id", qualifyingOrderIds);
-    }
-
-    const { data: chartOrders } = await chartQuery;
-
-    // Group by date for chart
     const dailyEarnings = {};
-    (chartOrders || []).forEach((order) => {
-      const date = new Date(order.placed_at).toISOString().split("T")[0];
-      if (!dailyEarnings[date]) {
-        dailyEarnings[date] = 0;
-      }
-      dailyEarnings[date] += parseFloat(order.restaurant_payment || 0);
-    });
+    records
+      .filter((r) => inRange(r.delivered_at, chartStart, todayEnd))
+      .forEach((record) => {
+        const date = getSriLankaDateKey(record.delivered_at);
+        if (!dailyEarnings[date]) {
+          dailyEarnings[date] = 0;
+        }
+        dailyEarnings[date] += record.amount;
+      });
 
     // Convert to array for chart
     const chartData = Object.entries(dailyEarnings).map(([date, amount]) => ({

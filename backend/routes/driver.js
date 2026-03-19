@@ -2,6 +2,10 @@ import express from "express";
 import { supabaseAdmin } from "../supabaseAdmin.js";
 import { authenticate } from "../middleware/authenticate.js";
 import { getSystemConfig } from "../utils/systemConfig.js";
+import {
+  getSriLankaDayRange,
+  getSriLankaDateString,
+} from "../utils/sriLankaTime.js";
 
 const router = express.Router();
 
@@ -244,9 +248,9 @@ router.get("/stats/monthly", authenticate, async (req, res) => {
     }
 
     const driverId = req.user.id;
-    const now = new Date();
-    const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    firstDayOfMonth.setHours(0, 0, 0, 0);
+    const todayStr = getSriLankaDateString();
+    const monthStartStr = `${todayStr.slice(0, 7)}-01`;
+    const monthStart = `${monthStartStr}T00:00:00+05:30`;
 
     const { data: deliveries, error } = await supabaseAdmin
       .from("deliveries")
@@ -255,7 +259,7 @@ router.get("/stats/monthly", authenticate, async (req, res) => {
       )
       .eq("driver_id", driverId)
       .eq("status", "delivered")
-      .gte("delivered_at", firstDayOfMonth.toISOString());
+      .gte("delivered_at", monthStart);
 
     if (error) {
       console.error("Fetch monthly stats error:", error);
@@ -351,8 +355,7 @@ router.get("/stats/today", authenticate, async (req, res) => {
     }
 
     const driverId = req.user.id;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const { start: todayStart } = getSriLankaDayRange();
 
     // Get today's completed deliveries with earnings
     const { data: deliveries, error } = await supabaseAdmin
@@ -362,7 +365,7 @@ router.get("/stats/today", authenticate, async (req, res) => {
       )
       .eq("driver_id", driverId)
       .eq("status", "delivered")
-      .gte("delivered_at", today.toISOString());
+      .gte("delivered_at", todayStart);
 
     if (error) {
       console.error("Fetch today's stats error:", error);

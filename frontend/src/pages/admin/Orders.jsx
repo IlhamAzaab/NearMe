@@ -80,8 +80,14 @@ export default function Orders() {
   function computeCountsStatic(list) {
     const allOrders = list || [];
     const getStatus = (order) => {
-      const dels = order?.deliveries ? (Array.isArray(order.deliveries) ? order.deliveries : [order.deliveries]) : [];
-      return dels[0]?.status || order?.delivery_status || order?.status || "placed";
+      const dels = order?.deliveries
+        ? Array.isArray(order.deliveries)
+          ? order.deliveries
+          : [order.deliveries]
+        : [];
+      return (
+        dels[0]?.status || order?.delivery_status || order?.status || "placed"
+      );
     };
     const pending = allOrders.filter((o) => getStatus(o) === "placed").length;
     const accepted = allOrders.filter((o) => {
@@ -90,7 +96,12 @@ export default function Orders() {
     }).length;
     const delivered = allOrders.filter((o) => {
       const s = getStatus(o);
-      return s === "picked_up" || s === "on_the_way" || s === "at_customer" || s === "delivered";
+      return (
+        s === "picked_up" ||
+        s === "on_the_way" ||
+        s === "at_customer" ||
+        s === "delivered"
+      );
     }).length;
     return { all: allOrders.length, pending, accepted, delivered };
   }
@@ -203,7 +214,8 @@ export default function Orders() {
 
     const setupRealtimeSubscriptions = async () => {
       try {
-        const { createResilientSubscription } = await import("../../utils/realtimeHelper");
+        const { createResilientSubscription } =
+          await import("../../utils/realtimeHelper");
 
         // Subscribe to new deliveries
         const deliverySub = createResilientSubscription({
@@ -220,7 +232,10 @@ export default function Orders() {
             fetchOrdersRef.current?.(true);
           },
           onError: (err) => {
-            console.warn("[Realtime] Delivery subscription error:", err?.message);
+            console.warn(
+              "[Realtime] Delivery subscription error:",
+              err?.message,
+            );
           },
         });
         cleanupDeliveries = deliverySub.unsubscribe;
@@ -271,7 +286,10 @@ export default function Orders() {
         });
         cleanupStatusUpdates = statusSub.unsubscribe;
       } catch (err) {
-        console.warn("[Realtime] Failed to set up subscriptions, using polling fallback:", err?.message);
+        console.warn(
+          "[Realtime] Failed to set up subscriptions, using polling fallback:",
+          err?.message,
+        );
       }
     };
 

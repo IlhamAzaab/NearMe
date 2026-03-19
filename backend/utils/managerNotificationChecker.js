@@ -410,7 +410,9 @@ async function checkRestaurantMilestones() {
           .eq("id", restaurantId)
           .maybeSingle();
 
-        const admins = restaurant?.admin_id ? [{ id: restaurant.admin_id }] : [];
+        const admins = restaurant?.admin_id
+          ? [{ id: restaurant.admin_id }]
+          : [];
 
         if (admins && admins.length > 0) {
           for (const admin of admins) {
@@ -476,14 +478,18 @@ async function checkAdminOrderReminders() {
     const nowMs = Date.now();
     const orderIds = [...new Set(stalePlaced.map((d) => d.order_id))];
     const restaurantIds = [
-      ...new Set(stalePlaced.map((d) => d.orders?.restaurant_id).filter(Boolean)),
+      ...new Set(
+        stalePlaced.map((d) => d.orders?.restaurant_id).filter(Boolean),
+      ),
     ];
 
     let itemsByOrder = {};
     if (orderIds.length > 0) {
       const { data: orderItems } = await supabaseAdmin
         .from("order_items")
-        .select("order_id, food_name, size, quantity, admin_unit_price, unit_price")
+        .select(
+          "order_id, food_name, size, quantity, admin_unit_price, unit_price",
+        )
         .in("order_id", orderIds);
 
       itemsByOrder = (orderItems || []).reduce((acc, item) => {
@@ -519,7 +525,8 @@ async function checkAdminOrderReminders() {
       const orderItems = itemsByOrder[order.id] || [];
       const itemsSummary = orderItems
         .map((item) => {
-          const size = item.size && item.size !== "regular" ? ` (${item.size})` : "";
+          const size =
+            item.size && item.size !== "regular" ? ` (${item.size})` : "";
           return `${item.quantity || 1}x ${item.food_name || "Item"}${size}`;
         })
         .join(", ");
@@ -557,7 +564,9 @@ async function checkAdminOrderReminders() {
           items_summary: itemsSummary,
           items_count: itemsDetails.length,
           items_details: itemsDetails,
-          restaurant_total: parseFloat(order.admin_subtotal || order.total_amount || 0),
+          restaurant_total: parseFloat(
+            order.admin_subtotal || order.total_amount || 0,
+          ),
           total_amount: parseFloat(order.total_amount || 0),
           waiting_minutes: waitingMinutes,
           reminder: true,
@@ -665,7 +674,10 @@ async function checkAutoRejectStalePlacedOrders() {
       });
     }
   } catch (err) {
-    console.error("[NotifChecker] Auto-reject stale orders error:", err.message);
+    console.error(
+      "[NotifChecker] Auto-reject stale orders error:",
+      err.message,
+    );
   }
 }
 
