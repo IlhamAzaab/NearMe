@@ -81,7 +81,9 @@ export function initializeSocket(server) {
       if (payload) {
         socket.userId = payload.id;
         socket.userRole = payload.role;
-        console.log(`[Socket] Authenticated user: ${socket.userId} (role: ${socket.userRole})`);
+        console.log(
+          `[Socket] Authenticated user: ${socket.userId} (role: ${socket.userRole})`,
+        );
         return next();
       }
     }

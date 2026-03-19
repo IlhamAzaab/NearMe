@@ -290,6 +290,7 @@ export default function AdminNotificationBanner({
       {notifications.map((notification) => {
         const isAccepted = acceptedIds.has(notification.order_id);
         const isAccepting = acceptingId === notification.order_id;
+        const isReminder = notification.type === "order_reminder";
         const itemDetails = Array.isArray(notification.items_details)
           ? notification.items_details
           : [];
@@ -594,7 +595,12 @@ export default function AdminNotificationBanner({
                   {/* Content */}
                   <div className="flex-1 min-w-0">
                     <h3 className="text-[#111816] text-base font-bold leading-tight">
-                      {isAccepted ? "Order Accepted!" : "New Order Arrived!"}
+                      {isAccepted
+                        ? "Order Accepted!"
+                        : notification.title ||
+                          (isReminder
+                            ? "Order Waiting Alert"
+                            : "New Order Arrived!")}
                     </h3>
                     <p
                       className="text-sm font-bold mt-0.5"
@@ -602,6 +608,11 @@ export default function AdminNotificationBanner({
                     >
                       #{notification.order_number}
                     </p>
+                    {isReminder && (
+                      <p className="text-[11px] text-amber-600 font-semibold mt-0.5">
+                        Waiting {Number(notification.waiting_minutes || 0)} min
+                      </p>
+                    )}
                     {itemDetails.length > 0 ? (
                       <div className="text-gray-600 text-xs mt-1 space-y-1">
                         {itemDetails.map((item, idx) => {

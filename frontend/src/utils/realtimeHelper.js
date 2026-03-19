@@ -48,7 +48,7 @@ export function createResilientSubscription(config) {
             if (!isUnsubscribed) {
               onData(payload);
             }
-          }
+          },
         )
         .subscribe((status, err) => {
           if (status === "SUBSCRIBED") {
@@ -67,7 +67,10 @@ export function createResilientSubscription(config) {
           }
         });
     } catch (err) {
-      console.error(`[Realtime] Failed to create subscription ${channelName}:`, err);
+      console.error(
+        `[Realtime] Failed to create subscription ${channelName}:`,
+        err,
+      );
       handleError(err);
     }
   };
@@ -77,13 +80,17 @@ export function createResilientSubscription(config) {
     if (!isUnsubscribed && retryCount < MAX_RETRIES) {
       scheduleRetry();
     } else if (retryCount >= MAX_RETRIES) {
-      console.error(`[Realtime] Max retries reached for ${channelName}. Realtime disabled.`);
+      console.error(
+        `[Realtime] Max retries reached for ${channelName}. Realtime disabled.`,
+      );
     }
   };
 
   const scheduleRetry = () => {
     const delay = RETRY_DELAYS[Math.min(retryCount, RETRY_DELAYS.length - 1)];
-    console.log(`[Realtime] Retrying ${channelName} in ${delay}ms (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+    console.log(
+      `[Realtime] Retrying ${channelName} in ${delay}ms (attempt ${retryCount + 1}/${MAX_RETRIES})`,
+    );
 
     retryTimeout = setTimeout(() => {
       retryCount++;
@@ -106,7 +113,10 @@ export function createResilientSubscription(config) {
         subscription.unsubscribe();
         console.log(`[Realtime] Unsubscribed from ${channelName}`);
       } catch (err) {
-        console.warn(`[Realtime] Error unsubscribing from ${channelName}:`, err);
+        console.warn(
+          `[Realtime] Error unsubscribing from ${channelName}:`,
+          err,
+        );
       }
     }
   };
@@ -123,7 +133,9 @@ export function createResilientSubscription(config) {
  * @returns {Function} - Cleanup function to unsubscribe all
  */
 export function createMultipleSubscriptions(configs) {
-  const subscriptions = configs.map((config) => createResilientSubscription(config));
+  const subscriptions = configs.map((config) =>
+    createResilientSubscription(config),
+  );
 
   return () => {
     subscriptions.forEach((sub) => sub.unsubscribe());
@@ -131,4 +143,3 @@ export function createMultipleSubscriptions(configs) {
 }
 
 export default createResilientSubscription;
-

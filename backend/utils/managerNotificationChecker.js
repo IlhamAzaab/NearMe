@@ -22,10 +22,13 @@ import {
   broadcastToManagers,
   notifyDriver,
   notifyAdmin,
+  notifyCustomer,
 } from "./socketManager.js";
 import {
   sendUnassignedDeliveryAlertToManagers,
   sendMilestoneNotification,
+  sendPushNotification,
+  sendOrderStatusNotification,
 } from "./pushNotificationService.js";
 
 // ── State tracking ──────────────────────────────────────────────────────
@@ -37,6 +40,8 @@ let managerOrderMilestone = 0;
 let managerEarningsMilestone = 0;
 const driverMilestones = new Map(); // driverId → last daily milestone
 const restaurantMilestones = new Map(); // restaurantId → last daily milestone
+const AUTO_REJECT_REASON =
+  "restaurant is busy. You cann't get the food even in manually. try reorder we'll arrange you soon";
 
 /**
  * Get today's date string in Sri Lanka timezone (UTC+5:30)
@@ -360,33 +365,23 @@ async function checkRestaurantMilestones() {
   try {
     const todayStart = getTodayStartUTC();
 
-    // Only count orders where driver has picked up or beyond
-    // Before pickup, money is not paid to admin
-    const qualifyingStatuses = ["picked_up", "on_the_way", "at_customer", "delivered"];
+    // Milestone must be based on today's order intake window (not rolling 24h
+    // and not previous-day orders that happened to update today).
+    const { data: rawOrders, error: ordersError } = await supabaseAdmin
+      .from("orders")
+      .select("id, restaurant_id, total_amount, placed_at, created_at")
+      .not("restaurant_id", "is", null)
+      .gte("created_at", todayStart);
 
-    const { data: todayDeliveries, error: delError } = await supabaseAdmin
-      .from("deliveries")
-      .select("order_id, status")
-      .in("status", qualifyingStatuses)
-      .gte("updated_at", todayStart);
+    if (ordersError || !rawOrders || rawOrders.length === 0) return;
 
-    if (delError || !todayDeliveries || todayDeliveries.length === 0) return;
-
-    const qualifyingOrderIds = todayDeliveries.map((d) => d.order_id);
-
-    // Batch fetch orders in groups of 100
-    let todayOrders = [];
-    const batchSize = 100;
-    for (let i = 0; i < qualifyingOrderIds.length; i += batchSize) {
-      const batch = qualifyingOrderIds.slice(i, i + batchSize);
-      const { data: orders, error } = await supabaseAdmin
-        .from("orders")
-        .select("id, restaurant_id, total_amount")
-        .in("id", batch)
-        .not("restaurant_id", "is", null);
-      if (error) continue;
-      if (orders) todayOrders = todayOrders.concat(orders);
-    }
+    const todayOrders = rawOrders.filter((order) => {
+      const ts = order.placed_at || order.created_at;
+      if (!ts) return false;
+      const parsed = new Date(ts);
+      if (Number.isNaN(parsed.getTime())) return false;
+      return parsed.toISOString() >= todayStart;
+    });
 
     if (todayOrders.length === 0) return;
 
@@ -452,6 +447,229 @@ async function checkRestaurantMilestones() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// 6. ADMIN REMINDER FOR STALE NEW ORDERS (10+ mins, once per order)
+// ═══════════════════════════════════════════════════════════════════════
+async function checkAdminOrderReminders() {
+  try {
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const thirtyMinutesAgo = new Date(
+      Date.now() - 30 * 60 * 1000,
+    ).toISOString();
+
+    // Only orders still waiting for restaurant decision.
+    const { data: stalePlaced, error: staleErr } = await supabaseAdmin
+      .from("deliveries")
+      .select(
+        `
+        id, order_id, created_at,
+        orders!inner(
+          id, order_number, restaurant_id, customer_name, total_amount, admin_subtotal, placed_at, created_at
+        )
+      `,
+      )
+      .eq("status", "placed")
+      .lte("created_at", tenMinutesAgo)
+      .gt("created_at", thirtyMinutesAgo);
+
+    if (staleErr || !stalePlaced || stalePlaced.length === 0) return;
+
+    const nowMs = Date.now();
+    const orderIds = [...new Set(stalePlaced.map((d) => d.order_id))];
+    const restaurantIds = [
+      ...new Set(stalePlaced.map((d) => d.orders?.restaurant_id).filter(Boolean)),
+    ];
+
+    let itemsByOrder = {};
+    if (orderIds.length > 0) {
+      const { data: orderItems } = await supabaseAdmin
+        .from("order_items")
+        .select("order_id, food_name, size, quantity, admin_unit_price, unit_price")
+        .in("order_id", orderIds);
+
+      itemsByOrder = (orderItems || []).reduce((acc, item) => {
+        if (!acc[item.order_id]) acc[item.order_id] = [];
+        acc[item.order_id].push(item);
+        return acc;
+      }, {});
+    }
+
+    let adminsByRestaurant = {};
+    if (restaurantIds.length > 0) {
+      const { data: admins } = await supabaseAdmin
+        .from("admins")
+        .select("id, restaurant_id")
+        .in("restaurant_id", restaurantIds);
+
+      adminsByRestaurant = (admins || []).reduce((acc, admin) => {
+        if (!acc[admin.restaurant_id]) acc[admin.restaurant_id] = [];
+        acc[admin.restaurant_id].push(admin.id);
+        return acc;
+      }, {});
+    }
+
+    for (const row of stalePlaced) {
+      const order = row.orders;
+      if (!order?.restaurant_id) continue;
+
+      const waitingMinutes = Math.max(
+        10,
+        Math.floor((nowMs - new Date(row.created_at).getTime()) / 60000),
+      );
+
+      const orderItems = itemsByOrder[order.id] || [];
+      const itemsSummary = orderItems
+        .map((item) => {
+          const size = item.size && item.size !== "regular" ? ` (${item.size})` : "";
+          return `${item.quantity || 1}x ${item.food_name || "Item"}${size}`;
+        })
+        .join(", ");
+
+      const itemsDetails = orderItems.map((item) => ({
+        food_name: item.food_name || "Item",
+        size: item.size || "regular",
+        quantity: Number(item.quantity || 1),
+        unit_price: Number(item.admin_unit_price || item.unit_price || 0),
+        total_price:
+          Number(item.quantity || 1) *
+          Number(item.admin_unit_price || item.unit_price || 0),
+      }));
+
+      const adminIds = adminsByRestaurant[order.restaurant_id] || [];
+      for (const adminId of adminIds) {
+        // Enforce one-time reminder per order per admin.
+        const { data: existingReminder } = await supabaseAdmin
+          .from("notifications")
+          .select("id")
+          .eq("recipient_id", adminId)
+          .eq("recipient_role", "admin")
+          .eq("type", "order_reminder_10min")
+          .eq("order_id", order.id)
+          .maybeSingle();
+
+        if (existingReminder?.id) continue;
+
+        notifyAdmin(adminId, "order:new_order", {
+          type: "order_reminder",
+          title: "⏰ Order Waiting Alert",
+          message: `Order #${order.order_number || order.id?.slice(-6)} has been waiting ${waitingMinutes} minutes. Please accept or reject now.`,
+          order_id: order.id,
+          order_number: order.order_number,
+          items_summary: itemsSummary,
+          items_count: itemsDetails.length,
+          items_details: itemsDetails,
+          restaurant_total: parseFloat(order.admin_subtotal || order.total_amount || 0),
+          total_amount: parseFloat(order.total_amount || 0),
+          waiting_minutes: waitingMinutes,
+          reminder: true,
+        });
+
+        await sendPushNotification(adminId, {
+          title: "⏰ Order Waiting Alert",
+          body: `Order #${order.order_number || order.id?.slice(-6)} has been waiting ${waitingMinutes} minutes. Accept or reject now.`,
+          sound: "alarm",
+          channelId: "urgent_orders",
+          sticky: true,
+          data: {
+            type: "order_reminder",
+            persistent: "true",
+            orderId: String(order.id),
+            orderNumber: order.order_number,
+            itemsSummary,
+            itemsCount: String(itemsDetails.length),
+            waitingMinutes: String(waitingMinutes),
+            screen: "AdminOrders",
+            channelId: "urgent_orders",
+          },
+        });
+
+        await supabaseAdmin.from("notifications").insert({
+          recipient_id: adminId,
+          recipient_role: "admin",
+          type: "order_reminder_10min",
+          title: "Order Waiting Alert",
+          message: `Order #${order.order_number || order.id?.slice(-6)} is pending for ${waitingMinutes} minutes`,
+          order_id: order.id,
+          restaurant_id: order.restaurant_id,
+          is_read: false,
+          metadata: {
+            waiting_minutes: waitingMinutes,
+            source: "auto_reminder_10min",
+          },
+        });
+      }
+    }
+  } catch (err) {
+    console.error("[NotifChecker] Admin order reminder error:", err.message);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// 7. AUTO-REJECT STALE PLACED ORDERS (30+ mins)
+// ═══════════════════════════════════════════════════════════════════════
+async function checkAutoRejectStalePlacedOrders() {
+  try {
+    const thirtyMinutesAgo = new Date(
+      Date.now() - 30 * 60 * 1000,
+    ).toISOString();
+
+    const { data: staleOrders, error: staleErr } = await supabaseAdmin
+      .from("deliveries")
+      .select(
+        `
+        id, order_id, status,
+        orders!inner(id, order_number, customer_id, restaurant_name)
+      `,
+      )
+      .eq("status", "placed")
+      .lte("created_at", thirtyMinutesAgo);
+
+    if (staleErr || !staleOrders || staleOrders.length === 0) return;
+
+    const now = new Date().toISOString();
+
+    for (const stale of staleOrders) {
+      const { data: updatedDelivery, error: updateErr } = await supabaseAdmin
+        .from("deliveries")
+        .update({
+          status: "failed",
+          rejected_at: now,
+          rejection_reason: AUTO_REJECT_REASON,
+          updated_at: now,
+        })
+        .eq("id", stale.id)
+        .eq("status", "placed")
+        .select("id")
+        .maybeSingle();
+
+      // Another process may have changed status in the meantime.
+      if (updateErr || !updatedDelivery?.id) continue;
+
+      const order = stale.orders;
+      if (!order?.customer_id) continue;
+
+      notifyCustomer(order.customer_id, "order:status_update", {
+        type: "order_rejected",
+        title: "Order Rejected",
+        message: AUTO_REJECT_REASON,
+        order_id: stale.order_id,
+        order_number: order.order_number,
+        status: "failed",
+      });
+
+      await sendOrderStatusNotification(order.customer_id, {
+        orderId: stale.order_id,
+        orderNumber: order.order_number,
+        status: "rejected",
+        restaurantName: order.restaurant_name,
+        customMessage: AUTO_REJECT_REASON,
+      });
+    }
+  } catch (err) {
+    console.error("[NotifChecker] Auto-reject stale orders error:", err.message);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // MAIN: Run all checks
 // ═══════════════════════════════════════════════════════════════════════
 export async function runManagerChecks() {
@@ -463,6 +681,8 @@ export async function runManagerChecks() {
     checkManagerEarningsMilestone(),
     checkDriverMilestones(),
     checkRestaurantMilestones(),
+    checkAdminOrderReminders(),
+    checkAutoRejectStalePlacedOrders(),
   ]);
 }
 

@@ -347,10 +347,19 @@ export function SocketProvider({ children }) {
         receivedAt: Date.now(),
       };
 
-      // Add to admin notifications queue (no auto-dismiss!)
+      // Add/update admin notifications queue (no auto-dismiss!)
+      // If the same order comes again (e.g., reminder), refresh and move to top.
       setAdminNotifications((prev) => {
-        // Prevent duplicates by order_id
-        if (prev.some((n) => n.order_id === data.order_id)) return prev;
+        const existingIndex = prev.findIndex(
+          (n) => n.order_id === data.order_id && !n.isMilestone,
+        );
+
+        if (existingIndex !== -1) {
+          const next = [...prev];
+          next.splice(existingIndex, 1);
+          return [notification, ...next];
+        }
+
         return [notification, ...prev];
       });
     });

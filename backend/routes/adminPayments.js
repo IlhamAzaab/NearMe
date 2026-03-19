@@ -4,6 +4,7 @@ import { supabaseAdmin } from "../supabaseAdmin.js";
 import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
 import { notifyAdmin } from "../utils/socketManager.js";
+import { sendPushNotification } from "../utils/pushNotificationService.js";
 
 const router = express.Router();
 
@@ -529,6 +530,24 @@ router.post(
           note: note || null,
           created_at: payment.created_at,
         });
+
+        // Push for mobile app parity (works when app is background/closed)
+        sendPushNotification(restaurant.admin_id, {
+          title: "💸 Payment Received",
+          body: `Manager sent Rs.${payAmount.toFixed(2)} to your account.`,
+          sound: "default",
+          channelId: "payments",
+          data: {
+            type: "admin_payment_received",
+            paymentId: String(payment.id),
+            amount: String(payAmount),
+            proofType: proofType,
+            screen: "AdminWithdrawals",
+            channelId: "payments",
+          },
+        }).catch((err) =>
+          console.error("[ADMIN-PAYMENTS] Admin push notify error:", err),
+        );
       }
 
       return res.json({

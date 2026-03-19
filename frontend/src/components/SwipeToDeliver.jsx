@@ -5,6 +5,7 @@ function SwipeToDeliver({
   onSwipe,
   disabled = false,
   buttonText = "SWIPE TO DELIVER",
+  resetTrigger,
 }) {
   const [swipePosition, setSwipePosition] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
@@ -19,6 +20,14 @@ function SwipeToDeliver({
       maxSwipe.current = containerRef.current.offsetWidth - 60;
     }
   }, []);
+
+  // Reset completed swipe state when parent advances to a new action
+  // or when an action cycle finishes (for retry after error).
+  useEffect(() => {
+    setSwipePosition(0);
+    setIsDragging(false);
+    setIsCompleted(false);
+  }, [resetTrigger]);
 
   const handleStart = (clientX) => {
     if (disabled || isCompleted) return;

@@ -495,6 +495,10 @@ export async function sendNewOrderNotification(
  */
 export async function sendOrderStatusNotification(customerId, orderInfo) {
   try {
+    const customRejectedBody = orderInfo.customMessage
+      ? String(orderInfo.customMessage)
+      : null;
+
     const statusConfig = {
       accepted: {
         title: "✅ Order Accepted!",
@@ -510,7 +514,9 @@ export async function sendOrderStatusNotification(customerId, orderInfo) {
       },
       rejected: {
         title: "❌ Order Rejected",
-        body: `Sorry, your order #${orderInfo.orderNumber} was rejected by the restaurant.`,
+        body:
+          customRejectedBody ||
+          `Sorry, your order #${orderInfo.orderNumber} was rejected by the restaurant.`,
       },
       cancelled: {
         title: "🚫 Order Cancelled",

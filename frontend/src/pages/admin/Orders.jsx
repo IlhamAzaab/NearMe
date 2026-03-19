@@ -33,9 +33,11 @@ export default function Orders() {
     setRawActionError(msg);
     if (msg) showError(msg);
   };
-  const [statusFilter, setStatusFilter] = useState(
-    searchParams.get("status") || "all",
-  );
+  const [statusFilter, setStatusFilter] = useState(() => {
+    const requested = searchParams.get("status");
+    const allowed = ["all", "pending", "accepted", "delivered"];
+    return allowed.includes(requested) ? requested : "pending";
+  });
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [counts, setCounts] = useState(() => {
     if (cachedOrders) {
@@ -344,9 +346,19 @@ export default function Orders() {
     }
   };
 
-  const periodOrders = orders.filter((o) =>
-    isInPeriod(o.placed_at || o.created_at),
-  );
+  const periodOrders = orders.filter((o) => {
+    const relevantDate = o.placed_at || o.created_at;
+
+    if (isInPeriod(relevantDate)) return true;
+
+    // In "Today" view, keep showing carry-over new orders (still unaccepted)
+    // even if they were placed before midnight.
+    if (period === "today" && getDeliveryStatus(o) === "placed") {
+      return true;
+    }
+
+    return false;
+  });
 
   const filteredOrders = periodOrders.filter((order) => {
     const deliveryStatus = getDeliveryStatus(order);
