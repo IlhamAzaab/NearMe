@@ -495,6 +495,8 @@ export default function DriverMapPage() {
       );
 
       if (res.ok) {
+        const data = await res.json();
+
         // Show success overlay
         setOverlayStatus("success");
         overlayCallbackRef.current = async () => {
@@ -502,9 +504,28 @@ export default function DriverMapPage() {
             (p) => p.delivery_id !== currentTarget.delivery_id,
           );
           setPickups(updatedPickups);
+
+          // Handle auto-promoted delivery if backend promoted one
+          let updatedDeliveries = deliveries;
+          if (data.promotedDelivery) {
+            const promotedIndex = updatedDeliveries.findIndex(
+              (d) => d.delivery_id === data.promotedDelivery.id,
+            );
+            if (promotedIndex !== -1) {
+              updatedDeliveries = [...updatedDeliveries];
+              updatedDeliveries[promotedIndex].status = "on_the_way";
+              setDeliveries(updatedDeliveries);
+            }
+          }
+
           if (updatedPickups.length > 0) {
             setCurrentTarget(updatedPickups[0]);
+          } else if (updatedDeliveries.length > 0) {
+            // No more pickups, switch to delivery mode with the first delivery
+            setMode("delivery");
+            setCurrentTarget(updatedDeliveries[0]);
           } else {
+            // Fallback: refresh data from backend
             await fetchPickupsAndDeliveries();
           }
           setUpdating(false);
