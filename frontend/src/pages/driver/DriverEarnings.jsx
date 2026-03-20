@@ -1,17 +1,40 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import DriverLayout from "../../components/DriverLayout";
 import { API_URL } from "../../config";
 
-const PERIODS = ["all", "today", "week", "month"];
+const PERIOD_OPTIONS = [
+  { value: "today", label: "Today" },
+  { value: "yesterday", label: "Yesterday" },
+  { value: "week", label: "Last 7 Days" },
+  { value: "last30", label: "Last 30 Days" },
+];
+
+const CHART_PERIOD_OPTIONS = [
+  { value: "week", label: "Weekly" },
+  { value: "month", label: "Monthly" },
+  { value: "year", label: "Yearly" },
+];
 
 export default function DriverEarnings() {
   const navigate = useNavigate();
-  const [period, setPeriod] = useState("all"); // Default to "all" for total earnings
+  const [period, setPeriod] = useState("last30");
+  const [chartPeriod, setChartPeriod] = useState("week");
   const [summary, setSummary] = useState(null);
   const [todayPerformance, setTodayPerformance] = useState(null); // Today's stats
   const [earnings, setEarnings] = useState([]);
+  const [chartData, setChartData] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [chartLoading, setChartLoading] = useState(true);
 
   useEffect(() => {
     const role = localStorage.getItem("role");
@@ -21,6 +44,12 @@ export default function DriverEarnings() {
     }
     fetchData();
   }, [navigate, period]);
+
+  useEffect(() => {
+    const role = localStorage.getItem("role");
+    if (role !== "driver") return;
+    fetchChartData();
+  }, [chartPeriod]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -38,7 +67,7 @@ export default function DriverEarnings() {
       }
 
       const historyRes = await fetch(
-        `${API_URL}/driver/earnings/history?limit=50`,
+        `${API_URL}/driver/earnings/history?limit=100`,
         { headers: { Authorization: `Bearer ${token}` } },
       );
       const historyData = await historyRes.json();
@@ -47,6 +76,29 @@ export default function DriverEarnings() {
       console.error("Failed to fetch earnings:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchChartData = async () => {
+    setChartLoading(true);
+    const token = localStorage.getItem("token");
+
+    try {
+      const res = await fetch(
+        `${API_URL}/driver/earnings/chart?chartPeriod=${chartPeriod}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      const data = await res.json();
+      if (data.success) {
+        setChartData(data.chartData || []);
+      } else {
+        setChartData([]);
+      }
+    } catch (error) {
+      console.error("Failed to fetch earnings chart:", error);
+      setChartData([]);
+    } finally {
+      setChartLoading(false);
     }
   };
 
@@ -64,78 +116,41 @@ export default function DriverEarnings() {
   const getEarningsAmount = (item) => Number(item?.driver_earnings || 0);
 
   const periodLabel = useMemo(() => {
-    const now = new Date();
-    if (period === "all") {
-      return "Total Earnings";
-    }
     if (period === "today") {
       return "Today's Earnings";
     }
-    if (period === "month") {
-      return now.toLocaleDateString("en-IN", {
-        month: "long",
-        year: "numeric",
-      });
+    if (period === "yesterday") {
+      return "Yesterday's Earnings";
     }
-    const start = new Date(now);
-    start.setDate(now.getDate() - 6);
-    const startLabel = start.toLocaleDateString("en-IN", {
-      month: "short",
-      day: "numeric",
-    });
-    const endLabel = now.toLocaleDateString("en-IN", {
-      month: "short",
-      day: "numeric",
-    });
-    return `This Week (${startLabel} - ${endLabel})`;
+    if (period === "week") {
+      return "Last 7 Days Earnings";
+    }
+    return "Last 30 Days Earnings";
   }, [period]);
-
-  const weeklyChart = useMemo(() => {
-    const now = new Date();
-    const days = Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(now);
-      d.setDate(now.getDate() - (6 - i));
-      return d;
-    });
-
-    const totals = days.map((d) => {
-      const key = d.toISOString().split("T")[0];
-      const dayTotal = earnings
-        .filter((e) => (e.delivered_at || e.accepted_at || "").startsWith(key))
-        .reduce((sum, e) => sum + getEarningsAmount(e), 0);
-      return dayTotal;
-    });
-
-    const max = Math.max(...totals, 1);
-    const labels = ["S", "M", "T", "W", "T", "F", "S"];
-
-    return totals.map((value, idx) => ({
-      label: labels[days[idx].getDay() % 7],
-      height: Math.max(10, Math.round((value / max) * 100)),
-      isPeak: value === max && max > 0,
-    }));
-  }, [earnings]);
 
   const dailyAvg = useMemo(() => {
     if (!summary) return 0;
     const days =
       period === "today"
         ? 1
-        : period === "week"
-          ? 7
-          : period === "month"
-            ? 30
-            : Math.max(earnings.length, 1);
+        : period === "yesterday"
+          ? 1
+          : period === "week"
+            ? 7
+            : period === "last30"
+              ? 30
+              : Math.max(earnings.length, 1);
     return Number(summary.total_earnings || 0) / Math.max(days, 1);
   }, [summary, period, earnings.length]);
 
-  const recentActivities = earnings.slice(0, 4);
+  const chartSubtitle =
+    chartPeriod === "week"
+      ? "Last 7 Days"
+      : chartPeriod === "month"
+        ? "Last 30 Days"
+        : "Last 12 Months";
 
-  const cyclePeriod = () => {
-    const currentIndex = PERIODS.indexOf(period);
-    const nextIndex = (currentIndex + 1) % PERIODS.length;
-    setPeriod(PERIODS[nextIndex]);
-  };
+  const recentActivities = earnings.slice(0, 4);
 
   return (
     <DriverLayout>
@@ -165,25 +180,7 @@ export default function DriverEarnings() {
           <h2 className="text-[#111812] text-lg font-bold leading-tight tracking-[-0.015em] flex-1 text-center">
             Earnings
           </h2>
-          <button
-            onClick={cyclePeriod}
-            className="flex size-12 shrink-0 items-center justify-end"
-            aria-label="Change period"
-          >
-            <svg
-              className="w-5 h-5"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M8 7V3m8 4V3M3 11h18M5 7h14a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V9a2 2 0 012-2z"
-              />
-            </svg>
-          </button>
+          <div className="size-12" />
         </div>
 
         <div className="flex-1 overflow-y-auto pb-24 hide-scrollbar">
@@ -215,6 +212,21 @@ export default function DriverEarnings() {
                       ? `${summary.total_deliveries} deliveries`
                       : "Loading..."}
                   </span>
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  {PERIOD_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      onClick={() => setPeriod(option.value)}
+                      className={`rounded-lg px-2 py-1.5 text-xs font-semibold transition-colors ${
+                        period === option.value
+                          ? "bg-white text-[#102213]"
+                          : "bg-white/30 text-[#102213] hover:bg-white/45"
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
                 </div>
               </div>
               <div className="absolute -right-8 -bottom-8 w-40 h-40 bg-white/20 rounded-full blur-2xl"></div>
@@ -284,7 +296,7 @@ export default function DriverEarnings() {
                 </span>
               </div>
               <div className="grid grid-cols-3 gap-3">
-                <div className="flex flex-col items-center gap-1 p-3 bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl border border-green-100">
+                <div className="flex flex-col items-center gap-1 p-3 bg-linear-to-br from-green-50 to-emerald-50 rounded-xl border border-green-100">
                   <div className="text-2xl">💰</div>
                   <p className="text-[#111812] tracking-tight text-lg font-bold">
                     {loading
@@ -295,7 +307,7 @@ export default function DriverEarnings() {
                     Earnings
                   </p>
                 </div>
-                <div className="flex flex-col items-center gap-1 p-3 bg-gradient-to-br from-blue-50 to-cyan-50 rounded-xl border border-blue-100">
+                <div className="flex flex-col items-center gap-1 p-3 bg-linear-to-br from-blue-50 to-cyan-50 rounded-xl border border-blue-100">
                   <div className="text-2xl">🛵</div>
                   <p className="text-[#111812] tracking-tight text-lg font-bold">
                     {loading
@@ -306,7 +318,7 @@ export default function DriverEarnings() {
                     Distance
                   </p>
                 </div>
-                <div className="flex flex-col items-center gap-1 p-3 bg-gradient-to-br from-orange-50 to-amber-50 rounded-xl border border-orange-100">
+                <div className="flex flex-col items-center gap-1 p-3 bg-linear-to-br from-orange-50 to-amber-50 rounded-xl border border-orange-100">
                   <div className="text-2xl">📦</div>
                   <p className="text-[#111812] tracking-tight text-lg font-bold">
                     {loading ? "—" : todayPerformance?.deliveries || 0}
@@ -321,17 +333,17 @@ export default function DriverEarnings() {
 
           {/* Period Stats - Summary for selected period */}
           <div className="flex flex-wrap gap-3 p-4">
-            <div className="flex min-w-[100px] flex-1 flex-col gap-1 rounded-xl p-4 border border-[#dbe6dd] bg-white">
+            <div className="flex min-w-25 flex-1 flex-col gap-1 rounded-xl p-4 border border-[#dbe6dd] bg-white">
               <p className="text-[#618968] text-xs font-medium uppercase">
-                {period === "all" ? "Lifetime Avg" : "Daily Avg"}
+                Daily Avg
               </p>
               <p className="text-[#111812] tracking-tight text-xl font-bold">
                 {loading ? "—" : formatCurrency(dailyAvg)}
               </p>
             </div>
-            <div className="flex min-w-[100px] flex-1 flex-col gap-1 rounded-xl p-4 border border-[#dbe6dd] bg-white">
+            <div className="flex min-w-25 flex-1 flex-col gap-1 rounded-xl p-4 border border-[#dbe6dd] bg-white">
               <p className="text-[#618968] text-xs font-medium uppercase">
-                {period === "all" ? "Total KM" : `${period} Distance`}
+                Period Distance
               </p>
               <p className="text-[#111812] tracking-tight text-xl font-bold">
                 {loading
@@ -339,9 +351,9 @@ export default function DriverEarnings() {
                   : `${Number(summary?.total_distance_km || 0).toFixed(1)} km`}
               </p>
             </div>
-            <div className="flex min-w-[100px] flex-1 flex-col gap-1 rounded-xl p-4 border border-[#dbe6dd] bg-white">
+            <div className="flex min-w-25 flex-1 flex-col gap-1 rounded-xl p-4 border border-[#dbe6dd] bg-white">
               <p className="text-[#618968] text-xs font-medium uppercase">
-                {period === "all" ? "All Deliveries" : `${period} Deliveries`}
+                Period Deliveries
               </p>
               <p className="text-[#111812] tracking-tight text-xl font-bold">
                 {loading ? "—" : summary?.total_deliveries || 0}
@@ -351,31 +363,132 @@ export default function DriverEarnings() {
 
           <div className="px-4 py-2">
             <div className="bg-white rounded-xl border border-[#dbe6dd] p-5">
-              <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center justify-between mb-4">
                 <h3 className="text-[#111812] text-base font-bold">
-                  Weekly Performance
+                  Earnings Performance
                 </h3>
+              </div>
+              <div className="flex gap-1.5 mb-4">
+                {CHART_PERIOD_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    onClick={() => setChartPeriod(option.value)}
+                    className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all duration-200 ${
+                      chartPeriod === option.value
+                        ? "text-white shadow-sm"
+                        : "bg-gray-50 text-gray-600 hover:bg-gray-100"
+                    }`}
+                    style={
+                      chartPeriod === option.value
+                        ? { background: "#06C168" }
+                        : {}
+                    }
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center justify-end mb-2">
                 <span className="text-xs text-[#13ec37] font-bold">
-                  Last 7 Days
+                  {chartSubtitle}
                 </span>
               </div>
-              <div className="grid grid-cols-7 gap-3 items-end h-[160px] px-2">
-                {weeklyChart.map((bar, idx) => (
-                  <div
-                    key={idx}
-                    className="flex flex-col items-center gap-2 h-full justify-end"
-                  >
-                    <div
-                      className={`${bar.isPeak ? "bg-[#13ec37] shadow-lg shadow-[#13ec37]/20" : "bg-[#13ec37]/20"} w-full rounded-t-sm border-t-2 border-[#13ec37]`}
-                      style={{ height: `${bar.height}%` }}
-                    ></div>
-                    <span
-                      className={`text-[11px] font-bold ${bar.isPeak ? "text-[#13ec37]" : "text-[#618968]"}`}
-                    >
-                      {bar.label}
-                    </span>
+              <div className="h-56">
+                {chartLoading ? (
+                  <div className="h-full flex items-center justify-center text-sm text-[#618968]">
+                    Loading chart...
                   </div>
-                ))}
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart
+                      data={chartData}
+                      margin={{ top: 5, right: 5, left: -15, bottom: 0 }}
+                    >
+                      <defs>
+                        <linearGradient
+                          id="driverEarningsGradient"
+                          x1="0"
+                          y1="0"
+                          x2="0"
+                          y2="1"
+                        >
+                          <stop
+                            offset="5%"
+                            stopColor="#06C168"
+                            stopOpacity={0.2}
+                          />
+                          <stop
+                            offset="95%"
+                            stopColor="#06C168"
+                            stopOpacity={0}
+                          />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+                      <XAxis
+                        dataKey="date"
+                        tick={{ fontSize: 11, fill: "#9ca3af" }}
+                        tickFormatter={(val) => {
+                          if (chartPeriod === "year") {
+                            const [, m] = (val || "").split("-");
+                            const months = [
+                              "Jan",
+                              "Feb",
+                              "Mar",
+                              "Apr",
+                              "May",
+                              "Jun",
+                              "Jul",
+                              "Aug",
+                              "Sep",
+                              "Oct",
+                              "Nov",
+                              "Dec",
+                            ];
+                            return months[(parseInt(m, 10) || 1) - 1] || val;
+                          }
+                          const d = new Date(`${val}T00:00:00`);
+                          return `${d.getDate()}/${d.getMonth() + 1}`;
+                        }}
+                      />
+                      <YAxis
+                        tick={{ fontSize: 11, fill: "#9ca3af" }}
+                        tickFormatter={(val) => `Rs.${val}`}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          borderRadius: "8px",
+                          border: "1px solid #e5e7eb",
+                          boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+                          fontSize: "12px",
+                        }}
+                        formatter={(value) => [
+                          `Rs. ${Number(value || 0).toLocaleString()}`,
+                          "Earnings",
+                        ]}
+                        labelFormatter={(label) => {
+                          if (chartPeriod === "year") return label;
+                          return new Date(
+                            `${label}T00:00:00`,
+                          ).toLocaleDateString("en-IN", {
+                            weekday: "short",
+                            day: "numeric",
+                            month: "short",
+                          });
+                        }}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="amount"
+                        stroke="#06C168"
+                        strokeWidth={2}
+                        fill="url(#driverEarningsGradient)"
+                        dot={{ r: 2.5, fill: "#06C168" }}
+                        activeDot={{ r: 5, fill: "#05a85a" }}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                )}
               </div>
             </div>
           </div>
@@ -387,7 +500,7 @@ export default function DriverEarnings() {
               </h3>
               <button
                 className="text-sm font-semibold text-[#13ec37]"
-                onClick={() => setPeriod("all")}
+                onClick={() => setPeriod("last30")}
               >
                 See All
               </button>

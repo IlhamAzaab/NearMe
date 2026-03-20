@@ -48,6 +48,7 @@ import {
 import {
   getSriLankaDayRange,
   getSriLankaDayRangeFromDateStr,
+  getSriLankaDateKey,
   shiftSriLankaDateString,
 } from "../utils/sriLankaTime.js";
 
@@ -3268,7 +3269,7 @@ router.get("/earnings/history", authenticate, driverOnly, async (req, res) => {
   }
 });
 
-// GET /driver/earnings/summary - Get earnings summary (today/week/month)
+// GET /driver/earnings/summary - Get earnings summary (today/yesterday/week/last30)
 router.get("/earnings/summary", authenticate, driverOnly, async (req, res) => {
   const driverId = req.user.id;
   const { period = "all" } = req.query; // Default to "all" for total earnings
@@ -3280,11 +3281,21 @@ router.get("/earnings/summary", authenticate, driverOnly, async (req, res) => {
   try {
     // Build date filter based on period
     let periodStart = null;
+    let periodEnd = null;
     const { dateStr: todayDateStr, start: todayStart } = getSriLankaDayRange();
 
     switch (period) {
       case "today":
         periodStart = todayStart;
+        break;
+      case "yesterday":
+        {
+          const yesterdayRange = getSriLankaDayRangeFromDateStr(
+            shiftSriLankaDateString(todayDateStr, -1),
+          );
+          periodStart = yesterdayRange.start;
+          periodEnd = yesterdayRange.end;
+        }
         break;
       case "week":
         // Last 7 Sri Lanka calendar days including today.
@@ -3292,8 +3303,16 @@ router.get("/earnings/summary", authenticate, driverOnly, async (req, res) => {
           shiftSriLankaDateString(todayDateStr, -6),
         ).start;
         break;
+      case "last30":
+        periodStart = getSriLankaDayRangeFromDateStr(
+          shiftSriLankaDateString(todayDateStr, -29),
+        ).start;
+        break;
       case "month":
-        periodStart = `${todayDateStr.slice(0, 7)}-01T00:00:00+05:30`;
+        // Backward compatibility for older clients.
+        periodStart = getSriLankaDayRangeFromDateStr(
+          shiftSriLankaDateString(todayDateStr, -29),
+        ).start;
         break;
       case "all":
         periodStart = null;
@@ -3311,6 +3330,9 @@ router.get("/earnings/summary", authenticate, driverOnly, async (req, res) => {
 
     if (periodStart) {
       query = query.gte("delivered_at", periodStart);
+    }
+    if (periodEnd) {
+      query = query.lte("delivered_at", periodEnd);
     }
 
     const { data: deliveries, error } = await query;
@@ -3403,6 +3425,107 @@ router.get("/earnings/summary", authenticate, driverOnly, async (req, res) => {
     return res
       .status(500)
       .json({ success: false, message: "Failed to fetch summary" });
+  }
+});
+
+// GET /driver/earnings/chart - Weekly/monthly/yearly earnings chart
+router.get("/earnings/chart", authenticate, driverOnly, async (req, res) => {
+  const driverId = req.user.id;
+  const { chartPeriod = "week" } = req.query;
+
+  try {
+    const { dateStr: todayDateStr } = getSriLankaDayRange();
+    const currentSriLankaDate = new Date(`${todayDateStr}T00:00:00+05:30`);
+    let queryStart = null;
+
+    if (chartPeriod === "week") {
+      queryStart = getSriLankaDayRangeFromDateStr(
+        shiftSriLankaDateString(todayDateStr, -6),
+      ).start;
+    } else if (chartPeriod === "month") {
+      queryStart = getSriLankaDayRangeFromDateStr(
+        shiftSriLankaDateString(todayDateStr, -29),
+      ).start;
+    } else {
+      const oldestMonthDate = new Date(currentSriLankaDate);
+      oldestMonthDate.setDate(1);
+      oldestMonthDate.setMonth(oldestMonthDate.getMonth() - 11);
+      const oldestMonthDateStr = `${getSriLankaDateKey(oldestMonthDate.toISOString()).slice(0, 7)}-01`;
+      queryStart = getSriLankaDayRangeFromDateStr(oldestMonthDateStr).start;
+    }
+
+    const { data: deliveries, error } = await supabaseAdmin
+      .from("deliveries")
+      .select("delivered_at, driver_earnings")
+      .eq("driver_id", driverId)
+      .eq("status", "delivered")
+      .not("delivered_at", "is", null)
+      .gte("delivered_at", queryStart)
+      .order("delivered_at", { ascending: true });
+
+    if (error) {
+      console.error(`[EARNINGS CHART] ❌ Error: ${error.message}`);
+      return res
+        .status(500)
+        .json({ success: false, message: "Failed to fetch chart data" });
+    }
+
+    const rows = deliveries || [];
+    let chartData = [];
+
+    if (chartPeriod === "year") {
+      const deduped = [];
+      for (let i = 11; i >= 0; i -= 1) {
+        const d = new Date(currentSriLankaDate);
+        d.setMonth(d.getMonth() - i);
+        const monthKey = getSriLankaDateKey(d.toISOString()).slice(0, 7);
+        deduped.push(monthKey);
+      }
+
+      const grouped = {};
+      for (const key of deduped) grouped[key] = 0;
+
+      for (const row of rows) {
+        const dayKey = getSriLankaDateKey(row.delivered_at);
+        const monthKey = dayKey ? dayKey.slice(0, 7) : null;
+        if (monthKey && grouped[monthKey] !== undefined) {
+          grouped[monthKey] += parseFloat(row.driver_earnings || 0);
+        }
+      }
+
+      chartData = deduped.map((monthKey) => ({
+        date: monthKey,
+        amount: Math.round(grouped[monthKey] || 0),
+      }));
+    } else {
+      const rangeDays = chartPeriod === "week" ? 7 : 30;
+      const dayKeys = [];
+      for (let i = rangeDays - 1; i >= 0; i -= 1) {
+        dayKeys.push(shiftSriLankaDateString(todayDateStr, -i));
+      }
+
+      const grouped = {};
+      for (const key of dayKeys) grouped[key] = 0;
+
+      for (const row of rows) {
+        const dayKey = getSriLankaDateKey(row.delivered_at);
+        if (dayKey && grouped[dayKey] !== undefined) {
+          grouped[dayKey] += parseFloat(row.driver_earnings || 0);
+        }
+      }
+
+      chartData = dayKeys.map((dayKey) => ({
+        date: dayKey,
+        amount: Math.round(grouped[dayKey] || 0),
+      }));
+    }
+
+    return res.json({ success: true, chartPeriod, chartData });
+  } catch (error) {
+    console.error(`[EARNINGS CHART] ❌ Error: ${error.message}`);
+    return res
+      .status(500)
+      .json({ success: false, message: "Failed to fetch chart data" });
   }
 });
 
