@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import BottomNavbar from "../components/BottomNavbar";
 import { API_URL } from "../config";
 import {
@@ -104,6 +105,7 @@ const Home = () => {
   const [allFoods, setAllFoods] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [activeTab, setActiveTab] = useState("restaurant");
   const [unreadCount, setUnreadCount] = useState(0);
   const [cartCount, setCartCount] = useState(0);
@@ -122,7 +124,56 @@ const Home = () => {
   const [restaurantsWithDistances, setRestaurantsWithDistances] = useState([]);
   const [showDistances, setShowDistances] = useState(false);
 
+  const restaurantsQuery = useQuery({
+    queryKey: ["customer", "home", "restaurants", debouncedSearch],
+    enabled: activeTab === "restaurant",
+    staleTime: 60 * 1000,
+    refetchInterval: 90 * 1000,
+    queryFn: async () => {
+      const url = new URL(`${API_URL}/public/restaurants`);
+      if (debouncedSearch) url.searchParams.append("search", debouncedSearch);
+      const res = await fetch(url);
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.message || "Failed to fetch restaurants");
+      }
+      return data;
+    },
+  });
+
+  const foodsQuery = useQuery({
+    queryKey: ["customer", "home", "foods", debouncedSearch],
+    enabled: activeTab === "food",
+    staleTime: 60 * 1000,
+    refetchInterval: 90 * 1000,
+    queryFn: async () => {
+      const url = new URL(`${API_URL}/public/foods`);
+      if (debouncedSearch) url.searchParams.append("search", debouncedSearch);
+      const res = await fetch(url);
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.message || "Failed to fetch foods");
+      }
+      return data;
+    },
+  });
+
   // Check auth and fetch notifications/cart count
+  useEffect(() => {
+    const delay = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+    }, 300);
+    return () => clearTimeout(delay);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    setRestaurants(restaurantsQuery.data?.restaurants || []);
+  }, [restaurantsQuery.data]);
+
+  useEffect(() => {
+    setAllFoods(foodsQuery.data?.foods || []);
+  }, [foodsQuery.data]);
+
   useEffect(() => {
     const token = localStorage.getItem("token");
     const role = localStorage.getItem("role");
@@ -212,48 +263,19 @@ const Home = () => {
     }
   };
 
-  const fetchRestaurants = async (search = "") => {
-    try {
-      setLoading(true);
-      const url = new URL(`${API_URL}/public/restaurants`);
-      if (search) url.searchParams.append("search", search);
-
-      const res = await fetch(url);
-      const data = await res.json();
-      setRestaurants(data.restaurants || []);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchAllFoods = async (search = "") => {
-    try {
-      setLoading(true);
-      const url = new URL(`${API_URL}/public/foods`);
-      if (search) url.searchParams.append("search", search);
-
-      const res = await fetch(url);
-      const data = await res.json();
-      setAllFoods(data.foods || []);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
-    const delay = setTimeout(() => {
-      if (activeTab === "food") {
-        fetchAllFoods(searchQuery);
-      } else {
-        fetchRestaurants(searchQuery);
-      }
-    }, 300);
-    return () => clearTimeout(delay);
-  }, [searchQuery, activeTab]);
+    if (activeTab === "restaurant") {
+      setLoading(restaurantsQuery.isLoading && !restaurants.length);
+    } else {
+      setLoading(foodsQuery.isLoading && !allFoods.length);
+    }
+  }, [
+    activeTab,
+    restaurantsQuery.isLoading,
+    foodsQuery.isLoading,
+    restaurants.length,
+    allFoods.length,
+  ]);
 
   const featuredRestaurant = restaurants[0];
 

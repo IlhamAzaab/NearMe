@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import ManagerPageLayout from "../../components/ManagerPageLayout";
 import { ManagerPageSkeleton } from "../../components/ManagerSkeleton";
 import { API_URL } from "../../config";
@@ -44,61 +45,50 @@ const MiniBarChart = ({ data, dataKey, color, maxHeight = 120 }) => {
 
 const Dashboard = () => {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [userName, setUserName] = useState("");
-  const [stats, setStats] = useState({
-    todayEarnings: 0,
-    todaySales: 0,
-    todayOrders: 0,
-    totalPendingFromDrivers: 0,
-    driverPayment: 0,
-    driverCount: 0,
-    restaurantPayment: 0,
-    restaurantCount: 0,
-    earningsGraph: [],
-  });
+  const token = localStorage.getItem("token");
+  const role = localStorage.getItem("role");
 
-  const fetchData = useCallback(async (showLoading = true) => {
-    if (showLoading) setLoading(true);
-    else setRefreshing(true);
-
-    try {
-      const token = localStorage.getItem("token");
+  const {
+    data: dashboardData,
+    isLoading,
+    isFetching,
+    refetch,
+  } = useQuery({
+    queryKey: ["manager", "dashboard", token],
+    enabled: !!token && (role === "manager" || role === "admin"),
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
+    queryFn: async () => {
       const res = await fetch(`${API_URL}/manager/dashboard-stats`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-
-      if (data.success) {
-        setStats({
-          todayEarnings: data.todayEarnings || 0,
-          todaySales: data.todaySales || 0,
-          todayOrders: data.todayOrders || 0,
-          totalPendingFromDrivers: data.totalPendingFromDrivers || 0,
-          driverPayment: data.driverPayment || 0,
-          driverCount: data.driverCount || 0,
-          restaurantPayment: data.restaurantPayment || 0,
-          restaurantCount: data.restaurantCount || 0,
-          earningsGraph: data.earningsGraph || [],
-        });
+      if (!res.ok || !data.success) {
+        throw new Error(data?.message || "Failed to fetch dashboard stats");
       }
-    } catch (error) {
-      console.error("Failed to fetch dashboard stats:", error);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
+      return data;
+    },
+  });
+
+  const stats = {
+    todayEarnings: dashboardData?.todayEarnings || 0,
+    todaySales: dashboardData?.todaySales || 0,
+    todayOrders: dashboardData?.todayOrders || 0,
+    totalPendingFromDrivers: dashboardData?.totalPendingFromDrivers || 0,
+    driverPayment: dashboardData?.driverPayment || 0,
+    driverCount: dashboardData?.driverCount || 0,
+    restaurantPayment: dashboardData?.restaurantPayment || 0,
+    restaurantCount: dashboardData?.restaurantCount || 0,
+    earningsGraph: dashboardData?.earningsGraph || [],
+  };
 
   const handleRefresh = useCallback(() => {
-    fetchData(false);
-  }, [fetchData]);
+    refetch();
+  }, [refetch]);
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
     const email = localStorage.getItem("userEmail");
-    const role = localStorage.getItem("role");
 
     if (!token || (role !== "manager" && role !== "admin")) {
       navigate("/login");
@@ -109,9 +99,10 @@ const Dashboard = () => {
       const name = email.split("@")[0];
       setUserName(name.charAt(0).toUpperCase() + name.slice(1));
     }
+  }, [navigate, token, role]);
 
-    fetchData(true);
-  }, [navigate, fetchData]);
+  const loading = isLoading && !dashboardData;
+  const refreshing = isFetching && !isLoading;
 
   const formatCurrency = (value) =>
     `Rs.${Number(value || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;

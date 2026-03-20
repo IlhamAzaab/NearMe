@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import AdminLayout from "../../components/AdminLayout";
 import { API_URL } from "../../config";
 import { useAdminCache, CACHE_KEYS } from "../../context/AdminCacheContext";
@@ -13,66 +14,63 @@ export default function Earnings() {
   const cachedEarnings = getCache(CACHE_KEYS.EARNINGS);
   const cachedRestaurant = getCache(CACHE_KEYS.RESTAURANT);
 
-  const [earnings, setEarnings] = useState(cachedEarnings);
-  const [payouts, setPayouts] = useState([]);
-  const [loading, setLoading] = useState(!cachedEarnings);
-  const [refreshing, setRefreshing] = useState(false);
   const [period, setPeriod] = useState("all");
-  const [restaurant, setRestaurant] = useState(cachedRestaurant);
 
-  useEffect(() => {
-    fetchData();
-  }, [period]);
-
-  const fetchData = async () => {
-    if (!token) return;
-
-    // Use refreshing state if we have cached data
-    if (cachedEarnings) {
-      setRefreshing(true);
-    } else {
-      setLoading(true);
-    }
-
-    try {
-      // Fetch earnings
-      const earningsRes = await fetch(
-        `${API_URL}/admin/earnings?period=${period}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
-      );
-      const earningsData = await earningsRes.json();
-      if (earningsRes.ok) {
-        setEarnings(earningsData.earnings);
-        setCache(CACHE_KEYS.EARNINGS, earningsData.earnings);
-      }
-
-      // Fetch payouts
-      const payoutsRes = await fetch(`${API_URL}/admin/payouts?limit=5`, {
+  const {
+    data: earnings,
+    isLoading: earningsLoading,
+    isFetching: earningsFetching,
+  } = useQuery({
+    queryKey: ["admin", "earnings", period, token],
+    enabled: !!token,
+    initialData: cachedEarnings || undefined,
+    staleTime: 60 * 1000,
+    refetchInterval: 90 * 1000,
+    queryFn: async () => {
+      const res = await fetch(`${API_URL}/admin/earnings?period=${period}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      const payoutsData = await payoutsRes.json();
-      if (payoutsRes.ok) {
-        setPayouts(payoutsData.payouts || []);
-      }
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.message || "Failed to fetch earnings");
+      setCache(CACHE_KEYS.EARNINGS, data.earnings);
+      return data.earnings;
+    },
+  });
 
-      // Fetch restaurant info
-      const restaurantRes = await fetch(`${API_URL}/admin/restaurant`, {
+  const { data: payouts = [] } = useQuery({
+    queryKey: ["admin", "payouts", token],
+    enabled: !!token,
+    staleTime: 60 * 1000,
+    refetchInterval: 120 * 1000,
+    queryFn: async () => {
+      const res = await fetch(`${API_URL}/admin/payouts?limit=5`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      const restaurantData = await restaurantRes.json();
-      if (restaurantRes.ok) {
-        setRestaurant(restaurantData.restaurant);
-        setCache(CACHE_KEYS.RESTAURANT, restaurantData.restaurant);
-      }
-    } catch (error) {
-      console.error("Error fetching earnings data:", error);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.message || "Failed to fetch payouts");
+      return data.payouts || [];
+    },
+  });
+
+  const { data: restaurant = cachedRestaurant || null } = useQuery({
+    queryKey: ["admin", "restaurant", token],
+    enabled: !!token,
+    initialData: cachedRestaurant || undefined,
+    staleTime: 60 * 1000,
+    refetchInterval: 120 * 1000,
+    queryFn: async () => {
+      const res = await fetch(`${API_URL}/admin/restaurant`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.message || "Failed to fetch restaurant");
+      setCache(CACHE_KEYS.RESTAURANT, data.restaurant);
+      return data.restaurant;
+    },
+  });
+
+  const loading = earningsLoading && !earnings;
+  const refreshing = earningsFetching && !!earnings;
 
   const formatCurrency = (amount) => {
     return `Rs. ${(amount || 0).toLocaleString()}`;

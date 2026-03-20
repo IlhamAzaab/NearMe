@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import {
   Area,
   AreaChart,
@@ -11,6 +12,7 @@ import {
 } from "recharts";
 import DriverLayout from "../../components/DriverLayout";
 import { API_URL } from "../../config";
+import { useDataPulse } from "../../hooks/useDataPulse";
 
 const PERIOD_OPTIONS = [
   { value: "today", label: "Today" },
@@ -27,80 +29,86 @@ const CHART_PERIOD_OPTIONS = [
 
 export default function DriverEarnings() {
   const navigate = useNavigate();
+  const token = localStorage.getItem("token");
+  const role = localStorage.getItem("role");
+  const isDriver = role === "driver";
   const [period, setPeriod] = useState("last30");
   const [chartPeriod, setChartPeriod] = useState("week");
-  const [summary, setSummary] = useState(null);
-  const [todayPerformance, setTodayPerformance] = useState(null); // Today's stats
-  const [earnings, setEarnings] = useState([]);
-  const [chartData, setChartData] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [chartLoading, setChartLoading] = useState(true);
 
   useEffect(() => {
-    const role = localStorage.getItem("role");
-    if (role !== "driver") {
+    if (!isDriver) {
       navigate("/login");
-      return;
     }
-    fetchData();
-  }, [navigate, period]);
+  }, [isDriver, navigate]);
 
-  useEffect(() => {
-    const role = localStorage.getItem("role");
-    if (role !== "driver") return;
-    fetchChartData();
-  }, [chartPeriod]);
-
-  const fetchData = async () => {
-    setLoading(true);
-    const token = localStorage.getItem("token");
-
-    try {
-      const summaryRes = await fetch(
-        `${API_URL}/driver/earnings/summary?period=${period}`,
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-      const summaryData = await summaryRes.json();
-      if (summaryData.success) {
-        setSummary(summaryData.summary);
-        setTodayPerformance(summaryData.today); // Always get today's performance
+  const {
+    data: summaryPayload,
+    isLoading: summaryLoading,
+    isFetching: summaryFetching,
+    dataUpdatedAt: summaryUpdatedAt,
+  } = useQuery({
+    queryKey: ["driver", "earnings", "summary", period, token],
+    enabled: isDriver && !!token,
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
+    queryFn: async () => {
+      const res = await fetch(`${API_URL}/driver/earnings/summary?period=${period}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data?.message || "Failed to fetch earnings summary");
       }
+      return data;
+    },
+  });
 
-      const historyRes = await fetch(
-        `${API_URL}/driver/earnings/history?limit=100`,
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-      const historyData = await historyRes.json();
-      if (historyData.success) setEarnings(historyData.earnings);
-    } catch (error) {
-      console.error("Failed to fetch earnings:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const { data: historyPayload, isLoading: historyLoading } = useQuery({
+    queryKey: ["driver", "earnings", "history", token],
+    enabled: isDriver && !!token,
+    staleTime: 60 * 1000,
+    refetchInterval: 90 * 1000,
+    queryFn: async () => {
+      const res = await fetch(`${API_URL}/driver/earnings/history?limit=100`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data?.message || "Failed to fetch earnings history");
+      }
+      return data;
+    },
+  });
 
-  const fetchChartData = async () => {
-    setChartLoading(true);
-    const token = localStorage.getItem("token");
-
-    try {
+  const {
+    data: chartPayload,
+    isLoading: chartInitialLoading,
+    isFetching: chartFetching,
+  } = useQuery({
+    queryKey: ["driver", "earnings", "chart", chartPeriod, token],
+    enabled: isDriver && !!token,
+    staleTime: 60 * 1000,
+    refetchInterval: 90 * 1000,
+    queryFn: async () => {
       const res = await fetch(
         `${API_URL}/driver/earnings/chart?chartPeriod=${chartPeriod}`,
         { headers: { Authorization: `Bearer ${token}` } },
       );
       const data = await res.json();
-      if (data.success) {
-        setChartData(data.chartData || []);
-      } else {
-        setChartData([]);
+      if (!res.ok || !data.success) {
+        throw new Error(data?.message || "Failed to fetch earnings chart");
       }
-    } catch (error) {
-      console.error("Failed to fetch earnings chart:", error);
-      setChartData([]);
-    } finally {
-      setChartLoading(false);
-    }
-  };
+      return data;
+    },
+  });
+
+  const summary = summaryPayload?.summary || null;
+  const todayPerformance = summaryPayload?.today || null;
+  const earnings = historyPayload?.earnings || [];
+  const chartData = chartPayload?.chartData || [];
+  const loading = (summaryLoading && !summary) || (historyLoading && !earnings.length);
+  const chartLoading = (chartInitialLoading && !chartData.length) || chartFetching;
+  const summaryPulse = useDataPulse(summaryUpdatedAt, summaryFetching);
 
   const formatCurrency = (value) => `Rs ${Number(value || 0).toFixed(2)}`;
 
@@ -185,7 +193,9 @@ export default function DriverEarnings() {
 
         <div className="flex-1 overflow-y-auto pb-24 hide-scrollbar">
           <div className="p-4">
-            <div className="relative overflow-hidden rounded-xl bg-[#18db9d] p-6 shadow-lg shadow-[#13ec37]/20">
+            <div
+              className={`relative overflow-hidden rounded-xl bg-[#18db9d] p-6 shadow-lg shadow-[#13ec37]/20 transition-all duration-500 ${summaryPulse ? "scale-[1.01]" : "scale-100"}`}
+            >
               <div className="relative z-10">
                 <p className="text-[#102213] text-sm font-medium opacity-80 uppercase tracking-wider">
                   {periodLabel}
