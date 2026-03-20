@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import AdminLayout from "../../components/AdminLayout";
 import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
 import { API_URL } from "../../config";
@@ -139,32 +140,40 @@ export default function AccountProfile() {
   const [changingPw, setChangingPw] = useState(false);
 
   const token = localStorage.getItem("token");
+  const role = localStorage.getItem("role");
 
   // ── Fetch admin profile ──────────────────────────────────────────────────────
+  const { data: adminProfile, isLoading: profileLoading } = useQuery({
+    queryKey: ["admin", "me"],
+    enabled: !!token && role === "admin",
+    staleTime: 2 * 60 * 1000,
+    queryFn: async () => {
+      const res = await fetch(`${API_URL}/admin/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok || !data.admin) {
+        throw new Error(data?.message || "Failed to load profile");
+      }
+      return data.admin;
+    },
+  });
+
   useEffect(() => {
-    const fetchProfile = async () => {
-      if (!token) {
-        navigate("/login");
-        return;
-      }
-      try {
-        const res = await fetch(`${API_URL}/admin/me`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await res.json();
-        if (res.ok && data.admin) {
-          setProfile(data.admin);
-        } else {
-          showError(data.message || "Failed to load profile");
-        }
-      } catch {
-        showError("Network error");
-      } finally {
-        setLoadingProfile(false);
-      }
-    };
-    fetchProfile();
-  }, []);
+    if (!token || role !== "admin") {
+      navigate("/login");
+    }
+  }, [navigate, role, token]);
+
+  useEffect(() => {
+    if (!adminProfile) return;
+    setProfile(adminProfile);
+    setLoadingProfile(false);
+  }, [adminProfile]);
+
+  useEffect(() => {
+    setLoadingProfile(profileLoading && !adminProfile);
+  }, [adminProfile, profileLoading]);
 
   // ── Change password ──────────────────────────────────────────────────────────
   const handleChangePassword = async (e) => {

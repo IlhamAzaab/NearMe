@@ -1,20 +1,12 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import DriverLayout from "../../components/DriverLayout";
 import { API_URL } from "../../config";
 
 export default function DriverWithdrawals() {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [summary, setSummary] = useState({
-    total_earnings: 0,
-    total_withdrawals: 0,
-    remaining_balance: 0,
-    today_withdrawals: 0,
-    payment_count: 0,
-  });
-  const [payments, setPayments] = useState([]);
+  const queryClient = useQueryClient();
   const [selectedPayment, setSelectedPayment] = useState(null);
   const [proofViewer, setProofViewer] = useState({
     open: false,
@@ -23,45 +15,70 @@ export default function DriverWithdrawals() {
     payment: null,
   });
 
-  const fetchData = useCallback(async () => {
-    try {
-      const token = localStorage.getItem("token");
-      const headers = { Authorization: `Bearer ${token}` };
+  const token = localStorage.getItem("token");
+  const role = localStorage.getItem("role");
 
-      const [summaryRes, historyRes] = await Promise.all([
-        fetch(`${API_URL}/driver/withdrawals/my/summary`, {
-          headers,
-        }),
-        fetch(`${API_URL}/driver/withdrawals/my/history`, {
-          headers,
-        }),
-      ]);
+  const {
+    data: summary = {
+      total_earnings: 0,
+      total_withdrawals: 0,
+      remaining_balance: 0,
+      today_withdrawals: 0,
+      payment_count: 0,
+    },
+    isLoading: summaryLoading,
+    isFetching: summaryFetching,
+  } = useQuery({
+    queryKey: ["driver", "withdrawals", "summary"],
+    enabled: !!token && role === "driver",
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
+    queryFn: async () => {
+      const res = await fetch(`${API_URL}/driver/withdrawals/my/summary`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data?.message || "Failed to fetch withdrawal summary");
+      }
+      return data.summary;
+    },
+  });
 
-      const summaryData = await summaryRes.json();
-      const historyData = await historyRes.json();
-
-      if (summaryData.success) setSummary(summaryData.summary);
-      if (historyData.success) setPayments(historyData.payments || []);
-    } catch (err) {
-      console.error("Failed to fetch withdrawals:", err);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
+  const {
+    data: payments = [],
+    isLoading: paymentsLoading,
+    isFetching: paymentsFetching,
+  } = useQuery({
+    queryKey: ["driver", "withdrawals", "history"],
+    enabled: !!token && role === "driver",
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
+    queryFn: async () => {
+      const res = await fetch(`${API_URL}/driver/withdrawals/my/history`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data?.message || "Failed to fetch withdrawal history");
+      }
+      return data.payments || [];
+    },
+  });
 
   useEffect(() => {
-    const role = localStorage.getItem("role");
     if (role !== "driver") {
       navigate("/login");
       return;
     }
-    fetchData();
-  }, [navigate, fetchData]);
+  }, [navigate, role]);
+
+  const loading =
+    (summaryLoading && !summary) || (paymentsLoading && !payments.length);
+  const refreshing = summaryFetching || paymentsFetching;
 
   const handleRefresh = () => {
-    setRefreshing(true);
-    fetchData();
+    queryClient.invalidateQueries({ queryKey: ["driver", "withdrawals"] });
   };
 
   const formatDate = (dateStr) => {

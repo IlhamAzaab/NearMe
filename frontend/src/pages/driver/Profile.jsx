@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { API_URL } from "../../config";
 
 export default function DriverProfile() {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [profile, setProfile] = useState(null);
   const [userName, setUserName] = useState("");
@@ -24,29 +24,44 @@ export default function DriverProfile() {
       navigate("/login");
       return;
     }
-
-    fetchProfile();
   }, [navigate]);
 
-  const fetchProfile = async () => {
-    const token = localStorage.getItem("token");
-    try {
+  const token = localStorage.getItem("token");
+  const role = localStorage.getItem("role");
+
+  const {
+    data: profilePayload,
+    isLoading,
+    isError,
+  } = useQuery({
+    queryKey: ["driver", "profile"],
+    enabled: !!token && role === "driver",
+    staleTime: 2 * 60 * 1000,
+    refetchOnWindowFocus: true,
+    queryFn: async () => {
       const res = await fetch(`${API_URL}/driver/me`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      if (res.ok && data.driver) {
-        setProfile(data.driver);
-        setIsProfileCompleted(data.driver.profile_completed);
-      } else {
-        setError("Failed to load profile");
+      if (!res.ok || !data.driver) {
+        throw new Error(data?.message || "Failed to load profile");
       }
-    } catch (e) {
-      setError("Network error");
-    } finally {
-      setLoading(false);
+      return data.driver;
+    },
+  });
+
+  useEffect(() => {
+    if (!profilePayload) return;
+    setProfile(profilePayload);
+    setIsProfileCompleted(!!profilePayload.profile_completed);
+    setError(null);
+  }, [profilePayload]);
+
+  useEffect(() => {
+    if (isError) {
+      setError("Failed to load profile");
     }
-  };
+  }, [isError]);
 
   const handleLogout = () => {
     localStorage.removeItem("token");
@@ -114,7 +129,7 @@ export default function DriverProfile() {
     }
   };
 
-  if (loading) {
+  if (isLoading && !profile) {
     return (
       <div className="min-h-screen flex items-center justify-center relative">
         {/* Background */}

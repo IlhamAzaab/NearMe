@@ -1,4 +1,5 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import supabaseClient from "../../supabaseClient";
 import AdminLayout from "../../components/AdminLayout";
@@ -9,26 +10,29 @@ const supabase = supabaseClient;
 
 export default function AdminNotifications() {
   const navigate = useNavigate();
-  const [notifications, setNotifications] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [adminId, setAdminId] = useState(null);
   const [filter, setFilter] = useState("all");
 
-  const fetchNotifications = useCallback(async () => {
-    try {
-      const token = localStorage.getItem("token");
+  const token = localStorage.getItem("token");
+  const role = localStorage.getItem("role");
+
+  const { data: notifications = [], isLoading: loading } = useQuery({
+    queryKey: ["admin", "notifications"],
+    enabled: !!token && role === "admin",
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
+    queryFn: async () => {
       const res = await fetch(`${API_URL}/admin/notifications?limit=100`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      setNotifications(data.notifications || []);
-    } catch (e) {
-      console.error("Fetch error:", e);
-      setNotifications([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+      if (!res.ok) {
+        throw new Error(data?.message || "Failed to fetch notifications");
+      }
+      return data.notifications || [];
+    },
+  });
 
   useEffect(() => {
     const role = localStorage.getItem("role");
@@ -40,8 +44,7 @@ export default function AdminNotifications() {
     }
 
     setAdminId(userId);
-    fetchNotifications();
-  }, [fetchNotifications]);
+  }, []);
 
   // Real-time subscription for new notifications
   useEffect(() => {
@@ -59,8 +62,8 @@ export default function AdminNotifications() {
         },
         (payload) => {
           const newNotif = payload.new;
-          setNotifications((prev) => [
-            {
+          queryClient.setQueryData(["admin", "notifications"], (prev = []) => {
+            const next = {
               id: newNotif.id,
               title: newNotif.title,
               body: newNotif.body,
@@ -68,9 +71,9 @@ export default function AdminNotifications() {
               status: newNotif.status,
               created_at: newNotif.sent_at || newNotif.created_at,
               source: "notification_log",
-            },
-            ...prev,
-          ]);
+            };
+            return [next, ...prev];
+          });
         },
       )
       .subscribe();
@@ -78,7 +81,7 @@ export default function AdminNotifications() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [adminId]);
+  }, [adminId, queryClient]);
 
   const getNotificationConfig = (type) => {
     switch (type) {

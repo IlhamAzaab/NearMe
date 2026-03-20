@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
 import { API_URL } from "../../config";
 
@@ -24,6 +25,8 @@ export default function AdminProfile() {
     newPassword: "",
     confirmPassword: "",
   });
+  const token = localStorage.getItem("token");
+  const role = localStorage.getItem("role");
 
   // Animation for floating elements
   useEffect(() => {
@@ -38,44 +41,41 @@ export default function AdminProfile() {
     return () => clearInterval(interval);
   }, []);
 
-  useEffect(() => {
-    // Check if password change is required
-    const checkStatus = async () => {
-      const token = localStorage.getItem("token");
-      try {
-        const res = await fetch(`${API_URL}/admin/me`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await res.json();
-        if (res.ok && data.admin) {
-          setForcePasswordChange(data.admin.force_password_change);
-
-          // If password change not required and onboarding not complete, redirect
-          if (
-            !data.admin.force_password_change &&
-            !data.admin.onboarding_completed
-          ) {
-            navigate(
-              `/admin/restaurant/onboarding/step-${
-                data.admin.onboarding_step || 1
-              }`,
-            );
-          }
-          // If everything complete, go to dashboard
-          else if (
-            !data.admin.force_password_change &&
-            data.admin.onboarding_completed &&
-            data.admin.admin_status === "active"
-          ) {
-            navigate("/admin/dashboard");
-          }
-        }
-      } catch (e) {
-        console.error("Profile check error:", e);
+  const { data: adminData } = useQuery({
+    queryKey: ["admin", "me"],
+    enabled: !!token && role === "admin",
+    staleTime: 2 * 60 * 1000,
+    queryFn: async () => {
+      const res = await fetch(`${API_URL}/admin/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok || !data.admin) {
+        throw new Error(data?.message || "Failed to fetch admin profile");
       }
-    };
-    checkStatus();
-  }, [navigate]);
+      return data.admin;
+    },
+  });
+
+  useEffect(() => {
+    if (!adminData) return;
+    setForcePasswordChange(!!adminData.force_password_change);
+
+    if (!adminData.force_password_change && !adminData.onboarding_completed) {
+      navigate(
+        `/admin/restaurant/onboarding/step-${adminData.onboarding_step || 1}`,
+      );
+      return;
+    }
+
+    if (
+      !adminData.force_password_change &&
+      adminData.onboarding_completed &&
+      adminData.admin_status === "active"
+    ) {
+      navigate("/admin/dashboard");
+    }
+  }, [adminData, navigate]);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -103,8 +103,6 @@ export default function AdminProfile() {
     }
 
     setLoading(true);
-
-    const token = localStorage.getItem("token");
 
     try {
       const res = await fetch(`${API_URL}/admin/change-password`, {

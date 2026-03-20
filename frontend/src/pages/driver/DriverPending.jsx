@@ -1,60 +1,56 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import SiteHeader from "../../components/SiteHeader";
 import { API_URL } from "../../config";
 
 export default function DriverPending() {
   const navigate = useNavigate();
-  const [driverStatus, setDriverStatus] = useState("pending");
-  const [loading, setLoading] = useState(true);
 
   const userEmail = localStorage.getItem("userEmail");
   const userName =
     localStorage.getItem("userName") || userEmail?.split("@")[0] || "Driver";
 
-  useEffect(() => {
-    const checkStatus = async () => {
-      const token = localStorage.getItem("token");
-      try {
-        const res = await fetch(`${API_URL}/onboarding/status`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await res.json();
+  const token = localStorage.getItem("token");
+  const role = localStorage.getItem("role");
 
-        if (res.ok && data.driver) {
-          setDriverStatus(data.driver.driver_status);
-
-          // If approved, redirect to dashboard immediately
-          if (
-            data.driver.driver_status === "active" &&
-            data.driver.onboarding_completed
-          ) {
-            navigate("/driver/dashboard", { replace: true });
-            return;
-          }
-
-          // If onboarding not complete, redirect back
-          if (!data.driver.onboarding_completed) {
-            navigate(`/driver/onboarding/step-${data.driver.onboarding_step}`, {
-              replace: true,
-            });
-            return;
-          }
-        }
-      } catch (e) {
-        console.error("Status check error:", e);
-      } finally {
-        setLoading(false);
+  const { data: driver, isLoading } = useQuery({
+    queryKey: ["driver", "onboarding-status"],
+    enabled: !!token && role === "driver",
+    staleTime: 30 * 1000,
+    refetchInterval: 30 * 1000,
+    queryFn: async () => {
+      const res = await fetch(`${API_URL}/onboarding/status`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok || !data.driver) {
+        throw new Error(data?.message || "Failed to fetch onboarding status");
       }
-    };
+      return data.driver;
+    },
+  });
 
-    checkStatus();
+  useEffect(() => {
+    if (!token || role !== "driver") {
+      navigate("/login");
+    }
+  }, [navigate, role, token]);
 
-    // Check status every 30 seconds
-    const interval = setInterval(checkStatus, 30000);
+  useEffect(() => {
+    if (!driver) return;
 
-    return () => clearInterval(interval);
-  }, [navigate]);
+    if (driver.driver_status === "active" && driver.onboarding_completed) {
+      navigate("/driver/dashboard", { replace: true });
+      return;
+    }
+
+    if (!driver.onboarding_completed) {
+      navigate(`/driver/onboarding/step-${driver.onboarding_step}`, {
+        replace: true,
+      });
+    }
+  }, [driver, navigate]);
 
   const handleLogout = () => {
     localStorage.clear();
@@ -111,9 +107,10 @@ export default function DriverPending() {
     }
   };
 
+  const driverStatus = driver?.driver_status || "pending";
   const statusInfo = getStatusInfo();
 
-  if (loading) {
+  if (isLoading && !driver) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">

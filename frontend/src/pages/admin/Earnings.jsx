@@ -63,7 +63,8 @@ export default function Earnings() {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.message || "Failed to fetch restaurant");
+      if (!res.ok)
+        throw new Error(data?.message || "Failed to fetch restaurant");
       setCache(CACHE_KEYS.RESTAURANT, data.restaurant);
       return data.restaurant;
     },
@@ -220,7 +221,9 @@ export default function Earnings() {
         </div>
       )}
 
-      <div className={`max-w-4xl mx-auto space-y-6 transition-opacity duration-300 ${refreshing ? "opacity-90" : "opacity-100"}`}>
+      <div
+        className={`max-w-4xl mx-auto space-y-6 transition-opacity duration-300 ${refreshing ? "opacity-90" : "opacity-100"}`}
+      >
         {/* Header */}
 
         <div className="flex items-center gap-35">

@@ -1,50 +1,19 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { API_URL } from "../../config";
 import ManagerPageLayout from "../../components/ManagerPageLayout";
-import { ManagerPageSkeleton } from "../../components/ManagerSkeleton";
+import AdminSkeleton from "../../components/AdminSkeleton";
+import PageWrapper from "../../components/PageWrapper";
 
 const ManagerEarnings = () => {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [summary, setSummary] = useState(null);
   const [orders, setOrders] = useState([]);
   const [period, setPeriod] = useState("daily");
   const [expandedOrder, setExpandedOrder] = useState(null);
-
-  const fetchEarnings = useCallback(async () => {
-    setLoading(true);
-    try {
-      const token = localStorage.getItem("token");
-      if (!token) return;
-
-      const [summaryRes, ordersRes] = await Promise.all([
-        fetch(`${API_URL}/manager/earnings/summary?period=${period}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-        fetch(
-          `${API_URL}/manager/earnings/orders?${getPeriodParams()}&limit=100`,
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          },
-        ),
-      ]);
-
-      if (summaryRes.ok) {
-        const data = await summaryRes.json();
-        setSummary(data.summary);
-      }
-
-      if (ordersRes.ok) {
-        const data = await ordersRes.json();
-        setOrders(data.orders || []);
-      }
-    } catch (err) {
-      console.error("Failed to fetch earnings:", err);
-    } finally {
-      setLoading(false);
-    }
-  }, [period]);
+  const token = localStorage.getItem("token");
 
   const getPeriodParams = () => {
     const now = new Date();
@@ -77,9 +46,53 @@ const ManagerEarnings = () => {
     return `from=${from.toISOString()}&to=${to.toISOString()}`;
   };
 
+  const periodParams = useMemo(() => getPeriodParams(), [period]);
+
+  const summaryQuery = useQuery({
+    queryKey: ["manager", "earnings", "summary", period],
+    enabled: !!token,
+    staleTime: 60 * 1000,
+    queryFn: async () => {
+      const res = await fetch(
+        `${API_URL}/manager/earnings/summary?period=${period}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.message || "Failed to fetch earnings summary");
+      }
+      return data.summary || null;
+    },
+  });
+
+  const ordersQuery = useQuery({
+    queryKey: ["manager", "earnings", "orders", period],
+    enabled: !!token,
+    staleTime: 60 * 1000,
+    queryFn: async () => {
+      const res = await fetch(
+        `${API_URL}/manager/earnings/orders?${periodParams}&limit=100`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.message || "Failed to fetch earnings orders");
+      }
+      return data.orders || [];
+    },
+  });
+
   useEffect(() => {
-    fetchEarnings();
-  }, [fetchEarnings]);
+    if (summaryQuery.data) setSummary(summaryQuery.data);
+  }, [summaryQuery.data]);
+
+  useEffect(() => {
+    if (ordersQuery.data) setOrders(ordersQuery.data);
+  }, [ordersQuery.data]);
 
   const formatTime = (value) => {
     if (!value) return "-";
@@ -107,11 +120,19 @@ const ManagerEarnings = () => {
     all: "All Time",
   };
 
+  const loading = summaryQuery.isLoading && !summary && orders.length === 0;
+  const refreshing =
+    !loading && (summaryQuery.isFetching || ordersQuery.isFetching);
+
+  const handleRefresh = () => {
+    queryClient.invalidateQueries({ queryKey: ["manager", "earnings"] });
+  };
+
   return (
     <ManagerPageLayout
       title="Manager Earnings"
-      onRefresh={fetchEarnings}
-      refreshing={loading}
+      onRefresh={handleRefresh}
+      refreshing={refreshing}
       hideSidebar
     >
       {/* Period Selector */}
@@ -132,9 +153,12 @@ const ManagerEarnings = () => {
       </div>
 
       {loading ? (
-        <ManagerPageSkeleton type="earnings" />
+        <AdminSkeleton type="deposits" />
       ) : (
-        <>
+        <PageWrapper
+          isFetching={refreshing}
+          dataKey={`${period}-${summaryQuery.dataUpdatedAt}-${ordersQuery.dataUpdatedAt}`}
+        >
           {/* Earnings Hero Card */}
           <div className="bg-white rounded-2xl shadow-lg p-5 mb-4 border border-gray-100">
             <div className="text-center mb-4">
@@ -628,7 +652,7 @@ const ManagerEarnings = () => {
               </div>
             )}
           </div>
-        </>
+        </PageWrapper>
       )}
 
       {/* Scrollbar hide */}

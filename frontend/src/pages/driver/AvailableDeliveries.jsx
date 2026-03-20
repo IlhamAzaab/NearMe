@@ -5,9 +5,12 @@ import React, {
   useRef,
   useMemo,
 } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import DriverRealtimeNotificationListener from "../../components/DriverRealtimeNotificationListener";
 import DriverLayout from "../../components/DriverLayout";
+import AdminSkeleton from "../../components/AdminSkeleton";
+import PageWrapper from "../../components/PageWrapper";
 import { API_URL } from "../../config";
 import { useSocket } from "../../context/SocketContext";
 import {
@@ -144,6 +147,11 @@ const saveCacheData = (data) => {
 
 export default function AvailableDeliveries() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const token = localStorage.getItem("token");
+  const role = localStorage.getItem("role");
+  const userId = localStorage.getItem("userId") || "default";
+  const deliveriesQueryKey = ["driver", "available-deliveries", userId];
 
   // Socket connection for real-time notifications
   const {
@@ -158,19 +166,23 @@ export default function AvailableDeliveries() {
 
   // Initialize with cached data for instant display
   const cachedData = loadCachedData();
-  const [deliveries, setDeliveries] = useState(cachedData?.deliveries || []);
+  const cachedQueryData = queryClient.getQueryData(deliveriesQueryKey);
+  const initialSnapshot = cachedQueryData || cachedData;
+  const [deliveries, setDeliveries] = useState(
+    initialSnapshot?.deliveries || [],
+  );
   const [declinedIds, setDeclinedIds] = useState(new Set()); // Track declined delivery IDs
-  const [initialLoading, setInitialLoading] = useState(true); // Always start with skeleton until first fetch completes
+  const [initialLoading, setInitialLoading] = useState(() => !initialSnapshot);
   const [hasCompletedFirstFetch, setHasCompletedFirstFetch] =
-    useState(!!cachedData); // Track if first fetch is done
+    useState(!!initialSnapshot); // Track if first fetch is done
   const [isRefreshing, setIsRefreshing] = useState(false); // Background refresh indicator
   const [accepting, setAccepting] = useState(null);
   const [driverLocation, setDriverLocation] = useState(
-    cachedData?.driverLocation || DEFAULT_DRIVER_LOCATION,
+    initialSnapshot?.driverLocation || DEFAULT_DRIVER_LOCATION,
   );
   const [inDeliveringMode, setInDeliveringMode] = useState(false);
   const [currentRoute, setCurrentRoute] = useState(
-    cachedData?.currentRoute || {
+    initialSnapshot?.currentRoute || {
       total_stops: 0,
       active_deliveries: 0,
     },
@@ -184,9 +196,47 @@ export default function AvailableDeliveries() {
   } = useAlert();
   const [fetchError, setFetchError] = useState(null); // Network error state
   const [showNewDeliveryBanner, setShowNewDeliveryBanner] = useState(false); // Real-time alert banner
-  const [isLoadingAfterAccept, setIsLoadingAfterAccept] = useState(false); // Show skeleton after accepting delivery
   const deliveryListRefEl = useRef(null);
   const abortControllerRef = useRef(null); // For cancelling pending requests
+
+  useQuery({
+    queryKey: deliveriesQueryKey,
+    enabled: !!token && role === "driver",
+    staleTime: 60 * 1000,
+    queryFn: async () => {
+      const currentLoc = driverLocation || DEFAULT_DRIVER_LOCATION;
+      const url = `${API_URL}/driver/deliveries/available/v2?driver_latitude=${currentLoc.latitude}&driver_longitude=${currentLoc.longitude}`;
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.message || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      return {
+        deliveries: data.available_deliveries || [],
+        currentRoute: data.current_route || {
+          total_stops: 0,
+          active_deliveries: 0,
+        },
+        driverLocation: data.driver_location || currentLoc,
+      };
+    },
+  });
+
+  useEffect(() => {
+    if (!cachedQueryData) return;
+    setDeliveries(cachedQueryData.deliveries || []);
+    setCurrentRoute(
+      cachedQueryData.currentRoute || { total_stops: 0, active_deliveries: 0 },
+    );
+    setDriverLocation(
+      cachedQueryData.driverLocation || DEFAULT_DRIVER_LOCATION,
+    );
+    setHasCompletedFirstFetch(true);
+    setInitialLoading(false);
+  }, [cachedQueryData]);
 
   // Leaflet is always loaded (no API key needed)
   const isLoaded = true;
@@ -504,11 +554,14 @@ export default function AvailableDeliveries() {
       setDriverLocation(newDriverLocation);
 
       // Save to cache for instant load next time
-      saveCacheData({
+      const snapshot = {
         deliveries: deliveriesArray,
         currentRoute: newCurrentRoute,
         driverLocation: newDriverLocation,
-      });
+      };
+
+      saveCacheData(snapshot);
+      queryClient.setQueryData(deliveriesQueryKey, snapshot);
 
       // Clear any previous errors on successful fetch
       setFetchError(null);
@@ -599,14 +652,10 @@ export default function AvailableDeliveries() {
         // The earnings for remaining deliveries need to be recalculated based on the new route
         setDeliveries([]);
 
-        // Show skeleton with heartbeat while fetching updated deliveries with fresh calculations
-        setIsLoadingAfterAccept(true);
-
         // Fetch updated deliveries with recalculated earnings based on new route context
         // The backend will recalculate extra_distance and extra_earnings for the new delivery_sequence
         setTimeout(async () => {
           await fetchPendingDeliveriesWithLocation(driverLocation, false);
-          setIsLoadingAfterAccept(false);
         }, 500); // 500ms delay to ensure DB has updated before fetching
       } else {
         showToast(data.message || "Failed to accept delivery", "error");
@@ -762,130 +811,119 @@ export default function AvailableDeliveries() {
         </div>
 
         {/* Main Content */}
-        <div ref={deliveryListRefEl} className="flex-1 overflow-y-auto pb-24">
-          {inDeliveringMode ? (
-            <div className="p-6 text-center">
-              <div className="text-5xl mb-4">🚗</div>
-              <h3 className="text-lg font-bold text-gray-800 mb-2">
-                Currently Delivering
-              </h3>
-              <p className="text-sm text-gray-600 mb-4">
-                Complete current deliveries first
-              </p>
-              <button
-                onClick={() => navigate("/driver/deliveries/active")}
-                className="px-6 py-3 bg-green-500 text-white rounded-full font-medium"
-              >
-                Go to Active Deliveries
-              </button>
-            </div>
-          ) : initialLoading ||
-            !hasCompletedFirstFetch ||
-            isLoadingAfterAccept ? (
-            /* Skeleton Loading Blocks with Heartbeat Animation */
-            <div className="space-y-4 p-4">
-              {[1, 2, 3].map((i) => (
-                <SkeletonCard key={i} withHeartbeat={isLoadingAfterAccept} />
-              ))}
-              {isLoadingAfterAccept && (
-                <p className="text-center text-sm text-gray-500 mt-2 animate-pulse">
-                  Loading available deliveries...
-                </p>
-              )}
-            </div>
-          ) : deliveries.length === 0 ? (
-            <div className="p-6">
-              {/* Active Deliveries Card - Show prominently if driver has active deliveries */}
-              {currentRoute.active_deliveries > 0 && (
-                <div
-                  onClick={() => navigate("/driver/deliveries/active")}
-                  className="mb-6 bg-gradient-to-r from-green-500 to-emerald-600 rounded-xl p-6 text-white shadow-lg cursor-pointer active:scale-[0.98] transition-transform"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center">
-                        <span className="text-2xl">🚗</span>
-                      </div>
-                      <div>
-                        <div className="text-sm font-medium opacity-90">
-                          You have
-                        </div>
-                        <div className="text-2xl font-bold">
-                          {currentRoute.active_deliveries} Active Deliver
-                          {currentRoute.active_deliveries === 1 ? "y" : "ies"}
-                        </div>
-                      </div>
-                    </div>
-                    <span className="material-icons text-3xl">
-                      arrow_forward
-                    </span>
-                  </div>
-                  <div className="text-sm opacity-90 mt-2">
-                    Tap to view and manage your active deliveries
-                  </div>
-                </div>
-              )}
-
-              {/* No Available Deliveries Message */}
-              <div className="text-center">
-                <div className="text-5xl mb-4">�</div>
-                <h3 className="text-lg font-bold text-gray-700 mb-2">
-                  No Deliveries Near You
+        <PageWrapper
+          isFetching={isRefreshing}
+          dataKey={`available-${deliveries.length}`}
+        >
+          <div ref={deliveryListRefEl} className="flex-1 overflow-y-auto pb-24">
+            {inDeliveringMode ? (
+              <div className="p-6 text-center">
+                <div className="text-5xl mb-4">🚗</div>
+                <h3 className="text-lg font-bold text-gray-800 mb-2">
+                  Currently Delivering
                 </h3>
-                <p className="text-sm text-gray-500 mb-6">
-                  {currentRoute.active_deliveries >= 5
-                    ? "You've reached the maximum of 5 deliveries. Complete some deliveries first."
-                    : "No delivery requests available in your area right now. We'll notify you when new orders come in!"}
+                <p className="text-sm text-gray-600 mb-4">
+                  Complete current deliveries first
                 </p>
                 <button
-                  onClick={() => {
-                    setIsLoadingAfterAccept(true);
-                    fetchPendingDeliveriesWithLocation(
-                      driverLocation,
-                      false,
-                    ).finally(() => {
-                      setIsLoadingAfterAccept(false);
-                    });
-                  }}
-                  className="px-6 py-2 bg-green-500 text-white rounded-full text-sm font-medium hover:bg-green-600 active:scale-95 transition-all"
+                  onClick={() => navigate("/driver/deliveries/active")}
+                  className="px-6 py-3 bg-green-500 text-white rounded-full font-medium"
                 >
-                  🔄 Refresh
+                  Go to Active Deliveries
                 </button>
               </div>
-            </div>
-          ) : (
-            <div className="flex flex-col">
-              {deliveries.map((delivery, index) => {
-                const isDeclined = declinedIds.has(delivery.delivery_id);
-                // Count non-declined items before this one to determine if it's "first"
-                const nonDeclinedBefore = deliveries
-                  .slice(0, index)
-                  .filter((d) => !declinedIds.has(d.delivery_id)).length;
-                const isFirstNonDeclined =
-                  !isDeclined && nonDeclinedBefore === 0;
-
-                return (
+            ) : initialLoading || !hasCompletedFirstFetch ? (
+              <div className="p-4">
+                <AdminSkeleton type="deliveries" />
+              </div>
+            ) : deliveries.length === 0 ? (
+              <div className="p-6">
+                {/* Active Deliveries Card - Show prominently if driver has active deliveries */}
+                {currentRoute.active_deliveries > 0 && (
                   <div
-                    key={delivery.delivery_id}
-                    style={{ order: isDeclined ? 1000 + index : index }}
+                    onClick={() => navigate("/driver/deliveries/active")}
+                    className="mb-6 bg-gradient-to-r from-green-500 to-emerald-600 rounded-xl p-6 text-white shadow-lg cursor-pointer active:scale-[0.98] transition-transform"
                   >
-                    <DeliveryCard
-                      delivery={delivery}
-                      driverLocation={driverLocation}
-                      accepting={accepting === delivery.delivery_id}
-                      onAccept={handleAcceptDelivery}
-                      onDecline={handleDecline}
-                      hasActiveDeliveries={currentRoute.total_stops > 0}
-                      isLoaded={isLoaded}
-                      isFirstDelivery={isFirstNonDeclined}
-                      isDeclined={isDeclined}
-                    />
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center">
+                          <span className="text-2xl">🚗</span>
+                        </div>
+                        <div>
+                          <div className="text-sm font-medium opacity-90">
+                            You have
+                          </div>
+                          <div className="text-2xl font-bold">
+                            {currentRoute.active_deliveries} Active Deliver
+                            {currentRoute.active_deliveries === 1 ? "y" : "ies"}
+                          </div>
+                        </div>
+                      </div>
+                      <span className="material-icons text-3xl">
+                        arrow_forward
+                      </span>
+                    </div>
+                    <div className="text-sm opacity-90 mt-2">
+                      Tap to view and manage your active deliveries
+                    </div>
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+                )}
+
+                {/* No Available Deliveries Message */}
+                <div className="text-center">
+                  <div className="text-5xl mb-4">�</div>
+                  <h3 className="text-lg font-bold text-gray-700 mb-2">
+                    No Deliveries Near You
+                  </h3>
+                  <p className="text-sm text-gray-500 mb-6">
+                    {currentRoute.active_deliveries >= 5
+                      ? "You've reached the maximum of 5 deliveries. Complete some deliveries first."
+                      : "No delivery requests available in your area right now. We'll notify you when new orders come in!"}
+                  </p>
+                  <button
+                    onClick={() => {
+                      fetchPendingDeliveriesWithLocation(driverLocation, false);
+                    }}
+                    className="px-6 py-2 bg-green-500 text-white rounded-full text-sm font-medium hover:bg-green-600 active:scale-95 transition-all"
+                  >
+                    🔄 Refresh
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col">
+                {deliveries.map((delivery, index) => {
+                  const isDeclined = declinedIds.has(delivery.delivery_id);
+                  // Count non-declined items before this one to determine if it's "first"
+                  const nonDeclinedBefore = deliveries
+                    .slice(0, index)
+                    .filter((d) => !declinedIds.has(d.delivery_id)).length;
+                  const isFirstNonDeclined =
+                    !isDeclined && nonDeclinedBefore === 0;
+
+                  return (
+                    <div
+                      key={delivery.delivery_id}
+                      style={{ order: isDeclined ? 1000 + index : index }}
+                    >
+                      <DeliveryCard
+                        delivery={delivery}
+                        driverLocation={driverLocation}
+                        accepting={accepting === delivery.delivery_id}
+                        onAccept={handleAcceptDelivery}
+                        onDecline={handleDecline}
+                        hasActiveDeliveries={currentRoute.total_stops > 0}
+                        isLoaded={isLoaded}
+                        isFirstDelivery={isFirstNonDeclined}
+                        isDeclined={isDeclined}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </PageWrapper>
 
         {/* Bottom Navigation */}
         <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-6 py-2 z-20">

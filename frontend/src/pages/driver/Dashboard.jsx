@@ -235,26 +235,80 @@ function MiniDeliveryMap({ delivery }) {
 import DriverLayout from "../../components/DriverLayout";
 import { API_URL } from "../../config";
 
+const DRIVER_DASHBOARD_CACHE_TTL_MS = 2 * 60 * 1000;
+
+const getDriverDashboardCacheKey = () => {
+  const userId = localStorage.getItem("userId") || "default";
+  return `driver_dashboard_cache_${userId}`;
+};
+
+const readDriverDashboardCache = () => {
+  try {
+    const raw = localStorage.getItem(getDriverDashboardCacheKey());
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.cachedAt) return null;
+    if (Date.now() - parsed.cachedAt > DRIVER_DASHBOARD_CACHE_TTL_MS) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+};
+
+const writeDriverDashboardCache = (snapshot) => {
+  try {
+    localStorage.setItem(
+      getDriverDashboardCacheKey(),
+      JSON.stringify({ ...snapshot, cachedAt: Date.now() }),
+    );
+  } catch {
+    // Ignore cache write failures.
+  }
+};
+
 export default function DriverDashboard() {
   const navigate = useNavigate();
-  const [isOnline, setIsOnline] = useState(false);
-  const [stats, setStats] = useState({
-    todayEarnings: 0,
-    todayDeliveries: 0,
-  });
-  const [monthlyStats, setMonthlyStats] = useState({
-    earnings: 0,
-    deliveries: 0,
-  });
-  const [recentDeliveries, setRecentDeliveries] = useState([]);
-  const [availableDeliveries, setAvailableDeliveries] = useState([]);
-  const [activeDeliveries, setActiveDeliveries] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [driverProfile, setDriverProfile] = useState(null);
+  const cachedDashboard = readDriverDashboardCache();
+  const [isOnline, setIsOnline] = useState(
+    () => cachedDashboard?.isOnline ?? false,
+  );
+  const [stats, setStats] = useState(
+    () =>
+      cachedDashboard?.stats || {
+        todayEarnings: 0,
+        todayDeliveries: 0,
+      },
+  );
+  const [monthlyStats, setMonthlyStats] = useState(
+    () =>
+      cachedDashboard?.monthlyStats || {
+        earnings: 0,
+        deliveries: 0,
+      },
+  );
+  const [recentDeliveries, setRecentDeliveries] = useState(
+    () => cachedDashboard?.recentDeliveries || [],
+  );
+  const [availableDeliveries, setAvailableDeliveries] = useState(
+    () => cachedDashboard?.availableDeliveries || [],
+  );
+  const [activeDeliveries, setActiveDeliveries] = useState(
+    () => cachedDashboard?.activeDeliveries || [],
+  );
+  const [loading, setLoading] = useState(() => !cachedDashboard);
+  const [driverProfile, setDriverProfile] = useState(
+    () => cachedDashboard?.driverProfile || null,
+  );
   const [driverLocation, setDriverLocation] = useState(null);
   const [acceptingOrder, setAcceptingOrder] = useState(null);
-  const [withinWorkingHours, setWithinWorkingHours] = useState(true);
-  const [manualOverrideActive, setManualOverrideActive] = useState(false);
+  const [withinWorkingHours, setWithinWorkingHours] = useState(
+    () => cachedDashboard?.withinWorkingHours ?? true,
+  );
+  const [manualOverrideActive, setManualOverrideActive] = useState(
+    () => cachedDashboard?.manualOverrideActive ?? false,
+  );
   const [showOverrideModal, setShowOverrideModal] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const {
@@ -269,6 +323,46 @@ export default function DriverDashboard() {
 
   const workingHoursCheckRef = useRef(null);
   const driverLocationRef = useRef(null); // Ref to avoid infinite loop in fetchDashboardData
+  const autoOnlineInFlightRef = useRef(false);
+
+  const forceOnlineIfWithinWorkingHours = useCallback(async () => {
+    if (!withinWorkingHours || isOnline || autoOnlineInFlightRef.current)
+      return;
+
+    autoOnlineInFlightRef.current = true;
+    try {
+      const token = localStorage.getItem("token");
+      if (!token) return;
+
+      const res = await fetch(`${API_URL}/driver/status`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ status: "active", manualOverride: false }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const online = data.status === "active";
+        setIsOnline(online);
+        setManualOverrideActive(data.manual_override || false);
+
+        const prev = readDriverDashboardCache() || {};
+        writeDriverDashboardCache({
+          ...prev,
+          isOnline: online,
+          withinWorkingHours,
+          manualOverrideActive: data.manual_override || false,
+        });
+      }
+    } catch (error) {
+      console.error("Auto-online enforcement error:", error);
+    } finally {
+      autoOnlineInFlightRef.current = false;
+    }
+  }, [isOnline, withinWorkingHours]);
 
   // ============================================================================
   // SYNC ONLINE STATUS TO NOTIFICATION CONTEXT
@@ -320,10 +414,27 @@ export default function DriverDashboard() {
 
       if (res.ok) {
         const data = await res.json();
+        const fetchedIsOnline = data.driver.driver_status === "active";
+        const fetchedWithinWorkingHours =
+          data.driver.within_working_hours !== false;
+
         setDriverProfile(data.driver);
-        setIsOnline(data.driver.driver_status === "active");
+        setIsOnline(fetchedIsOnline);
         setWithinWorkingHours(data.driver.within_working_hours);
         setManualOverrideActive(data.driver.manual_status_override || false);
+
+        const prev = readDriverDashboardCache() || {};
+        writeDriverDashboardCache({
+          ...prev,
+          driverProfile: data.driver,
+          isOnline: fetchedIsOnline,
+          withinWorkingHours: fetchedWithinWorkingHours,
+          manualOverrideActive: data.driver.manual_status_override || false,
+        });
+
+        if (fetchedWithinWorkingHours && !fetchedIsOnline) {
+          forceOnlineIfWithinWorkingHours();
+        }
       }
     } catch (error) {
       console.error("Profile fetch error:", error);
@@ -332,7 +443,7 @@ export default function DriverDashboard() {
       localStorage.removeItem("role");
       navigate("/login");
     }
-  }, [navigate]);
+  }, [forceOnlineIfWithinWorkingHours, navigate]);
 
   // ============================================================================
   // CHECK WORKING HOURS STATUS
@@ -346,23 +457,44 @@ export default function DriverDashboard() {
       });
       if (res.ok) {
         const data = await res.json();
+        const fetchedWithinWorkingHours = data.within_working_hours !== false;
         setWithinWorkingHours(data.within_working_hours);
         setManualOverrideActive(data.manual_override);
 
+        const prev = readDriverDashboardCache() || {};
+        writeDriverDashboardCache({
+          ...prev,
+          isOnline,
+          withinWorkingHours: fetchedWithinWorkingHours,
+          manualOverrideActive: data.manual_override || false,
+        });
+
         // If status was auto-updated, refresh the profile
         if (data.auto_updated) {
-          setIsOnline(data.driver_status === "active");
+          const online = data.driver_status === "active";
+          setIsOnline(online);
+
+          const next = readDriverDashboardCache() || {};
+          writeDriverDashboardCache({
+            ...next,
+            isOnline: online,
+          });
+
           setStatusMessage(
             data.message || "Status changed due to working hours",
           );
           // Clear message after 5 seconds
           setTimeout(() => setStatusMessage(""), 5000);
         }
+
+        if (fetchedWithinWorkingHours && data.driver_status !== "active") {
+          forceOnlineIfWithinWorkingHours();
+        }
       }
     } catch (error) {
       console.error("Working hours check error:", error);
     }
-  }, []);
+  }, [forceOnlineIfWithinWorkingHours, isOnline]);
 
   // ============================================================================
   // FETCH DASHBOARD DATA
@@ -440,37 +572,46 @@ export default function DriverDashboard() {
       }
 
       // Process stats
+      let nextStats = null;
+      let nextMonthlyStats = null;
+      let nextRecentDeliveries = null;
+      let nextAvailableDeliveries = null;
+      let nextActiveDeliveries = null;
+
       if (statsRes.status === "fulfilled" && statsRes.value.ok) {
         const statsData = await statsRes.value.json();
-        setStats({
+        nextStats = {
           todayEarnings: statsData.earnings || 0,
           todayDeliveries: statsData.deliveries || 0,
-        });
+        };
+        setStats(nextStats);
       }
 
       // Process monthly stats
       if (monthlyStatsRes.status === "fulfilled" && monthlyStatsRes.value.ok) {
         const monthlyData = await monthlyStatsRes.value.json();
-        setMonthlyStats({
+        nextMonthlyStats = {
           earnings: monthlyData.earnings || 0,
           deliveries: monthlyData.deliveries || 0,
-        });
+        };
+        setMonthlyStats(nextMonthlyStats);
       }
 
       // Process recent deliveries
       if (recentRes.status === "fulfilled" && recentRes.value.ok) {
         const recentData = await recentRes.value.json();
-        setRecentDeliveries(recentData.deliveries || []);
+        nextRecentDeliveries = recentData.deliveries || [];
+        setRecentDeliveries(nextRecentDeliveries);
       }
 
       // Process available deliveries (fetched every poll, backend has 30s cache)
       if (availableRes.status === "fulfilled" && availableRes.value.ok) {
         const deliveriesData = await availableRes.value.json();
-        setAvailableDeliveries(
+        nextAvailableDeliveries =
           deliveriesData.available_deliveries ||
-            deliveriesData.deliveries ||
-            [],
-        );
+          deliveriesData.deliveries ||
+          [];
+        setAvailableDeliveries(nextAvailableDeliveries);
       }
 
       // Process active deliveries
@@ -479,8 +620,20 @@ export default function DriverDashboard() {
         activeDeliveriesRes.value.ok
       ) {
         const activeDeliveriesData = await activeDeliveriesRes.value.json();
-        setActiveDeliveries(activeDeliveriesData.deliveries || []);
+        nextActiveDeliveries = activeDeliveriesData.deliveries || [];
+        setActiveDeliveries(nextActiveDeliveries);
       }
+
+      const prev = readDriverDashboardCache() || {};
+      writeDriverDashboardCache({
+        ...prev,
+        stats: nextStats || prev.stats,
+        monthlyStats: nextMonthlyStats || prev.monthlyStats,
+        recentDeliveries: nextRecentDeliveries || prev.recentDeliveries,
+        availableDeliveries:
+          nextAvailableDeliveries || prev.availableDeliveries,
+        activeDeliveries: nextActiveDeliveries || prev.activeDeliveries,
+      });
     } catch (error) {
       console.error("Dashboard fetch error:", error);
     } finally {
@@ -555,8 +708,18 @@ export default function DriverDashboard() {
 
       if (res.ok) {
         const data = await res.json();
-        setIsOnline(data.status === "active");
+        const online = data.status === "active";
+        setIsOnline(online);
         setManualOverrideActive(data.manual_override || false);
+
+        const prev = readDriverDashboardCache() || {};
+        writeDriverDashboardCache({
+          ...prev,
+          isOnline: online,
+          withinWorkingHours,
+          manualOverrideActive: data.manual_override || false,
+        });
+
         // Refresh deliveries after status change
         fetchDashboardData();
       } else {

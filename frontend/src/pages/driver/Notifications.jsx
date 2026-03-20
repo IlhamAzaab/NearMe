@@ -1,4 +1,5 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import supabaseClient from "../../supabaseClient";
 import DriverLayout from "../../components/DriverLayout";
 import { API_URL } from "../../config";
@@ -7,28 +8,31 @@ import { API_URL } from "../../config";
 const supabase = supabaseClient;
 
 export default function DriverNotifications() {
-  const [notifications, setNotifications] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [driverId, setDriverId] = useState(null);
 
   // =============================================
   // FETCH NOTIFICATIONS
   // =============================================
-  const fetchNotifications = useCallback(async () => {
-    try {
-      const token = localStorage.getItem("token");
+  const token = localStorage.getItem("token");
+  const role = localStorage.getItem("role");
+
+  const { data: notifications = [], isLoading } = useQuery({
+    queryKey: ["driver", "notifications"],
+    enabled: !!token && role === "driver",
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
+    queryFn: async () => {
       const res = await fetch(`${API_URL}/driver/notifications?limit=50`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      setNotifications(data.notifications || []);
-    } catch (e) {
-      console.error("Fetch notifications error:", e);
-      setNotifications([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+      if (!res.ok) {
+        throw new Error(data?.message || "Failed to fetch notifications");
+      }
+      return data.notifications || [];
+    },
+  });
 
   // =============================================
   // AUTH CHECK
@@ -43,8 +47,7 @@ export default function DriverNotifications() {
     }
 
     setDriverId(userId);
-    fetchNotifications();
-  }, [fetchNotifications]);
+  }, []);
 
   // =============================================
   // REAL-TIME SUBSCRIPTION
@@ -65,8 +68,8 @@ export default function DriverNotifications() {
         (payload) => {
           console.log("New driver notification:", payload);
           const newNotif = payload.new;
-          setNotifications((prev) => [
-            {
+          queryClient.setQueryData(["driver", "notifications"], (prev = []) => {
+            const next = {
               id: newNotif.id,
               title: newNotif.title,
               body: newNotif.body,
@@ -74,9 +77,9 @@ export default function DriverNotifications() {
               status: newNotif.status,
               created_at: newNotif.sent_at || newNotif.created_at,
               source: "notification_log",
-            },
-            ...prev,
-          ]);
+            };
+            return [next, ...prev];
+          });
         },
       )
       .subscribe();
@@ -84,7 +87,7 @@ export default function DriverNotifications() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [driverId]);
+  }, [driverId, queryClient]);
 
   // =============================================
   // HELPERS

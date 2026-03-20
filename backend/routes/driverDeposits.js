@@ -1,6 +1,11 @@
 import express from "express";
 import { authenticate } from "../middleware/authenticate.js";
 import { supabaseAdmin } from "../supabaseAdmin.js";
+import {
+  getSriLankaDateString,
+  getSriLankaDayRangeFromDateStr,
+  shiftSriLankaDateString,
+} from "../utils/sriLankaTime.js";
 import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
 
@@ -647,34 +652,42 @@ router.get("/manager/summary", authenticate, managerOnly, async (req, res) => {
   console.log(`\n[DEPOSITS] 📊 Manager fetching summary (period: ${period})`);
 
   try {
-    // Get Sri Lanka timezone info
-    const now = new Date();
-    const sriLankaOffset = 5.5 * 60 * 60 * 1000;
-    const sriLankaDate = new Date(now.getTime() + sriLankaOffset);
-    const todayStr = sriLankaDate.toISOString().split("T")[0];
+    // Use stable Sri Lanka local date keys/windows to avoid UTC drift
+    const todayStr = getSriLankaDateString();
+    const { start: todayStartIso } = getSriLankaDayRangeFromDateStr(todayStr);
 
     if (period === "today") {
-      // ===== TODAY: Use snapshot as boundary =====
-
-      // Get the most recent snapshot (this is the "reset point")
-      const { data: latestSnapshot } = await supabaseAdmin
+      // ===== TODAY =====
+      // prev_pending should be the carry-over at start of today.
+      // That's today's snapshot row (created at local midnight) when available.
+      let { data: latestSnapshot } = await supabaseAdmin
         .from("daily_deposit_snapshots")
-        .select("*")
-        .order("snapshot_date", { ascending: false })
-        .limit(1)
+        .select("snapshot_date, ending_pending")
+        .eq("snapshot_date", todayStr)
         .single();
 
+      if (!latestSnapshot) {
+        // Fallback: latest snapshot before today (if today's snapshot not yet created)
+        const { data: fallbackSnapshot } = await supabaseAdmin
+          .from("daily_deposit_snapshots")
+          .select("snapshot_date, ending_pending")
+          .lt("snapshot_date", todayStr)
+          .order("snapshot_date", { ascending: false })
+          .limit(1)
+          .single();
+
+        latestSnapshot = fallbackSnapshot;
+      }
+
       let prevPending = 0;
-      let snapshotBoundary = null;
 
       if (latestSnapshot) {
         prevPending = parseFloat(latestSnapshot.ending_pending || 0);
-        // Use snapshot's created_at as the boundary timestamp
-        snapshotBoundary = latestSnapshot.created_at;
       }
 
-      // Today's Sales = cash deliveries delivered AFTER the snapshot
-      let todaysSalesQuery = supabaseAdmin
+      // Today's sales/paid should always use today's Sri Lanka day window.
+      // This keeps results correct even if snapshot is re-run later in the day.
+      const { data: todayCashDeliveries } = await supabaseAdmin
         .from("deliveries")
         .select(
           `
@@ -687,39 +700,41 @@ router.get("/manager/summary", authenticate, managerOnly, async (req, res) => {
         `,
         )
         .eq("status", "delivered")
-        .eq("orders.payment_method", "cash");
-
-      if (snapshotBoundary) {
-        todaysSalesQuery = todaysSalesQuery.gt("updated_at", snapshotBoundary);
-      }
-
-      const { data: todayCashDeliveries } = await todaysSalesQuery;
+        .eq("orders.payment_method", "cash")
+        .gte("updated_at", todayStartIso);
 
       const todaysSales = (todayCashDeliveries || []).reduce(
         (sum, d) => sum + parseFloat(d.orders?.total_amount || 0),
         0,
       );
 
-      // Paid = deposits approved AFTER the snapshot
-      let paidQuery = supabaseAdmin
+      const { data: todayApproved } = await supabaseAdmin
         .from("driver_deposits")
         .select("approved_amount")
-        .eq("status", "approved");
-
-      if (snapshotBoundary) {
-        paidQuery = paidQuery.gt("reviewed_at", snapshotBoundary);
-      }
-
-      const { data: todayApproved } = await paidQuery;
+        .eq("status", "approved")
+        .gte("reviewed_at", todayStartIso);
 
       const paidToday = (todayApproved || []).reduce(
         (sum, d) => sum + parseFloat(d.approved_amount || 0),
         0,
       );
 
+      // Authoritative pending amount is the live sum of driver balances.
+      // This avoids drift if old snapshots were generated with stale boundaries.
+      const { data: liveDriverBalances } = await supabaseAdmin
+        .from("driver_balances")
+        .select("pending_deposit")
+        .gt("pending_deposit", 0);
+
+      const livePendingTotal = (liveDriverBalances || []).reduce(
+        (sum, b) => sum + parseFloat(b.pending_deposit || 0),
+        0,
+      );
+
       // Calculate derived values
-      const totalSalesToday = todaysSales + prevPending;
-      const pendingAmount = Math.max(0, totalSalesToday - paidToday);
+      const effectivePrevPending = Math.max(0, livePendingTotal - todaysSales);
+      const totalSalesToday = todaysSales + effectivePrevPending;
+      const pendingAmount = livePendingTotal;
 
       // Pending deposits count (awaiting review - always current)
       const { count: pendingCount } = await supabaseAdmin
@@ -730,7 +745,7 @@ router.get("/manager/summary", authenticate, managerOnly, async (req, res) => {
       const summary = {
         total_sales_today: totalSalesToday,
         todays_sales: todaysSales,
-        prev_pending: prevPending,
+        prev_pending: effectivePrevPending,
         pending: pendingAmount,
         paid: paidToday,
         pending_deposits_count: pendingCount || 0,
@@ -742,9 +757,7 @@ router.get("/manager/summary", authenticate, managerOnly, async (req, res) => {
       return res.json({ success: true, summary });
     } else if (period === "yesterday") {
       // ===== YESTERDAY: Try snapshot first, fallback to calculating from data =====
-      const yesterdayDate = new Date(sriLankaDate);
-      yesterdayDate.setDate(yesterdayDate.getDate() - 1);
-      const yesterdayStr = yesterdayDate.toISOString().split("T")[0];
+      const yesterdayStr = shiftSriLankaDateString(todayStr, -1);
 
       // Get yesterday's snapshot
       const { data: snapshot } = await supabaseAdmin
@@ -863,8 +876,9 @@ router.get("/manager/summary", authenticate, managerOnly, async (req, res) => {
       );
 
       // Yesterday's time boundaries in Sri Lanka time
-      const yesterdayStart = new Date(`${yesterdayStr}T00:00:00+05:30`);
-      const yesterdayEnd = new Date(yesterdayStr + "T23:59:59.999+05:30");
+      const { start: yesterdayStartIso, end: yesterdayEndIso } =
+        getSriLankaDayRangeFromDateStr(yesterdayStr);
+      const yesterdayStart = new Date(yesterdayStartIso);
 
       // Get the snapshot before yesterday for prev_pending and as boundary
       const { data: prevSnapshot } = await supabaseAdmin
@@ -890,12 +904,12 @@ router.get("/manager/summary", authenticate, managerOnly, async (req, res) => {
         .select(`id, order_id, orders!inner(total_amount, payment_method)`)
         .eq("status", "delivered")
         .eq("orders.payment_method", "cash")
-        .lte("updated_at", yesterdayEnd.toISOString());
+        .lte("updated_at", yesterdayEndIso);
 
       if (snapshotBoundary && new Date(snapshotBoundary) > yesterdayStart) {
         salesQuery = salesQuery.gt("updated_at", snapshotBoundary);
       } else {
-        salesQuery = salesQuery.gte("updated_at", yesterdayStart.toISOString());
+        salesQuery = salesQuery.gte("updated_at", yesterdayStartIso);
       }
 
       const { data: yesterdayCashDeliveries } = await salesQuery;
@@ -909,15 +923,12 @@ router.get("/manager/summary", authenticate, managerOnly, async (req, res) => {
         .from("driver_deposits")
         .select("approved_amount")
         .eq("status", "approved")
-        .lte("reviewed_at", yesterdayEnd.toISOString());
+        .lte("reviewed_at", yesterdayEndIso);
 
       if (snapshotBoundary && new Date(snapshotBoundary) > yesterdayStart) {
         approvedQuery = approvedQuery.gt("reviewed_at", snapshotBoundary);
       } else {
-        approvedQuery = approvedQuery.gte(
-          "reviewed_at",
-          yesterdayStart.toISOString(),
-        );
+        approvedQuery = approvedQuery.gte("reviewed_at", yesterdayStartIso);
       }
 
       const { data: yesterdayApproved } = await approvedQuery;
@@ -953,9 +964,9 @@ router.get("/manager/summary", authenticate, managerOnly, async (req, res) => {
       const endDate = todayStr;
 
       if (period === "this_week") {
-        const weekStart = new Date(sriLankaDate);
+        const weekStart = new Date(`${todayStr}T00:00:00+05:30`);
         weekStart.setDate(weekStart.getDate() - weekStart.getDay()); // Sunday
-        startDate = weekStart.toISOString().split("T")[0];
+        startDate = getSriLankaDateString(weekStart);
       } else if (period === "this_month") {
         startDate = `${todayStr.substring(0, 7)}-01`; // First of month
       } else {
@@ -966,9 +977,7 @@ router.get("/manager/summary", authenticate, managerOnly, async (req, res) => {
       const rangeEnd = new Date(`${endDate}T23:59:59+05:30`).toISOString();
 
       // Get prev_pending from snapshot before the range
-      const dayBeforeStart = new Date(new Date(`${startDate}T00:00:00+05:30`));
-      dayBeforeStart.setDate(dayBeforeStart.getDate() - 1);
-      const dayBeforeStartStr = dayBeforeStart.toISOString().split("T")[0];
+      const dayBeforeStartStr = shiftSriLankaDateString(startDate, -1);
 
       const { data: beforeSnapshot } = await supabaseAdmin
         .from("daily_deposit_snapshots")
@@ -1110,13 +1119,12 @@ router.get(
  * Create daily deposit snapshot (called by external scheduler at midnight Sri Lanka time)
  * This endpoint should be protected by a secret key in production
  *
- * SNAPSHOT LOGIC (uses snapshot boundary, not date range):
- * - Gets the most recent snapshot's created_at as boundary
- * - today's sales = deliveries AFTER the last snapshot
- * - today's approved = deposits approved AFTER the last snapshot
- * - prev_pending = last snapshot's ending_pending
- * - ending_pending = (today's sales + prev_pending) - today's approved
- * - This ending_pending becomes the next period's prev_pending
+ * SNAPSHOT LOGIC (Sri Lanka day windows):
+ * - Snapshot date N stores closing totals for day N-1
+ * - prev_pending comes from snapshot for day N-1
+ * - sales/approved are aggregated within N-1 local day window
+ * - ending_pending = (sales + prev_pending) - approved
+ * - Snapshot boundary timestamp is fixed to local midnight of date N
  */
 router.post("/cron/daily-snapshot", async (req, res) => {
   const { secret } = req.body;
@@ -1130,30 +1138,37 @@ router.post("/cron/daily-snapshot", async (req, res) => {
   console.log(`\n[DEPOSITS] ⏰ Running daily snapshot cron job`);
 
   try {
-    // Get Sri Lanka timezone date
-    const now = new Date();
-    const sriLankaOffset = 5.5 * 60 * 60 * 1000;
-    const sriLankaDate = new Date(now.getTime() + sriLankaOffset);
-    const todayStr = sriLankaDate.toISOString().split("T")[0];
+    // Snapshot row for date N contains end-of-day totals from N-1.
+    const todayStr = getSriLankaDateString();
+    const yesterdayStr = shiftSriLankaDateString(todayStr, -1);
+    const { start: yesterdayStartIso, end: yesterdayEndIso } =
+      getSriLankaDayRangeFromDateStr(yesterdayStr);
 
-    // Get the most recent snapshot as boundary
+    // prev_pending comes from snapshot captured at start of yesterday
     let prevPending = 0;
-    let snapshotBoundary = null;
 
     const { data: lastSnapshot } = await supabaseAdmin
       .from("daily_deposit_snapshots")
-      .select("*")
-      .order("snapshot_date", { ascending: false })
-      .limit(1)
+      .select("ending_pending")
+      .eq("snapshot_date", yesterdayStr)
       .single();
 
     if (lastSnapshot) {
       prevPending = parseFloat(lastSnapshot.ending_pending || 0);
-      snapshotBoundary = lastSnapshot.created_at;
+    } else {
+      const { data: fallbackSnapshot } = await supabaseAdmin
+        .from("daily_deposit_snapshots")
+        .select("ending_pending")
+        .lt("snapshot_date", todayStr)
+        .order("snapshot_date", { ascending: false })
+        .limit(1)
+        .single();
+
+      prevPending = parseFloat(fallbackSnapshot?.ending_pending || 0);
     }
 
-    // Calculate sales AFTER the last snapshot
-    let salesQuery = supabaseAdmin
+    // Yesterday's sales window in Sri Lanka time
+    const { data: todayCashDeliveries } = await supabaseAdmin
       .from("deliveries")
       .select(
         `
@@ -1166,30 +1181,21 @@ router.post("/cron/daily-snapshot", async (req, res) => {
       `,
       )
       .eq("status", "delivered")
-      .eq("orders.payment_method", "cash");
-
-    if (snapshotBoundary) {
-      salesQuery = salesQuery.gt("updated_at", snapshotBoundary);
-    }
-
-    const { data: todayCashDeliveries } = await salesQuery;
+      .eq("orders.payment_method", "cash")
+      .gte("updated_at", yesterdayStartIso)
+      .lte("updated_at", yesterdayEndIso);
 
     const totalSales = (todayCashDeliveries || []).reduce(
       (sum, d) => sum + parseFloat(d.orders?.total_amount || 0),
       0,
     );
 
-    // Calculate approved deposits AFTER the last snapshot
-    let approvedQuery = supabaseAdmin
+    const { data: todayApproved } = await supabaseAdmin
       .from("driver_deposits")
       .select("approved_amount")
-      .eq("status", "approved");
-
-    if (snapshotBoundary) {
-      approvedQuery = approvedQuery.gt("reviewed_at", snapshotBoundary);
-    }
-
-    const { data: todayApproved } = await approvedQuery;
+      .eq("status", "approved")
+      .gte("reviewed_at", yesterdayStartIso)
+      .lte("reviewed_at", yesterdayEndIso);
 
     const totalApproved = (todayApproved || []).reduce(
       (sum, d) => sum + parseFloat(d.approved_amount || 0),
@@ -1216,7 +1222,8 @@ router.post("/cron/daily-snapshot", async (req, res) => {
           total_sales: totalSales,
           total_approved: totalApproved,
           pending_deposits_count: pendingCount || 0,
-          created_at: new Date().toISOString(),
+          // Keep snapshot boundary fixed at Sri Lanka midnight for this date.
+          created_at: new Date(`${todayStr}T00:00:00+05:30`).toISOString(),
         },
         { onConflict: "snapshot_date" },
       )
@@ -1264,11 +1271,7 @@ router.post(
     console.log(`\n[DEPOSITS] 🧪 Testing snapshot simulation`);
 
     try {
-      // Get Sri Lanka timezone date
-      const now = new Date();
-      const sriLankaOffset = 5.5 * 60 * 60 * 1000;
-      const sriLankaDate = new Date(now.getTime() + sriLankaOffset);
-      const todayStr = sriLankaDate.toISOString().split("T")[0];
+      const todayStr = getSriLankaDateString();
 
       // Get the most recent snapshot as boundary
       let currentPrevPending = 0;

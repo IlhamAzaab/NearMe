@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { API_URL } from "../../config";
 import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
 import AdminLayout from "../../components/AdminLayout";
@@ -8,7 +9,10 @@ import { useAdminCache, CACHE_KEYS } from "../../context/AdminCacheContext";
 export default function Orders() {
   const navigate = useNavigate();
   const { getCache, setCache } = useAdminCache();
+  const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
+  const token = localStorage.getItem("token");
+  const ORDERS_QUERY_KEY = ["admin", "orders"];
 
   // Initialize from cache for instant display
   const cachedOrders = getCache(CACHE_KEYS.ORDERS);
@@ -56,6 +60,72 @@ export default function Orders() {
   const [period, setPeriod] = useState("today");
   const [showPeriodDropdown, setShowPeriodDropdown] = useState(false);
   const periodRef = useRef(null);
+
+  const {
+    data: queriedOrders = [],
+    isLoading,
+    isFetching,
+    refetch,
+  } = useQuery({
+    queryKey: ORDERS_QUERY_KEY,
+    enabled: !!token,
+    staleTime: 60 * 1000,
+    initialData: cachedOrders || undefined,
+    queryFn: async () => {
+      const response = await fetch(`${API_URL}/orders/restaurant/orders`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.message || "Failed to fetch orders");
+      }
+
+      const data = await response.json();
+      const fetchedOrders = data.orders || [];
+      setCache(CACHE_KEYS.ORDERS, fetchedOrders);
+      return fetchedOrders;
+    },
+  });
+
+  useQuery({
+    queryKey: ["admin", "restaurant"],
+    enabled: !!token,
+    staleTime: 2 * 60 * 1000,
+    initialData: cachedRestaurant || undefined,
+    queryFn: async () => {
+      const res = await fetch(`${API_URL}/admin/restaurant`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.message || "Failed to fetch restaurant");
+      }
+      if (data?.restaurant) {
+        setCache(CACHE_KEYS.RESTAURANT, data.restaurant);
+        setRestaurant(data.restaurant);
+      }
+      return data?.restaurant || null;
+    },
+  });
+
+  useEffect(() => {
+    setOrders(queriedOrders);
+    setCounts(computeCounts(queriedOrders));
+  }, [queriedOrders]);
+
+  useEffect(() => {
+    if (!cachedOrders && isLoading) {
+      setLoading(true);
+      setRefreshing(false);
+      return;
+    }
+    setLoading(false);
+    setRefreshing(isFetching);
+  }, [cachedOrders, isFetching, isLoading]);
 
   // Normalize deliveries to always be an array (Supabase may return object for 1:1 relations)
   const normalizeDeliveries = (deliveries) => {
@@ -134,52 +204,23 @@ export default function Orders() {
   };
 
   const fetchOrders = async (silent = false) => {
-    if (!silent) {
-      if (cachedOrders) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
-      }
+    if (!token) {
+      setError("Missing auth token. Please sign in again.");
+      return;
     }
+
+    if (!silent) {
+      setRefreshing(true);
+    }
+
     setError(null);
-
     try {
-      const token = localStorage.getItem("token");
-      if (!token) {
-        setError("Missing auth token. Please sign in again.");
-        if (!silent) {
-          setLoading(false);
-          setRefreshing(false);
-        }
-        return;
-      }
-
-      const response = await fetch(`${API_URL}/orders/restaurant/orders`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-      });
-
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({}));
-        throw new Error(body.message || "Failed to fetch orders");
-      }
-
-      const data = await response.json();
-      const fetchedOrders = data.orders || [];
-      setOrders(fetchedOrders);
-      setCounts(computeCounts(fetchedOrders));
-      // Cache the orders
-      setCache(CACHE_KEYS.ORDERS, fetchedOrders);
+      await refetch();
     } catch (err) {
       console.error("Failed to fetch orders", err);
       if (!silent) setError(err.message || "Failed to fetch orders");
     } finally {
-      if (!silent) {
-        setLoading(false);
-        setRefreshing(false);
-      }
+      if (!silent) setRefreshing(false);
     }
   };
 
@@ -188,25 +229,6 @@ export default function Orders() {
   fetchOrdersRef.current = fetchOrders;
 
   useEffect(() => {
-    // Fetch restaurant info
-    const fetchRestaurant = async () => {
-      try {
-        const token = localStorage.getItem("token");
-        const res = await fetch(`${API_URL}/admin/restaurant`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setRestaurant(data.restaurant);
-        }
-      } catch (err) {
-        console.error("Failed to fetch restaurant", err);
-      }
-    };
-
-    fetchRestaurant();
-    fetchOrders();
-
     // Set up real-time subscriptions with error handling
     // App will work even if realtime fails - falls back to polling
     let cleanupDeliveries = null;
@@ -254,8 +276,8 @@ export default function Orders() {
               updatedDelivery?.id,
             );
 
-            // Immediately update local state for instant UI feedback
-            setOrders((prevOrders) => {
+            // Immediately update cache for instant UI feedback
+            queryClient.setQueryData(ORDERS_QUERY_KEY, (prevOrders = []) => {
               const newOrders = prevOrders.map((order) => {
                 const dels = normalizeDeliveries(order.deliveries);
                 if (dels.some((d) => d.id === updatedDelivery.id)) {
@@ -274,7 +296,7 @@ export default function Orders() {
                 }
                 return order;
               });
-              setCounts(computeCounts(newOrders));
+              setCache(CACHE_KEYS.ORDERS, newOrders);
               return newOrders;
             });
 
@@ -306,6 +328,63 @@ export default function Orders() {
       cleanupStatusUpdates?.();
     };
   }, []);
+
+  const acceptOrderMutation = useMutation({
+    mutationFn: async (orderId) => {
+      const response = await fetch(
+        `${API_URL}/orders/restaurant/orders/${orderId}/status`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ status: "accepted" }),
+        },
+      );
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.message || "Failed to accept order");
+      }
+
+      return response.json();
+    },
+    onSuccess: async () => {
+      showSuccess("Order accepted!");
+      await queryClient.invalidateQueries({ queryKey: ORDERS_QUERY_KEY });
+    },
+  });
+
+  const rejectOrderMutation = useMutation({
+    mutationFn: async ({ orderId, reason }) => {
+      const response = await fetch(
+        `${API_URL}/orders/restaurant/orders/${orderId}/status`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            status: "rejected",
+            reason,
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.message || "Failed to reject order");
+      }
+
+      return response.json();
+    },
+    onSuccess: async () => {
+      showSuccess("Order rejected");
+      await queryClient.invalidateQueries({ queryKey: ORDERS_QUERY_KEY });
+    },
+  });
 
   // Auto-select order from URL params (from dashboard navigation)
   // Use a ref so this only fires once — prevents modal reopening after user closes it
@@ -399,31 +478,11 @@ export default function Orders() {
     setActionError(null);
 
     try {
-      const token = localStorage.getItem("token");
       if (!token) {
         setActionError("Missing auth token. Please sign in again.");
         return;
       }
-
-      const response = await fetch(
-        `${API_URL}/orders/restaurant/orders/${orderId}/status`,
-        {
-          method: "PATCH",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ status: "accepted" }),
-        },
-      );
-
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({}));
-        throw new Error(body.message || "Failed to accept order");
-      }
-
-      showSuccess("Order accepted!");
-      fetchOrders();
+      await acceptOrderMutation.mutateAsync(orderId);
     } catch (err) {
       console.error("Failed to accept order", err);
       setActionError(err.message || "Failed to accept order");
@@ -451,34 +510,14 @@ export default function Orders() {
     setActionError(null);
 
     try {
-      const token = localStorage.getItem("token");
       if (!token) {
         setActionError("Missing auth token. Please sign in again.");
         return;
       }
-
-      const response = await fetch(
-        `${API_URL}/orders/restaurant/orders/${orderId}/status`,
-        {
-          method: "PATCH",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            status: "rejected",
-            reason: rejectReason.trim(),
-          }),
-        },
-      );
-
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({}));
-        throw new Error(body.message || "Failed to reject order");
-      }
-
-      showSuccess("Order rejected");
-      fetchOrders();
+      await rejectOrderMutation.mutateAsync({
+        orderId,
+        reason: rejectReason.trim(),
+      });
     } catch (err) {
       console.error("Failed to reject order", err);
       setActionError(err.message || "Failed to reject order");

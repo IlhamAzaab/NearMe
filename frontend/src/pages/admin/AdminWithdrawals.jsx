@@ -1,35 +1,80 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { API_URL } from "../../config";
 import AdminLayout from "../../components/AdminLayout";
 
 export default function AdminWithdrawals() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [summary, setSummary] = useState({
-    total_earnings: 0,
-    total_withdrawals: 0,
-    remaining_balance: 0,
-    previous_balance: 0,
-    today_earnings: 0,
-    today_withdrawals: 0,
-    last_30_days_earnings: 0,
-    last_30_days_withdrawals: 0,
-    payment_count: 0,
-  });
-  const [payments, setPayments] = useState([]);
   const [selectedPayment, setSelectedPayment] = useState(null);
   const [receiptViewer, setReceiptViewer] = useState({
     open: false,
     url: "",
     type: "image",
   });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const token = localStorage.getItem("token");
+  const role = localStorage.getItem("role");
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+  const {
+    data: summary = {
+      total_earnings: 0,
+      total_withdrawals: 0,
+      remaining_balance: 0,
+      previous_balance: 0,
+      today_earnings: 0,
+      today_withdrawals: 0,
+      last_30_days_earnings: 0,
+      last_30_days_withdrawals: 0,
+      payment_count: 0,
+    },
+    isLoading: summaryLoading,
+    isFetching: summaryFetching,
+    error: summaryError,
+  } = useQuery({
+    queryKey: ["admin", "withdrawals", "summary"],
+    enabled: !!token && role === "admin",
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
+    queryFn: async () => {
+      const res = await fetch(`${API_URL}/admin/withdrawals/admin/summary`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok || !data.summary) {
+        throw new Error(data?.message || "Failed to load withdrawal summary");
+      }
+      return data.summary;
+    },
+  });
+
+  const {
+    data: payments = [],
+    isLoading: paymentsLoading,
+    isFetching: paymentsFetching,
+    error: paymentsError,
+  } = useQuery({
+    queryKey: ["admin", "withdrawals", "history"],
+    enabled: !!token && role === "admin",
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
+    queryFn: async () => {
+      const res = await fetch(`${API_URL}/admin/withdrawals/admin/history`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.message || "Failed to load withdrawal history");
+      }
+      return data.payments || [];
+    },
+  });
+
+  const loading =
+    (summaryLoading && !summary) || (paymentsLoading && !payments.length);
+  const error = summaryError?.message || paymentsError?.message || null;
+  const refreshing = summaryFetching || paymentsFetching;
 
   useEffect(() => {
     const paymentId = searchParams.get("paymentId");
@@ -48,42 +93,8 @@ export default function AdminWithdrawals() {
     setSearchParams(next, { replace: true });
   };
 
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      const token = localStorage.getItem("token");
-      if (!token) {
-        setError("Not authenticated");
-        setLoading(false);
-        return;
-      }
-
-      const [summaryRes, paymentsRes] = await Promise.all([
-        fetch(`${API_URL}/admin/withdrawals/admin/summary`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-        fetch(`${API_URL}/admin/withdrawals/admin/history`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-      ]);
-
-      const summaryData = await summaryRes.json();
-      const paymentsData = await paymentsRes.json();
-
-      if (summaryRes.ok && summaryData.summary) {
-        setSummary(summaryData.summary);
-      }
-      if (paymentsRes.ok) {
-        setPayments(paymentsData.payments || []);
-      }
-    } catch (err) {
-      console.error("Error fetching withdrawal data:", err);
-      setError("Failed to load data");
-    } finally {
-      setLoading(false);
-    }
+  const fetchData = () => {
+    queryClient.invalidateQueries({ queryKey: ["admin", "withdrawals"] });
   };
 
   const formatDate = (dateStr) => {

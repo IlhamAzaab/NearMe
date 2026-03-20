@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   MapContainer,
   TileLayer,
@@ -107,62 +108,49 @@ export default function Settings() {
 
   const token = localStorage.getItem("token");
 
-  // Fetch restaurant data
-  useEffect(() => {
-    if (activeTab === "restaurant") {
-      fetchRestaurant();
-    }
-  }, [activeTab]);
-
-  const fetchRestaurant = async () => {
-    if (!token) {
-      setError("No authentication token found");
-      setLoading(false);
-      return;
-    }
-
-    try {
+  const { data: restaurantData, isLoading: restaurantLoading } = useQuery({
+    queryKey: ["admin", "restaurant"],
+    enabled: !!token && activeTab === "restaurant",
+    staleTime: 2 * 60 * 1000,
+    queryFn: async () => {
       const res = await fetch(`${API_URL}/admin/restaurant`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { Authorization: `Bearer ${token}` },
       });
-
       const data = await res.json();
-
-      if (!res.ok) {
-        setError(data?.message || "Failed to load restaurant");
-        setLoading(false);
-        return;
+      if (!res.ok || !data.restaurant) {
+        throw new Error(data?.message || "Failed to load restaurant");
       }
+      return data.restaurant;
+    },
+  });
 
-      setRestaurant(data.restaurant);
-      setRestaurantFormData({
-        restaurant_name: data.restaurant.restaurant_name || "",
-        address: data.restaurant.address || "",
-        city: data.restaurant.city || "",
-        postal_code: data.restaurant.postal_code || "",
-        opening_time: data.restaurant.opening_time || "",
-        close_time: data.restaurant.close_time || "",
-        logo_url: data.restaurant.logo_url || "",
-        cover_image_url: data.restaurant.cover_image_url || "",
-        latitude: data.restaurant.latitude || null,
-        longitude: data.restaurant.longitude || null,
-      });
-      // Set map position
-      if (data.restaurant.latitude && data.restaurant.longitude) {
-        setMapPosition([
-          Number(data.restaurant.latitude),
-          Number(data.restaurant.longitude),
-        ]);
-      }
-      setLoading(false);
-    } catch (err) {
-      console.error("Error fetching restaurant:", err);
-      setError("Network error while loading restaurant");
-      setLoading(false);
+  useEffect(() => {
+    if (!restaurantData) return;
+    setRestaurant(restaurantData);
+    setRestaurantFormData({
+      restaurant_name: restaurantData.restaurant_name || "",
+      address: restaurantData.address || "",
+      city: restaurantData.city || "",
+      postal_code: restaurantData.postal_code || "",
+      opening_time: restaurantData.opening_time || "",
+      close_time: restaurantData.close_time || "",
+      logo_url: restaurantData.logo_url || "",
+      cover_image_url: restaurantData.cover_image_url || "",
+      latitude: restaurantData.latitude || null,
+      longitude: restaurantData.longitude || null,
+    });
+    if (restaurantData.latitude && restaurantData.longitude) {
+      setMapPosition([
+        Number(restaurantData.latitude),
+        Number(restaurantData.longitude),
+      ]);
     }
-  };
+    setLoading(false);
+  }, [restaurantData]);
+
+  useEffect(() => {
+    setLoading(restaurantLoading && !restaurantData);
+  }, [restaurantData, restaurantLoading]);
 
   const handleRestaurantInputChange = (e) => {
     setRestaurantFormData({
@@ -200,17 +188,14 @@ export default function Settings() {
           const base64String = reader.result;
 
           // Upload to Cloudinary via backend
-          const response = await fetch(
-            `${API_URL}/admin/upload-image`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`,
-              },
-              body: JSON.stringify({ imageData: base64String }),
+          const response = await fetch(`${API_URL}/admin/upload-image`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
             },
-          );
+            body: JSON.stringify({ imageData: base64String }),
+          });
 
           const data = await response.json();
 

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import AdminLayout from "../../components/AdminLayout";
 import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
 import { API_URL } from "../../config";
@@ -8,7 +9,9 @@ import { useAdminCache, CACHE_KEYS } from "../../context/AdminCacheContext";
 export default function Products() {
   const navigate = useNavigate();
   const { getCache, setCache } = useAdminCache();
+  const queryClient = useQueryClient();
   const token = localStorage.getItem("token");
+  const PRODUCTS_QUERY_KEY = ["admin", "products"];
 
   // Initialize from cache for instant display
   const cachedProducts = getCache(CACHE_KEYS.PRODUCTS);
@@ -32,65 +35,96 @@ export default function Products() {
   const [search, setSearch] = useState("");
   const [availabilityFilter, setAvailabilityFilter] = useState("all");
 
-  useEffect(() => {
-    fetchFoods();
-  }, []);
-
-  const fetchFoods = async () => {
-    if (!token) return;
-
-    // Use refreshing state if we have cached data
-    if (cachedProducts) {
-      setRefreshing(true);
-    } else {
-      setLoading(true);
-    }
-    setError(null);
-
-    try {
+  const {
+    data: queriedFoods = [],
+    isLoading,
+    isFetching,
+    refetch,
+  } = useQuery({
+    queryKey: PRODUCTS_QUERY_KEY,
+    enabled: !!token,
+    staleTime: 60 * 1000,
+    initialData: cachedProducts || undefined,
+    queryFn: async () => {
       const res = await fetch(`${API_URL}/admin/foods`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
 
       if (!res.ok) {
-        setError(data?.message || "Failed to load products");
-      } else {
-        const fetchedFoods = data.foods || [];
-        setFoods(fetchedFoods);
-        // Cache the products
-        setCache(CACHE_KEYS.PRODUCTS, fetchedFoods);
+        throw new Error(data?.message || "Failed to load products");
       }
-    } catch (err) {
-      setError("Network error while loading products");
-      console.error(err);
-    } finally {
-      setLoading(false);
+
+      const fetchedFoods = data.foods || [];
+      setCache(CACHE_KEYS.PRODUCTS, fetchedFoods);
+      return fetchedFoods;
+    },
+  });
+
+  useEffect(() => {
+    setFoods(queriedFoods);
+  }, [queriedFoods]);
+
+  useEffect(() => {
+    if (!cachedProducts && isLoading) {
+      setLoading(true);
       setRefreshing(false);
+      return;
     }
-  };
+    setLoading(false);
+    setRefreshing(isFetching);
+  }, [cachedProducts, isFetching, isLoading]);
+
+  const deleteMutation = useMutation({
+    mutationFn: async (foodId) => {
+      const res = await fetch(`${API_URL}/admin/foods/${foodId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.message || "Failed to delete product");
+      }
+
+      return foodId;
+    },
+    onSuccess: (foodId) => {
+      const updatedFoods = (foods || []).filter((f) => f.id !== foodId);
+      setFoods(updatedFoods);
+      setCache(CACHE_KEYS.PRODUCTS, updatedFoods);
+      queryClient.setQueryData(PRODUCTS_QUERY_KEY, updatedFoods);
+    },
+  });
+
+  const toggleAvailabilityMutation = useMutation({
+    mutationFn: async ({ foodId, isAvailable }) => {
+      const res = await fetch(`${API_URL}/admin/foods/${foodId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ is_available: isAvailable }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.message || "Failed to update availability");
+      }
+
+      return { foodId, isAvailable };
+    },
+  });
 
   const handleDelete = async (foodId) => {
     if (!window.confirm("Are you sure you want to delete this product?"))
       return;
 
     try {
-      const res = await fetch(`${API_URL}/admin/foods/${foodId}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (res.ok) {
-        const updatedFoods = foods.filter((f) => f.id !== foodId);
-        setFoods(updatedFoods);
-        // Update cache
-        setCache(CACHE_KEYS.PRODUCTS, updatedFoods);
-      } else {
-        const data = await res.json();
-        showError(data?.message || "Failed to delete product");
-      }
+      await deleteMutation.mutateAsync(foodId);
     } catch (err) {
-      showError("Error deleting product");
+      showError(err.message || "Error deleting product");
       console.error(err);
     }
   };
@@ -110,31 +144,23 @@ export default function Products() {
       ),
     );
     try {
-      const res = await fetch(`${API_URL}/admin/foods/${food.id}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ is_available: newValue }),
+      await toggleAvailabilityMutation.mutateAsync({
+        foodId: food.id,
+        isAvailable: newValue,
       });
-      if (!res.ok) {
-        // Revert on failure
-        setFoods((prev) =>
-          prev.map((f) =>
-            f.id === food.id ? { ...f, is_available: !newValue } : f,
-          ),
-        );
-        const data = await res.json();
-        showError(data?.message || "Failed to update availability");
-      }
-    } catch {
+      queryClient.setQueryData(
+        PRODUCTS_QUERY_KEY,
+        foods.map((f) =>
+          f.id === food.id ? { ...f, is_available: newValue } : f,
+        ),
+      );
+    } catch (err) {
       setFoods((prev) =>
         prev.map((f) =>
           f.id === food.id ? { ...f, is_available: !newValue } : f,
         ),
       );
-      showError("Network error updating availability");
+      showError(err.message || "Network error updating availability");
     }
   };
 
@@ -212,7 +238,9 @@ export default function Products() {
         </div>
       )}
 
-      <div className={`space-y-3 transition-opacity duration-300 ${refreshing ? "opacity-90" : "opacity-100"}`}>
+      <div
+        className={`space-y-3 transition-opacity duration-300 ${refreshing ? "opacity-90" : "opacity-100"}`}
+      >
         {/* ── Header bar ── */}
         <div className="flex items-center justify-between py-1">
           <div className="flex items-center gap-2.5">
@@ -524,8 +552,11 @@ export default function Products() {
             setShowAddModal(false);
             setEditingFood(null);
           }}
-          onSave={() => {
-            fetchFoods();
+          onSave={async () => {
+            await queryClient.invalidateQueries({
+              queryKey: PRODUCTS_QUERY_KEY,
+            });
+            await refetch();
             setShowAddModal(false);
             setEditingFood(null);
           }}

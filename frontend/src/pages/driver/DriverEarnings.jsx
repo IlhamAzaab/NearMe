@@ -52,9 +52,12 @@ export default function DriverEarnings() {
     staleTime: 60 * 1000,
     refetchInterval: 60 * 1000,
     queryFn: async () => {
-      const res = await fetch(`${API_URL}/driver/earnings/summary?period=${period}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await fetch(
+        `${API_URL}/driver/earnings/summary?period=${period}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
       const data = await res.json();
       if (!res.ok || !data.success) {
         throw new Error(data?.message || "Failed to fetch earnings summary");
@@ -106,8 +109,10 @@ export default function DriverEarnings() {
   const todayPerformance = summaryPayload?.today || null;
   const earnings = historyPayload?.earnings || [];
   const chartData = chartPayload?.chartData || [];
-  const loading = (summaryLoading && !summary) || (historyLoading && !earnings.length);
-  const chartLoading = (chartInitialLoading && !chartData.length) || chartFetching;
+  const loading =
+    (summaryLoading && !summary) || (historyLoading && !earnings.length);
+  const chartLoading =
+    (chartInitialLoading && !chartData.length) || chartFetching;
   const summaryPulse = useDataPulse(summaryUpdatedAt, summaryFetching);
 
   const formatCurrency = (value) => `Rs ${Number(value || 0).toFixed(2)}`;

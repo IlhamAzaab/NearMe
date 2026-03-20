@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import DriverLayout from "../../components/DriverLayout";
+import AdminSkeleton from "../../components/AdminSkeleton";
+import PageWrapper from "../../components/PageWrapper";
 import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
 import {
   MapContainer,
@@ -133,24 +136,54 @@ function getDistanceMeters(lat1, lng1, lat2, lng2) {
 
 export default function ActiveDeliveries() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const token = localStorage.getItem("token");
+  const role = localStorage.getItem("role");
+  const userId = localStorage.getItem("userId") || "default";
+  const activeQueryKey = ["driver", "active-deliveries", userId];
   const { alert: alertState, visible: alertVisible, showError } = useAlert();
 
   // Initialize with cached data for instant display
   const cachedData = loadCachedData();
-  const [pickups, setPickups] = useState(cachedData?.pickups || []);
-  const [initialLoading, setInitialLoading] = useState(!cachedData); // Only skeleton on first load
+  const cachedQueryData = queryClient.getQueryData(activeQueryKey);
+  const initialSnapshot = cachedQueryData || cachedData;
+  const [pickups, setPickups] = useState(initialSnapshot?.pickups || []);
+  const [initialLoading, setInitialLoading] = useState(() => !initialSnapshot); // Only skeleton on first load
   const [isRefreshing, setIsRefreshing] = useState(false); // Background refresh indicator
   const [fetchError, setFetchError] = useState(null); // Track fetch errors
   const [hasFetchedSuccessfully, setHasFetchedSuccessfully] =
-    useState(!!cachedData); // Track if we've had a successful fetch
+    useState(!!initialSnapshot); // Track if we've had a successful fetch
   const [driverLocation, setDriverLocation] = useState(
-    cachedData?.driverLocation || null,
+    initialSnapshot?.driverLocation || null,
   );
-  const [mode, setMode] = useState(cachedData?.mode || "pickup"); // pickup | deliver
-  const [deliveries, setDeliveries] = useState(cachedData?.deliveries || []);
+  const [mode, setMode] = useState(initialSnapshot?.mode || "pickup"); // pickup | deliver
+  const [deliveries, setDeliveries] = useState(
+    initialSnapshot?.deliveries || [],
+  );
   const [fullRouteData, setFullRouteData] = useState(
-    cachedData?.fullRouteData || null,
+    initialSnapshot?.fullRouteData || null,
   ); // Store full route for developer view
+
+  useQuery({
+    queryKey: activeQueryKey,
+    enabled: !!token && role === "driver",
+    staleTime: 30 * 1000,
+    queryFn: async () => {
+      const snapshot = loadCachedData();
+      return snapshot || null;
+    },
+  });
+
+  useEffect(() => {
+    if (!cachedQueryData) return;
+    setPickups(cachedQueryData.pickups || []);
+    setDeliveries(cachedQueryData.deliveries || []);
+    setMode(cachedQueryData.mode || "pickup");
+    setDriverLocation(cachedQueryData.driverLocation || null);
+    setFullRouteData(cachedQueryData.fullRouteData || null);
+    setHasFetchedSuccessfully(true);
+    setInitialLoading(false);
+  }, [cachedQueryData]);
 
   // Leaflet is always loaded (no API key needed)
   const isLoaded = true;
@@ -348,6 +381,15 @@ export default function ActiveDeliveries() {
         setFetchError(null);
         const list = data.pickups || [];
         setPickups(list);
+        const pickupSnapshot = {
+          pickups: list,
+          deliveries: [],
+          mode: "pickup",
+          driverLocation: location,
+          fullRouteData,
+        };
+        saveCacheData(pickupSnapshot);
+        queryClient.setQueryData(activeQueryKey, pickupSnapshot);
 
         if (list.length > 0) {
           // Has pickups — auto-navigate to DriverMapPage (only on initial load)
@@ -464,13 +506,15 @@ export default function ActiveDeliveries() {
         }
 
         // Save to cache
-        saveCacheData({
+        const deliverySnapshot = {
           pickups: [],
           deliveries: list,
           mode: "deliver",
           driverLocation: location,
           fullRouteData,
-        });
+        };
+        saveCacheData(deliverySnapshot);
+        queryClient.setQueryData(activeQueryKey, deliverySnapshot);
 
         // Auto-set first delivery to on-the-way when starting delivering mode
         if (list.length > 0 && list[0].status === "picked_up") {
@@ -539,73 +583,46 @@ export default function ActiveDeliveries() {
     <DriverLayout>
       <AnimatedAlert alert={alertState} visible={alertVisible} />
       <div className="min-h-screen bg-gray-50 pb-24">
-        <div className="max-w-4xl mx-auto px-4 py-6">
-          {/* Header */}
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-                Active Deliveries
-                {isRefreshing && (
-                  <span className="inline-block w-4 h-4 border-2 border-green-500 border-t-transparent rounded-full animate-spin"></span>
-                )}
-              </h2>
-              <p className="text-sm text-gray-600 mt-1">
-                {mode === "pickup"
-                  ? `${pickups.length} pickup${pickups.length !== 1 ? "s" : ""} ready`
-                  : `${deliveries.length} delivery${deliveries.length !== 1 ? "ies" : ""} ready`}
-              </p>
-              <p className="text-xs text-gray-500 mt-1">
-                Mode: {mode === "pickup" ? "Pick-up" : "Delivering"}
-              </p>
-            </div>
-            <button
-              onClick={() => navigate("/driver/deliveries")}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
-            >
-              Available
-            </button>
-          </div>
-
-          {initialLoading ? (
-            /* Skeleton Loading Blocks */
-            <div className="space-y-4">
-              {[1, 2].map((i) => (
-                <ActiveDeliverySkeletonCard key={i} />
-              ))}
-            </div>
-          ) : fetchError ? (
-            /* Error State - Network or Server Error */
-            <div className="bg-white rounded-xl shadow-md p-12 text-center">
-              <svg
-                className="mx-auto h-24 w-24 text-red-400"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                />
-              </svg>
-              <h3 className="mt-4 text-xl font-semibold text-red-600">
-                Connection Error
-              </h3>
-              <p className="mt-2 text-gray-500">{fetchError}</p>
-              <p className="mt-2 text-sm text-gray-400">
-                Please check your internet connection and try again
-              </p>
+        <PageWrapper
+          isFetching={isRefreshing}
+          dataKey={`active-${mode}-${pickups.length}-${deliveries.length}`}
+        >
+          <div className="max-w-4xl mx-auto px-4 py-6">
+            {/* Header */}
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                  Active Deliveries
+                  {isRefreshing && (
+                    <span className="inline-block w-4 h-4 border-2 border-green-500 border-t-transparent rounded-full animate-spin"></span>
+                  )}
+                </h2>
+                <p className="text-sm text-gray-600 mt-1">
+                  {mode === "pickup"
+                    ? `${pickups.length} pickup${pickups.length !== 1 ? "s" : ""} ready`
+                    : `${deliveries.length} delivery${deliveries.length !== 1 ? "ies" : ""} ready`}
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  Mode: {mode === "pickup" ? "Pick-up" : "Delivering"}
+                </p>
+              </div>
               <button
-                onClick={() => {
-                  setFetchError(null);
-                  setInitialLoading(true);
-                  fetchWithLocation();
-                }}
-                className="mt-6 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold flex items-center justify-center gap-2 mx-auto"
+                onClick={() => navigate("/driver/deliveries")}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
               >
+                Available
+              </button>
+            </div>
+
+            {initialLoading ? (
+              <div className="space-y-4">
+                <AdminSkeleton type="deliveries" />
+              </div>
+            ) : fetchError ? (
+              /* Error State - Network or Server Error */
+              <div className="bg-white rounded-xl shadow-md p-12 text-center">
                 <svg
-                  className="w-5 h-5"
+                  className="mx-auto h-24 w-24 text-red-400"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -614,60 +631,91 @@ export default function ActiveDeliveries() {
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     strokeWidth={2}
-                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
                   />
                 </svg>
-                Retry
-              </button>
-            </div>
-          ) : (
-              mode === "pickup" ? pickups.length === 0 : deliveries.length === 0
-            ) ? (
-            <div className="bg-white rounded-xl shadow-md p-12 text-center">
-              <svg
-                className="mx-auto h-24 w-24 text-gray-400"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"
-                />
-              </svg>
-              <h3 className="mt-4 text-xl font-semibold text-gray-700">
-                {mode === "pickup"
-                  ? "No Active Pickups"
-                  : "No Active Deliveries"}
-              </h3>
-              <p className="mt-2 text-gray-500">
-                {mode === "pickup"
-                  ? "Accept deliveries to start picking up orders"
-                  : "Pick up orders to start delivering to customers"}
-              </p>
-              <button
-                onClick={() => navigate("/driver/deliveries")}
-                className="mt-6 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-semibold"
-              >
-                View Available Deliveries
-              </button>
-            </div>
-          ) : (
-            <>
-              {/* Full Route Overview Map - Shows ordered stops */}
-              {mode === "pickup" && pickups.length > 0 && fullRouteData && (
-                <FullRouteMap
-                  driverLocation={driverLocation}
-                  pickups={pickups}
-                  fullRouteData={fullRouteData}
-                  isLoaded={isLoaded}
-                />
-              )}
-            </>
-          )}
-        </div>
+                <h3 className="mt-4 text-xl font-semibold text-red-600">
+                  Connection Error
+                </h3>
+                <p className="mt-2 text-gray-500">{fetchError}</p>
+                <p className="mt-2 text-sm text-gray-400">
+                  Please check your internet connection and try again
+                </p>
+                <button
+                  onClick={() => {
+                    setFetchError(null);
+                    setInitialLoading(true);
+                    fetchWithLocation();
+                  }}
+                  className="mt-6 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold flex items-center justify-center gap-2 mx-auto"
+                >
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                    />
+                  </svg>
+                  Retry
+                </button>
+              </div>
+            ) : (
+                mode === "pickup"
+                  ? pickups.length === 0
+                  : deliveries.length === 0
+              ) ? (
+              <div className="bg-white rounded-xl shadow-md p-12 text-center">
+                <svg
+                  className="mx-auto h-24 w-24 text-gray-400"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"
+                  />
+                </svg>
+                <h3 className="mt-4 text-xl font-semibold text-gray-700">
+                  {mode === "pickup"
+                    ? "No Active Pickups"
+                    : "No Active Deliveries"}
+                </h3>
+                <p className="mt-2 text-gray-500">
+                  {mode === "pickup"
+                    ? "Accept deliveries to start picking up orders"
+                    : "Pick up orders to start delivering to customers"}
+                </p>
+                <button
+                  onClick={() => navigate("/driver/deliveries")}
+                  className="mt-6 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-semibold"
+                >
+                  View Available Deliveries
+                </button>
+              </div>
+            ) : (
+              <>
+                {/* Full Route Overview Map - Shows ordered stops */}
+                {mode === "pickup" && pickups.length > 0 && fullRouteData && (
+                  <FullRouteMap
+                    driverLocation={driverLocation}
+                    pickups={pickups}
+                    fullRouteData={fullRouteData}
+                    isLoaded={isLoaded}
+                  />
+                )}
+              </>
+            )}
+          </div>
+        </PageWrapper>
 
         {/* Fixed Start Pickup Button */}
         {(mode === "pickup" ? pickups.length > 0 : deliveries.length > 0) && (
@@ -705,100 +753,6 @@ export default function ActiveDeliveries() {
         )}
       </div>
     </DriverLayout>
-  );
-}
-
-// Skeleton Loading Card for Active Deliveries
-function ActiveDeliverySkeletonCard() {
-  return (
-    <div className="bg-white rounded-xl shadow-md overflow-hidden">
-      {/* Map Skeleton */}
-      <div className="h-48 bg-gray-200 relative">
-        <div
-          className="absolute inset-0"
-          style={{
-            background:
-              "linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%)",
-            backgroundSize: "200% 100%",
-            animation: "shimmer 1.5s infinite",
-          }}
-        ></div>
-        <div className="absolute top-3 left-3 w-24 h-8 bg-gray-300 rounded-lg"></div>
-        <div className="absolute top-3 right-3 w-20 h-8 bg-gray-300 rounded-lg"></div>
-      </div>
-
-      {/* Content Skeleton */}
-      <div className="p-4 space-y-4">
-        {/* Location Info Skeleton */}
-        <div className="flex items-start gap-3">
-          <div
-            className="w-12 h-12 bg-gray-300 rounded-full"
-            style={{
-              background:
-                "linear-gradient(90deg, #e0e0e0 25%, #d0d0d0 50%, #e0e0e0 75%)",
-              backgroundSize: "200% 100%",
-              animation: "shimmer 1.5s infinite",
-            }}
-          ></div>
-          <div className="flex-1 space-y-2">
-            <div
-              className="w-32 h-5 bg-gray-300 rounded"
-              style={{
-                background:
-                  "linear-gradient(90deg, #e0e0e0 25%, #d0d0d0 50%, #e0e0e0 75%)",
-                backgroundSize: "200% 100%",
-                animation: "shimmer 1.5s infinite",
-              }}
-            ></div>
-            <div
-              className="w-48 h-4 bg-gray-200 rounded"
-              style={{
-                background:
-                  "linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%)",
-                backgroundSize: "200% 100%",
-                animation: "shimmer 1.5s infinite",
-              }}
-            ></div>
-          </div>
-        </div>
-
-        {/* Stats Skeleton */}
-        <div className="flex justify-around py-3 bg-gray-50 rounded-lg">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="text-center space-y-1">
-              <div
-                className="w-12 h-6 bg-gray-300 rounded mx-auto"
-                style={{
-                  background:
-                    "linear-gradient(90deg, #e0e0e0 25%, #d0d0d0 50%, #e0e0e0 75%)",
-                  backgroundSize: "200% 100%",
-                  animation: "shimmer 1.5s infinite",
-                }}
-              ></div>
-              <div className="w-16 h-3 bg-gray-200 rounded mx-auto"></div>
-            </div>
-          ))}
-        </div>
-
-        {/* Button Skeleton */}
-        <div
-          className="w-full h-12 bg-green-200 rounded-lg"
-          style={{
-            background:
-              "linear-gradient(90deg, #a7f3d0 25%, #6ee7b7 50%, #a7f3d0 75%)",
-            backgroundSize: "200% 100%",
-            animation: "shimmer 1.5s infinite",
-          }}
-        ></div>
-      </div>
-
-      <style>{`
-        @keyframes shimmer {
-          0% { background-position: -200% 0; }
-          100% { background-position: 200% 0; }
-        }
-      `}</style>
-    </div>
   );
 }
 

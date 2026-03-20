@@ -5,6 +5,7 @@ import React, {
   useCallback,
   useEffect,
 } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 const AdminCacheContext = createContext(null);
 
@@ -141,66 +142,36 @@ export function useAdminCache() {
  */
 export function useAdminData(cacheKey, fetchFn, options = {}) {
   const { getCache, setCache } = useAdminCache();
-  const [data, setData] = useState(() => getCache(cacheKey));
-  const [loading, setLoading] = useState(!getCache(cacheKey));
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState(null);
-  const [hasAnimated, setHasAnimated] = useState(!!getCache(cacheKey));
+  const queryClient = useQueryClient();
+  const cached = getCache(cacheKey);
 
-  const fetchData = useCallback(
-    async (isRefresh = false) => {
-      try {
-        if (isRefresh) {
-          setRefreshing(true);
-        }
-        setError(null);
-
-        const result = await fetchFn();
-
-        setData(result);
-        setCache(cacheKey, result);
-
-        // Trigger animation after data update (only if we had cached data before)
-        if (isRefresh || hasAnimated) {
-          setHasAnimated(true);
-        }
-      } catch (err) {
-        console.error(`Error fetching ${cacheKey}:`, err);
-        setError(err.message || "Failed to fetch data");
-      } finally {
-        setLoading(false);
-        setRefreshing(false);
-      }
+  const { data, isLoading, isFetching, error } = useQuery({
+    queryKey: ["admin", "cache", cacheKey],
+    staleTime: options.staleTime ?? 60 * 1000,
+    initialData: cached ?? undefined,
+    queryFn: async () => {
+      const result = await fetchFn();
+      setCache(cacheKey, result);
+      return result;
     },
-    [cacheKey, fetchFn, setCache, hasAnimated],
-  );
-
-  useEffect(() => {
-    const cachedData = getCache(cacheKey);
-    if (cachedData) {
-      setData(cachedData);
-      setLoading(false);
-      // Fetch fresh data in background
-      fetchData(true);
-    } else {
-      fetchData(false);
-    }
-  }, [cacheKey]);
+  });
 
   const refresh = useCallback(() => {
-    return fetchData(true);
-  }, [fetchData]);
+    return queryClient.invalidateQueries({
+      queryKey: ["admin", "cache", cacheKey],
+    });
+  }, [cacheKey, queryClient]);
 
   return {
     data,
-    loading, // True only on initial load when no cache
-    refreshing, // True when fetching fresh data with existing cache
-    error,
+    loading: isLoading && !data,
+    refreshing: isFetching,
+    error: error?.message || null,
     refresh,
-    hasAnimated,
+    hasAnimated: !!cached,
     setData: (newData) => {
-      setData(newData);
       setCache(cacheKey, newData);
+      queryClient.setQueryData(["admin", "cache", cacheKey], newData);
     },
   };
 }

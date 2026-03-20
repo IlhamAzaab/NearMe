@@ -2,18 +2,57 @@ import { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { API_URL } from "../config";
 
+const DRIVER_GUARD_CACHE_TTL_MS = 5 * 60 * 1000;
+
+const getDriverGuardCacheKey = () => {
+  const userId = localStorage.getItem("userId") || "default";
+  return `driver_guard_cache_${userId}`;
+};
+
+const readDriverGuardCache = () => {
+  try {
+    const raw = localStorage.getItem(getDriverGuardCacheKey());
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.cachedAt) return null;
+    if (Date.now() - parsed.cachedAt > DRIVER_GUARD_CACHE_TTL_MS) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+};
+
+const writeDriverGuardCache = (payload) => {
+  try {
+    localStorage.setItem(
+      getDriverGuardCacheKey(),
+      JSON.stringify({ ...payload, cachedAt: Date.now() }),
+    );
+  } catch {
+    // Ignore cache write failures.
+  }
+};
+
 export default function DriverDashboardRoute({ children }) {
-  const [loading, setLoading] = useState(true);
-  const [allowed, setAllowed] = useState(false);
-  const [redirectTo, setRedirectTo] = useState("/login");
+  const token = localStorage.getItem("token");
+  const role = localStorage.getItem("role");
+  const cachedGuard = readDriverGuardCache();
+
+  const [loading, setLoading] = useState(
+    () => !!token && role === "driver" && !cachedGuard,
+  );
+  const [allowed, setAllowed] = useState(
+    () => cachedGuard?.allowed ?? (!!token && role === "driver"),
+  );
+  const [redirectTo, setRedirectTo] = useState(
+    () => cachedGuard?.redirectTo || "/login",
+  );
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    const role = localStorage.getItem("role");
-
     if (!token || role !== "driver") {
       setAllowed(false);
       setLoading(false);
+      setRedirectTo("/login");
       return;
     }
 
@@ -29,6 +68,7 @@ export default function DriverDashboardRoute({ children }) {
           localStorage.removeItem("role");
           setRedirectTo("/login");
           setAllowed(false);
+          writeDriverGuardCache({ allowed: false, redirectTo: "/login" });
           setLoading(false);
           return;
         }
@@ -38,6 +78,10 @@ export default function DriverDashboardRoute({ children }) {
         if (!res.ok) {
           console.warn("Driver /me returned", res.status, "- allowing access");
           setAllowed(true);
+          writeDriverGuardCache({
+            allowed: true,
+            redirectTo: "/driver/dashboard",
+          });
           setLoading(false);
           return;
         }
@@ -48,13 +92,20 @@ export default function DriverDashboardRoute({ children }) {
           if (data.driver.force_password_change) {
             setAllowed(false);
             setRedirectTo("/driver/profile");
+            writeDriverGuardCache({
+              allowed: false,
+              redirectTo: "/driver/profile",
+            });
           }
           // Check onboarding completion
           else if (!data.driver.onboarding_completed) {
             setAllowed(false);
-            setRedirectTo(
-              `/driver/onboarding/step-${data.driver.onboarding_step || 1}`,
-            );
+            const onboardingPath = `/driver/onboarding/step-${data.driver.onboarding_step || 1}`;
+            setRedirectTo(onboardingPath);
+            writeDriverGuardCache({
+              allowed: false,
+              redirectTo: onboardingPath,
+            });
           }
           // Check if driver is pending approval (not yet approved by admin)
           // Only redirect to pending page if status is 'pending' (awaiting admin approval)
@@ -62,6 +113,10 @@ export default function DriverDashboardRoute({ children }) {
           else if (data.driver.driver_status === "pending") {
             setAllowed(false);
             setRedirectTo("/driver/pending");
+            writeDriverGuardCache({
+              allowed: false,
+              redirectTo: "/driver/pending",
+            });
           }
           // Check if driver is suspended or rejected
           else if (
@@ -70,29 +125,45 @@ export default function DriverDashboardRoute({ children }) {
           ) {
             setAllowed(false);
             setRedirectTo("/driver/pending");
+            writeDriverGuardCache({
+              allowed: false,
+              redirectTo: "/driver/pending",
+            });
           }
           // All checks passed - allow active AND inactive drivers to access dashboard
           // Inactive drivers can view dashboard but can't accept deliveries
           else {
             setAllowed(true);
+            writeDriverGuardCache({
+              allowed: true,
+              redirectTo: "/driver/dashboard",
+            });
           }
         } else {
           // Response OK but no driver data - still allow (transient issue)
           console.warn("Driver /me returned OK but no driver data");
           setAllowed(true);
+          writeDriverGuardCache({
+            allowed: true,
+            redirectTo: "/driver/dashboard",
+          });
         }
       } catch (e) {
         console.error("Driver profile check error:", e);
         // Network error - don't clear credentials, just allow access
         // The dashboard will handle its own error states
         setAllowed(true);
+        writeDriverGuardCache({
+          allowed: true,
+          redirectTo: "/driver/dashboard",
+        });
       } finally {
         setLoading(false);
       }
     };
 
     checkProfile();
-  }, []);
+  }, [token, role]);
 
   if (loading) {
     return (

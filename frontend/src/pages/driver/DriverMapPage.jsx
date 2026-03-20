@@ -1,4 +1,11 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+} from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   MapContainer,
@@ -140,14 +147,27 @@ function getDistanceMeters(lat1, lng1, lat2, lng2) {
 export default function DriverMapPage() {
   const { deliveryId } = useParams();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const watchIdRef = useRef(null);
+  const userId = localStorage.getItem("userId") || "default";
+  const mapSnapshotKey = useMemo(
+    () => ["driver", "map-page", userId, deliveryId || "current"],
+    [deliveryId, userId],
+  );
+  const cachedSnapshot = queryClient.getQueryData(mapSnapshotKey);
 
-  const [mode, setMode] = useState("pickup"); // "pickup" or "delivery"
-  const [pickups, setPickups] = useState([]);
-  const [deliveries, setDeliveries] = useState([]);
-  const [currentTarget, setCurrentTarget] = useState(null);
-  const [driverLocation, setDriverLocation] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [mode, setMode] = useState(cachedSnapshot?.mode || "pickup"); // "pickup" or "delivery"
+  const [pickups, setPickups] = useState(cachedSnapshot?.pickups || []);
+  const [deliveries, setDeliveries] = useState(
+    cachedSnapshot?.deliveries || [],
+  );
+  const [currentTarget, setCurrentTarget] = useState(
+    cachedSnapshot?.currentTarget || null,
+  );
+  const [driverLocation, setDriverLocation] = useState(
+    cachedSnapshot?.driverLocation || null,
+  );
+  const [loading, setLoading] = useState(() => !cachedSnapshot);
   const [updating, setUpdating] = useState(false);
   const [isTracking, setIsTracking] = useState(false);
 
@@ -171,6 +191,23 @@ export default function DriverMapPage() {
   const [overlayActionType, setOverlayActionType] = useState("pickup");
   const [overlayErrorMsg, setOverlayErrorMsg] = useState("");
   const overlayCallbackRef = useRef(null);
+
+  useQuery({
+    queryKey: mapSnapshotKey,
+    staleTime: 60 * 1000,
+    queryFn: async () => queryClient.getQueryData(mapSnapshotKey) || null,
+  });
+
+  useEffect(() => {
+    const latest = queryClient.getQueryData(mapSnapshotKey);
+    if (!latest) return;
+    setMode(latest.mode || "pickup");
+    setPickups(latest.pickups || []);
+    setDeliveries(latest.deliveries || []);
+    setCurrentTarget(latest.currentTarget || null);
+    setDriverLocation(latest.driverLocation || null);
+    setLoading(false);
+  }, [mapSnapshotKey, queryClient]);
 
   // Callbacks for map interaction
   const handleBoundsFitted = useCallback(() => {
@@ -420,6 +457,14 @@ export default function DriverMapPage() {
           console.error("[DRIVER MAP] Fallback check error:", fallbackErr);
         }
       }
+
+      queryClient.setQueryData(mapSnapshotKey, {
+        mode,
+        pickups: pickupsData.pickups || [],
+        deliveries: deliveriesData.deliveries || [],
+        currentTarget,
+        driverLocation,
+      });
     } catch (e) {
       console.error("Fetch error:", e);
       // On error, try the fallback endpoint

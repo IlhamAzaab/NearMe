@@ -7,7 +7,11 @@ export function useDataPulse(dataUpdatedAt, isFetching) {
   useEffect(() => {
     if (!dataUpdatedAt) return;
 
-    if (prevUpdatedAt.current && dataUpdatedAt > prevUpdatedAt.current && !isFetching) {
+    if (
+      prevUpdatedAt.current &&
+      dataUpdatedAt > prevUpdatedAt.current &&
+      !isFetching
+    ) {
       setPulse(true);
       const timer = setTimeout(() => setPulse(false), 500);
       prevUpdatedAt.current = dataUpdatedAt;

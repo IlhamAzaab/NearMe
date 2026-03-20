@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import AdminLayout from "../../components/AdminLayout";
 import { API_URL } from "../../config";
 import { useAdminCache, CACHE_KEYS } from "../../context/AdminCacheContext";
@@ -18,6 +19,7 @@ const getDashboardCacheKey = (period) => `${CACHE_KEYS.DASHBOARD}_${period}`;
 
 export default function AdminDashboard() {
   const { getCache, setCache } = useAdminCache();
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const token = localStorage.getItem("token");
 
@@ -37,129 +39,147 @@ export default function AdminDashboard() {
   );
   const [refreshing, setRefreshing] = useState(false);
   const [toggling, setToggling] = useState(false);
-
-  // Fetch dashboard stats
-  const fetchDashboardStats = useCallback(
-    async (period, isBackground = false) => {
-      if (!token) return;
-      try {
-        const res = await fetch(
-          `${API_URL}/admin/dashboard-stats?chartPeriod=${period}`,
-          { headers: { Authorization: `Bearer ${token}` } },
-        );
-        const data = await res.json();
-        if (res.ok) {
-          setDashboardData(data);
-          setCache(getDashboardCacheKey(period), data);
-        }
-      } catch (err) {
-        console.error("Dashboard stats error:", err);
+  const dashboardQuery = useQuery({
+    queryKey: ["admin", "dashboard", chartPeriod],
+    enabled: !!token,
+    staleTime: 60 * 1000,
+    initialData: getCache(getDashboardCacheKey(chartPeriod)) || undefined,
+    queryFn: async () => {
+      const res = await fetch(
+        `${API_URL}/admin/dashboard-stats?chartPeriod=${chartPeriod}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.message || "Failed to fetch dashboard stats");
       }
+      setCache(getDashboardCacheKey(chartPeriod), data);
+      return data;
     },
-    [token, setCache],
-  );
+  });
 
-  // Fetch recent orders
-  const fetchRecentOrders = useCallback(async () => {
-    if (!token) return [];
-    try {
+  const recentOrdersQuery = useQuery({
+    queryKey: ["admin", "recent-orders"],
+    enabled: !!token,
+    staleTime: 60 * 1000,
+    initialData: getCache("admin_recent_orders") || undefined,
+    queryFn: async () => {
       const res = await fetch(`${API_URL}/admin/orders?limit=5`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.message || "Failed to fetch recent orders");
+      }
       const orders = data?.orders || [];
-      setRecentOrders(orders);
       setCache("admin_recent_orders", orders);
       return orders;
-    } catch (err) {
-      console.error("Dashboard recent orders error:", err);
-      return [];
-    }
-  }, [token, setCache]);
+    },
+  });
 
-  // Fetch restaurant data
-  const fetchRestaurant = useCallback(async () => {
-    if (!token) return null;
-    try {
+  const restaurantQuery = useQuery({
+    queryKey: ["admin", "restaurant"],
+    enabled: !!token,
+    staleTime: 2 * 60 * 1000,
+    initialData: getCache(CACHE_KEYS.RESTAURANT) || undefined,
+    queryFn: async () => {
       const res = await fetch(`${API_URL}/admin/restaurant`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
       if (res.status === 401) {
-        console.error("Token expired or invalid. Redirecting to login.");
         localStorage.removeItem("token");
         localStorage.removeItem("role");
         navigate("/login");
-        return null;
+        throw new Error("Unauthorized");
       }
 
       const data = await res.json();
-      if (data.restaurant) {
-        setRestaurant(data.restaurant);
-        setCache(CACHE_KEYS.RESTAURANT, data.restaurant);
-        return data.restaurant;
+      if (!data?.restaurant) {
+        throw new Error(data?.message || "Failed to fetch restaurant");
       }
-    } catch (err) {
-      console.error("Restaurant fetch error:", err);
-    }
-    return null;
-  }, [token, navigate, setCache]);
+      setCache(CACHE_KEYS.RESTAURANT, data.restaurant);
+      return data.restaurant;
+    },
+  });
 
-  // Initial fetch
   useEffect(() => {
-    const fetchAll = async () => {
-      if (!token) {
+    if (!token) {
+      navigate("/login");
+    }
+  }, [navigate, token]);
+
+  useEffect(() => {
+    if (dashboardQuery.data) {
+      setDashboardData(dashboardQuery.data);
+    }
+  }, [dashboardQuery.data]);
+
+  useEffect(() => {
+    if (recentOrdersQuery.data) {
+      setRecentOrders(recentOrdersQuery.data);
+    }
+  }, [recentOrdersQuery.data]);
+
+  useEffect(() => {
+    if (restaurantQuery.data) {
+      setRestaurant(restaurantQuery.data);
+    }
+  }, [restaurantQuery.data]);
+
+  useEffect(() => {
+    const hasData = !!dashboardData || !!restaurant || recentOrders.length > 0;
+    const initialLoading =
+      (dashboardQuery.isLoading && !dashboardData) ||
+      (restaurantQuery.isLoading && !restaurant) ||
+      (recentOrdersQuery.isLoading && recentOrders.length === 0 && !hasData);
+
+    setLoading(initialLoading);
+    setRefreshing(
+      !initialLoading &&
+        (dashboardQuery.isFetching ||
+          restaurantQuery.isFetching ||
+          recentOrdersQuery.isFetching),
+    );
+  }, [
+    dashboardData,
+    dashboardQuery.isFetching,
+    dashboardQuery.isLoading,
+    recentOrders.length,
+    recentOrdersQuery.isFetching,
+    recentOrdersQuery.isLoading,
+    restaurant,
+    restaurantQuery.isFetching,
+    restaurantQuery.isLoading,
+  ]);
+
+  const toggleRestaurantMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`${API_URL}/admin/restaurant/toggle-open`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const data = await res.json();
+      if (res.status === 401) {
+        localStorage.removeItem("token");
+        localStorage.removeItem("role");
         navigate("/login");
-        return;
+        throw new Error(data?.message || "Unauthorized");
       }
-
-      // Check if we have cached data
-      const cachedDashboard = getCache(getDashboardCacheKey(chartPeriod));
-      const cachedOrders = getCache("admin_recent_orders");
-      const cachedRestaurant = getCache(CACHE_KEYS.RESTAURANT);
-
-      if (cachedDashboard && cachedOrders && cachedRestaurant) {
-        // Show cached data instantly
-        setDashboardData(cachedDashboard);
-        setRecentOrders(cachedOrders);
-        setRestaurant(cachedRestaurant);
-        setLoading(false);
-        // Fetch fresh data in background
-        setRefreshing(true);
-        await Promise.all([
-          fetchDashboardStats(chartPeriod, true),
-          fetchRecentOrders(),
-          fetchRestaurant(),
-        ]);
-        setRefreshing(false);
-      } else {
-        // No cache, show loading
-        setLoading(true);
-        await Promise.all([
-          fetchDashboardStats(chartPeriod),
-          fetchRecentOrders(),
-          fetchRestaurant(),
-        ]);
-        setLoading(false);
+      if (!res.ok || !data?.restaurant) {
+        throw new Error(data?.message || "Failed to toggle restaurant");
       }
-    };
-    fetchAll();
-  }, [token]);
-
-  // Handle chart period change
-  useEffect(() => {
-    if (!loading && token) {
-      // Check cache for this period
-      const cached = getCache(getDashboardCacheKey(chartPeriod));
-      if (cached) {
-        setDashboardData(cached);
-        // Refresh in background
-        fetchDashboardStats(chartPeriod, true);
-      } else {
-        fetchDashboardStats(chartPeriod);
-      }
-    }
-  }, [chartPeriod]);
+      return data.restaurant;
+    },
+    onSuccess: (nextRestaurant) => {
+      setRestaurant(nextRestaurant);
+      setCache(CACHE_KEYS.RESTAURANT, nextRestaurant);
+      queryClient.setQueryData(["admin", "restaurant"], nextRestaurant);
+    },
+  });
 
   const toggleRestaurantOpen = async () => {
     if (toggling) return;
@@ -174,41 +194,22 @@ export default function AdminDashboard() {
     }
 
     setToggling(true);
-    setRestaurant((prev) =>
-      prev ? { ...prev, is_open: !prev.is_open } : prev,
-    );
+    const previousRestaurant = restaurant;
+    const optimisticRestaurant = previousRestaurant
+      ? { ...previousRestaurant, is_open: !previousRestaurant.is_open }
+      : previousRestaurant;
+    setRestaurant(optimisticRestaurant);
+    if (optimisticRestaurant) {
+      queryClient.setQueryData(["admin", "restaurant"], optimisticRestaurant);
+    }
     try {
-      const res = await fetch(`${API_URL}/admin/restaurant/toggle-open`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      const data = await res.json();
-
-      // Handle 401 Unauthorized - token expired or invalid
-      if (res.status === 401) {
-        console.error("Token expired or invalid:", data.message);
-        localStorage.removeItem("token");
-        localStorage.removeItem("role");
-        navigate("/login");
-        return;
-      }
-
-      if (res.ok && data.restaurant) {
-        setRestaurant(data.restaurant);
-      } else {
-        console.error("Toggle restaurant failed:", data.message);
-        setRestaurant((prev) =>
-          prev ? { ...prev, is_open: !prev.is_open } : prev,
-        );
-      }
+      await toggleRestaurantMutation.mutateAsync();
     } catch (err) {
       console.error("Toggle restaurant error:", err);
-      setRestaurant((prev) =>
-        prev ? { ...prev, is_open: !prev.is_open } : prev,
-      );
+      setRestaurant(previousRestaurant);
+      if (previousRestaurant) {
+        queryClient.setQueryData(["admin", "restaurant"], previousRestaurant);
+      }
     } finally {
       setToggling(false);
     }

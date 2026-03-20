@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
 import {
   SkeletonHeroCard,
@@ -14,6 +15,7 @@ import { API_URL } from "../../config";
 
 export default function DriverDeposits() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const fileInputRef = useRef(null);
   const { addNotification } = useNotification();
   const driverIdRef = useRef(null);
@@ -24,17 +26,75 @@ export default function DriverDeposits() {
     showError,
   } = useAlert();
 
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [balance, setBalance] = useState(null);
-  const [deposits, setDeposits] = useState([]);
-  const [lastRefresh, setLastRefresh] = useState(new Date());
-
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [submitForm, setSubmitForm] = useState({ amount: "" });
   const [selectedFile, setSelectedFile] = useState(null);
   const [submitting, setSubmitting] = useState(false);
-  const [managerBank, setManagerBank] = useState(null);
+  const [isManualRefreshing, setIsManualRefreshing] = useState(false);
+
+  const token = localStorage.getItem("token");
+  const role = localStorage.getItem("role");
+
+  const {
+    data: balance = null,
+    isLoading: balanceLoading,
+    isFetching: balanceFetching,
+  } = useQuery({
+    queryKey: ["driver", "deposits", "balance"],
+    enabled: !!token && role === "driver",
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
+    queryFn: async () => {
+      const res = await fetch(`${API_URL}/driver/deposits/balance`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data?.message || "Failed to fetch balance");
+      }
+      return data.balance;
+    },
+  });
+
+  const {
+    data: deposits = [],
+    isLoading: depositsLoading,
+    isFetching: depositsFetching,
+  } = useQuery({
+    queryKey: ["driver", "deposits", "history"],
+    enabled: !!token && role === "driver",
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
+    queryFn: async () => {
+      const res = await fetch(`${API_URL}/driver/deposits/history`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data?.message || "Failed to fetch history");
+      }
+      return data.deposits || [];
+    },
+  });
+
+  const { data: managerBank = null } = useQuery({
+    queryKey: ["driver", "deposits", "manager-bank"],
+    enabled: !!token && role === "driver",
+    staleTime: 10 * 60 * 1000,
+    queryFn: async () => {
+      const res = await fetch(
+        `${API_URL}/driver/deposits/manager-bank-details`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      const data = await res.json();
+      if (!res.ok || !data.success || !data.bankDetails) {
+        return null;
+      }
+      return data.bankDetails;
+    },
+  });
 
   // Get driver ID from token
   useEffect(() => {
@@ -55,27 +115,7 @@ export default function DriverDeposits() {
       navigate("/login");
       return;
     }
-    fetchData(true);
-    fetchManagerBankDetails();
   }, [navigate]);
-
-  const fetchManagerBankDetails = async () => {
-    try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(
-        `${API_URL}/driver/deposits/manager-bank-details`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
-      );
-      const data = await res.json();
-      if (data.success && data.bankDetails) {
-        setManagerBank(data.bankDetails);
-      }
-    } catch (err) {
-      console.error("Failed to fetch manager bank details:", err);
-    }
-  };
 
   // Subscribe to real-time deposit status changes for this driver
   useEffect(() => {
@@ -121,7 +161,14 @@ export default function DriverDeposits() {
             }
 
             // Refresh data to show updated status
-            await Promise.all([fetchBalance(), fetchHistory()]);
+            await Promise.all([
+              queryClient.invalidateQueries({
+                queryKey: ["driver", "deposits", "balance"],
+              }),
+              queryClient.invalidateQueries({
+                queryKey: ["driver", "deposits", "history"],
+              }),
+            ]);
           }
         },
       )
@@ -130,54 +177,23 @@ export default function DriverDeposits() {
     return () => {
       supabaseClient.removeChannel(updateChannel);
     };
-  }, [addNotification]);
-
-  // Memoized fetch function for auto-refresh
-  const fetchData = useCallback(async (showLoading = true) => {
-    if (showLoading) setLoading(true);
-    else setRefreshing(true);
-
-    await Promise.all([fetchBalance(), fetchHistory()]);
-
-    setLoading(false);
-    setRefreshing(false);
-    setLastRefresh(new Date());
-  }, []);
+  }, [addNotification, queryClient]);
 
   // Manual refresh handler
   const handleRefresh = useCallback(() => {
-    fetchData(false);
-  }, [fetchData]);
-
-  const fetchBalance = async () => {
-    try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/driver/deposits/balance`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      if (data.success) {
-        setBalance(data.balance);
-      }
-    } catch (error) {
-      console.error("Failed to fetch balance:", error);
-    }
-  };
-
-  const fetchHistory = async () => {
-    try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/driver/deposits/history`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      if (data.success) {
-        setDeposits(data.deposits);
-      }
-    } catch (error) {
-      console.error("Failed to fetch history:", error);
-    }
-  };
+    setIsManualRefreshing(true);
+    Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: ["driver", "deposits", "balance"],
+      }),
+      queryClient.invalidateQueries({
+        queryKey: ["driver", "deposits", "history"],
+      }),
+      queryClient.invalidateQueries({
+        queryKey: ["driver", "deposits", "manager-bank"],
+      }),
+    ]).finally(() => setIsManualRefreshing(false));
+  }, [queryClient]);
 
   const handleFileSelect = (e) => {
     const file = e.target.files[0];
@@ -211,7 +227,14 @@ export default function DriverDeposits() {
         setShowSubmitModal(false);
         setSubmitForm({ amount: "" });
         setSelectedFile(null);
-        fetchData();
+        await Promise.all([
+          queryClient.invalidateQueries({
+            queryKey: ["driver", "deposits", "balance"],
+          }),
+          queryClient.invalidateQueries({
+            queryKey: ["driver", "deposits", "history"],
+          }),
+        ]);
         showSuccess("Deposit submitted! Waiting for manager approval.");
       } else {
         showError(data.message || "Failed to submit deposit");
@@ -257,6 +280,9 @@ export default function DriverDeposits() {
   // Can submit if there's available amount
   const canSubmitNew = availableToSubmit > 0;
   const hasPendingDeposit = actualPendingDeposit > 0;
+  const loading =
+    (balanceLoading && !balance) || (depositsLoading && !deposits.length);
+  const refreshing = isManualRefreshing || balanceFetching || depositsFetching;
 
   // Loading skeleton state
   if (loading) {
