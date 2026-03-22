@@ -726,15 +726,14 @@ router.get("/manager/summary", authenticate, managerOnly, async (req, res) => {
     );
 
     // 2. TODAY'S SALES: Sum of COD delivered orders in the period
-    // Query from deliveries table using updated_at (more reliable - auto-updated on status change)
-    // orders.delivered_at might be NULL if not explicitly set
+    // Query from deliveries table using delivered_at (set when delivery is completed)
     const { data: periodDeliveries, error: salesError } = await supabaseAdmin
       .from("deliveries")
       .select(
         `
         id,
         driver_id,
-        updated_at,
+        delivered_at,
         orders!inner (
           id,
           total_amount,
@@ -746,8 +745,9 @@ router.get("/manager/summary", authenticate, managerOnly, async (req, res) => {
       .eq("status", "delivered")
       .eq("orders.payment_method", "cash")
       .eq("orders.status", "delivered")
-      .gte("updated_at", todayStart)
-      .lt("updated_at", tomorrowStart);
+      .not("delivered_at", "is", null)
+      .gte("delivered_at", todayStart)
+      .lt("delivered_at", tomorrowStart);
 
     if (salesError) {
       console.error(`[DEPOSITS] ❌ Sales query error: ${salesError.message}`);
@@ -882,15 +882,15 @@ router.get(
         driverMap[d.id] = d;
       });
 
-      // 3. Get today's collections per driver (from deliveries table using updated_at)
-      // updated_at is auto-updated when delivery status changes to 'delivered'
+      // 3. Get today's collections per driver (from deliveries table using delivered_at)
+      // delivered_at is set when delivery status changes to 'delivered'
       const { data: periodDeliveries } = await supabaseAdmin
         .from("deliveries")
         .select(
           `
           id,
           driver_id,
-          updated_at,
+          delivered_at,
           orders!inner (
             id,
             total_amount,
@@ -902,8 +902,9 @@ router.get(
         .eq("status", "delivered")
         .eq("orders.payment_method", "cash")
         .eq("orders.status", "delivered")
-        .gte("updated_at", todayStart)
-        .lt("updated_at", tomorrowStart);
+        .not("delivered_at", "is", null)
+        .gte("delivered_at", todayStart)
+        .lt("delivered_at", tomorrowStart);
 
       console.log(
         `[DEPOSITS] 📊 Period deliveries: ${(periodDeliveries || []).length}`,
