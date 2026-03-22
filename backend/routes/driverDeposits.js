@@ -726,14 +726,16 @@ router.get("/manager/summary", authenticate, managerOnly, async (req, res) => {
     );
 
     // 2. TODAY'S SALES: Sum of COD delivered orders in the period
-    // Query from deliveries table using delivered_at (set when delivery is completed)
-    const { data: periodDeliveries, error: salesError } = await supabaseAdmin
+    // Fetch all delivered orders and filter by date in JavaScript
+    // Use delivered_at if available, otherwise fall back to updated_at
+    const { data: allPeriodDeliveries, error: salesError } = await supabaseAdmin
       .from("deliveries")
       .select(
         `
         id,
         driver_id,
         delivered_at,
+        updated_at,
         orders!inner (
           id,
           total_amount,
@@ -744,22 +746,34 @@ router.get("/manager/summary", authenticate, managerOnly, async (req, res) => {
       )
       .eq("status", "delivered")
       .eq("orders.payment_method", "cash")
-      .eq("orders.status", "delivered")
-      .not("delivered_at", "is", null)
-      .gte("delivered_at", todayStart)
-      .lt("delivered_at", tomorrowStart);
+      .eq("orders.status", "delivered");
 
     if (salesError) {
       console.error(`[DEPOSITS] ❌ Sales query error: ${salesError.message}`);
     }
 
-    const todaysSales = (periodDeliveries || []).reduce(
+    // Filter deliveries by date in JavaScript using delivered_at or updated_at
+    const periodDeliveries = (allPeriodDeliveries || []).filter((d) => {
+      const deliveryTime = d.delivered_at || d.updated_at;
+      if (!deliveryTime) return false;
+      const deliveryDate = new Date(deliveryTime);
+      return (
+        deliveryDate >= new Date(todayStart) &&
+        deliveryDate < new Date(tomorrowStart)
+      );
+    });
+
+    console.log(
+      `[DEPOSITS] 📊 Total deliveries: ${(allPeriodDeliveries || []).length}, Period deliveries: ${periodDeliveries.length}`,
+    );
+
+    const todaysSales = periodDeliveries.reduce(
       (sum, d) => sum + parseFloat(d.orders?.total_amount || 0),
       0,
     );
 
     console.log(
-      `[DEPOSITS] 📊 Period deliveries found: ${(periodDeliveries || []).length}, Sales: ${todaysSales}`,
+      `[DEPOSITS] 📊 Period deliveries found: ${periodDeliveries.length}, Sales: ${todaysSales}`,
     );
 
     // 3. PAID TODAY: Sum of approved deposits in the period
@@ -882,15 +896,16 @@ router.get(
         driverMap[d.id] = d;
       });
 
-      // 3. Get today's collections per driver (from deliveries table using delivered_at)
-      // delivered_at is set when delivery status changes to 'delivered'
-      const { data: periodDeliveries } = await supabaseAdmin
+      // 3. Get today's collections per driver
+      // Use delivered_at if available, otherwise fall back to updated_at
+      const { data: allPeriodDeliveries } = await supabaseAdmin
         .from("deliveries")
         .select(
           `
           id,
           driver_id,
           delivered_at,
+          updated_at,
           orders!inner (
             id,
             total_amount,
@@ -901,13 +916,21 @@ router.get(
         )
         .eq("status", "delivered")
         .eq("orders.payment_method", "cash")
-        .eq("orders.status", "delivered")
-        .not("delivered_at", "is", null)
-        .gte("delivered_at", todayStart)
-        .lt("delivered_at", tomorrowStart);
+        .eq("orders.status", "delivered");
+
+      // Filter deliveries by date in JavaScript using delivered_at or updated_at
+      const periodDeliveries = (allPeriodDeliveries || []).filter((d) => {
+        const deliveryTime = d.delivered_at || d.updated_at;
+        if (!deliveryTime) return false;
+        const deliveryDate = new Date(deliveryTime);
+        return (
+          deliveryDate >= new Date(todayStart) &&
+          deliveryDate < new Date(tomorrowStart)
+        );
+      });
 
       console.log(
-        `[DEPOSITS] 📊 Period deliveries: ${(periodDeliveries || []).length}`,
+        `[DEPOSITS] 📊 Total deliveries: ${(allPeriodDeliveries || []).length}, Period deliveries: ${(periodDeliveries || []).length}`,
       );
 
       // 4. Get today's approved deposits per driver
