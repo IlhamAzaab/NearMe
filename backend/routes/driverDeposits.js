@@ -708,32 +708,40 @@ router.get("/manager/summary", authenticate, managerOnly, async (req, res) => {
     console.log(`[DEPOSITS] 📅 Range: ${todayStart} to ${tomorrowStart}`);
 
     // 1. TODAY'S SALES: Sum of COD delivered orders in the period
-    const { data: periodDeliveries, error: salesError } = await supabaseAdmin
-      .from("deliveries")
+    // Query orders directly (more reliable filtering) and join to deliveries for driver_id
+    const { data: periodOrders, error: salesError } = await supabaseAdmin
+      .from("orders")
       .select(
         `
         id,
-        driver_id,
-        orders!inner (
+        total_amount,
+        payment_method,
+        status,
+        delivered_at,
+        deliveries!inner (
           id,
-          total_amount,
-          payment_method,
+          driver_id,
           status
         )
       `,
       )
+      .eq("payment_method", "cash")
       .eq("status", "delivered")
-      .eq("orders.payment_method", "cash")
-      .eq("orders.status", "delivered")
-      .gte("updated_at", todayStart)
-      .lt("updated_at", tomorrowStart);
+      .eq("deliveries.status", "delivered")
+      .not("delivered_at", "is", null)
+      .gte("delivered_at", todayStart)
+      .lt("delivered_at", tomorrowStart);
 
     if (salesError) {
       console.error(`[DEPOSITS] ❌ Sales query error: ${salesError.message}`);
     }
 
-    const todaysSales = (periodDeliveries || []).reduce(
-      (sum, d) => sum + parseFloat(d.orders?.total_amount || 0),
+    console.log(
+      `[DEPOSITS] 📊 Period orders found: ${(periodOrders || []).length}`,
+    );
+
+    const todaysSales = (periodOrders || []).reduce(
+      (sum, o) => sum + parseFloat(o.total_amount || 0),
       0,
     );
 
@@ -755,23 +763,27 @@ router.get("/manager/summary", authenticate, managerOnly, async (req, res) => {
     );
 
     // 3. PREVIOUS PENDING: All COD collected BEFORE period start - All deposits approved BEFORE period start
-    // Total collected before period
-    const { data: prevDeliveries, error: prevSalesError } = await supabaseAdmin
-      .from("deliveries")
+    // Total collected before period (query orders directly)
+    const { data: prevOrders, error: prevSalesError } = await supabaseAdmin
+      .from("orders")
       .select(
         `
         id,
-        orders!inner (
-          total_amount,
-          payment_method,
+        total_amount,
+        payment_method,
+        status,
+        delivered_at,
+        deliveries!inner (
+          id,
           status
         )
       `,
       )
+      .eq("payment_method", "cash")
       .eq("status", "delivered")
-      .eq("orders.payment_method", "cash")
-      .eq("orders.status", "delivered")
-      .lt("updated_at", todayStart);
+      .eq("deliveries.status", "delivered")
+      .not("delivered_at", "is", null)
+      .lt("delivered_at", todayStart);
 
     if (prevSalesError) {
       console.error(
@@ -779,8 +791,12 @@ router.get("/manager/summary", authenticate, managerOnly, async (req, res) => {
       );
     }
 
-    const totalCollectedBefore = (prevDeliveries || []).reduce(
-      (sum, d) => sum + parseFloat(d.orders?.total_amount || 0),
+    console.log(
+      `[DEPOSITS] 📊 Prev orders found: ${(prevOrders || []).length}`,
+    );
+
+    const totalCollectedBefore = (prevOrders || []).reduce(
+      (sum, o) => sum + parseFloat(o.total_amount || 0),
       0,
     );
 
@@ -881,25 +897,34 @@ router.get(
         return res.json({ success: true, drivers: [] });
       }
 
-      // 2. Get all deliveries for the period (grouped by driver)
-      const { data: periodDeliveries } = await supabaseAdmin
-        .from("deliveries")
+      // 2. Get all orders for the period (with driver info from deliveries)
+      // Query orders directly for accurate filtering
+      const { data: periodOrders } = await supabaseAdmin
+        .from("orders")
         .select(
           `
         id,
-        driver_id,
-        orders!inner (
-          total_amount,
-          payment_method,
+        total_amount,
+        payment_method,
+        status,
+        delivered_at,
+        deliveries!inner (
+          id,
+          driver_id,
           status
         )
       `,
         )
+        .eq("payment_method", "cash")
         .eq("status", "delivered")
-        .eq("orders.payment_method", "cash")
-        .eq("orders.status", "delivered")
-        .gte("updated_at", todayStart)
-        .lt("updated_at", tomorrowStart);
+        .eq("deliveries.status", "delivered")
+        .not("delivered_at", "is", null)
+        .gte("delivered_at", todayStart)
+        .lt("delivered_at", tomorrowStart);
+
+      console.log(
+        `[DEPOSITS] 📊 Period orders for drivers: ${(periodOrders || []).length}`,
+      );
 
       // 3. Get all deposits for the period (grouped by driver)
       const { data: periodDeposits } = await supabaseAdmin
@@ -909,23 +934,35 @@ router.get(
         .gte("reviewed_at", todayStart)
         .lt("reviewed_at", tomorrowStart);
 
-      // 4. Get all-time collections per driver
-      const { data: allTimeDeliveries } = await supabaseAdmin
-        .from("deliveries")
+      console.log(
+        `[DEPOSITS] 📊 Period deposits: ${(periodDeposits || []).length}`,
+      );
+
+      // 4. Get all-time orders per driver
+      const { data: allTimeOrders } = await supabaseAdmin
+        .from("orders")
         .select(
           `
         id,
-        driver_id,
-        orders!inner (
-          total_amount,
-          payment_method,
+        total_amount,
+        payment_method,
+        status,
+        delivered_at,
+        deliveries!inner (
+          id,
+          driver_id,
           status
         )
       `,
         )
+        .eq("payment_method", "cash")
         .eq("status", "delivered")
-        .eq("orders.payment_method", "cash")
-        .eq("orders.status", "delivered");
+        .eq("deliveries.status", "delivered")
+        .not("delivered_at", "is", null);
+
+      console.log(
+        `[DEPOSITS] 📊 All-time orders: ${(allTimeOrders || []).length}`,
+      );
 
       // 5. Get all-time approved deposits per driver
       const { data: allTimeDeposits } = await supabaseAdmin
@@ -939,10 +976,12 @@ router.get(
       const driverTotalCollected = {};
       const driverTotalPaid = {};
 
-      // Period deliveries
-      (periodDeliveries || []).forEach((d) => {
-        const driverId = d.driver_id;
-        const amount = parseFloat(d.orders?.total_amount || 0);
+      // Period orders (deliveries is nested array with driver_id)
+      (periodOrders || []).forEach((o) => {
+        // deliveries is an array, get driver_id from first delivery
+        const driverId = o.deliveries?.[0]?.driver_id;
+        if (!driverId) return;
+        const amount = parseFloat(o.total_amount || 0);
         driverCollectedToday[driverId] =
           (driverCollectedToday[driverId] || 0) + amount;
       });
@@ -954,10 +993,11 @@ router.get(
         driverPaidToday[driverId] = (driverPaidToday[driverId] || 0) + amount;
       });
 
-      // All-time deliveries
-      (allTimeDeliveries || []).forEach((d) => {
-        const driverId = d.driver_id;
-        const amount = parseFloat(d.orders?.total_amount || 0);
+      // All-time orders
+      (allTimeOrders || []).forEach((o) => {
+        const driverId = o.deliveries?.[0]?.driver_id;
+        if (!driverId) return;
+        const amount = parseFloat(o.total_amount || 0);
         driverTotalCollected[driverId] =
           (driverTotalCollected[driverId] || 0) + amount;
       });

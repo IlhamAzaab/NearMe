@@ -45,7 +45,8 @@ async function fetchDepositsForTab(tabStatus, token) {
     headers: { Authorization: `Bearer ${token}` },
   });
   const data = await res.json();
-  if (!data.success) throw new Error(data.message || "Failed to fetch deposits");
+  if (!data.success)
+    throw new Error(data.message || "Failed to fetch deposits");
   return data.deposits || [];
 }
 
@@ -366,7 +367,9 @@ export default function ManagerDeposits() {
                     <span className="material-symbols-outlined text-[#13ecb9]">
                       group
                     </span>
-                    <h3 className="text-[#111816] font-bold">Driver Balances</h3>
+                    <h3 className="text-[#111816] font-bold">
+                      Driver Balances
+                    </h3>
                   </div>
                   <div className="text-right">
                     <p className="text-[#618980] text-xs">Total Pending</p>
@@ -406,7 +409,9 @@ export default function ManagerDeposits() {
                     <div className="mt-3 flex gap-4 text-xs">
                       <div className="flex-1 bg-gray-50 rounded-lg p-2">
                         <p className="text-[#618980]">
-                          {selectedPeriod === "today" ? "Collected" : "Collected"}
+                          {selectedPeriod === "today"
+                            ? "Collected"
+                            : "Collected"}
                         </p>
                         <p className="text-[#111816] font-semibold">
                           {formatCurrency(driver.total_collected_today)}
@@ -524,7 +529,9 @@ export default function ManagerDeposits() {
                             : "bg-red-100 text-red-700"
                       }`}
                     >
-                      {deposit.status === "pending" ? "Awaiting" : deposit.status}
+                      {deposit.status === "pending"
+                        ? "Awaiting"
+                        : deposit.status}
                     </span>
                   </div>
                 </div>
