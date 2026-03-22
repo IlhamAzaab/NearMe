@@ -721,28 +721,46 @@ router.get("/manager/summary", authenticate, managerOnly, async (req, res) => {
       0,
     );
 
-    console.log(`[DEPOSITS] 📊 Total pending from driver_balances: ${totalPending}`);
+    console.log(
+      `[DEPOSITS] 📊 Total pending from driver_balances: ${totalPending}`,
+    );
 
     // 2. TODAY'S SALES: Sum of COD delivered orders in the period
-    const { data: periodOrders, error: salesError } = await supabaseAdmin
-      .from("orders")
-      .select("id, total_amount, delivered_at")
-      .eq("payment_method", "cash")
+    // Query from deliveries table using updated_at (more reliable - auto-updated on status change)
+    // orders.delivered_at might be NULL if not explicitly set
+    const { data: periodDeliveries, error: salesError } = await supabaseAdmin
+      .from("deliveries")
+      .select(
+        `
+        id,
+        driver_id,
+        updated_at,
+        orders!inner (
+          id,
+          total_amount,
+          payment_method,
+          status
+        )
+      `,
+      )
       .eq("status", "delivered")
-      .not("delivered_at", "is", null)
-      .gte("delivered_at", todayStart)
-      .lt("delivered_at", tomorrowStart);
+      .eq("orders.payment_method", "cash")
+      .eq("orders.status", "delivered")
+      .gte("updated_at", todayStart)
+      .lt("updated_at", tomorrowStart);
 
     if (salesError) {
       console.error(`[DEPOSITS] ❌ Sales query error: ${salesError.message}`);
     }
 
-    const todaysSales = (periodOrders || []).reduce(
-      (sum, o) => sum + parseFloat(o.total_amount || 0),
+    const todaysSales = (periodDeliveries || []).reduce(
+      (sum, d) => sum + parseFloat(d.orders?.total_amount || 0),
       0,
     );
 
-    console.log(`[DEPOSITS] 📊 Period orders found: ${(periodOrders || []).length}, Sales: ${todaysSales}`);
+    console.log(
+      `[DEPOSITS] 📊 Period deliveries found: ${(periodDeliveries || []).length}, Sales: ${todaysSales}`,
+    );
 
     // 3. PAID TODAY: Sum of approved deposits in the period
     const { data: periodApproved, error: paidError } = await supabaseAdmin
@@ -864,26 +882,32 @@ router.get(
         driverMap[d.id] = d;
       });
 
-      // 3. Get today's collections per driver (from orders + deliveries)
-      const { data: periodOrders } = await supabaseAdmin
-        .from("orders")
+      // 3. Get today's collections per driver (from deliveries table using updated_at)
+      // updated_at is auto-updated when delivery status changes to 'delivered'
+      const { data: periodDeliveries } = await supabaseAdmin
+        .from("deliveries")
         .select(
           `
           id,
-          total_amount,
-          delivered_at,
-          deliveries!inner (
-            driver_id
+          driver_id,
+          updated_at,
+          orders!inner (
+            id,
+            total_amount,
+            payment_method,
+            status
           )
         `,
         )
-        .eq("payment_method", "cash")
         .eq("status", "delivered")
-        .not("delivered_at", "is", null)
-        .gte("delivered_at", todayStart)
-        .lt("delivered_at", tomorrowStart);
+        .eq("orders.payment_method", "cash")
+        .eq("orders.status", "delivered")
+        .gte("updated_at", todayStart)
+        .lt("updated_at", tomorrowStart);
 
-      console.log(`[DEPOSITS] 📊 Period orders: ${(periodOrders || []).length}`);
+      console.log(
+        `[DEPOSITS] 📊 Period deliveries: ${(periodDeliveries || []).length}`,
+      );
 
       // 4. Get today's approved deposits per driver
       const { data: periodDeposits } = await supabaseAdmin
@@ -899,10 +923,10 @@ router.get(
       const driverCollectedToday = {};
       const driverPaidToday = {};
 
-      (periodOrders || []).forEach((o) => {
-        const driverId = o.deliveries?.[0]?.driver_id;
+      (periodDeliveries || []).forEach((d) => {
+        const driverId = d.driver_id;
         if (!driverId) return;
-        const amount = parseFloat(o.total_amount || 0);
+        const amount = parseFloat(d.orders?.total_amount || 0);
         driverCollectedToday[driverId] =
           (driverCollectedToday[driverId] || 0) + amount;
       });
