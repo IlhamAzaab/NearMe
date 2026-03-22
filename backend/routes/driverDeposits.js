@@ -739,17 +739,26 @@ router.get("/manager/summary", authenticate, managerOnly, async (req, res) => {
         orders!inner (
           id,
           total_amount,
-          payment_method,
-          status
+          payment_method
         )
       `,
       )
       .eq("status", "delivered")
-      .eq("orders.payment_method", "cash")
-      .eq("orders.status", "delivered");
+      .eq("orders.payment_method", "cash");
 
     if (salesError) {
       console.error(`[DEPOSITS] ❌ Sales query error: ${salesError.message}`);
+    }
+
+    console.log(`[DEPOSITS] 📊 Fetched ${(allPeriodDeliveries || []).length} total delivered COD orders`);
+
+    // Show sample of deliveries for debugging
+    if (allPeriodDeliveries && allPeriodDeliveries.length > 0) {
+      console.log(`[DEPOSITS] 📋 Sample of first 3 deliveries:`);
+      allPeriodDeliveries.slice(0, 3).forEach((d, i) => {
+        const deliveryTime = d.delivered_at || d.updated_at;
+        console.log(`  ${i + 1}. ID: ${d.id}, Amount: Rs.${d.orders?.total_amount}, delivered_at: ${d.delivered_at || 'NULL'}, updated_at: ${d.updated_at}, Using: ${deliveryTime}`);
+      });
     }
 
     // Filter deliveries by date in JavaScript using delivered_at or updated_at
@@ -766,6 +775,22 @@ router.get("/manager/summary", authenticate, managerOnly, async (req, res) => {
     console.log(
       `[DEPOSITS] 📊 Total deliveries: ${(allPeriodDeliveries || []).length}, Period deliveries: ${periodDeliveries.length}`,
     );
+
+    // Show deliveries that matched the period
+    if (periodDeliveries.length > 0) {
+      console.log(`[DEPOSITS] ✅ Deliveries IN today's range:`);
+      periodDeliveries.slice(0, 5).forEach((d, i) => {
+        console.log(`  ${i + 1}. ID: ${d.id}, Amount: Rs.${d.orders?.total_amount}, Time: ${d.delivered_at || d.updated_at}`);
+      });
+    } else if (allPeriodDeliveries && allPeriodDeliveries.length > 0) {
+      console.log(`[DEPOSITS] ⚠️  NO deliveries matched today's range. Checking why...`);
+      const latest = allPeriodDeliveries[0];
+      const latestTime = latest.delivered_at || latest.updated_at;
+      console.log(`  Latest delivery time: ${latestTime}`);
+      console.log(`  Today range: ${todayStart} to ${tomorrowStart}`);
+      console.log(`  Is before today: ${new Date(latestTime) < new Date(todayStart)}`);
+      console.log(`  Is after tomorrow: ${new Date(latestTime) >= new Date(tomorrowStart)}`);
+    }
 
     const todaysSales = periodDeliveries.reduce(
       (sum, d) => sum + parseFloat(d.orders?.total_amount || 0),
@@ -909,14 +934,12 @@ router.get(
           orders!inner (
             id,
             total_amount,
-            payment_method,
-            status
+            payment_method
           )
         `,
         )
         .eq("status", "delivered")
-        .eq("orders.payment_method", "cash")
-        .eq("orders.status", "delivered");
+        .eq("orders.payment_method", "cash");
 
       // Filter deliveries by date in JavaScript using delivered_at or updated_at
       const periodDeliveries = (allPeriodDeliveries || []).filter((d) => {
