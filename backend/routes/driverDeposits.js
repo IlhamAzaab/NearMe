@@ -679,13 +679,13 @@ router.get("/manager/drivers", authenticate, managerOnly, async (req, res) => {
  * Query params:
  *   period: 'today' (default) | 'yesterday'
  *
- * DEFINITIONS (Sri Lanka Time - Asia/Colombo, UTC+5:30):
- * - Today's Sales = Sum of COD delivered orders where delivered_at >= today 00:00 SL
- * - Previous Pending = Total unpaid driver balances BEFORE today 00:00 SL
- * - Paid Today = Total deposits approved today (approved_at >= today 00:00 SL)
- * - Pending = prev_pending + today_sales - paid_today
+ * SIMPLIFIED LOGIC (using driver_balances table - always accurate):
+ * - total_pending = SUM(pending_deposit) from driver_balances (real-time, always correct)
+ * - todays_sales = COD orders delivered in the period
+ * - paid_today = Deposits approved in the period
+ * - prev_pending = total_pending - todays_sales + paid_today
  *
- * FORMULA: total_pending = prev_pending + today_sales - paid_today
+ * This approach is self-correcting and doesn't depend on snapshots.
  */
 router.get("/manager/summary", authenticate, managerOnly, async (req, res) => {
   const period = req.query.period || "today";
@@ -707,27 +707,28 @@ router.get("/manager/summary", authenticate, managerOnly, async (req, res) => {
     console.log(`[DEPOSITS] 📅 Period: ${period}, Date: ${dateStr}`);
     console.log(`[DEPOSITS] 📅 Range: ${todayStart} to ${tomorrowStart}`);
 
-    // 1. TODAY'S SALES: Sum of COD delivered orders in the period
-    // Query orders directly (more reliable filtering) and join to deliveries for driver_id
+    // 1. TOTAL PENDING: Get from driver_balances (always accurate, real-time)
+    const { data: allBalances, error: balanceError } = await supabaseAdmin
+      .from("driver_balances")
+      .select("driver_id, pending_deposit");
+
+    if (balanceError) {
+      console.error(`[DEPOSITS] ❌ Balance error: ${balanceError.message}`);
+    }
+
+    const totalPending = (allBalances || []).reduce(
+      (sum, b) => sum + parseFloat(b.pending_deposit || 0),
+      0,
+    );
+
+    console.log(`[DEPOSITS] 📊 Total pending from driver_balances: ${totalPending}`);
+
+    // 2. TODAY'S SALES: Sum of COD delivered orders in the period
     const { data: periodOrders, error: salesError } = await supabaseAdmin
       .from("orders")
-      .select(
-        `
-        id,
-        total_amount,
-        payment_method,
-        status,
-        delivered_at,
-        deliveries!inner (
-          id,
-          driver_id,
-          status
-        )
-      `,
-      )
+      .select("id, total_amount, delivered_at")
       .eq("payment_method", "cash")
       .eq("status", "delivered")
-      .eq("deliveries.status", "delivered")
       .not("delivered_at", "is", null)
       .gte("delivered_at", todayStart)
       .lt("delivered_at", tomorrowStart);
@@ -736,16 +737,14 @@ router.get("/manager/summary", authenticate, managerOnly, async (req, res) => {
       console.error(`[DEPOSITS] ❌ Sales query error: ${salesError.message}`);
     }
 
-    console.log(
-      `[DEPOSITS] 📊 Period orders found: ${(periodOrders || []).length}`,
-    );
-
     const todaysSales = (periodOrders || []).reduce(
       (sum, o) => sum + parseFloat(o.total_amount || 0),
       0,
     );
 
-    // 2. PAID TODAY: Sum of approved deposits in the period
+    console.log(`[DEPOSITS] 📊 Period orders found: ${(periodOrders || []).length}, Sales: ${todaysSales}`);
+
+    // 3. PAID TODAY: Sum of approved deposits in the period
     const { data: periodApproved, error: paidError } = await supabaseAdmin
       .from("driver_deposits")
       .select("id, approved_amount")
@@ -762,65 +761,12 @@ router.get("/manager/summary", authenticate, managerOnly, async (req, res) => {
       0,
     );
 
-    // 3. PREVIOUS PENDING: All COD collected BEFORE period start - All deposits approved BEFORE period start
-    // Total collected before period (query orders directly)
-    const { data: prevOrders, error: prevSalesError } = await supabaseAdmin
-      .from("orders")
-      .select(
-        `
-        id,
-        total_amount,
-        payment_method,
-        status,
-        delivered_at,
-        deliveries!inner (
-          id,
-          status
-        )
-      `,
-      )
-      .eq("payment_method", "cash")
-      .eq("status", "delivered")
-      .eq("deliveries.status", "delivered")
-      .not("delivered_at", "is", null)
-      .lt("delivered_at", todayStart);
+    console.log(`[DEPOSITS] 📊 Period deposits approved: ${(periodApproved || []).length}, Paid: ${paidToday}`);
 
-    if (prevSalesError) {
-      console.error(
-        `[DEPOSITS] ❌ Prev sales error: ${prevSalesError.message}`,
-      );
-    }
-
-    console.log(
-      `[DEPOSITS] 📊 Prev orders found: ${(prevOrders || []).length}`,
-    );
-
-    const totalCollectedBefore = (prevOrders || []).reduce(
-      (sum, o) => sum + parseFloat(o.total_amount || 0),
-      0,
-    );
-
-    // Total approved before period
-    const { data: prevApproved, error: prevPaidError } = await supabaseAdmin
-      .from("driver_deposits")
-      .select("id, approved_amount")
-      .eq("status", "approved")
-      .lt("reviewed_at", todayStart);
-
-    if (prevPaidError) {
-      console.error(`[DEPOSITS] ❌ Prev paid error: ${prevPaidError.message}`);
-    }
-
-    const totalApprovedBefore = (prevApproved || []).reduce(
-      (sum, d) => sum + parseFloat(d.approved_amount || 0),
-      0,
-    );
-
-    // Previous pending = collected before - approved before
-    const prevPending = Math.max(0, totalCollectedBefore - totalApprovedBefore);
-
-    // 4. TOTAL PENDING: prev_pending + today_sales - paid_today
-    const totalPending = Math.max(0, prevPending + todaysSales - paidToday);
+    // 4. CALCULATE PREV_PENDING
+    // Formula: total_pending = prev_pending + todays_sales - paid_today
+    // Therefore: prev_pending = total_pending - todays_sales + paid_today
+    const prevPending = Math.max(0, totalPending - todaysSales + paidToday);
 
     // 5. PENDING DEPOSITS COUNT (deposits awaiting review - always current)
     const { count: pendingCount } = await supabaseAdmin
@@ -828,11 +774,13 @@ router.get("/manager/summary", authenticate, managerOnly, async (req, res) => {
       .select("id", { count: "exact", head: true })
       .eq("status", "pending");
 
+    // For "today": total_sales_today = prev_pending + todays_sales (what was owed + new sales)
+    // For display: we show the breakdown
     const summary = {
-      total_sales_today: todaysSales + prevPending, // Total liability
-      todays_sales: todaysSales, // Sales in this period
+      total_sales_today: prevPending + todaysSales, // Total liability for the day
+      todays_sales: todaysSales, // Sales in this period only
       prev_pending: prevPending, // Carried over from before
-      pending: totalPending, // Current pending balance
+      pending: totalPending, // Current real-time pending (from driver_balances)
       paid: paidToday, // Paid in this period
       pending_deposits_count: pendingCount || 0,
       period,
@@ -849,13 +797,9 @@ router.get("/manager/summary", authenticate, managerOnly, async (req, res) => {
 
 /**
  * GET /driver/deposits/manager/drivers-detailed
- * Get all drivers with their daily collection/payment breakdown
+ * Get all drivers with their pending balances and daily breakdown
  *
- * Returns for EACH driver:
- * - name, phone, email
- * - total_collected_today: COD orders delivered today
- * - total_paid_today: Deposits approved today
- * - pending_balance: All-time (total collected - total approved)
+ * Uses driver_balances table for accurate real-time balances
  */
 router.get(
   "/manager/drivers-detailed",
@@ -880,105 +824,82 @@ router.get(
       const { todayStart, tomorrowStart, dateStr } =
         getSriLankaTimeBoundaries(period);
 
-      // 1. Get all drivers
-      const { data: drivers, error: driversError } = await supabaseAdmin
-        .from("drivers")
-        .select("id, full_name, phone, email, user_name")
-        .eq("driver_status", "active");
+      // 1. Get all driver balances with pending > 0 OR any activity
+      const { data: balances, error: balanceError } = await supabaseAdmin
+        .from("driver_balances")
+        .select("driver_id, pending_deposit, total_collected, total_approved")
+        .order("pending_deposit", { ascending: false });
 
-      if (driversError) {
-        console.error(`[DEPOSITS] ❌ Drivers error: ${driversError.message}`);
+      if (balanceError) {
+        console.error(`[DEPOSITS] ❌ Balance error: ${balanceError.message}`);
         return res
           .status(500)
-          .json({ success: false, message: "Failed to fetch drivers" });
+          .json({ success: false, message: "Failed to fetch balances" });
       }
 
-      if (!drivers || drivers.length === 0) {
-        return res.json({ success: true, drivers: [] });
+      if (!balances || balances.length === 0) {
+        console.log(`[DEPOSITS] 📊 No driver balances found`);
+        return res.json({
+          success: true,
+          drivers: [],
+          totals: {
+            total_pending_balance: 0,
+            total_collected_today: 0,
+            total_paid_today: 0,
+          },
+          period,
+          date: dateStr,
+        });
       }
 
-      // 2. Get all orders for the period (with driver info from deliveries)
-      // Query orders directly for accurate filtering
+      // 2. Get driver details for all balances
+      const driverIds = balances.map((b) => b.driver_id);
+      const { data: drivers } = await supabaseAdmin
+        .from("drivers")
+        .select("id, full_name, phone, email, user_name")
+        .in("id", driverIds);
+
+      const driverMap = {};
+      (drivers || []).forEach((d) => {
+        driverMap[d.id] = d;
+      });
+
+      // 3. Get today's collections per driver (from orders + deliveries)
       const { data: periodOrders } = await supabaseAdmin
         .from("orders")
         .select(
           `
-        id,
-        total_amount,
-        payment_method,
-        status,
-        delivered_at,
-        deliveries!inner (
           id,
-          driver_id,
-          status
-        )
-      `,
+          total_amount,
+          delivered_at,
+          deliveries!inner (
+            driver_id
+          )
+        `,
         )
         .eq("payment_method", "cash")
         .eq("status", "delivered")
-        .eq("deliveries.status", "delivered")
         .not("delivered_at", "is", null)
         .gte("delivered_at", todayStart)
         .lt("delivered_at", tomorrowStart);
 
-      console.log(
-        `[DEPOSITS] 📊 Period orders for drivers: ${(periodOrders || []).length}`,
-      );
+      console.log(`[DEPOSITS] 📊 Period orders: ${(periodOrders || []).length}`);
 
-      // 3. Get all deposits for the period (grouped by driver)
+      // 4. Get today's approved deposits per driver
       const { data: periodDeposits } = await supabaseAdmin
         .from("driver_deposits")
-        .select("id, driver_id, approved_amount")
+        .select("driver_id, approved_amount")
         .eq("status", "approved")
         .gte("reviewed_at", todayStart)
         .lt("reviewed_at", tomorrowStart);
 
-      console.log(
-        `[DEPOSITS] 📊 Period deposits: ${(periodDeposits || []).length}`,
-      );
+      console.log(`[DEPOSITS] 📊 Period deposits: ${(periodDeposits || []).length}`);
 
-      // 4. Get all-time orders per driver
-      const { data: allTimeOrders } = await supabaseAdmin
-        .from("orders")
-        .select(
-          `
-        id,
-        total_amount,
-        payment_method,
-        status,
-        delivered_at,
-        deliveries!inner (
-          id,
-          driver_id,
-          status
-        )
-      `,
-        )
-        .eq("payment_method", "cash")
-        .eq("status", "delivered")
-        .eq("deliveries.status", "delivered")
-        .not("delivered_at", "is", null);
-
-      console.log(
-        `[DEPOSITS] 📊 All-time orders: ${(allTimeOrders || []).length}`,
-      );
-
-      // 5. Get all-time approved deposits per driver
-      const { data: allTimeDeposits } = await supabaseAdmin
-        .from("driver_deposits")
-        .select("id, driver_id, approved_amount")
-        .eq("status", "approved");
-
-      // Calculate totals per driver
+      // Calculate per-driver totals for the period
       const driverCollectedToday = {};
       const driverPaidToday = {};
-      const driverTotalCollected = {};
-      const driverTotalPaid = {};
 
-      // Period orders (deliveries is nested array with driver_id)
       (periodOrders || []).forEach((o) => {
-        // deliveries is an array, get driver_id from first delivery
         const driverId = o.deliveries?.[0]?.driver_id;
         if (!driverId) return;
         const amount = parseFloat(o.total_amount || 0);
@@ -986,49 +907,31 @@ router.get(
           (driverCollectedToday[driverId] || 0) + amount;
       });
 
-      // Period deposits
       (periodDeposits || []).forEach((d) => {
         const driverId = d.driver_id;
         const amount = parseFloat(d.approved_amount || 0);
         driverPaidToday[driverId] = (driverPaidToday[driverId] || 0) + amount;
       });
 
-      // All-time orders
-      (allTimeOrders || []).forEach((o) => {
-        const driverId = o.deliveries?.[0]?.driver_id;
-        if (!driverId) return;
-        const amount = parseFloat(o.total_amount || 0);
-        driverTotalCollected[driverId] =
-          (driverTotalCollected[driverId] || 0) + amount;
-      });
-
-      // All-time deposits
-      (allTimeDeposits || []).forEach((d) => {
-        const driverId = d.driver_id;
-        const amount = parseFloat(d.approved_amount || 0);
-        driverTotalPaid[driverId] = (driverTotalPaid[driverId] || 0) + amount;
-      });
-
-      // Build driver list with balances
-      const driversWithBalances = drivers
-        .map((driver) => {
-          const collectedToday = driverCollectedToday[driver.id] || 0;
-          const paidToday = driverPaidToday[driver.id] || 0;
-          const totalCollected = driverTotalCollected[driver.id] || 0;
-          const totalPaid = driverTotalPaid[driver.id] || 0;
-          const pendingBalance = Math.max(0, totalCollected - totalPaid);
+      // 5. Build driver list with balances
+      const driversWithBalances = balances
+        .map((b) => {
+          const driver = driverMap[b.driver_id];
+          const collectedToday = driverCollectedToday[b.driver_id] || 0;
+          const paidToday = driverPaidToday[b.driver_id] || 0;
+          const pendingBalance = parseFloat(b.pending_deposit || 0);
 
           return {
-            id: driver.id,
-            full_name: driver.full_name,
-            phone: driver.phone,
-            email: driver.email,
-            user_name: driver.user_name,
+            id: b.driver_id,
+            full_name: driver?.full_name || "Unknown Driver",
+            phone: driver?.phone || null,
+            email: driver?.email || null,
+            user_name: driver?.user_name || null,
             total_collected_today: collectedToday,
             total_paid_today: paidToday,
-            pending_balance: pendingBalance,
-            total_collected: totalCollected,
-            total_paid: totalPaid,
+            pending_balance: pendingBalance, // Real-time from driver_balances
+            total_collected: parseFloat(b.total_collected || 0),
+            total_paid: parseFloat(b.total_approved || 0),
           };
         })
         .filter(
@@ -1054,7 +957,7 @@ router.get(
       );
 
       console.log(
-        `[DEPOSITS] ✅ Found ${driversWithBalances.length} drivers with activity`,
+        `[DEPOSITS] ✅ Found ${driversWithBalances.length} drivers with balances`,
       );
 
       return res.json({
