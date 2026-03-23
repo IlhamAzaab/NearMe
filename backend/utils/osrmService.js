@@ -9,11 +9,13 @@
  * Features:
  * - No API key required
  * - Free and open source
- * - Supports driving, walking, cycling profiles
+ * - Uses FOOT (walking) profile for shortest distance through small lanes
  *
- * Travel modes:
- * - driving → OSRM 'driving' profile (car/motorcycle)
- * - walking → OSRM 'foot' profile (pedestrians)
+ * Travel mode:
+ * - FOOT profile ONLY (pedestrian/walking routes)
+ * - Optimal for motorcycle/bike riders on short distances
+ * - Uses small lanes and shortcuts instead of main roads
+ * - Provides shortest actual distance for delivery fee calculation
  *
  * OSRM-ONLY POLICY: When OSRM is unavailable, returns explicit unavailable state.
  * No Haversine fallback for route calculations - all user-facing routes
@@ -276,15 +278,17 @@ export async function getOSRMRoute(waypoints, context = "", options = {}) {
   let orderedWaypoints = [...waypoints];
 
   // ===== OSRM-ONLY RETRY STRATEGY =====
+  // ALWAYS use FOOT profile (walking) for shortest distance through small lanes
+  // Foot routing is optimal for motorcycle/bike riders on short distances
   // 1. Try primary OSRM server with foot profile
-  // 2. Retry with driving profile on primary
+  // 2. Retry with backoff
   // 3. Try backup OSRM server with foot profile
   // 4. If all fail, return unavailable state (NO Haversine fallback)
 
-  const profilesToTry = useSingleMode ? ["foot"] : ["foot", "driving"];
+  const profilesToTry = ["foot"]; // ALWAYS foot - shortest distance through lanes
   const serversToTry = [OSRM_PRIMARY_URL, OSRM_BACKUP_URL].filter(Boolean);
 
-  console.log(`[OSRM] → Trying profiles: ${profilesToTry.join(", ")}...`);
+  console.log(`[OSRM] → Using profile: FOOT (walking) for shortest routes`);
   console.log(`[OSRM] → Available servers: ${serversToTry.length}`);
 
   // Try each server with retry backoff

@@ -5,9 +5,14 @@
  *
  * Calculates dynamic estimated arrival times for deliveries.
  *
+ * ROUTING STRATEGY:
+ * - Routes are calculated using FOOT (walking) profile for SHORTEST DISTANCE (in osrmService.js)
+ * - ETA is calculated using DRIVING profile for REALISTIC BIKE SPEED (here in etaCalculator.js)
+ * - This gives best of both: shortest route + accurate bike ETA
+ *
  * CUSTOMER ETA RULES:
  * - Each stop (restaurant or customer) gets a 5-minute base wait allocation
- * - OSRM provides driving/walking time between stops
+ * - OSRM DRIVING profile provides realistic bike travel time between stops
  * - Total ETA = sum of all OSRM travel segments + 5 min per stop before customer
  * - Displayed as range: X min — (X+10) min
  * - As driver completes stops, deduct the 5-min allocation from remaining ETA
@@ -18,6 +23,7 @@
  * - Only show OSRM travel time (no stop wait times)
  * - Available deliveries: driver→restaurant + restaurant→customer
  * - Active deliveries: driver→next stop
+ * - Uses DRIVING profile for realistic motorcycle/bike ETA
  *
  * ============================================================================
  */
@@ -27,7 +33,7 @@ import { supabaseAdmin } from "../supabaseAdmin.js";
 // Public OSRM server with backup
 const OSRM_PRIMARY_URL =
   process.env.OSRM_URL || "https://router.project-osrm.org";
-const OSRM_BACKUP_URL = "https://routing.openstreetmap.de/routed-foot";
+const OSRM_BACKUP_URL = "https://router.project-osrm.org"; // Use same for ETA (driving mode)
 
 // Constants
 const STOP_WAIT_TIME_SEC = 300; // 5 minutes in seconds
@@ -53,10 +59,11 @@ function haversineDistanceForProximityAndSorting(lat1, lng1, lat2, lng2) {
 /**
  * Get OSRM route duration between two points (seconds)
  * OSRM-ONLY: No Haversine fallback. Returns unavailable state if all retries fail.
+ * Uses DRIVING profile for realistic motorcycle/bike ETA.
  */
 async function getOSRMDuration(fromLat, fromLng, toLat, toLng) {
   const servers = [OSRM_PRIMARY_URL, OSRM_BACKUP_URL];
-  const profiles = ["foot", "driving"];
+  const profiles = ["driving"]; // DRIVING for realistic bike/motorcycle ETA
   const RETRY_DELAYS = [0, 1500]; // Retry after 1.5s backoff
 
   for (const serverUrl of servers) {
@@ -90,7 +97,7 @@ async function getOSRMDuration(fromLat, fromLng, toLat, toLng) {
             }
           }
         } catch (e) {
-          // Continue to next profile/server
+          // Continue to next server
         }
       }
     }

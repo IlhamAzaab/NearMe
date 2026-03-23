@@ -8,7 +8,8 @@
  *
  * Features:
  * - Free and open source, no API key required
- * - Supports driving, walking, cycling profiles
+ * - Uses FOOT (walking) profile for shortest distance through small lanes
+ * - Optimal for motorcycle/bike riders on short distances
  * ============================================================================
  */
 
@@ -92,10 +93,11 @@ export async function getOSRMRoute(waypoints, context = "") {
     );
   });
 
-  // Try both profiles - foot gives shortest distance
-  const profilesToTry = ["foot", "driving"];
+  // ALWAYS use FOOT profile - shortest distance through small lanes
+  // Optimal for motorcycle/bike riders on short distances
+  const profilesToTry = ["foot"];
 
-  console.log(`[OSRM] → Trying profiles: ${profilesToTry.join(", ")}...`);
+  console.log(`[OSRM] → Using profile: FOOT (walking) for shortest routes`);
 
   // Fetch routes for all profiles in parallel
   const routePromises = profilesToTry.map((profile) =>
@@ -108,27 +110,17 @@ export async function getOSRMRoute(waypoints, context = "") {
   const validRoutes = routeResults.filter((r) => r !== null);
 
   if (validRoutes.length === 0) {
-    console.error("[OSRM] ❌ All travel profiles failed");
+    console.error("[OSRM] ❌ FOOT profile failed");
     throw new Error(
       "OSRM: No valid routes found. Please check your internet connection.",
     );
   }
 
-  // Log all route distances for comparison
-  console.log(`[OSRM] 📊 Route comparison:`);
-  validRoutes.forEach((r) => {
-    console.log(
-      `[OSRM]   ${r.profile.toUpperCase()}: ${(r.distance / 1000).toFixed(3)} km (${r.alternativesCount} alternatives)`,
-    );
-  });
-
-  // Select the shortest route across all profiles
-  const shortest = validRoutes.reduce((best, current) =>
-    current.distance < best.distance ? current : best,
-  );
+  // Use the foot route
+  const shortest = validRoutes[0];
 
   console.log(
-    `[OSRM] ✅ Selected: ${shortest.profile.toUpperCase()} with ${(shortest.distance / 1000).toFixed(3)} km`,
+    `[OSRM] ✅ FOOT route: ${(shortest.distance / 1000).toFixed(3)} km (${shortest.alternativesCount} alternatives)`,
   );
 
   const route = shortest.route;
