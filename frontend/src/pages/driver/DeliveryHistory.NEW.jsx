@@ -1,17 +1,11 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import DriverLayout from "../../components/DriverLayout";
 import { API_URL } from "../../config";
 
 export default function DeliveryHistory() {
   const navigate = useNavigate();
-  const [deliveries, setDeliveries] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState({
-    totalDeliveries: 0,
-    totalEarnings: 0,
-    averageRating: 0,
-  });
   const [filterStatus, setFilterStatus] = useState("all");
 
   useEffect(() => {
@@ -19,48 +13,49 @@ export default function DeliveryHistory() {
     if (role !== "driver") {
       navigate("/login");
     }
-    fetchHistory();
   }, [navigate]);
 
-  const fetchHistory = useCallback(async () => {
-    try {
-      const token = localStorage.getItem("token");
-      const response = await fetch(
-        `${API_URL}/driver/deliveries/history`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
-      );
+  const token = localStorage.getItem("token");
+  const role = localStorage.getItem("role");
+
+  const { data: deliveries = [], isLoading } = useQuery({
+    queryKey: ["driver", "delivery-history", "legacy"],
+    enabled: !!token && role === "driver",
+    staleTime: 2 * 60 * 1000,
+    refetchInterval: 2 * 60 * 1000,
+    queryFn: async () => {
+      const response = await fetch(`${API_URL}/driver/deliveries/history`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
       const data = await response.json();
-      if (response.ok) {
-        setDeliveries(data.deliveries || []);
-
-        const completed = data.deliveries || [];
-        const totalEarnings = completed.reduce(
-          (sum, d) => sum + (parseFloat(d.driver_earnings) || 0),
-          0,
-        );
-
-        setStats({
-          totalDeliveries: completed.length,
-          totalEarnings: totalEarnings.toFixed(2),
-          averageRating: 4.8,
-        });
+      if (!response.ok) {
+        throw new Error(data?.message || "Failed to fetch delivery history");
       }
-    } catch (error) {
-      console.error("Fetch history error:", error);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+
+      return data.deliveries || [];
+    },
+  });
+
+  const stats = useMemo(() => {
+    const totalEarnings = deliveries.reduce(
+      (sum, d) => sum + (parseFloat(d.driver_earnings) || 0),
+      0,
+    );
+
+    return {
+      totalDeliveries: deliveries.length,
+      totalEarnings: totalEarnings.toFixed(2),
+      averageRating: 4.8,
+    };
+  }, [deliveries]);
 
   const filteredDeliveries =
     filterStatus === "all"
       ? deliveries
       : deliveries.filter((d) => d.status === filterStatus);
 
-  if (loading) {
+  if (isLoading && !deliveries.length) {
     return (
       <DriverLayout>
         <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-green-50 to-teal-50 flex items-center justify-center">

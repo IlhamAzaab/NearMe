@@ -1,7 +1,28 @@
-import React from "react";
-import { NavLink } from "react-router-dom";
+import React, { useCallback } from "react";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
+import { resolveDriverActiveMapPath } from "../utils/driverActiveDelivery";
 
 export default function DriverBottomNav() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const userId = localStorage.getItem("userId") || "default";
+
+  const handleOpenActiveMap = useCallback(async () => {
+    const token = localStorage.getItem("token");
+    const path = await resolveDriverActiveMapPath({
+      queryClient,
+      token,
+      userId,
+    });
+    navigate(path);
+  }, [navigate, queryClient, userId]);
+
+  const isActiveTabSelected =
+    location.pathname === "/driver/delivery/active/map" ||
+    /^\/driver\/delivery\/active\/[^/]+\/map$/.test(location.pathname);
+
   const navItems = [
     {
       path: "/driver/dashboard",
@@ -42,7 +63,7 @@ export default function DriverBottomNav() {
       label: "Available",
     },
     {
-      path: "/driver/deliveries/active",
+      path: "/driver/delivery/active/map",
       icon: (
         <svg
           className="w-6 h-6"
@@ -65,6 +86,8 @@ export default function DriverBottomNav() {
         </svg>
       ),
       label: "Active",
+      onClick: handleOpenActiveMap,
+      isActive: isActiveTabSelected,
     },
     {
       path: "/driver/earnings",
@@ -110,32 +133,56 @@ export default function DriverBottomNav() {
     <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg z-50">
       <div className="flex justify-around items-center max-w-md mx-auto">
         {navItems.map((item) => (
-          <NavLink
-            key={item.path}
-            to={item.path}
-            className={({ isActive }) =>
-              `flex flex-col items-center justify-center py-2 px-3 min-w-[64px] transition-all duration-200 ${
-                isActive
+          item.onClick ? (
+            <button
+              key={item.path}
+              type="button"
+              onClick={item.onClick}
+              className={`flex flex-col items-center justify-center py-2 px-3 min-w-[64px] transition-all duration-200 ${
+                item.isActive
                   ? "text-emerald-600"
                   : "text-gray-400 hover:text-gray-600"
-              }`
-            }
-          >
-            {({ isActive }) => (
-              <>
-                <div
-                  className={`${isActive ? "scale-110" : ""} transition-transform`}
-                >
-                  {item.icon}
-                </div>
-                <span
-                  className={`text-xs mt-1 font-medium ${isActive ? "font-semibold" : ""}`}
-                >
-                  {item.label}
-                </span>
-              </>
-            )}
-          </NavLink>
+              }`}
+            >
+              <div
+                className={`${item.isActive ? "scale-110" : ""} transition-transform`}
+              >
+                {item.icon}
+              </div>
+              <span
+                className={`text-xs mt-1 font-medium ${item.isActive ? "font-semibold" : ""}`}
+              >
+                {item.label}
+              </span>
+            </button>
+          ) : (
+            <NavLink
+              key={item.path}
+              to={item.path}
+              className={({ isActive }) =>
+                `flex flex-col items-center justify-center py-2 px-3 min-w-[64px] transition-all duration-200 ${
+                  isActive
+                    ? "text-emerald-600"
+                    : "text-gray-400 hover:text-gray-600"
+                }`
+              }
+            >
+              {({ isActive }) => (
+                <>
+                  <div
+                    className={`${isActive ? "scale-110" : ""} transition-transform`}
+                  >
+                    {item.icon}
+                  </div>
+                  <span
+                    className={`text-xs mt-1 font-medium ${isActive ? "font-semibold" : ""}`}
+                  >
+                    {item.label}
+                  </span>
+                </>
+              )}
+            </NavLink>
+          )
         ))}
       </div>
     </nav>

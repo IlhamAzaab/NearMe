@@ -19,12 +19,13 @@ import {
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { X, Phone, ChevronDown, Navigation } from "lucide-react";
-import DriverLayout from "../../components/DriverLayout";
 import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
 import SwipeToDeliver from "../../components/SwipeToDeliver";
 import StatusTransitionOverlay from "../../components/StatusTransitionOverlay";
 import DeliveryProofUpload from "../../components/DeliveryProofUpload";
+import { MapBoundsFitter } from "../../components/DraggableMap";
 import { API_URL } from "../../config";
+import { cacheDriverActiveDeliveryId } from "../../utils/driverActiveDelivery";
 
 // Open Google Maps for navigation (works on both web and mobile apps)
 function openGoogleMapsNavigation(destLat, destLng, destLabel = "Destination") {
@@ -206,6 +207,7 @@ export default function DriverMapPage() {
     [deliveryId, userId],
   );
   const cachedSnapshot = queryClient.getQueryData(mapSnapshotKey);
+  const hasCachedSnapshot = !!cachedSnapshot;
 
   const [mode, setMode] = useState(cachedSnapshot?.mode || "pickup"); // "pickup" or "delivery"
   const [pickups, setPickups] = useState(cachedSnapshot?.pickups || []);
@@ -243,6 +245,22 @@ export default function DriverMapPage() {
   const [overlayErrorMsg, setOverlayErrorMsg] = useState("");
   const overlayCallbackRef = useRef(null);
 
+  useEffect(() => {
+    if (!deliveryId && currentTarget?.delivery_id) {
+      navigate(`/driver/delivery/active/${currentTarget.delivery_id}/map`, {
+        replace: true,
+      });
+    }
+  }, [deliveryId, currentTarget, navigate]);
+
+  useEffect(() => {
+    if (!currentTarget?.delivery_id) return;
+    cacheDriverActiveDeliveryId(queryClient, {
+      userId,
+      deliveryId: currentTarget.delivery_id,
+    });
+  }, [currentTarget, queryClient, userId]);
+
   useQuery({
     queryKey: mapSnapshotKey,
     staleTime: 60 * 1000,
@@ -259,6 +277,26 @@ export default function DriverMapPage() {
     setDriverLocation(latest.driverLocation || null);
     setLoading(false);
   }, [mapSnapshotKey, queryClient]);
+
+  useEffect(() => {
+    if (loading) return;
+    queryClient.setQueryData(mapSnapshotKey, {
+      mode,
+      pickups,
+      deliveries,
+      currentTarget,
+      driverLocation,
+    });
+  }, [
+    loading,
+    mode,
+    pickups,
+    deliveries,
+    currentTarget,
+    driverLocation,
+    mapSnapshotKey,
+    queryClient,
+  ]);
 
   // Callbacks for map interaction
   const handleBoundsFitted = useCallback(() => {
@@ -739,7 +777,7 @@ export default function DriverMapPage() {
           if (updatedDeliveries.length > 0) {
             setCurrentTarget(updatedDeliveries[0]);
           } else {
-            navigate("/driver/deliveries/active");
+            navigate("/driver/delivery/active/map");
           }
           setUpdating(false);
         };
@@ -757,44 +795,44 @@ export default function DriverMapPage() {
     }
   };
 
+  if (loading && !hasCachedSnapshot) {
+    return <DriverMapSkeleton />;
+  }
+
   if (loading) {
     return (
-      <DriverLayout>
-        <div className="flex items-center justify-center h-screen">
-          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-green-600"></div>
-        </div>
-      </DriverLayout>
+      <div className="flex items-center justify-center h-screen">
+        <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-green-600"></div>
+      </div>
     );
   }
 
   if (!currentTarget) {
     return (
-      <DriverLayout>
-        <div className="flex flex-col items-center justify-center h-screen p-6">
-          <svg
-            className="w-24 h-24 text-gray-400 mb-4"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-            />
-          </svg>
-          <h2 className="text-2xl font-bold text-gray-700 mb-2">
-            All Deliveries Completed!
-          </h2>
-          <button
-            onClick={() => navigate("/driver/deliveries")}
-            className="mt-6 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-semibold"
-          >
-            View Available Deliveries
-          </button>
-        </div>
-      </DriverLayout>
+      <div className="flex flex-col items-center justify-center h-screen p-6">
+        <svg
+          className="w-24 h-24 text-gray-400 mb-4"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+          />
+        </svg>
+        <h2 className="text-2xl font-bold text-gray-700 mb-2">
+          All Deliveries Completed!
+        </h2>
+        <button
+          onClick={() => navigate("/driver/deliveries")}
+          className="mt-6 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-semibold"
+        >
+          View Available Deliveries
+        </button>
+      </div>
     );
   }
 
@@ -819,7 +857,7 @@ export default function DriverMapPage() {
   const mapCenter = mapPositions.length > 0 ? mapPositions[0] : [0, 0];
 
   return (
-    <DriverLayout>
+    <>
       <AnimatedAlert alert={alertState} visible={alertVisible} />
       {/* Status Transition Overlay */}
       <StatusTransitionOverlay
@@ -835,9 +873,9 @@ export default function DriverMapPage() {
           overlayCallbackRef.current = null;
         }}
       />
-      <div className="h-screen flex flex-col bg-gray-50">
-        {/* Map */}
-        <div className="flex-1 relative">
+      <div className="h-screen w-screen relative bg-gray-50">
+        {/* Fullscreen Map */}
+        <div className="absolute inset-0">
           {driverLocation && (
             <MapContainer
               center={mapCenter}
@@ -918,41 +956,32 @@ export default function DriverMapPage() {
             </MapContainer>
           )}
 
-          {/* X Close Button - Top Left */}
+          {/* Back Button - Top Left */}
           <button
-            onClick={() => navigate("/driver/dashboard")}
-            className="absolute top-4 left-4 z-[1000] bg-white rounded-full p-2 shadow-lg hover:bg-gray-100 transition-colors"
-            title="Back to Dashboard"
+            onClick={() => navigate("/driver/active")}
+            className="absolute top-6 left-6 z-[1000] bg-white rounded-full w-10 h-10 flex items-center justify-center shadow-lg hover:bg-gray-100 transition-colors"
+            title="Go Back"
           >
-            <X className="w-6 h-6 text-gray-700" />
+            <svg
+              className="w-6 h-6 text-gray-800"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2.5}
+                d="M15 19l-7-7 7-7"
+              />
+            </svg>
           </button>
-
-          {/* Mode Badge */}
-          <div className="absolute top-4 left-16 bg-white px-4 py-2 rounded-full shadow-lg">
-            <span className="font-bold text-gray-700">
-              {mode === "pickup" ? "🏪 PICKUP MODE" : "📦 DELIVERY MODE"}
-            </span>
-          </div>
-
-          {/* Status Badge */}
-          <div className="absolute top-4 right-4 bg-white px-4 py-2 rounded-full shadow-lg">
-            <div className="flex items-center gap-2">
-              <div
-                className={`w-3 h-3 rounded-full ${
-                  isTracking ? "bg-green-500 animate-pulse" : "bg-gray-400"
-                }`}
-              ></div>
-              <span className="text-sm font-semibold text-gray-700">
-                {isTracking ? "Live" : "Not Tracking"}
-              </span>
-            </div>
-          </div>
 
           {/* Recenter Button - Shows when user has zoomed/panned */}
           {userHasInteracted && (
             <button
               onClick={handleRecenterMap}
-              className="absolute bottom-4 right-4 bg-white px-4 py-3 rounded-full shadow-lg hover:bg-gray-50 transition-all duration-200 flex items-center gap-2 z-[1000]"
+              className="absolute top-6 right-6 bg-white p-3 rounded-full shadow-lg hover:bg-gray-50 transition-all duration-200 z-[1000]"
               title="Recenter map to show full route"
             >
               <svg
@@ -968,16 +997,17 @@ export default function DriverMapPage() {
                   d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"
                 />
               </svg>
-              <span className="text-sm font-semibold text-gray-700">
-                Recenter
-              </span>
             </button>
           )}
         </div>
 
-        {/* Bottom Section */}
-        <div className="bg-white border-t border-gray-200 max-h-[45vh] overflow-y-auto">
-          <div className="p-4">
+        {/* Delivery Details Card - Overlapping the map */}
+        <div className="absolute bottom-0 left-0 right-0 z-[999] bg-white rounded-t-3xl shadow-2xl max-h-[50vh] overflow-y-auto">
+          {/* Drag Handle */}
+          <div className="flex justify-center pt-3 pb-2">
+            <div className="w-12 h-1.5 bg-gray-300 rounded-full"></div>
+          </div>
+          <div className="px-6 pb-6">
             {/* Current Target Info */}
             {mode === "pickup" ? (
               <PickupInfo
@@ -1038,7 +1068,24 @@ export default function DriverMapPage() {
           </div>
         </div>
       </div>
-    </DriverLayout>
+    </>
+  );
+}
+
+function DriverMapSkeleton() {
+  return (
+    <div className="relative h-screen w-screen overflow-hidden bg-gray-100">
+      <div className="absolute inset-0 bg-gradient-to-br from-gray-100 to-gray-200 animate-pulse" />
+      <div className="absolute top-6 left-6 h-10 w-10 rounded-full bg-white/80" />
+      <div className="absolute bottom-0 left-0 right-0 rounded-t-3xl bg-white px-6 pt-5 pb-8 shadow-2xl">
+        <div className="mx-auto mb-4 h-1.5 w-14 rounded-full bg-gray-200" />
+        <div className="mb-3 h-4 w-24 rounded bg-gray-200" />
+        <div className="mb-4 h-8 w-44 rounded bg-gray-200" />
+        <div className="mb-3 h-14 w-full rounded-xl bg-gray-100" />
+        <div className="mb-3 h-14 w-full rounded-xl bg-gray-100" />
+        <div className="h-12 w-full rounded-full bg-green-100" />
+      </div>
+    </div>
   );
 }
 

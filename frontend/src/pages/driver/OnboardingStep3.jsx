@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useMutation } from "@tanstack/react-query";
 import { API_URL } from "../../config";
 
 // Step Progress Component with animation
@@ -23,8 +24,8 @@ const StepProgress = ({ currentStep, totalSteps = 5 }) => {
                 step.num === currentStep
                   ? "bg-gray-200"
                   : step.num < currentStep
-                  ? "bg-[#1db95b]"
-                  : "bg-gray-200"
+                    ? "bg-[#1db95b]"
+                    : "bg-gray-200"
               }`}
             >
               {step.num === currentStep && (
@@ -39,7 +40,7 @@ const StepProgress = ({ currentStep, totalSteps = 5 }) => {
           </div>
         ))}
       </div>
-      
+
       {/* Step labels */}
       <div className="flex justify-between">
         {steps.map((step) => (
@@ -49,8 +50,8 @@ const StepProgress = ({ currentStep, totalSteps = 5 }) => {
               step.num === currentStep
                 ? "text-[#1db95b]"
                 : step.num < currentStep
-                ? "text-[#1db95b]"
-                : "text-gray-400"
+                  ? "text-[#1db95b]"
+                  : "text-gray-400"
             }`}
           >
             {step.label}
@@ -72,7 +73,6 @@ const StepProgress = ({ currentStep, totalSteps = 5 }) => {
 
 export default function OnboardingStep3() {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [documents, setDocuments] = useState({
     nic_front: null,
@@ -103,7 +103,7 @@ export default function OnboardingStep3() {
       // Validate file type
       if (
         !["image/jpeg", "image/jpg", "image/png", "application/pdf"].includes(
-          file.type
+          file.type,
         )
       ) {
         setError(`${documentLabels[docType].label} must be JPG, PNG, or PDF`);
@@ -122,16 +122,13 @@ export default function OnboardingStep3() {
       formData.append("file", file);
       formData.append("docType", docType);
 
-      const response = await fetch(
-        `${API_URL}/onboarding/upload-document`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-          body: formData,
-        }
-      );
+      const response = await fetch(`${API_URL}/onboarding/upload-document`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+      });
 
       if (!response.ok) {
         throw new Error("Upload failed");
@@ -145,31 +142,26 @@ export default function OnboardingStep3() {
     }
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError(null);
-    setLoading(true);
-
-    try {
-      const missingDocs = Object.keys(documents).filter(
-        (key) => !documents[key]
+  const submitMutation = useMutation({
+    mutationFn: async (payloadDocs) => {
+      const missingDocs = Object.keys(payloadDocs).filter(
+        (key) => !payloadDocs[key],
       );
       if (missingDocs.length > 0) {
-        setError("Please upload all required documents");
-        setLoading(false);
-        return;
+        throw new Error("Please upload all required documents");
       }
 
-      const uploadPromises = Object.keys(documents).map(async (docType) => {
-        if (documents[docType]) {
-          const url = await uploadToCloudinary(documents[docType], docType);
+      const uploadPromises = Object.keys(payloadDocs).map(async (docType) => {
+        if (payloadDocs[docType]) {
+          const url = await uploadToCloudinary(payloadDocs[docType], docType);
           return { documentType: docType, documentUrl: url };
         }
+        return null;
       });
 
-      const uploadedDocs = await Promise.all(uploadPromises);
-
+      const uploadedDocs = (await Promise.all(uploadPromises)).filter(Boolean);
       const token = localStorage.getItem("token");
+
       const res = await fetch(`${API_URL}/onboarding/step-3`, {
         method: "POST",
         headers: {
@@ -180,17 +172,26 @@ export default function OnboardingStep3() {
       });
 
       const data = await res.json();
-
-      if (res.ok) {
-        navigate("/driver/onboarding/step-4");
-      } else {
-        setError(data.message || "Failed to save documents");
+      if (!res.ok) {
+        throw new Error(data.message || "Failed to save documents");
       }
-    } catch (e) {
-      setError("Upload failed. Please try again.");
-    } finally {
-      setLoading(false);
-    }
+
+      return data;
+    },
+    onSuccess: () => {
+      navigate("/driver/onboarding/step-4");
+    },
+    onError: (err) => {
+      setError(err.message || "Upload failed. Please try again.");
+    },
+  });
+
+  const loading = submitMutation.isPending;
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError(null);
+    await submitMutation.mutateAsync(documents);
   };
 
   const handleBack = () => {
@@ -203,11 +204,14 @@ export default function OnboardingStep3() {
     <div className="min-h-screen flex flex-col items-center justify-start relative font-display">
       {/* Gradient background */}
       <div className="absolute inset-0 bg-gradient-to-b from-[#1db95b] via-[#34d399] via-40% to-[#f0fdf4]"></div>
-      
+
       {/* Subtle pattern overlay */}
-      <div 
+      <div
         className="absolute inset-0 opacity-20 pointer-events-none"
-        style={{ backgroundImage: "url('https://grainy-gradients.vercel.app/noise.svg')" }}
+        style={{
+          backgroundImage:
+            "url('https://grainy-gradients.vercel.app/noise.svg')",
+        }}
       ></div>
 
       {/* Main content */}
@@ -220,10 +224,14 @@ export default function OnboardingStep3() {
           {/* Header */}
           <div className="flex items-center gap-3 mb-6">
             <div className="h-12 w-12 bg-[#dcfce7] rounded-xl flex items-center justify-center">
-              <span className="material-symbols-outlined text-[#1db95b] text-2xl">upload_file</span>
+              <span className="material-symbols-outlined text-[#1db95b] text-2xl">
+                upload_file
+              </span>
             </div>
             <div>
-              <h1 className="text-xl font-bold text-gray-900">Upload Documents</h1>
+              <h1 className="text-xl font-bold text-gray-900">
+                Upload Documents
+              </h1>
               <p className="text-gray-500 text-sm">Step 3 of 5</p>
             </div>
           </div>
@@ -240,13 +248,19 @@ export default function OnboardingStep3() {
                 }`}
               >
                 <div className="flex items-center gap-3">
-                  <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${
-                    documents[docType] ? "bg-[#1db95b]" : "bg-gray-100"
-                  }`}>
-                    <span className={`material-symbols-outlined text-xl ${
-                      documents[docType] ? "text-white" : "text-[#1db95b]"
-                    }`}>
-                      {documents[docType] ? "check" : documentLabels[docType].icon}
+                  <div
+                    className={`h-10 w-10 rounded-lg flex items-center justify-center ${
+                      documents[docType] ? "bg-[#1db95b]" : "bg-gray-100"
+                    }`}
+                  >
+                    <span
+                      className={`material-symbols-outlined text-xl ${
+                        documents[docType] ? "text-white" : "text-[#1db95b]"
+                      }`}
+                    >
+                      {documents[docType]
+                        ? "check"
+                        : documentLabels[docType].icon}
                     </span>
                   </div>
                   <div className="flex-1">
@@ -254,14 +268,18 @@ export default function OnboardingStep3() {
                       {documentLabels[docType].label} *
                     </label>
                     {documents[docType] && (
-                      <p className="text-xs text-[#1db95b] truncate">{documents[docType].name}</p>
+                      <p className="text-xs text-[#1db95b] truncate">
+                        {documents[docType].name}
+                      </p>
                     )}
                   </div>
-                  <label className={`px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-all ${
-                    documents[docType]
-                      ? "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                      : "bg-[#1db95b] text-white hover:bg-[#18a34a]"
-                  }`}>
+                  <label
+                    className={`px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-all ${
+                      documents[docType]
+                        ? "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                        : "bg-[#1db95b] text-white hover:bg-[#18a34a]"
+                    }`}
+                  >
                     {documents[docType] ? "Change" : "Upload"}
                     <input
                       type="file"
@@ -277,7 +295,9 @@ export default function OnboardingStep3() {
             {/* Error message */}
             {error && (
               <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm flex items-start gap-2">
-                <span className="material-symbols-outlined text-red-500 text-lg">error</span>
+                <span className="material-symbols-outlined text-red-500 text-lg">
+                  error
+                </span>
                 <span>{error}</span>
               </div>
             )}
@@ -299,7 +319,8 @@ export default function OnboardingStep3() {
             {/* Progress indicator */}
             {!allDocsUploaded && (
               <p className="text-center text-sm text-gray-500">
-                {Object.values(documents).filter(d => d !== null).length} of {Object.keys(documentLabels).length} documents uploaded
+                {Object.values(documents).filter((d) => d !== null).length} of{" "}
+                {Object.keys(documentLabels).length} documents uploaded
               </p>
             )}
 
@@ -320,16 +341,33 @@ export default function OnboardingStep3() {
               >
                 {loading ? (
                   <>
-                    <svg className="w-5 h-5 animate-spin text-white" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    <svg
+                      className="w-5 h-5 animate-spin text-white"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      ></circle>
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      ></path>
                     </svg>
                     <span>Uploading...</span>
                   </>
                 ) : (
                   <>
                     <span>Continue</span>
-                    <span className="material-symbols-outlined">arrow_forward</span>
+                    <span className="material-symbols-outlined">
+                      arrow_forward
+                    </span>
                   </>
                 )}
               </button>

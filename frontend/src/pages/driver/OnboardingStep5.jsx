@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useMutation } from "@tanstack/react-query";
 import { API_URL } from "../../config";
 
 // Step Progress Component with animation
@@ -23,8 +24,8 @@ const StepProgress = ({ currentStep, totalSteps = 5 }) => {
                 step.num === currentStep
                   ? "bg-gray-200"
                   : step.num < currentStep
-                  ? "bg-[#1db95b]"
-                  : "bg-gray-200"
+                    ? "bg-[#1db95b]"
+                    : "bg-gray-200"
               }`}
             >
               {step.num === currentStep && (
@@ -39,7 +40,7 @@ const StepProgress = ({ currentStep, totalSteps = 5 }) => {
           </div>
         ))}
       </div>
-      
+
       {/* Step labels */}
       <div className="flex justify-between">
         {steps.map((step) => (
@@ -49,8 +50,8 @@ const StepProgress = ({ currentStep, totalSteps = 5 }) => {
               step.num === currentStep
                 ? "text-[#1db95b]"
                 : step.num < currentStep
-                ? "text-[#1db95b]"
-                : "text-gray-400"
+                  ? "text-[#1db95b]"
+                  : "text-gray-400"
             }`}
           >
             {step.label}
@@ -72,7 +73,6 @@ const StepProgress = ({ currentStep, totalSteps = 5 }) => {
 
 export default function OnboardingStep5() {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [contractAccepted, setContractAccepted] = useState(false);
   const [confirmRead, setConfirmRead] = useState(false);
@@ -176,26 +176,19 @@ export default function OnboardingStep5() {
     Address: 123 Main Street, Colombo 00100, Sri Lanka</p>
   `;
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError(null);
+  const submitMutation = useMutation({
+    mutationFn: async ({ contractAcceptedValue, confirmReadValue }) => {
+      if (!contractAcceptedValue || !confirmReadValue) {
+        throw new Error(
+          "You must accept the contract and confirm you have read all terms",
+        );
+      }
 
-    if (!contractAccepted || !confirmRead) {
-      setError(
-        "You must accept the contract and confirm you have read all terms"
-      );
-      return;
-    }
-
-    setLoading(true);
-
-    const token = localStorage.getItem("token");
-
-    try {
+      const token = localStorage.getItem("token");
       const ipResponse = await fetch("https://api.ipify.org?format=json").catch(
         () => ({
           json: () => ({ ip: "0.0.0.0" }),
-        })
+        }),
       );
       const ipData = await ipResponse.json();
 
@@ -215,17 +208,29 @@ export default function OnboardingStep5() {
       });
 
       const data = await res.json();
-
-      if (res.ok) {
-        navigate("/driver/pending");
-      } else {
-        setError(data.message || "Failed to complete onboarding");
+      if (!res.ok) {
+        throw new Error(data.message || "Failed to complete onboarding");
       }
-    } catch (e) {
-      setError("Network error. Please try again.");
-    } finally {
-      setLoading(false);
-    }
+
+      return data;
+    },
+    onSuccess: () => {
+      navigate("/driver/pending");
+    },
+    onError: (err) => {
+      setError(err.message || "Network error. Please try again.");
+    },
+  });
+
+  const loading = submitMutation.isPending;
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError(null);
+    await submitMutation.mutateAsync({
+      contractAcceptedValue: contractAccepted,
+      confirmReadValue: confirmRead,
+    });
   };
 
   const handleBack = () => {
@@ -236,11 +241,14 @@ export default function OnboardingStep5() {
     <div className="min-h-screen flex flex-col items-center justify-start relative font-display">
       {/* Gradient background */}
       <div className="absolute inset-0 bg-gradient-to-b from-[#1db95b] via-[#34d399] via-40% to-[#f0fdf4]"></div>
-      
+
       {/* Subtle pattern overlay */}
-      <div 
+      <div
         className="absolute inset-0 opacity-20 pointer-events-none"
-        style={{ backgroundImage: "url('https://grainy-gradients.vercel.app/noise.svg')" }}
+        style={{
+          backgroundImage:
+            "url('https://grainy-gradients.vercel.app/noise.svg')",
+        }}
       ></div>
 
       {/* Main content */}
@@ -253,10 +261,14 @@ export default function OnboardingStep5() {
           {/* Header */}
           <div className="flex items-center gap-3 mb-6">
             <div className="h-12 w-12 bg-[#dcfce7] rounded-xl flex items-center justify-center">
-              <span className="material-symbols-outlined text-[#1db95b] text-2xl">description</span>
+              <span className="material-symbols-outlined text-[#1db95b] text-2xl">
+                description
+              </span>
             </div>
             <div>
-              <h1 className="text-xl font-bold text-gray-900">Partnership Agreement</h1>
+              <h1 className="text-xl font-bold text-gray-900">
+                Partnership Agreement
+              </h1>
               <p className="text-gray-500 text-sm">Step 5 of 5 - Final Step</p>
             </div>
           </div>
@@ -314,7 +326,9 @@ export default function OnboardingStep5() {
             {/* Error message */}
             {error && (
               <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm flex items-start gap-2">
-                <span className="material-symbols-outlined text-red-500 text-lg">error</span>
+                <span className="material-symbols-outlined text-red-500 text-lg">
+                  error
+                </span>
                 <span>{error}</span>
               </div>
             )}
@@ -326,8 +340,12 @@ export default function OnboardingStep5() {
                 Legal Notice
               </p>
               <ul className="text-sm text-[#166534] space-y-1 ml-6 list-disc">
-                <li>Your acceptance will be recorded with timestamp and IP address</li>
-                <li>This is a legally binding agreement under Sri Lankan law</li>
+                <li>
+                  Your acceptance will be recorded with timestamp and IP address
+                </li>
+                <li>
+                  This is a legally binding agreement under Sri Lankan law
+                </li>
                 <li>Contract version: {contractVersion}</li>
               </ul>
             </div>
@@ -349,15 +367,32 @@ export default function OnboardingStep5() {
               >
                 {loading ? (
                   <>
-                    <svg className="w-5 h-5 animate-spin text-white" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    <svg
+                      className="w-5 h-5 animate-spin text-white"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      ></circle>
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      ></path>
                     </svg>
                     <span>Submitting...</span>
                   </>
                 ) : (
                   <>
-                    <span className="material-symbols-outlined">check_circle</span>
+                    <span className="material-symbols-outlined">
+                      check_circle
+                    </span>
                     <span>Complete Onboarding</span>
                   </>
                 )}

@@ -17,9 +17,15 @@ import React, {
   useRef,
   useMemo,
 } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
 import { useDriverDeliveryNotifications } from "../../context/DriverDeliveryNotificationContext";
+import {
+  buildDriverActiveMapPath,
+  cacheDriverActiveDeliveryId,
+  resolveDriverActiveMapPath,
+} from "../../utils/driverActiveDelivery";
 import { MapContainer, TileLayer, Marker, Polyline } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -270,6 +276,10 @@ const writeDriverDashboardCache = (snapshot) => {
 
 export default function DriverDashboard() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const userId = localStorage.getItem("userId") || "default";
+  const token = localStorage.getItem("token");
+  const role = localStorage.getItem("role");
   const cachedDashboard = readDriverDashboardCache();
   const [isOnline, setIsOnline] = useState(
     () => cachedDashboard?.isOnline ?? false,
@@ -643,26 +653,24 @@ export default function DriverDashboard() {
 
   // Track if we're rate limited to back off
   const rateLimitedRef = useRef(false);
-  const pollIntervalRef = useRef(null);
-
-  useEffect(() => {
-    fetchDriverProfile();
-    fetchDashboardData();
-
-    // Refresh data every 60 seconds (was 30s - reduced to prevent 429)
-    // Skip if we got rate limited on the previous attempt
-    pollIntervalRef.current = setInterval(() => {
-      if (!rateLimitedRef.current) {
-        fetchDashboardData();
-      } else {
-        // Back off - wait another cycle before retrying
+  useQuery({
+    queryKey: ["driver", "dashboard", "snapshot", userId],
+    enabled: !!token && role === "driver",
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
+    initialData: cachedDashboard || undefined,
+    queryFn: async () => {
+      if (rateLimitedRef.current) {
+        // Back off one cycle after 429, matching previous behavior.
         rateLimitedRef.current = false;
+        return readDriverDashboardCache() || {};
       }
-    }, 60000);
-    return () => {
-      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-    };
-  }, [fetchDriverProfile, fetchDashboardData]);
+
+      await fetchDriverProfile();
+      await fetchDashboardData();
+      return readDriverDashboardCache() || {};
+    },
+  });
 
   // ============================================================================
   // WORKING HOURS CHECK (every minute)
@@ -737,6 +745,16 @@ export default function DriverDashboard() {
     handleToggleOnline(true);
   };
 
+  const openActiveMap = useCallback(async () => {
+    const token = localStorage.getItem("token");
+    const path = await resolveDriverActiveMapPath({
+      queryClient,
+      token,
+      userId,
+    });
+    navigate(path);
+  }, [navigate, queryClient, userId]);
+
   // ============================================================================
   // ACCEPT DELIVERY REQUEST
   // ============================================================================
@@ -788,8 +806,8 @@ export default function DriverDashboard() {
       );
 
       if (res.ok) {
-        // Navigate to active deliveries
-        navigate("/driver/deliveries/active");
+        cacheDriverActiveDeliveryId(queryClient, { userId, deliveryId });
+        navigate(buildDriverActiveMapPath(deliveryId));
       } else {
         const data = await res.json();
         showError(data.message || "Failed to accept delivery");
@@ -1091,7 +1109,7 @@ export default function DriverDashboard() {
                   Active Deliveries ({activeDeliveries.length})
                 </h2>
                 <button
-                  onClick={() => navigate("/driver/deliveries/active")}
+                  onClick={openActiveMap}
                   className="text-[#22c55e] text-sm font-bold active:opacity-60 transition-opacity"
                 >
                   View All
@@ -1101,7 +1119,7 @@ export default function DriverDashboard() {
                 {activeDeliveries.slice(0, 3).map((delivery) => (
                   <div
                     key={delivery.id}
-                    onClick={() => navigate("/driver/deliveries/active")}
+                    onClick={openActiveMap}
                     className="flex items-center gap-4 rounded-xl bg-amber-50 border border-amber-200 p-4 cursor-pointer active:bg-amber-100 transition-colors"
                   >
                     <div className="flex items-center justify-center w-12 h-12 rounded-full bg-amber-100">

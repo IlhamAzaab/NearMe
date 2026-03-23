@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { API_URL } from "../../config";
 import {
   Bell,
@@ -17,7 +18,6 @@ import { useDriverNotifications } from "../../hooks/useDriverNotifications";
  * Uses Realtime subscriptions for instant updates
  */
 const DriverNotifications = () => {
-  const [statusInfo, setStatusInfo] = useState(null);
   const [filter, setFilter] = useState("all"); // all, unread, read
   const navigate = useNavigate();
 
@@ -67,35 +67,35 @@ const DriverNotifications = () => {
     filterTypes: ["new_delivery", "order_assigned", "order_ready", "reminder"],
   });
 
-  // Fetch status info periodically
-  useEffect(() => {
-    const fetchStatusInfo = async () => {
-      try {
-        const token = localStorage.getItem("token");
-        const response = await fetch(`${API_URL}/driver/status-info`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
+  const token = localStorage.getItem("token");
 
-        if (response.ok) {
-          const data = await response.json();
-          setStatusInfo(data);
-        }
-      } catch (err) {
-        console.error("Error fetching status info:", err);
+  const {
+    data: statusInfo = null,
+    refetch: refetchStatusInfo,
+    isFetching: isStatusFetching,
+  } = useQuery({
+    queryKey: ["driver", "notifications", "status-info", driverId],
+    enabled: !!token && !!driverId,
+    staleTime: 30 * 1000,
+    refetchInterval: 30 * 1000,
+    queryFn: async () => {
+      const response = await fetch(`${API_URL}/driver/status-info`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch driver status info");
       }
-    };
 
-    fetchStatusInfo();
-    const interval = setInterval(fetchStatusInfo, 30000);
-
-    return () => clearInterval(interval);
-  }, []);
+      return response.json();
+    },
+  });
 
   const handleRefresh = async () => {
     console.log("🔄 Manual refresh triggered");
-    // Notifications will auto-update from Realtime
+    await refetchStatusInfo();
   };
 
   const getNotificationIcon = (type) => {
@@ -189,7 +189,7 @@ const DriverNotifications = () => {
                 className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
               >
                 <RefreshCw
-                  className={`h-5 w-5 text-gray-600 ${loading ? "animate-spin" : ""}`}
+                  className={`h-5 w-5 text-gray-600 ${loading || isStatusFetching ? "animate-spin" : ""}`}
                 />
               </button>
             </div>

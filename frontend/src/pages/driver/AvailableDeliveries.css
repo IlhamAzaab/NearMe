@@ -39,6 +39,27 @@
   filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
 }
 
+/* Custom marker base styles */
+.custom-marker {
+  background: transparent !important;
+  border: none !important;
+}
+
+/* DraggableMap styles */
+.draggable-map {
+  cursor: grab;
+}
+
+.draggable-map:active {
+  cursor: grabbing;
+}
+
+/* Ensure Leaflet container fills its parent */
+.draggable-map .leaflet-container {
+  width: 100%;
+  height: 100%;
+}
+
 /* Shimmer animation for skeleton loading */
 @keyframes shimmer {
   0% {
@@ -47,4 +68,58 @@
   100% {
     background-position: 200% 0;
   }
+}
+
+/* Earnings badge styles */
+.earnings-badge-green {
+  background-color: #13ec37;
+  color: white;
+}
+
+.earnings-badge-black {
+  background-color: #111812;
+  color: white;
+}
+
+/* Smooth map transition */
+.leaflet-fade-anim .leaflet-tile,
+.leaflet-zoom-anim .leaflet-zoom-animated {
+  will-change: transform;
+}
+
+/* Pulse animation for Live indicator */
+@keyframes pulse-dot {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.3);
+    opacity: 0.6;
+  }
+}
+
+.animate-pulse-dot {
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+/* Heartbeat animation for skeleton */
+@keyframes heartbeat {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.01);
+    opacity: 0.95;
+  }
+}
+
+/* Full screen delivery card styles */
+.delivery-card-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 40;
 }

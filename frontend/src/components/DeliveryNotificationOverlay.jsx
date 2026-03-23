@@ -17,7 +17,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { useDriverDeliveryNotifications } from "../context/DriverDeliveryNotificationContext";
+import {
+  buildDriverActiveMapPath,
+  cacheDriverActiveDeliveryId,
+} from "../utils/driverActiveDelivery";
 
 // Pulsing animation keyframes (injected once)
 const styleId = "delivery-notification-styles";
@@ -54,6 +59,8 @@ if (typeof document !== "undefined" && !document.getElementById(styleId)) {
 
 export default function DeliveryNotificationOverlay() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const userId = localStorage.getItem("userId") || "default";
   const { notifications, acceptDelivery, declineDelivery, setNavigate } =
     useDriverDeliveryNotifications();
   const [acceptingId, setAcceptingId] = useState(null);
@@ -97,8 +104,8 @@ export default function DeliveryNotificationOverlay() {
 
     const result = await acceptDelivery(deliveryId, driverLocation);
     if (result.success) {
-      // Navigate to active deliveries or refresh available deliveries page
-      navigate("/driver/deliveries");
+      cacheDriverActiveDeliveryId(queryClient, { userId, deliveryId });
+      navigate(buildDriverActiveMapPath(deliveryId));
     } else {
       alert(result.message || "Failed to accept delivery");
     }

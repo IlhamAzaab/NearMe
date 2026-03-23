@@ -716,7 +716,7 @@ function App() {
                     path="/driver/delivery/active/map"
                     element={
                       <ProtectedRoute allowedRole="driver">
-                        <DeliveryTracking />
+                        <DriverMapPage />
                       </ProtectedRoute>
                     }
                   />
@@ -725,14 +725,6 @@ function App() {
                     element={
                       <ProtectedRoute allowedRole="driver">
                         <DriverNotifications />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/driver/history"
-                    element={
-                      <ProtectedRoute allowedRole="driver">
-                        <DeliveryHistory />
                       </ProtectedRoute>
                     }
                   />

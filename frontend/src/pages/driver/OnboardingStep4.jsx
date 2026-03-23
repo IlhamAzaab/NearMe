@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useMutation } from "@tanstack/react-query";
 import { API_URL } from "../../config";
 
 // Step Progress Component with animation
@@ -23,8 +24,8 @@ const StepProgress = ({ currentStep, totalSteps = 5 }) => {
                 step.num === currentStep
                   ? "bg-gray-200"
                   : step.num < currentStep
-                  ? "bg-[#1db95b]"
-                  : "bg-gray-200"
+                    ? "bg-[#1db95b]"
+                    : "bg-gray-200"
               }`}
             >
               {step.num === currentStep && (
@@ -39,7 +40,7 @@ const StepProgress = ({ currentStep, totalSteps = 5 }) => {
           </div>
         ))}
       </div>
-      
+
       {/* Step labels */}
       <div className="flex justify-between">
         {steps.map((step) => (
@@ -49,8 +50,8 @@ const StepProgress = ({ currentStep, totalSteps = 5 }) => {
               step.num === currentStep
                 ? "text-[#1db95b]"
                 : step.num < currentStep
-                ? "text-[#1db95b]"
-                : "text-gray-400"
+                  ? "text-[#1db95b]"
+                  : "text-gray-400"
             }`}
           >
             {step.label}
@@ -72,7 +73,6 @@ const StepProgress = ({ currentStep, totalSteps = 5 }) => {
 
 export default function OnboardingStep4() {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [formData, setFormData] = useState({
     accountHolderName: "",
@@ -106,21 +106,14 @@ export default function OnboardingStep4() {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError(null);
+  const submitMutation = useMutation({
+    mutationFn: async (payload) => {
+      if (payload.accountNumber !== payload.confirmAccountNumber) {
+        throw new Error("Account numbers do not match");
+      }
 
-    if (formData.accountNumber !== formData.confirmAccountNumber) {
-      setError("Account numbers do not match");
-      return;
-    }
-
-    setLoading(true);
-
-    const token = localStorage.getItem("token");
-
-    try {
-      const { confirmAccountNumber, ...submitData } = formData;
+      const token = localStorage.getItem("token");
+      const { confirmAccountNumber, ...submitData } = payload;
 
       const res = await fetch(`${API_URL}/onboarding/step-4`, {
         method: "POST",
@@ -132,17 +125,26 @@ export default function OnboardingStep4() {
       });
 
       const data = await res.json();
-
-      if (res.ok) {
-        navigate("/driver/onboarding/step-5");
-      } else {
-        setError(data.message || "Failed to save bank details");
+      if (!res.ok) {
+        throw new Error(data.message || "Failed to save bank details");
       }
-    } catch (e) {
-      setError("Network error. Please try again.");
-    } finally {
-      setLoading(false);
-    }
+
+      return data;
+    },
+    onSuccess: () => {
+      navigate("/driver/onboarding/step-5");
+    },
+    onError: (err) => {
+      setError(err.message || "Network error. Please try again.");
+    },
+  });
+
+  const loading = submitMutation.isPending;
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError(null);
+    await submitMutation.mutateAsync(formData);
   };
 
   const handleBack = () => {
@@ -153,11 +155,14 @@ export default function OnboardingStep4() {
     <div className="min-h-screen flex flex-col items-center justify-start relative font-display">
       {/* Gradient background */}
       <div className="absolute inset-0 bg-gradient-to-b from-[#1db95b] via-[#34d399] via-40% to-[#f0fdf4]"></div>
-      
+
       {/* Subtle pattern overlay */}
-      <div 
+      <div
         className="absolute inset-0 opacity-20 pointer-events-none"
-        style={{ backgroundImage: "url('https://grainy-gradients.vercel.app/noise.svg')" }}
+        style={{
+          backgroundImage:
+            "url('https://grainy-gradients.vercel.app/noise.svg')",
+        }}
       ></div>
 
       {/* Main content */}
@@ -170,7 +175,9 @@ export default function OnboardingStep4() {
           {/* Header */}
           <div className="flex items-center gap-3 mb-6">
             <div className="h-12 w-12 bg-[#dcfce7] rounded-xl flex items-center justify-center">
-              <span className="material-symbols-outlined text-[#1db95b] text-2xl">account_balance</span>
+              <span className="material-symbols-outlined text-[#1db95b] text-2xl">
+                account_balance
+              </span>
             </div>
             <div>
               <h1 className="text-xl font-bold text-gray-900">Bank Details</h1>
@@ -194,7 +201,9 @@ export default function OnboardingStep4() {
                   required
                 />
                 <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#1db95b]">
-                  <span className="material-symbols-outlined text-xl">person</span>
+                  <span className="material-symbols-outlined text-xl">
+                    person
+                  </span>
                 </div>
               </div>
               <p className="text-xs text-gray-500 mt-1 ml-1">
@@ -223,10 +232,14 @@ export default function OnboardingStep4() {
                   ))}
                 </select>
                 <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#1db95b]">
-                  <span className="material-symbols-outlined text-xl">account_balance</span>
+                  <span className="material-symbols-outlined text-xl">
+                    account_balance
+                  </span>
                 </div>
                 <div className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
-                  <span className="material-symbols-outlined text-xl">expand_more</span>
+                  <span className="material-symbols-outlined text-xl">
+                    expand_more
+                  </span>
                 </div>
               </div>
             </div>
@@ -246,7 +259,9 @@ export default function OnboardingStep4() {
                   required
                 />
                 <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#1db95b]">
-                  <span className="material-symbols-outlined text-xl">location_on</span>
+                  <span className="material-symbols-outlined text-xl">
+                    location_on
+                  </span>
                 </div>
               </div>
             </div>
@@ -288,7 +303,9 @@ export default function OnboardingStep4() {
                   required
                 />
                 <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#1db95b]">
-                  <span className="material-symbols-outlined text-xl">verified</span>
+                  <span className="material-symbols-outlined text-xl">
+                    verified
+                  </span>
                 </div>
               </div>
             </div>
@@ -296,7 +313,9 @@ export default function OnboardingStep4() {
             {/* Error message */}
             {error && (
               <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm flex items-start gap-2">
-                <span className="material-symbols-outlined text-red-500 text-lg">error</span>
+                <span className="material-symbols-outlined text-red-500 text-lg">
+                  error
+                </span>
                 <span>{error}</span>
               </div>
             )}
@@ -304,7 +323,9 @@ export default function OnboardingStep4() {
             {/* Payment Info */}
             <div className="p-4 bg-[#dcfce7] border border-[#86efac] rounded-xl">
               <p className="text-sm font-semibold text-[#166534] mb-2 flex items-center gap-2">
-                <span className="material-symbols-outlined text-lg">payments</span>
+                <span className="material-symbols-outlined text-lg">
+                  payments
+                </span>
                 Payment Information
               </p>
               <ul className="text-sm text-[#166534] space-y-1 ml-6 list-disc">
@@ -317,9 +338,12 @@ export default function OnboardingStep4() {
             {/* Security note */}
             <div className="p-4 bg-[#f0fdf4] border border-[#bbf7d0] rounded-xl">
               <div className="flex items-start gap-2">
-                <span className="material-symbols-outlined text-[#16a34a] text-lg mt-0.5">lock</span>
+                <span className="material-symbols-outlined text-[#16a34a] text-lg mt-0.5">
+                  lock
+                </span>
                 <p className="text-sm text-[#166534]">
-                  <strong>Security:</strong> Your bank details are encrypted and stored securely.
+                  <strong>Security:</strong> Your bank details are encrypted and
+                  stored securely.
                 </p>
               </div>
             </div>
@@ -341,16 +365,33 @@ export default function OnboardingStep4() {
               >
                 {loading ? (
                   <>
-                    <svg className="w-5 h-5 animate-spin text-white" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    <svg
+                      className="w-5 h-5 animate-spin text-white"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      ></circle>
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      ></path>
                     </svg>
                     <span>Saving...</span>
                   </>
                 ) : (
                   <>
                     <span>Continue</span>
-                    <span className="material-symbols-outlined">arrow_forward</span>
+                    <span className="material-symbols-outlined">
+                      arrow_forward
+                    </span>
                   </>
                 )}
               </button>

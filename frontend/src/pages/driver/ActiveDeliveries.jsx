@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import DriverLayout from "../../components/DriverLayout";
 import AdminSkeleton from "../../components/AdminSkeleton";
 import PageWrapper from "../../components/PageWrapper";
 import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
+import { MapBoundsFitter } from "../../components/DraggableMap";
 import {
   MapContainer,
   TileLayer,
@@ -1098,6 +1099,16 @@ function PickupCard({
             >
               <TileLayer url={TILE_URL} attribution={TILE_ATTRIBUTION} />
 
+              {/* Auto-fit map to show all markers */}
+              <MapBoundsFitter
+                markers={[
+                  driverLocation && { lat: driverLocation.latitude, lng: driverLocation.longitude },
+                  restaurant && { lat: restaurant.latitude, lng: restaurant.longitude },
+                  customer && { lat: customer.latitude, lng: customer.longitude },
+                ].filter(Boolean)}
+                padding={[40, 40]}
+              />
+
               {/* Driver Marker */}
               {driverLocation && (
                 <Marker
@@ -1726,6 +1737,16 @@ function FullRouteMap({
           >
             <TileLayer url={TILE_URL} attribution={TILE_ATTRIBUTION} />
 
+            {/* Auto-fit map to show all markers */}
+            <MapBoundsFitter
+              markers={[
+                driverLocation && { lat: driverLocation.latitude, lng: driverLocation.longitude },
+                ...pickups.map(p => ({ lat: p.restaurant?.latitude, lng: p.restaurant?.longitude })),
+                ...pickups.map(p => ({ lat: p.customer?.latitude, lng: p.customer?.longitude })),
+              ].filter(m => m && m.lat && m.lng)}
+              padding={[40, 40]}
+            />
+
             {/* Driver Marker */}
             {driverLocation && (
               <Marker
@@ -2072,6 +2093,15 @@ function DeliveryCard({
               attributionControl={false}
             >
               <TileLayer url={TILE_URL} attribution={TILE_ATTRIBUTION} />
+
+              {/* Auto-fit map to show all markers */}
+              <MapBoundsFitter
+                markers={[
+                  driverLocation && { lat: driverLocation.latitude, lng: driverLocation.longitude },
+                  customer && { lat: customer.latitude, lng: customer.longitude },
+                ].filter(Boolean)}
+                padding={[40, 40]}
+              />
 
               {/* Driver Marker */}
               {driverLocation && (
