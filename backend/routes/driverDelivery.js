@@ -62,9 +62,11 @@ cloudinary.config({
 });
 
 // ============================================================================
-// Helper: Calculate distance using Haversine formula (fallback)
+// Helper: Calculate distance using Haversine formula
+// IMPORTANT: This is ONLY for geometric proximity detection (50m/100m thresholds)
+// NOT for route distance calculations - those must use OSRM-only
 // ============================================================================
-function calculateHaversineDistance(lat1, lon1, lat2, lon2) {
+function calculateHaversineDistanceForProximity(lat1, lon1, lat2, lon2) {
   const R = 6371000; // Earth's radius in meters
   const φ1 = (lat1 * Math.PI) / 180;
   const φ2 = (lat2 * Math.PI) / 180;
@@ -181,8 +183,13 @@ async function fetchWithTimeout(
 }
 
 // ============================================================================
-// Helper: Get route from OSRM (Public Server) with caching and retry
+// Helper: Get route from OSRM (Public Server) - OSRM-ONLY (no Haversine fallback)
+// Uses retry strategy: multiple profiles, backup server, exponential backoff
 // ============================================================================
+const OSRM_PRIMARY = "https://router.project-osrm.org";
+const OSRM_BACKUP = "https://routing.openstreetmap.de/routed-foot";
+const OSRM_PROFILES = ["foot", "driving"]; // Try foot first for shortest distance
+
 async function getRouteDistance(
   startLng,
   startLat,
@@ -190,56 +197,20 @@ async function getRouteDistance(
   endLat,
   overview = "false",
 ) {
-  try {
-    const cacheKey = getCacheKey(startLng, startLat, endLng, endLat);
+  const cacheKey = getCacheKey(startLng, startLat, endLng, endLat);
 
-    // Check cache first
-    const cached = getFromCache(cacheKey);
-    if (cached) {
-      return cached;
-    }
+  // Check cache first
+  const cached = getFromCache(cacheKey);
+  if (cached) {
+    return cached;
+  }
 
-    // Circuit breaker: skip OSRM entirely when it's consistently failing
-    if (!isOsrmAvailable()) {
-      throw new Error("OSRM circuit breaker open");
-    }
-
-    // Use FOOT profile for shortest distance
-    const url = `https://router.project-osrm.org/route/v1/foot/${startLng},${startLat};${endLng},${endLat}?overview=${overview}${
-      overview === "full" ? "&geometries=geojson" : ""
-    }`;
-
-    // Use public OSRM with 5s timeout and 1 retry
-    const response = await fetchWithTimeout(url, {}, 5000, 1);
-
-    if (!response.ok) {
-      throw new Error(`OSRM HTTP ${response.status}`);
-    }
-
-    const data = await response.json();
-
-    if (data.code === "Ok" && data.routes?.[0]) {
-      // Cache the result
-      setCache(cacheKey, data.routes[0]);
-      recordOsrmSuccess();
-      return data.routes[0];
-    }
-
-    throw new Error(`OSRM code: ${data.code} - ${data.message}`);
-  } catch (error) {
-    recordOsrmFailure();
-
-    // Fallback to Haversine
-    const distance = calculateHaversineDistance(
-      startLat,
-      startLng,
-      endLat,
-      endLng,
-    );
-
+  // Circuit breaker: skip OSRM entirely when it's consistently failing
+  if (!isOsrmAvailable()) {
+    console.log("[OSRM] Circuit breaker open - returning unavailable state");
     return {
-      distance: distance * 1.3, // Add 30% for road routing approximation
-      duration: (distance * 1.3) / 10, // Approximate 10 m/s average speed
+      distance: null,
+      duration: null,
       geometry:
         overview === "full"
           ? {
@@ -249,9 +220,81 @@ async function getRouteDistance(
               ],
             }
           : undefined,
-      isEstimate: true, // Mark as fallback estimate
+      isUnavailable: true,
+      unavailableReason: "OSRM circuit breaker active",
     };
   }
+
+  // OSRM-only retry strategy: try multiple servers and profiles
+  const servers = [OSRM_PRIMARY, OSRM_BACKUP];
+  const RETRY_BACKOFFS = [0, 1000, 2000]; // Retry delays in ms
+
+  for (const serverUrl of servers) {
+    for (let retry = 0; retry < RETRY_BACKOFFS.length; retry++) {
+      if (retry > 0) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, RETRY_BACKOFFS[retry]),
+        );
+      }
+
+      for (const profile of OSRM_PROFILES) {
+        try {
+          const url = `${serverUrl}/route/v1/${profile}/${startLng},${startLat};${endLng},${endLat}?overview=${overview}${
+            overview === "full" ? "&geometries=geojson" : ""
+          }`;
+
+          const response = await fetchWithTimeout(
+            url,
+            {},
+            5000 + retry * 1000,
+            0,
+          );
+
+          if (!response.ok) {
+            continue; // Try next profile
+          }
+
+          const data = await response.json();
+
+          if (data.code === "Ok" && data.routes?.[0]) {
+            // Success! Cache and return
+            setCache(cacheKey, data.routes[0]);
+            recordOsrmSuccess();
+            console.log(
+              `[OSRM] ✓ Route found via ${profile}@${serverUrl.includes("openstreetmap") ? "backup" : "primary"}`,
+            );
+            return data.routes[0];
+          }
+        } catch (error) {
+          console.log(
+            `[OSRM] ${profile}@${serverUrl.includes("openstreetmap") ? "backup" : "primary"} attempt ${retry + 1} failed: ${error.message}`,
+          );
+        }
+      }
+    }
+  }
+
+  // All retries exhausted - record failure and return unavailable state
+  recordOsrmFailure();
+  console.log(
+    "[OSRM] ❌ All servers/profiles/retries exhausted - returning unavailable state",
+  );
+
+  return {
+    distance: null,
+    duration: null,
+    geometry:
+      overview === "full"
+        ? {
+            coordinates: [
+              [startLng, startLat],
+              [endLng, endLat],
+            ],
+          }
+        : undefined,
+    isUnavailable: true,
+    unavailableReason: "All OSRM servers failed after retries",
+  };
 }
 
 // ============================================================================
@@ -1872,7 +1915,7 @@ router.patch(
       ) {
         const restaurantLat = parseFloat(delivery.orders.restaurant_latitude);
         const restaurantLng = parseFloat(delivery.orders.restaurant_longitude);
-        const distanceToRestaurant = calculateHaversineDistance(
+        const distanceToRestaurant = calculateHaversineDistanceForProximity(
           latitude,
           longitude,
           restaurantLat,
@@ -1899,7 +1942,7 @@ router.patch(
       ) {
         const customerLat = parseFloat(delivery.orders.delivery_latitude);
         const customerLng = parseFloat(delivery.orders.delivery_longitude);
-        const distanceToCustomer = calculateHaversineDistance(
+        const distanceToCustomer = calculateHaversineDistanceForProximity(
           latitude,
           longitude,
           customerLat,
@@ -1945,7 +1988,7 @@ router.patch(
       ) {
         const customerLat = parseFloat(updated.orders.delivery_latitude);
         const customerLng = parseFloat(updated.orders.delivery_longitude);
-        const distance = calculateHaversineDistance(
+        const distance = calculateHaversineDistanceForProximity(
           latitude,
           longitude,
           customerLat,
@@ -2660,30 +2703,19 @@ router.get("/deliveries/active", authenticate, driverOnly, async (req, res) => {
       return res.json({ deliveries: [] });
     }
 
-    // Use Haversine only (no OSRM) — this is a fast overview endpoint.
+    // OSRM-ONLY: This is a fast overview endpoint - use stored distance_km from order
     // Detailed OSRM routes are fetched by /pickups and /deliveries-route endpoints.
+    // We no longer calculate Haversine estimates here.
     const formattedDeliveries = deliveries.map((d) => {
-      const driverLat = d.current_latitude || d.orders.restaurant_latitude;
-      const driverLng = d.current_longitude || d.orders.restaurant_longitude;
       const restaurantLat = parseFloat(d.orders.restaurant_latitude);
       const restaurantLng = parseFloat(d.orders.restaurant_longitude);
       const customerLat = parseFloat(d.orders.delivery_latitude);
       const customerLng = parseFloat(d.orders.delivery_longitude);
 
-      // Fast Haversine calculation (no network calls)
-      const restaurantDist = calculateHaversineDistance(
-        driverLat,
-        driverLng,
-        restaurantLat,
-        restaurantLng,
-      );
-      const customerDist = calculateHaversineDistance(
-        restaurantLat,
-        restaurantLng,
-        customerLat,
-        customerLng,
-      );
-      const totalDistance = (restaurantDist + customerDist) * 1.3;
+      // Use stored distance from order (calculated via OSRM at checkout)
+      // Convert km to meters for consistency with other endpoints
+      const storedDistanceKm = parseFloat(d.orders.distance_km) || null;
+      const totalDistance = storedDistanceKm ? storedDistanceKm * 1000 : null;
 
       return {
         id: d.id,
@@ -2695,7 +2727,8 @@ router.get("/deliveries/active", authenticate, driverOnly, async (req, res) => {
         },
         accepted_at: d.accepted_at,
         picked_up_at: d.picked_up_at,
-        total_distance: totalDistance, // in meters (estimated)
+        total_distance: totalDistance, // in meters (from OSRM at checkout), null if unavailable
+        total_distance_unavailable: totalDistance === null,
         order: {
           order_number: d.orders.order_number,
           status: d.status,

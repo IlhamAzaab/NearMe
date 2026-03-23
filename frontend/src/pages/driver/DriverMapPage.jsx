@@ -73,21 +73,72 @@ L.Icon.Default.mergeOptions({
     "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
 });
 
-// Custom marker icons
-const createCustomIcon = (color) =>
-  new L.Icon({
-    iconUrl: `https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-${color}.png`,
-    shadowUrl:
-      "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
-    iconSize: [25, 41],
-    iconAnchor: [12, 41],
-    popupAnchor: [1, -34],
-    shadowSize: [41, 41],
-  });
+// ============================================================================
+// NAVIGATION ARROW ICON - Driver marker with heading direction
+// ============================================================================
+const createNavigationArrowIcon = (heading = 0) => {
+  // SVG navigation arrow that rotates based on heading
+  const arrowSvg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+      <defs>
+        <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+          <feDropShadow dx="0" dy="2" stdDeviation="2" flood-opacity="0.3"/>
+        </filter>
+      </defs>
+      <g transform="rotate(${heading}, 20, 20)" filter="url(#shadow)">
+        <polygon points="20,4 32,32 20,26 8,32" fill="#2563eb" stroke="#1d4ed8" stroke-width="2"/>
+      </g>
+      <circle cx="20" cy="20" r="4" fill="white" stroke="#2563eb" stroke-width="2"/>
+    </svg>
+  `;
 
-const driverIcon = createCustomIcon("blue");
-const restaurantIcon = createCustomIcon("red");
-const customerIcon = createCustomIcon("green");
+  return L.divIcon({
+    className: "navigation-arrow-marker",
+    html: arrowSvg,
+    iconSize: [40, 40],
+    iconAnchor: [20, 20],
+    popupAnchor: [0, -20],
+  });
+};
+
+// ============================================================================
+// BACKGROUNDLESS CIRCLE ICONS - Clean style for restaurant/customer
+// ============================================================================
+const createCleanCircleIcon = (color, emoji = "", size = 36) => {
+  const innerSize = size - 8;
+  return L.divIcon({
+    className: "clean-marker",
+    html: `
+      <div style="
+        width: ${size}px;
+        height: ${size}px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      ">
+        <div style="
+          width: ${innerSize}px;
+          height: ${innerSize}px;
+          background: ${color};
+          border: 3px solid white;
+          border-radius: 50%;
+          box-shadow: 0 3px 8px rgba(0,0,0,0.3);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 14px;
+        ">${emoji}</div>
+      </div>
+    `,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+    popupAnchor: [0, -size / 2],
+  });
+};
+
+// Static icons for restaurant and customer
+const restaurantIcon = createCleanCircleIcon("#ef4444", "🍽️", 40);
+const customerIcon = createCleanCircleIcon("#10b981", "📍", 40);
 
 // Component to handle map bounds - only fits bounds on initial load or when user requests recenter
 function MapBounds({
@@ -267,6 +318,10 @@ export default function DriverMapPage() {
         const newLoc = {
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
+          // Capture heading from device compass (for navigation arrow rotation)
+          heading: position.coords.heading || 0,
+          // Speed can be used for ETA adjustments
+          speed: position.coords.speed || 0,
         };
 
         const prev = lastLocationRef.current;
@@ -274,7 +329,7 @@ export default function DriverMapPage() {
         // First location — always accept
         if (!prev) {
           console.log(
-            `[LOCATION] Initial: (${newLoc.latitude.toFixed(6)}, ${newLoc.longitude.toFixed(6)})`,
+            `[LOCATION] Initial: (${newLoc.latitude.toFixed(6)}, ${newLoc.longitude.toFixed(6)}) heading: ${newLoc.heading}°`,
           );
           lastLocationRef.current = newLoc;
           lastBackendLocationRef.current = newLoc;
@@ -292,7 +347,9 @@ export default function DriverMapPage() {
         );
 
         if (moved >= MOVEMENT_THRESHOLD_METERS) {
-          console.log(`[LOCATION] Moved ${moved.toFixed(0)}m → updating`);
+          console.log(
+            `[LOCATION] Moved ${moved.toFixed(0)}m → updating, heading: ${newLoc.heading}°`,
+          );
           lastLocationRef.current = newLoc;
           setDriverLocation(newLoc);
 
@@ -800,10 +857,10 @@ export default function DriverMapPage() {
                 onUserInteraction={handleUserInteraction}
               />
 
-              {/* Driver Marker */}
+              {/* Driver Marker - Navigation Arrow with heading direction */}
               <Marker
                 position={[driverLocation.latitude, driverLocation.longitude]}
-                icon={driverIcon}
+                icon={createNavigationArrowIcon(driverLocation.heading || 0)}
               >
                 <Popup>Your Location</Popup>
               </Marker>
@@ -826,9 +883,9 @@ export default function DriverMapPage() {
                         positions={currentTarget.route_geometry.coordinates.map(
                           (coord) => [coord[1], coord[0]],
                         )}
-                        color="#ef4444"
-                        weight={4}
-                        opacity={0.7}
+                        color="#2563eb"
+                        weight={6}
+                        opacity={0.9}
                       />
                     )}
                 </>
@@ -851,9 +908,9 @@ export default function DriverMapPage() {
                         positions={currentTarget.route_geometry.coordinates.map(
                           (coord) => [coord[1], coord[0]],
                         )}
-                        color="#10b981"
-                        weight={4}
-                        opacity={0.7}
+                        color="#2563eb"
+                        weight={6}
+                        opacity={0.9}
                       />
                     )}
                 </>

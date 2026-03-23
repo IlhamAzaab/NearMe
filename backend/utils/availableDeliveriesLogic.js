@@ -108,9 +108,16 @@ async function getOSRMRoute(waypoints, context = "") {
 }
 
 // ============================================================================
-// HAVERSINE DISTANCE (for micro-segment distance calculation)
+// HAVERSINE DISTANCE - FOR INTERNAL OPTIMIZATION ONLY
 // ============================================================================
-function haversineDistance(lat1, lng1, lat2, lng2) {
+// Used ONLY for:
+// 1. Internal route optimization algorithms (finding optimal delivery order)
+// 2. Nearest-neighbor sorting within the algorithm
+// 3. Restaurant proximity threshold checks (geometric, not route distance)
+//
+// NOT used for user-facing distance displays - those use OSRM via osrmService.
+// ============================================================================
+function haversineDistanceForOptimization(lat1, lng1, lat2, lng2) {
   const R = 6371000; // Earth's radius in meters
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLng = ((lng2 - lng1) * Math.PI) / 180;
@@ -123,6 +130,9 @@ function haversineDistance(lat1, lng1, lat2, lng2) {
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c; // Distance in meters
 }
+
+// Alias for backward compatibility within this file
+const haversineDistance = haversineDistanceForOptimization;
 
 // ============================================================================
 // MINIMUM DISTANCE ROUTE OPTIMIZATION (for 3+ deliveries)

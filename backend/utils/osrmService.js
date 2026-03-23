@@ -15,18 +15,25 @@
  * - driving → OSRM 'driving' profile (car/motorcycle)
  * - walking → OSRM 'foot' profile (pedestrians)
  *
- * FALLBACK: When OSRM is unavailable, uses Haversine distance calculation
- * with a 1.4x multiplier to approximate road distance
+ * OSRM-ONLY POLICY: When OSRM is unavailable, returns explicit unavailable state.
+ * No Haversine fallback for route calculations - all user-facing routes
+ * must use actual road-based routing for accuracy.
  * ============================================================================
  */
 
-// Public OSRM server URL (free, no API key required)
-const OSRM_BASE_URL = process.env.OSRM_URL || "https://router.project-osrm.org";
+// OSRM server URLs for retry strategy
+const OSRM_PRIMARY_URL =
+  process.env.OSRM_URL || "https://router.project-osrm.org";
+const OSRM_BACKUP_URL =
+  process.env.OSRM_BACKUP_URL || "https://routing.openstreetmap.de/routed-foot";
+const OSRM_BASE_URL = OSRM_PRIMARY_URL; // Default for compatibility
 
 // Flag to track if OSRM is available (to avoid repeated failed attempts)
 let osrmAvailable = true;
 let osrmLastCheckTime = 0;
-const OSRM_RETRY_INTERVAL = 60000; // Retry OSRM every 60 seconds after failure
+const OSRM_RETRY_INTERVAL = 30000; // Retry OSRM every 30 seconds after failure (reduced from 60s)
+const OSRM_MAX_RETRIES = 3; // Number of retry attempts per request
+const OSRM_RETRY_BACKOFF_MS = [1000, 2000, 3000]; // Backoff delays for retries
 
 // ============================================================================
 // OSRM ROUTE CACHE — avoids redundant network calls for identical segments
@@ -67,14 +74,15 @@ function setCachedRoute(key, result) {
 }
 
 /**
- * Haversine distance calculation (fallback when OSRM is unavailable)
+ * Haversine distance calculation - ONLY for proximity/geometric checks (NOT for routing)
+ * This is kept for internal micro-distance checks (<50m) only.
  * @param {number} lat1 - Latitude of point 1
  * @param {number} lng1 - Longitude of point 1
  * @param {number} lat2 - Latitude of point 2
  * @param {number} lng2 - Longitude of point 2
  * @returns {number} Distance in meters
  */
-function haversineDistance(lat1, lng1, lat2, lng2) {
+function haversineDistanceForProximityOnly(lat1, lng1, lat2, lng2) {
   const R = 6371000; // Earth's radius in meters
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLng = ((lng2 - lng1) * Math.PI) / 180;
@@ -89,92 +97,55 @@ function haversineDistance(lat1, lng1, lat2, lng2) {
 }
 
 /**
- * Calculate fallback route using Haversine distance
+ * Create unavailable route result (replaces Haversine fallback)
+ * Returns explicit unavailable state instead of estimated distances
  * @param {Array} waypoints - Array of {lat, lng, label} waypoints
- * @returns {Object} Route data with distance, duration, geometry
+ * @param {string} reason - Reason for unavailability
+ * @returns {Object} Unavailable route result
  */
-function calculateFallbackRoute(waypoints) {
-  let totalDistance = 0;
-  const coordinates = [];
-  const legs = [];
-
-  for (let i = 0; i < waypoints.length; i++) {
-    coordinates.push([waypoints[i].lng, waypoints[i].lat]);
-
-    if (i < waypoints.length - 1) {
-      const segmentDistance = haversineDistance(
-        waypoints[i].lat,
-        waypoints[i].lng,
-        waypoints[i + 1].lat,
-        waypoints[i + 1].lng,
-      );
-      // Multiply by 1.4 to approximate road distance (roads are not straight)
-      const roadDistance = segmentDistance * 1.4;
-      totalDistance += roadDistance;
-
-      legs.push({
-        distance: roadDistance,
-        duration: (roadDistance / 1000) * 60 * 3, // Assume 20 km/h average speed = 3 mins per km
-        steps: [
-          {
-            name: "Direct route",
-            distance: roadDistance,
-            duration: (roadDistance / 1000) * 60 * 3,
-            geometry: {
-              type: "LineString",
-              coordinates: [
-                [waypoints[i].lng, waypoints[i].lat],
-                [waypoints[i + 1].lng, waypoints[i + 1].lat],
-              ],
-            },
-          },
-        ],
-      });
-    }
-  }
-
-  // Average walking/motorcycle speed of ~20 km/h
-  const totalDuration = (totalDistance / 1000) * 60 * 3; // seconds
-
+function createUnavailableRouteResult(waypoints, reason = "OSRM unavailable") {
+  console.log(`[OSRM] ⚠️ Route unavailable: ${reason}`);
   return {
-    distance: totalDistance,
-    duration: totalDuration,
+    distance: null,
+    duration: null,
     geometry: {
       type: "LineString",
-      coordinates: coordinates,
+      coordinates: waypoints.map((wp) => [wp.lng, wp.lat]),
     },
-    roadSegments: legs.flatMap((leg, legIdx) =>
-      leg.steps.map((step, stepIdx) => ({
-        legIdx,
-        stepIdx,
-        name: step.name,
-        distance: step.distance,
-        duration: step.duration,
-        coordinates: step.geometry.coordinates,
-      })),
-    ),
+    roadSegments: [],
     polyline: "",
-    legs: legs,
-    isFallback: true,
+    legs: [],
+    isUnavailable: true,
+    unavailableReason: reason,
+    // Provide basic straight-line coordinates for display fallback (not for distance)
+    straightLineCoordinates: waypoints.map((wp) => [wp.lng, wp.lat]),
   };
 }
 
 /**
- * Fetch route for a specific travel mode from OSRM
+ * Fetch route for a specific travel mode from OSRM with retry support
  * @param {Array} waypoints - Array of {lat, lng} waypoints
  * @param {string} profile - OSRM profile: 'driving', 'foot', 'bike'
+ * @param {string} baseUrl - OSRM server base URL
+ * @param {number} retryAttempt - Current retry attempt (for backoff)
  * @returns {Promise} Route data or null if failed
  */
-async function fetchRouteForProfile(waypoints, profile) {
+async function fetchRouteForProfile(
+  waypoints,
+  profile,
+  baseUrl = OSRM_PRIMARY_URL,
+  retryAttempt = 0,
+) {
   try {
     // OSRM uses format: lng,lat;lng,lat (opposite of Google Maps)
     const coordinates = waypoints.map((wp) => `${wp.lng},${wp.lat}`).join(";");
 
-    const url = `${OSRM_BASE_URL}/route/v1/${profile}/${coordinates}?overview=full&geometries=geojson&steps=true&alternatives=true`;
+    const url = `${baseUrl}/route/v1/${profile}/${coordinates}?overview=full&geometries=geojson&steps=true&alternatives=true`;
 
-    // Set a timeout for the fetch request
+    // Set a timeout for the fetch request (increasing with retry)
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
+    const timeoutMs = 8000 + retryAttempt * 2000; // 8s, 10s, 12s
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     const response = await fetch(url, { signal: controller.signal });
     clearTimeout(timeoutId);
@@ -206,16 +177,19 @@ async function fetchRouteForProfile(waypoints, profile) {
       distance: shortestDistance,
       profile: profile,
       alternativesCount: data.routes.length,
+      serverUsed: baseUrl,
     };
   } catch (err) {
-    console.log(`[OSRM] ⚠️ ${profile} profile failed: ${err.message}`);
+    console.log(
+      `[OSRM] ⚠️ ${profile} profile failed (${baseUrl}): ${err.message}`,
+    );
     return null;
   }
 }
 
 /**
  * Get route using OSRM - uses FOOT (walking) profile for shortest distance
- * Falls back to Haversine calculation when OSRM is unavailable
+ * OSRM-ONLY: Returns unavailable state when OSRM fails (no Haversine fallback)
  *
  * @param {Array} waypoints - Array of {lat, lng, label} objects
  * @param {string} context - Optional context for logging
@@ -232,8 +206,9 @@ export async function getOSRMRoute(waypoints, context = "", options = {}) {
   }
 
   // ── Zero-distance skip: if all waypoints are within 50m, return zero immediately ──
+  // This is a geometric proximity check, not a route calculation
   if (waypoints.length === 2) {
-    const microDist = haversineDistance(
+    const microDist = haversineDistanceForProximityOnly(
       waypoints[0].lat,
       waypoints[0].lng,
       waypoints[1].lat,
@@ -285,133 +260,145 @@ export async function getOSRMRoute(waypoints, context = "", options = {}) {
     osrmAvailable = true; // Allow retry
   }
 
-  // If OSRM was marked as unavailable, use fallback directly
+  // If OSRM was marked as unavailable, return unavailable state directly
   if (!osrmAvailable) {
-    console.log(`[OSRM] ⚠️ OSRM unavailable, using Haversine fallback`);
-    const fallbackResult = calculateFallbackRoute(waypoints);
     console.log(
-      `[OSRM] ✓ Fallback Distance: ${(fallbackResult.distance / 1000).toFixed(3)} km`,
+      `[OSRM] ⚠️ OSRM circuit breaker active, returning unavailable state`,
     );
-    console.log(
-      `[OSRM] ✓ Fallback Duration: ${Math.ceil(fallbackResult.duration / 60)} mins`,
+    return createUnavailableRouteResult(
+      waypoints,
+      "OSRM service temporarily unavailable",
     );
-    return fallbackResult;
   }
 
   // For optimization with waypoints, we need to use OSRM's trip service
   // For now, we'll use the simple route service
   let orderedWaypoints = [...waypoints];
 
-  // Try multiple travel profiles to find the shortest route
-  // FOOT profile gives shortest distance (suitable for motorcycles too in narrow streets)
-  // Single mode: Just use FOOT (optimized for shortest distance)
-  const profilesToTry = useSingleMode ? ["foot"] : ["driving", "foot"];
+  // ===== OSRM-ONLY RETRY STRATEGY =====
+  // 1. Try primary OSRM server with foot profile
+  // 2. Retry with driving profile on primary
+  // 3. Try backup OSRM server with foot profile
+  // 4. If all fail, return unavailable state (NO Haversine fallback)
+
+  const profilesToTry = useSingleMode ? ["foot"] : ["foot", "driving"];
+  const serversToTry = [OSRM_PRIMARY_URL, OSRM_BACKUP_URL].filter(Boolean);
 
   console.log(`[OSRM] → Trying profiles: ${profilesToTry.join(", ")}...`);
+  console.log(`[OSRM] → Available servers: ${serversToTry.length}`);
 
-  // Fetch routes for all profiles in parallel
-  const routePromises = profilesToTry.map((profile) =>
-    fetchRouteForProfile(orderedWaypoints, profile),
-  );
-
-  const routeResults = await Promise.all(routePromises);
-
-  // Filter out failed attempts and find the shortest route
-  const validRoutes = routeResults.filter((r) => r !== null);
-
-  if (validRoutes.length === 0) {
+  // Try each server with retry backoff
+  for (let serverIdx = 0; serverIdx < serversToTry.length; serverIdx++) {
+    const serverUrl = serversToTry[serverIdx];
     console.log(
-      "[OSRM] ⚠️ All travel profiles failed, using Haversine fallback",
+      `[OSRM] → Attempting server ${serverIdx + 1}/${serversToTry.length}: ${serverUrl}`,
     );
 
-    // Mark OSRM as unavailable and record time
-    osrmAvailable = false;
-    osrmLastCheckTime = now;
-
-    const fallbackResult = calculateFallbackRoute(waypoints);
-    console.log(
-      `[OSRM] ✓ Fallback Distance: ${(fallbackResult.distance / 1000).toFixed(3)} km`,
-    );
-    console.log(
-      `[OSRM] ✓ Fallback Duration: ${Math.ceil(fallbackResult.duration / 60)} mins`,
-    );
-    return fallbackResult;
-  }
-
-  // Log all route distances for comparison
-  console.log(`[OSRM] 📊 Route comparison:`);
-  validRoutes.forEach((r) => {
-    console.log(
-      `[OSRM]   ${r.profile.toUpperCase()}: ${(r.distance / 1000).toFixed(3)} km (${r.alternativesCount} alternatives)`,
-    );
-  });
-
-  // Select the shortest route across all profiles
-  const shortest = validRoutes.reduce((best, current) =>
-    current.distance < best.distance ? current : best,
-  );
-
-  console.log(
-    `[OSRM] ✅ Selected: ${shortest.profile.toUpperCase()} profile with ${(shortest.distance / 1000).toFixed(3)} km`,
-  );
-
-  const route = shortest.route;
-
-  // OSRM returns distance in meters and duration in seconds
-  const totalDistance = route.distance; // meters
-  const totalDuration = route.duration; // seconds
-
-  console.log(`[OSRM] ✓ Distance: ${(totalDistance / 1000).toFixed(3)} km`);
-  console.log(`[OSRM] ✓ Duration: ${Math.ceil(totalDuration / 60)} mins`);
-
-  // Extract road segments from steps for overlap calculation
-  // OSRM structure: route.legs[].steps[]
-  const roadSegments = [];
-  if (route.legs) {
-    route.legs.forEach((leg, legIdx) => {
-      if (leg.steps) {
-        leg.steps.forEach((step, stepIdx) => {
-          if (step.geometry && step.geometry.coordinates) {
-            roadSegments.push({
-              legIdx,
-              stepIdx,
-              name: step.name || "unnamed",
-              distance: step.distance,
-              duration: step.duration,
-              coordinates: step.geometry.coordinates, // Already in [lng, lat] format
-            });
-          }
-        });
+    // Try each profile on this server
+    for (let retry = 0; retry <= OSRM_MAX_RETRIES; retry++) {
+      if (retry > 0) {
+        const backoffMs = OSRM_RETRY_BACKOFF_MS[retry - 1] || 3000;
+        console.log(
+          `[OSRM] → Retry ${retry}/${OSRM_MAX_RETRIES} after ${backoffMs}ms backoff`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, backoffMs));
       }
-    });
+
+      // Fetch routes for all profiles in parallel on this attempt
+      const routePromises = profilesToTry.map((profile) =>
+        fetchRouteForProfile(orderedWaypoints, profile, serverUrl, retry),
+      );
+
+      const routeResults = await Promise.all(routePromises);
+
+      // Filter out failed attempts and find the shortest route
+      const validRoutes = routeResults.filter((r) => r !== null);
+
+      if (validRoutes.length > 0) {
+        // Success! Log comparison and return best route
+        console.log(`[OSRM] 📊 Route comparison:`);
+        validRoutes.forEach((r) => {
+          console.log(
+            `[OSRM]   ${r.profile.toUpperCase()}: ${(r.distance / 1000).toFixed(3)} km (${r.alternativesCount} alternatives)`,
+          );
+        });
+
+        // Select the shortest route across all profiles
+        const shortest = validRoutes.reduce((best, current) =>
+          current.distance < best.distance ? current : best,
+        );
+
+        console.log(
+          `[OSRM] ✅ Selected: ${shortest.profile.toUpperCase()} profile with ${(shortest.distance / 1000).toFixed(3)} km`,
+        );
+
+        const route = shortest.route;
+
+        // OSRM returns distance in meters and duration in seconds
+        const totalDistance = route.distance; // meters
+        const totalDuration = route.duration; // seconds
+
+        console.log(
+          `[OSRM] ✓ Distance: ${(totalDistance / 1000).toFixed(3)} km`,
+        );
+        console.log(`[OSRM] ✓ Duration: ${Math.ceil(totalDuration / 60)} mins`);
+
+        // Extract road segments from steps for overlap calculation
+        const roadSegments = [];
+        if (route.legs) {
+          route.legs.forEach((leg, legIdx) => {
+            if (leg.steps) {
+              leg.steps.forEach((step, stepIdx) => {
+                if (step.geometry && step.geometry.coordinates) {
+                  roadSegments.push({
+                    legIdx,
+                    stepIdx,
+                    name: step.name || "unnamed",
+                    distance: step.distance,
+                    duration: step.duration,
+                    coordinates: step.geometry.coordinates,
+                  });
+                }
+              });
+            }
+          });
+        }
+
+        console.log(`[OSRM] ✓ Road segments (steps): ${roadSegments.length}`);
+
+        // Extract full route geometry
+        const geometry = route.geometry;
+        const polyline = encodePolyline(geometry.coordinates);
+
+        const finalResult = {
+          distance: totalDistance,
+          duration: totalDuration,
+          geometry: geometry,
+          roadSegments: roadSegments,
+          polyline: polyline,
+          legs: route.legs || [],
+          serverUsed: serverUrl,
+        };
+
+        // Store in cache
+        setCachedRoute(cacheKey, finalResult);
+
+        return finalResult;
+      }
+    }
   }
 
-  console.log(`[OSRM] ✓ Road segments (steps): ${roadSegments.length}`);
+  // All retries on all servers failed - mark OSRM as unavailable
+  console.log(
+    "[OSRM] ❌ All OSRM servers and retries exhausted - returning unavailable state",
+  );
+  osrmAvailable = false;
+  osrmLastCheckTime = now;
 
-  // ── Store in cache before returning ──
-  // (We'll set the cache after building the final result below)
-
-  // Extract full route geometry (GeoJSON format from OSRM)
-  // OSRM returns geometry in GeoJSON format when geometries=geojson
-  const geometry = route.geometry; // { type: "LineString", coordinates: [[lng, lat], ...] }
-
-  // Create encoded polyline for compatibility (if needed)
-  // OSRM can return polyline format with geometries=polyline
-  const polyline = encodePolyline(geometry.coordinates);
-
-  const finalResult = {
-    distance: totalDistance,
-    duration: totalDuration,
-    geometry: geometry, // GeoJSON LineString: { type: "LineString", coordinates: [[lng, lat], ...] }
-    roadSegments: roadSegments,
-    polyline: polyline, // Encoded polyline string for compatibility
-    legs: route.legs || [],
-  };
-
-  // Store in cache
-  setCachedRoute(cacheKey, finalResult);
-
-  return finalResult;
+  return createUnavailableRouteResult(
+    waypoints,
+    "All OSRM servers failed after multiple retries",
+  );
 }
 
 /**

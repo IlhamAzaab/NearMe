@@ -4,6 +4,7 @@ import { supabaseAdmin } from "../supabaseAdmin.js";
 import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
 import { sendDriverPaymentNotification } from "../utils/pushNotificationService.js";
+import { notifyDriver } from "../utils/socketManager.js";
 
 const router = express.Router();
 
@@ -493,6 +494,27 @@ router.post(
       console.log(
         `[DRIVER-PAYMENTS] ✅ Paid Rs.${payAmount} to ${driver.full_name}. New balance: Rs.${newBalance.toFixed(2)}`,
       );
+
+      // 🔔 REALTIME SOCKET: Notify driver about payment received
+      try {
+        notifyDriver(driverId, "driver:payment_received", {
+          type: "payment_received",
+          amount: payAmount,
+          newBalance: newBalance,
+          note: note || null,
+          paymentId: payment.id,
+          title: "Payment Received! 💰",
+          message: `Rs.${payAmount.toFixed(2)} has been transferred to your account${note ? `: ${note}` : ""}`,
+        });
+        console.log(
+          `[DRIVER-PAYMENTS] ✅ Sent realtime socket event to driver ${driverId}`,
+        );
+      } catch (socketErr) {
+        console.error(
+          "[DRIVER-PAYMENTS] Realtime notification error (non-blocking):",
+          socketErr.message,
+        );
+      }
 
       // 📱 PUSH NOTIFICATION: Notify driver about payment received
       sendDriverPaymentNotification(driverId, {

@@ -46,6 +46,68 @@ const createCircleIcon = (color, borderColor = "#ffffff", scale = 10) => {
   });
 };
 
+// ============================================================================
+// NAVIGATION ARROW ICON - Consistent with DriverMapPage
+// ============================================================================
+const createNavigationArrowIcon = (heading = 0) => {
+  const arrowSvg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+      <defs>
+        <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+          <feDropShadow dx="0" dy="2" stdDeviation="2" flood-opacity="0.3"/>
+        </filter>
+      </defs>
+      <g transform="rotate(${heading}, 20, 20)" filter="url(#shadow)">
+        <polygon points="20,4 32,32 20,26 8,32" fill="#2563eb" stroke="#1d4ed8" stroke-width="2"/>
+      </g>
+      <circle cx="20" cy="20" r="4" fill="white" stroke="#2563eb" stroke-width="2"/>
+    </svg>
+  `;
+
+  return L.divIcon({
+    className: "navigation-arrow-marker",
+    html: arrowSvg,
+    iconSize: [40, 40],
+    iconAnchor: [20, 20],
+    popupAnchor: [0, -20],
+  });
+};
+
+// ============================================================================
+// CLEAN CIRCLE ICONS - Consistent with DriverMapPage
+// ============================================================================
+const createCleanCircleIcon = (color, emoji = "", size = 36) => {
+  const innerSize = size - 8;
+  return L.divIcon({
+    className: "clean-marker",
+    html: `
+      <div style="
+        width: ${size}px;
+        height: ${size}px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      ">
+        <div style="
+          width: ${innerSize}px;
+          height: ${innerSize}px;
+          background: ${color};
+          border: 3px solid white;
+          border-radius: 50%;
+          box-shadow: 0 3px 8px rgba(0,0,0,0.3);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 14px;
+        ">${emoji}</div>
+      </div>
+    `,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+    popupAnchor: [0, -size / 2],
+  });
+};
+
 // Labeled marker icons for multi-stop routes
 const createLabeledIcon = (color, label, scale = 15) => {
   const size = scale * 2;
@@ -78,6 +140,7 @@ const TILE_ATTRIBUTION =
 
 // Cache keys for instant loading
 const CACHE_KEY_ACTIVE = "active_deliveries_cache";
+const CACHE_KEY_PREVIEWED = "active_deliveries_previewed"; // Tracks which delivery batches have been previewed
 const CACHE_EXPIRY = 30000; // 30 seconds cache for active deliveries (needs fresher data)
 
 // Load cached data
@@ -109,6 +172,47 @@ const saveCacheData = (data) => {
   } catch (e) {
     console.warn("Cache save error:", e);
   }
+};
+
+// ============================================================================
+// SHOW-ONCE-PER-BATCH: Track which delivery sets have been previewed
+// ============================================================================
+
+// Get the set of delivery IDs that have been previewed (shown full map preview)
+const getPreviewedDeliveryIds = () => {
+  try {
+    const stored = localStorage.getItem(CACHE_KEY_PREVIEWED);
+    if (stored) {
+      return new Set(JSON.parse(stored));
+    }
+  } catch (e) {
+    console.warn("Previewed IDs load error:", e);
+  }
+  return new Set();
+};
+
+// Mark delivery IDs as previewed (after user presses "Start Delivering")
+const markDeliveriesAsPreviewed = (deliveryIds) => {
+  try {
+    const current = getPreviewedDeliveryIds();
+    deliveryIds.forEach((id) => current.add(id));
+    // Keep only last 50 IDs to prevent localStorage bloat
+    const arr = Array.from(current).slice(-50);
+    localStorage.setItem(CACHE_KEY_PREVIEWED, JSON.stringify(arr));
+    console.log("[PREVIEW] Marked deliveries as previewed:", deliveryIds);
+  } catch (e) {
+    console.warn("Previewed IDs save error:", e);
+  }
+};
+
+// Check if there are any NEW deliveries that haven't been previewed
+const hasNewUnpreviewedDeliveries = (deliveryIds) => {
+  const previewed = getPreviewedDeliveryIds();
+  const newIds = deliveryIds.filter((id) => !previewed.has(id));
+  console.log(
+    `[PREVIEW] Checking: ${deliveryIds.length} total, ${newIds.length} new unpreviewed`,
+  );
+  return newIds.length > 0;
 };
 
 // Leaflet container style
@@ -163,6 +267,34 @@ export default function ActiveDeliveries() {
   const [fullRouteData, setFullRouteData] = useState(
     initialSnapshot?.fullRouteData || null,
   ); // Store full route for developer view
+
+  // ============================================================================
+  // SHOW-ONCE-PER-BATCH: Preview mode state
+  // ============================================================================
+  // When true, show full route preview with "Start Delivering" button
+  // When false, auto-navigate to DriverMapPage
+  const [showPreviewMode, setShowPreviewMode] = useState(false);
+
+  // Handler for "Start Delivering" button - marks deliveries as previewed and navigates
+  const handleStartDelivering = useCallback(() => {
+    // Get all current delivery IDs
+    const currentDeliveryIds = [
+      ...pickups.map((p) => p.delivery_id),
+      ...deliveries.map((d) => d.delivery_id),
+    ];
+
+    // Mark them as previewed so next visit goes straight to map
+    if (currentDeliveryIds.length > 0) {
+      markDeliveriesAsPreviewed(currentDeliveryIds);
+    }
+
+    // Navigate to first delivery's map page
+    const firstDeliveryId =
+      pickups[0]?.delivery_id || deliveries[0]?.delivery_id;
+    if (firstDeliveryId) {
+      navigate(`/driver/delivery/active/${firstDeliveryId}/map`);
+    }
+  }, [pickups, deliveries, navigate]);
 
   useQuery({
     queryKey: activeQueryKey,
@@ -340,8 +472,24 @@ export default function ActiveDeliveries() {
             const fallbackData = await fallbackRes.json();
             const activeList = fallbackData.deliveries || [];
             if (activeList.length > 0) {
-              // Has active deliveries — navigate to map page
-              navigate(`/driver/delivery/active/${activeList[0].id}/map`);
+              // Has active deliveries — check if they've been previewed
+              const deliveryIds = activeList.map((d) => d.id);
+              const hasNewDeliveries = hasNewUnpreviewedDeliveries(deliveryIds);
+
+              if (hasNewDeliveries) {
+                // New deliveries! Show preview (will be filled when location available)
+                console.log(
+                  "[PREVIEW] New unpreviewed deliveries (no location) - showing preview",
+                );
+                setShowPreviewMode(true);
+                setInitialLoading(false);
+              } else {
+                // All deliveries already previewed - go straight to map
+                console.log(
+                  "[PREVIEW] All deliveries already previewed - navigating to map",
+                );
+                navigate(`/driver/delivery/active/${activeList[0].id}/map`);
+              }
               return;
             }
           }
@@ -392,10 +540,27 @@ export default function ActiveDeliveries() {
         queryClient.setQueryData(activeQueryKey, pickupSnapshot);
 
         if (list.length > 0) {
-          // Has pickups — auto-navigate to DriverMapPage (only on initial load)
+          // Has pickups — check if this is a new batch that needs preview
           if (!isBackgroundRefresh) {
-            navigate(`/driver/delivery/active/${list[0].delivery_id}/map`);
-            return;
+            const deliveryIds = list.map((p) => p.delivery_id);
+            const hasNewDeliveries = hasNewUnpreviewedDeliveries(deliveryIds);
+
+            if (hasNewDeliveries) {
+              // New deliveries! Show full route preview
+              console.log(
+                "[PREVIEW] New unpreviewed deliveries detected - showing preview",
+              );
+              setShowPreviewMode(true);
+              // Fetch full route for the preview map
+              await fetchFullRoute(location, list);
+            } else {
+              // All deliveries already previewed - go straight to map
+              console.log(
+                "[PREVIEW] All deliveries already previewed - navigating to map",
+              );
+              navigate(`/driver/delivery/active/${list[0].delivery_id}/map`);
+              return;
+            }
           }
         } else {
           // No pickups left → check for deliveries to deliver
@@ -480,6 +645,27 @@ export default function ActiveDeliveries() {
     });
   };
 
+  // Build route data from deliveries (for deliver mode) when full-route endpoint isn't available
+  const buildRouteFromDeliveries = (location, deliveriesList) => {
+    // In deliver mode, restaurants are empty (already picked up)
+    const customers = deliveriesList.map((d, idx) => ({
+      id: d.delivery_id,
+      order_number: d.order_number,
+      lat: d.customer?.latitude || d.delivery_latitude,
+      lng: d.customer?.longitude || d.delivery_longitude,
+      name: d.customer?.name || d.customer_name,
+      address: d.customer?.address || d.delivery_address,
+      label: `C${idx + 1}`,
+    }));
+
+    setFullRouteData({
+      driver_location: location,
+      restaurants: [], // Already picked up
+      customers,
+      total_deliveries: deliveriesList.length,
+    });
+  };
+
   const fetchDeliveriesRoute = async (
     location,
     isBackgroundRefresh = false,
@@ -499,10 +685,27 @@ export default function ActiveDeliveries() {
         setMode("deliver");
         setPickups([]);
 
-        // Has deliveries to deliver — auto-navigate to DriverMapPage (only on initial load)
+        // Has deliveries to deliver — check if this is a new batch that needs preview
         if (list.length > 0 && !isBackgroundRefresh) {
-          navigate(`/driver/delivery/active/${list[0].delivery_id}/map`);
-          return;
+          const deliveryIds = list.map((d) => d.delivery_id);
+          const hasNewDeliveries = hasNewUnpreviewedDeliveries(deliveryIds);
+
+          if (hasNewDeliveries) {
+            // New deliveries! Show full route preview
+            console.log(
+              "[PREVIEW] New unpreviewed deliveries detected - showing preview",
+            );
+            setShowPreviewMode(true);
+            // Build route data for the preview map
+            buildRouteFromDeliveries(location, list);
+          } else {
+            // All deliveries already previewed - go straight to map
+            console.log(
+              "[PREVIEW] All deliveries already previewed - navigating to map",
+            );
+            navigate(`/driver/delivery/active/${list[0].delivery_id}/map`);
+            return;
+          }
         }
 
         // Save to cache
@@ -592,19 +795,23 @@ export default function ActiveDeliveries() {
             <div className="flex items-center justify-between mb-6">
               <div>
                 <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-                  Active Deliveries
+                  {showPreviewMode ? "Route Preview" : "Active Deliveries"}
                   {isRefreshing && (
                     <span className="inline-block w-4 h-4 border-2 border-green-500 border-t-transparent rounded-full animate-spin"></span>
                   )}
                 </h2>
                 <p className="text-sm text-gray-600 mt-1">
-                  {mode === "pickup"
-                    ? `${pickups.length} pickup${pickups.length !== 1 ? "s" : ""} ready`
-                    : `${deliveries.length} delivery${deliveries.length !== 1 ? "ies" : ""} ready`}
+                  {showPreviewMode
+                    ? `${pickups.length + deliveries.length} stop${pickups.length + deliveries.length !== 1 ? "s" : ""} to complete`
+                    : mode === "pickup"
+                      ? `${pickups.length} pickup${pickups.length !== 1 ? "s" : ""} ready`
+                      : `${deliveries.length} delivery${deliveries.length !== 1 ? "ies" : ""} ready`}
                 </p>
-                <p className="text-xs text-gray-500 mt-1">
-                  Mode: {mode === "pickup" ? "Pick-up" : "Delivering"}
-                </p>
+                {!showPreviewMode && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Mode: {mode === "pickup" ? "Pick-up" : "Delivering"}
+                  </p>
+                )}
               </div>
               <button
                 onClick={() => navigate("/driver/deliveries")}
@@ -717,37 +924,71 @@ export default function ActiveDeliveries() {
           </div>
         </PageWrapper>
 
-        {/* Fixed Start Pickup Button */}
+        {/* Fixed Start Button - Shows "Start Delivering" for preview mode */}
         {(mode === "pickup" ? pickups.length > 0 : deliveries.length > 0) && (
-          <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 shadow-lg">
+          <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 shadow-lg z-50">
             <div className="max-w-4xl mx-auto">
               <button
-                onClick={handlePrimaryAction}
-                className="w-full py-4 bg-green-600 text-white rounded-xl font-bold text-lg hover:bg-green-700 transition flex items-center justify-center gap-2 shadow-md"
+                onClick={
+                  showPreviewMode ? handleStartDelivering : handlePrimaryAction
+                }
+                className={`w-full py-4 text-white rounded-xl font-bold text-lg transition flex items-center justify-center gap-2 shadow-md ${
+                  showPreviewMode
+                    ? "bg-blue-600 hover:bg-blue-700"
+                    : "bg-green-600 hover:bg-green-700"
+                }`}
               >
-                <svg
-                  className="w-6 h-6"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
-                  />
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
-                  />
-                </svg>
-                <span>
-                  {mode === "pickup" ? "START PICK-UP" : "START DELIVERY"}
-                </span>
+                {showPreviewMode ? (
+                  <>
+                    {/* Navigation arrow icon for preview mode */}
+                    <svg
+                      className="w-6 h-6"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"
+                      />
+                    </svg>
+                    <span>START DELIVERING</span>
+                  </>
+                ) : (
+                  <>
+                    <svg
+                      className="w-6 h-6"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+                      />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+                      />
+                    </svg>
+                    <span>
+                      {mode === "pickup" ? "START PICK-UP" : "START DELIVERY"}
+                    </span>
+                  </>
+                )}
               </button>
+              {showPreviewMode && (
+                <p className="text-center text-sm text-gray-500 mt-2">
+                  Review your {pickups.length + deliveries.length} stop
+                  {pickups.length + deliveries.length !== 1 ? "s" : ""} route
+                </p>
+              )}
             </div>
           </div>
         )}
@@ -919,9 +1160,9 @@ function PickupCard({
                 <Polyline
                   positions={driverToRestaurantPath.map((p) => [p.lat, p.lng])}
                   pathOptions={{
-                    color: "#13ec37",
+                    color: "#2563eb",
                     opacity: 0.9,
-                    weight: 5,
+                    weight: 6,
                   }}
                 />
               )}
@@ -933,7 +1174,7 @@ function PickupCard({
                     p.lng,
                   ])}
                   pathOptions={{
-                    color: "#13ec37",
+                    color: "#2563eb",
                     opacity: 0.6,
                     weight: 4,
                   }}
@@ -1875,9 +2116,9 @@ function DeliveryCard({
                 <Polyline
                   positions={routePath.map((p) => [p.lat, p.lng])}
                   pathOptions={{
-                    color: "#13ec37",
+                    color: "#2563eb",
                     opacity: 0.9,
-                    weight: 5,
+                    weight: 6,
                   }}
                 />
               )}

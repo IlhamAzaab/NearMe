@@ -349,6 +349,56 @@ export async function sendDriverApprovalNotification(
 }
 
 /**
+ * Send notification to driver when their deposit is approved or rejected
+ * @param {string} driverId - Driver user ID
+ * @param {object} depositInfo - { depositId, status, amount, approvedAmount, reviewNote }
+ */
+export async function sendDepositApprovalNotification(driverId, depositInfo) {
+  try {
+    const { depositId, status, amount, approvedAmount, reviewNote } =
+      depositInfo;
+    const isApproved = status === "approved";
+    const displayAmount = approvedAmount || amount;
+
+    const notification = isApproved
+      ? {
+          title: "✅ Deposit Approved!",
+          body: `Your deposit of Rs.${displayAmount.toLocaleString()} has been approved and credited to your account.${reviewNote ? ` Note: ${reviewNote}` : ""}`,
+          data: {
+            type: "deposit_approved",
+            depositId,
+            amount: String(displayAmount),
+            status: "approved",
+            screen: "DepositHistory",
+            route: "/driver/deposits",
+          },
+          channelId: "deposits",
+        }
+      : {
+          title: "❌ Deposit Rejected",
+          body: `Your deposit of Rs.${amount.toLocaleString()} was rejected.${reviewNote ? ` Reason: ${reviewNote}` : " Please contact support for details."}`,
+          data: {
+            type: "deposit_rejected",
+            depositId,
+            amount: String(amount),
+            status: "rejected",
+            screen: "DepositHistory",
+            route: "/driver/deposits",
+          },
+          channelId: "deposits",
+        };
+
+    console.log(
+      `[PUSH] Sending deposit ${status} notification to driver ${driverId}`,
+    );
+    return await sendPushNotification(driverId, notification);
+  } catch (error) {
+    console.error("Send deposit approval notification error:", error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
  * Send notification to all users of a specific type
  * @param {string} userType - User type (admin, driver, customer)
  * @param {object} notification - { title, body, data }

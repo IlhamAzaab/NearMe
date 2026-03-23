@@ -24,8 +24,10 @@
 
 import { supabaseAdmin } from "../supabaseAdmin.js";
 
-// Public OSRM server
-const OSRM_BASE_URL = process.env.OSRM_URL || "https://router.project-osrm.org";
+// Public OSRM server with backup
+const OSRM_PRIMARY_URL =
+  process.env.OSRM_URL || "https://router.project-osrm.org";
+const OSRM_BACKUP_URL = "https://routing.openstreetmap.de/routed-foot";
 
 // Constants
 const STOP_WAIT_TIME_SEC = 300; // 5 minutes in seconds
@@ -33,9 +35,10 @@ const STOP_OVERTIME_THRESHOLD_SEC = 300; // After 5 min at stop, add more time
 const ETA_RANGE_BUFFER_MIN = 10; // Display range: X to X+10
 
 /**
- * Haversine distance fallback (meters)
+ * Haversine distance - ONLY for proximity detection (<50m) and internal sorting.
+ * NOT for user-facing route distance calculations.
  */
-function haversineDistance(lat1, lng1, lat2, lng2) {
+function haversineDistanceForProximityAndSorting(lat1, lng1, lat2, lng2) {
   const R = 6371000;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLng = ((lng2 - lng1) * Math.PI) / 180;
@@ -49,35 +52,57 @@ function haversineDistance(lat1, lng1, lat2, lng2) {
 
 /**
  * Get OSRM route duration between two points (seconds)
- * Returns { duration, distance } or fallback values
+ * OSRM-ONLY: No Haversine fallback. Returns unavailable state if all retries fail.
  */
 async function getOSRMDuration(fromLat, fromLng, toLat, toLng) {
-  try {
-    const coords = `${fromLng},${fromLat};${toLng},${toLat}`;
-    const url = `${OSRM_BASE_URL}/route/v1/foot/${coords}?overview=false`;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 6000);
-    const res = await fetch(url, { signal: controller.signal });
-    clearTimeout(timeout);
+  const servers = [OSRM_PRIMARY_URL, OSRM_BACKUP_URL];
+  const profiles = ["foot", "driving"];
+  const RETRY_DELAYS = [0, 1500]; // Retry after 1.5s backoff
 
-    if (res.ok) {
-      const data = await res.json();
-      if (data.code === "Ok" && data.routes?.[0]) {
-        return {
-          duration: data.routes[0].duration, // seconds
-          distance: data.routes[0].distance, // meters
-        };
+  for (const serverUrl of servers) {
+    for (let retry = 0; retry < RETRY_DELAYS.length; retry++) {
+      if (retry > 0) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, RETRY_DELAYS[retry]),
+        );
+      }
+
+      for (const profile of profiles) {
+        try {
+          const coords = `${fromLng},${fromLat};${toLng},${toLat}`;
+          const url = `${serverUrl}/route/v1/${profile}/${coords}?overview=false`;
+          const controller = new AbortController();
+          const timeout = setTimeout(
+            () => controller.abort(),
+            6000 + retry * 2000,
+          );
+          const res = await fetch(url, { signal: controller.signal });
+          clearTimeout(timeout);
+
+          if (res.ok) {
+            const data = await res.json();
+            if (data.code === "Ok" && data.routes?.[0]) {
+              return {
+                duration: data.routes[0].duration, // seconds
+                distance: data.routes[0].distance, // meters
+                isUnavailable: false,
+              };
+            }
+          }
+        } catch (e) {
+          // Continue to next profile/server
+        }
       }
     }
-  } catch (e) {
-    // fallback
   }
 
-  // Haversine fallback: 20 km/h walking
-  const dist = haversineDistance(fromLat, fromLng, toLat, toLng) * 1.4;
+  // All retries failed - return unavailable state (NO Haversine fallback)
+  console.log("[ETA] OSRM unavailable for route calculation");
   return {
-    duration: (dist / 1000) * 180, // 3 min per km
-    distance: dist,
+    duration: null,
+    distance: null,
+    isUnavailable: true,
+    unavailableReason: "OSRM service unavailable after retries",
   };
 }
 
@@ -87,9 +112,10 @@ const ARRIVAL_PROXIMITY_METERS = 50;
 /**
  * Check if driver is within proximity threshold of a stop.
  * Returns true if distance <= ARRIVAL_PROXIMITY_METERS
+ * Uses Haversine for geometric proximity check (acceptable for <50m detection)
  */
 function isDriverAtStop(driverLat, driverLng, stopLat, stopLng) {
-  const distanceMeters = haversineDistance(
+  const distanceMeters = haversineDistanceForProximityAndSorting(
     driverLat,
     driverLng,
     stopLat,
@@ -178,10 +204,15 @@ async function getDeliveryStopSequence(driverId, driverLocation = null) {
         d.arrived_restaurant_at ||
         (isNearby && d.last_location_update ? d.last_location_update : null);
 
-      // Calculate distance from driver for sorting
+      // Calculate distance from driver for sorting (Haversine acceptable for internal sorting)
       const distanceFromDriver =
         driverLat && driverLng
-          ? haversineDistance(driverLat, driverLng, resLat, resLng)
+          ? haversineDistanceForProximityAndSorting(
+              driverLat,
+              driverLng,
+              resLat,
+              resLng,
+            )
           : Infinity;
 
       restaurantStops.push({
@@ -250,9 +281,10 @@ async function getDeliveryStopSequence(driverId, driverLocation = null) {
   }
 
   // Sort customer stops by distance from reference point (nearest first)
+  // Haversine is acceptable for internal sorting algorithm
   if (customerSortLat && customerSortLng) {
     customerStops.forEach((stop) => {
-      stop.distance_from_ref = haversineDistance(
+      stop.distance_from_ref = haversineDistanceForProximityAndSorting(
         customerSortLat,
         customerSortLng,
         stop.lat,

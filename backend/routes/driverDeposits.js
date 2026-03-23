@@ -3,6 +3,8 @@ import { authenticate } from "../middleware/authenticate.js";
 import { supabaseAdmin } from "../supabaseAdmin.js";
 import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
+import { notifyDriver } from "../utils/socketManager.js";
+import { sendDepositApprovalNotification } from "../utils/pushNotificationService.js";
 
 const router = express.Router();
 
@@ -551,6 +553,45 @@ router.post(
 
       console.log(`[DEPOSITS] ✅ Deposit ${newStatus}: ${depositId}`);
 
+      // ====================================================================
+      // NOTIFY DRIVER - Socket + Push (error-safe, non-blocking)
+      // ====================================================================
+      const driverId = deposit.driver_id;
+      const notificationPayload = {
+        type: newStatus === "approved" ? "deposit_approved" : "deposit_rejected",
+        deposit_id: depositId,
+        amount: parseFloat(deposit.amount),
+        approved_amount: newStatus === "approved" ? updateData.approved_amount : null,
+        status: newStatus,
+        review_note: review_note || null,
+        reviewed_at: updateData.reviewed_at,
+        // Navigation hint for mobile/web
+        screen: "DepositHistory",
+        route: "/driver/deposits",
+      };
+
+      // 📡 SOCKET: Realtime notification to driver
+      try {
+        notifyDriver(driverId, "driver:deposit_reviewed", notificationPayload);
+        console.log(`[DEPOSITS] 📡 Socket notification sent to driver ${driverId}`);
+      } catch (socketError) {
+        console.error(`[DEPOSITS] ⚠️ Socket notification failed (non-fatal):`, socketError.message);
+      }
+
+      // 📱 PUSH: Reach driver even when offline
+      try {
+        await sendDepositApprovalNotification(driverId, {
+          depositId,
+          status: newStatus,
+          amount: parseFloat(deposit.amount),
+          approvedAmount: newStatus === "approved" ? updateData.approved_amount : null,
+          reviewNote: review_note,
+        });
+        console.log(`[DEPOSITS] 📱 Push notification sent to driver ${driverId}`);
+      } catch (pushError) {
+        console.error(`[DEPOSITS] ⚠️ Push notification failed (non-fatal):`, pushError.message);
+      }
+
       return res.json({
         success: true,
         message: `Deposit ${newStatus} successfully`,
@@ -750,14 +791,18 @@ router.get("/manager/summary", authenticate, managerOnly, async (req, res) => {
       console.error(`[DEPOSITS] ❌ Sales query error: ${salesError.message}`);
     }
 
-    console.log(`[DEPOSITS] 📊 Fetched ${(allPeriodDeliveries || []).length} total delivered COD orders`);
+    console.log(
+      `[DEPOSITS] 📊 Fetched ${(allPeriodDeliveries || []).length} total delivered COD orders`,
+    );
 
     // Show sample of deliveries for debugging
     if (allPeriodDeliveries && allPeriodDeliveries.length > 0) {
       console.log(`[DEPOSITS] 📋 Sample of first 3 deliveries:`);
       allPeriodDeliveries.slice(0, 3).forEach((d, i) => {
         const deliveryTime = d.delivered_at || d.updated_at;
-        console.log(`  ${i + 1}. ID: ${d.id}, Amount: Rs.${d.orders?.total_amount}, delivered_at: ${d.delivered_at || 'NULL'}, updated_at: ${d.updated_at}, Using: ${deliveryTime}`);
+        console.log(
+          `  ${i + 1}. ID: ${d.id}, Amount: Rs.${d.orders?.total_amount}, delivered_at: ${d.delivered_at || "NULL"}, updated_at: ${d.updated_at}, Using: ${deliveryTime}`,
+        );
       });
     }
 
@@ -780,16 +825,24 @@ router.get("/manager/summary", authenticate, managerOnly, async (req, res) => {
     if (periodDeliveries.length > 0) {
       console.log(`[DEPOSITS] ✅ Deliveries IN today's range:`);
       periodDeliveries.slice(0, 5).forEach((d, i) => {
-        console.log(`  ${i + 1}. ID: ${d.id}, Amount: Rs.${d.orders?.total_amount}, Time: ${d.delivered_at || d.updated_at}`);
+        console.log(
+          `  ${i + 1}. ID: ${d.id}, Amount: Rs.${d.orders?.total_amount}, Time: ${d.delivered_at || d.updated_at}`,
+        );
       });
     } else if (allPeriodDeliveries && allPeriodDeliveries.length > 0) {
-      console.log(`[DEPOSITS] ⚠️  NO deliveries matched today's range. Checking why...`);
+      console.log(
+        `[DEPOSITS] ⚠️  NO deliveries matched today's range. Checking why...`,
+      );
       const latest = allPeriodDeliveries[0];
       const latestTime = latest.delivered_at || latest.updated_at;
       console.log(`  Latest delivery time: ${latestTime}`);
       console.log(`  Today range: ${todayStart} to ${tomorrowStart}`);
-      console.log(`  Is before today: ${new Date(latestTime) < new Date(todayStart)}`);
-      console.log(`  Is after tomorrow: ${new Date(latestTime) >= new Date(tomorrowStart)}`);
+      console.log(
+        `  Is before today: ${new Date(latestTime) < new Date(todayStart)}`,
+      );
+      console.log(
+        `  Is after tomorrow: ${new Date(latestTime) >= new Date(tomorrowStart)}`,
+      );
     }
 
     const todaysSales = periodDeliveries.reduce(
@@ -818,7 +871,9 @@ router.get("/manager/summary", authenticate, managerOnly, async (req, res) => {
       0,
     );
 
-    console.log(`[DEPOSITS] 📊 Period deposits approved: ${(periodApproved || []).length}, Paid: ${paidToday}`);
+    console.log(
+      `[DEPOSITS] 📊 Period deposits approved: ${(periodApproved || []).length}, Paid: ${paidToday}`,
+    );
 
     // 4. CALCULATE PREV_PENDING
     // Formula: total_pending = prev_pending + todays_sales - paid_today
@@ -964,7 +1019,9 @@ router.get(
         .gte("reviewed_at", todayStart)
         .lt("reviewed_at", tomorrowStart);
 
-      console.log(`[DEPOSITS] 📊 Period deposits: ${(periodDeposits || []).length}`);
+      console.log(
+        `[DEPOSITS] 📊 Period deposits: ${(periodDeposits || []).length}`,
+      );
 
       // Calculate per-driver totals for the period
       const driverCollectedToday = {};
