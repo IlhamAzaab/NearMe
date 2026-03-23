@@ -1475,29 +1475,29 @@ router.patch(
         cancelled: `Your order ${order.order_number} was cancelled.`,
       };
 
-      if (notificationTypes[targetDeliveryStatus]) {
+      // Use original 'status' parameter (accepted/rejected) for notification lookup
+      // NOT targetDeliveryStatus (pending/failed) which won't match the maps
+      if (notificationTypes[status]) {
         // 📡 REAL-TIME WEBSOCKET: Notify customer instantly
         if (order.customer_id) {
           notifyCustomer(order.customer_id, "order:status_update", {
-            type: notificationTypes[targetDeliveryStatus],
-            title: notificationTitles[targetDeliveryStatus],
-            message: notificationMessages[targetDeliveryStatus],
+            type: notificationTypes[status],
+            title: notificationTitles[status],
+            message: notificationMessages[status],
             order_id: orderId,
             order_number: order.order_number,
-            status: targetDeliveryStatus,
+            status: targetDeliveryStatus, // Send actual delivery status
+            originalStatus: status, // Include original for reference
           });
           console.log(
-            `📡 WebSocket: Customer ${order.customer_id} notified of status: ${targetDeliveryStatus}`,
+            `📡 WebSocket: Customer ${order.customer_id} notified of ${status} (delivery status: ${targetDeliveryStatus})`,
           );
 
           // 📱 PUSH NOTIFICATION: Reach customer even when app is closed/locked
           sendOrderStatusNotification(order.customer_id, {
             orderId,
             orderNumber: order.order_number,
-            status:
-              targetDeliveryStatus === "failed"
-                ? "rejected"
-                : targetDeliveryStatus, // map back for push
+            status: status === "accepted" ? "accepted" : status, // Use user-friendly status
             restaurantName: order.restaurant_name,
           }).catch((err) =>
             console.error("Push order status error (non-fatal):", err),
