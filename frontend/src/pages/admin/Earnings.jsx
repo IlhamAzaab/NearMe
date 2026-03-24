@@ -369,9 +369,6 @@ export default function Earnings() {
               <p className="text-gray-500 text-sm font-medium">
                 Earnings Trend
               </p>
-              <h3 className="text-2xl font-bold text-gray-900">
-                {formatCurrency(earnings?.totalRevenue)}
-              </h3>
             </div>
             <span className="bg-gray-100 text-gray-600 px-3 py-1 rounded-lg text-xs font-semibold">
               Last 30 days

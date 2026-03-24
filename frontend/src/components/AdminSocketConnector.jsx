@@ -53,7 +53,12 @@ export default function AdminSocketConnector() {
 
     // Track role changes to handle switching between roles
     if (currentRole.current && currentRole.current !== role) {
-      console.log("[AdminSocket] Role changed from", currentRole.current, "to", role);
+      console.log(
+        "[AdminSocket] Role changed from",
+        currentRole.current,
+        "to",
+        role,
+      );
       if (hasConnected.current) {
         disconnect();
         hasConnected.current = false;
@@ -74,7 +79,13 @@ export default function AdminSocketConnector() {
       disconnect();
       hasConnected.current = false;
     }
-  }, [connectAsAdmin, disconnect, location.pathname, isConnected, shouldConnect]);
+  }, [
+    connectAsAdmin,
+    disconnect,
+    location.pathname,
+    isConnected,
+    shouldConnect,
+  ]);
 
   // Listen for auth changes via storage events (login/logout in another tab)
   useEffect(() => {

@@ -430,12 +430,17 @@ router.get("/dashboard-stats", authenticate, async (req, res) => {
 
     // Use status on deliveries table as source-of-truth for successful earnings.
     // Count earnings once delivery reaches picked_up or later, excluding failed/cancelled.
-    const SUCCESS_STATUSES = ["picked_up", "on_the_way", "at_customer", "delivered"];
+    const SUCCESS_STATUSES = [
+      "picked_up",
+      "on_the_way",
+      "at_customer",
+      "delivered",
+    ];
 
     const { data: deliveryRows, error: deliveryError } = await supabaseAdmin
       .from("deliveries")
       .select(
-        "order_id, status, created_at, picked_up_at, on_the_way_at, arrived_customer_at, delivered_at, orders!inner(restaurant_id, admin_subtotal)",
+        "order_id, status, picked_up_at, on_the_way_at, arrived_customer_at, delivered_at, orders!inner(restaurant_id, admin_subtotal)",
       )
       .eq("orders.restaurant_id", restaurantId)
       .in("status", SUCCESS_STATUSES);
@@ -451,8 +456,7 @@ router.get("/dashboard-stats", authenticate, async (req, res) => {
       row.picked_up_at ||
       row.on_the_way_at ||
       row.arrived_customer_at ||
-      row.delivered_at ||
-      row.created_at;
+      row.delivered_at;
 
     const records = (deliveryRows || [])
       .map((row) => ({
@@ -492,7 +496,10 @@ router.get("/dashboard-stats", authenticate, async (req, res) => {
       inRange(r.earned_at, yesterdayStart, yesterdayEnd),
     );
     const yesterdayOrders = yesterdayRecords.length;
-    const yesterdaySales = yesterdayRecords.reduce((sum, r) => sum + r.amount, 0);
+    const yesterdaySales = yesterdayRecords.reduce(
+      (sum, r) => sum + r.amount,
+      0,
+    );
     const yesterdayAvg =
       yesterdayOrders > 0 ? yesterdaySales / yesterdayOrders : 0;
 
@@ -515,8 +522,7 @@ router.get("/dashboard-stats", authenticate, async (req, res) => {
       getSriLankaDayRangeFromDateStr(last30StartDateStr);
     const { start: prev30Start } =
       getSriLankaDayRangeFromDateStr(prev30StartDateStr);
-    const { end: prev30End } =
-      getSriLankaDayRangeFromDateStr(prev30EndDateStr);
+    const { end: prev30End } = getSriLankaDayRangeFromDateStr(prev30EndDateStr);
 
     const last30Records = records.filter((r) =>
       inRange(r.earned_at, last30Start, todayEnd),
@@ -1329,7 +1335,7 @@ router.get("/earnings", authenticate, async (req, res) => {
         break;
       }
       case "month": {
-        const monthStartDateStr = `${todayDateStr.slice(0, 7)}-01`;
+        const monthStartDateStr = shiftSriLankaDateString(todayDateStr, -29);
         periodStart = getSriLankaDayRangeFromDateStr(monthStartDateStr).start;
         periodEnd = todayEnd;
         break;
@@ -1357,12 +1363,17 @@ router.get("/earnings", authenticate, async (req, res) => {
         break;
     }
 
-    const SUCCESS_STATUSES = ["picked_up", "on_the_way", "at_customer", "delivered"];
+    const SUCCESS_STATUSES = [
+      "picked_up",
+      "on_the_way",
+      "at_customer",
+      "delivered",
+    ];
 
     const { data: qualifyingRows, error: qualifyingError } = await supabaseAdmin
       .from("deliveries")
       .select(
-        "order_id, status, created_at, picked_up_at, on_the_way_at, arrived_customer_at, delivered_at, orders!inner(restaurant_id, admin_subtotal)",
+        "order_id, status, picked_up_at, on_the_way_at, arrived_customer_at, delivered_at, orders!inner(restaurant_id, admin_subtotal)",
       )
       .in("status", SUCCESS_STATUSES)
       .eq("orders.restaurant_id", restaurantId)
@@ -1377,8 +1388,7 @@ router.get("/earnings", authenticate, async (req, res) => {
       row.picked_up_at ||
       row.on_the_way_at ||
       row.arrived_customer_at ||
-      row.delivered_at ||
-      row.created_at;
+      row.delivered_at;
 
     const records = (qualifyingRows || [])
       .map((row) => ({
