@@ -34,6 +34,7 @@ import {
   calculateServiceFeeFromConfig,
   getSystemConfig,
 } from "../utils/systemConfig.js";
+import { getSriLankaDayRange } from "../utils/sriLankaTime.js";
 
 const router = express.Router();
 
@@ -102,30 +103,43 @@ async function calculateDeliveryFee(distanceKm) {
 
 /**
  * Generate order number
- * Format: ORD-YYYYMMDD-XXXX
+ * Format: YYMMDD-SEQ[L]
+ * Example: 260324-071W, 260324-1000P
+ * Rules:
+ * - Date uses Sri Lanka day boundary
+ * - First order of each day starts from 071
+ * - Sequence rolls from 3 digits to 4 digits after 999
+ * - Random uppercase suffix letter is added for each order
  */
 async function generateOrderNumber() {
-  const today = new Date();
-  const dateStr =
-    today.getFullYear().toString() +
-    (today.getMonth() + 1).toString().padStart(2, "0") +
-    today.getDate().toString().padStart(2, "0");
+  const { dateStr, start, end } = getSriLankaDayRange();
+  const compactDate = `${dateStr.slice(2, 4)}${dateStr.slice(5, 7)}${dateStr.slice(8, 10)}`;
 
-  // Get count of orders placed today
-  const startOfDay = new Date(today);
-  startOfDay.setHours(0, 0, 0, 0);
+  // Count orders in the current Sri Lanka day.
+  // Sequence starts from 071 for the first order each day.
+  const BASE_SEQUENCE = 71;
 
   const { count, error } = await supabaseAdmin
     .from("orders")
     .select("*", { count: "exact", head: true })
-    .gte("placed_at", startOfDay.toISOString());
+    .gte("placed_at", start)
+    .lte("placed_at", end);
 
   if (error) {
     console.error("Error counting orders:", error);
   }
 
-  const seqNum = (count || 0) + 1;
-  return `ORD-${dateStr}-${seqNum.toString().padStart(4, "0")}`;
+  const sequenceNumber = (count || 0) + BASE_SEQUENCE;
+  const sequenceText =
+    sequenceNumber > 999
+      ? sequenceNumber.toString().padStart(4, "0")
+      : sequenceNumber.toString().padStart(3, "0");
+
+  const randomLetter = String.fromCharCode(
+    65 + Math.floor(Math.random() * 26),
+  );
+
+  return `${compactDate}-${sequenceText}${randomLetter}`;
 }
 
 /**

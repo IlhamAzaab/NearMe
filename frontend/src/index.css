@@ -55,3 +55,8 @@
 .skeleton-fade {
   animation: skeleton-fade 1.5s ease-in-out infinite;
 }
+
+/* Ensure legacy animate-pulse skeletons also use fade animation globally */
+.animate-pulse {
+  animation: skeleton-fade 1.5s ease-in-out infinite;
+}

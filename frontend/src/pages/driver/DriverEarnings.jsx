@@ -27,11 +27,21 @@ const CHART_PERIOD_OPTIONS = [
   { value: "year", label: "Yearly" },
 ];
 
+const getSriLankaDateKey = (dateValue) => {
+  if (!dateValue) return null;
+  const parsed = new Date(dateValue);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toLocaleDateString("en-CA", {
+    timeZone: "Asia/Colombo",
+  });
+};
+
 export default function DriverEarnings() {
   const navigate = useNavigate();
   const token = localStorage.getItem("token");
   const role = localStorage.getItem("role");
   const isDriver = role === "driver";
+
   const [period, setPeriod] = useState("last30");
   const [chartPeriod, setChartPeriod] = useState("week");
 
@@ -92,6 +102,7 @@ export default function DriverEarnings() {
     enabled: isDriver && !!token,
     staleTime: 60 * 1000,
     refetchInterval: 90 * 1000,
+    placeholderData: (previousData) => previousData,
     queryFn: async () => {
       const res = await fetch(
         `${API_URL}/driver/earnings/chart?chartPeriod=${chartPeriod}`,
@@ -109,10 +120,10 @@ export default function DriverEarnings() {
   const todayPerformance = summaryPayload?.today || null;
   const earnings = historyPayload?.earnings || [];
   const chartData = chartPayload?.chartData || [];
+
   const loading =
     (summaryLoading && !summary) || (historyLoading && !earnings.length);
-  const chartLoading =
-    (chartInitialLoading && !chartData.length) || chartFetching;
+  const chartLoading = chartInitialLoading && !chartData.length;
   const summaryPulse = useDataPulse(summaryUpdatedAt, summaryFetching);
 
   const formatCurrency = (value) => `Rs ${Number(value || 0).toFixed(2)}`;
@@ -129,32 +140,53 @@ export default function DriverEarnings() {
   const getEarningsAmount = (item) => Number(item?.driver_earnings || 0);
 
   const periodLabel = useMemo(() => {
-    if (period === "today") {
-      return "Today's Earnings";
-    }
-    if (period === "yesterday") {
-      return "Yesterday's Earnings";
-    }
-    if (period === "week") {
-      return "Last 7 Days Earnings";
-    }
+    if (period === "today") return "Today's Earnings";
+    if (period === "yesterday") return "Yesterday's Earnings";
+    if (period === "week") return "Last 7 Days Earnings";
     return "Last 30 Days Earnings";
   }, [period]);
 
+  const activeDaysCount = useMemo(() => {
+    const todayKey = getSriLankaDateKey(new Date());
+    const periodDays = period === "week" ? 7 : period === "last30" ? 30 : 1;
+    const keysInScope = new Set();
+
+    if (!todayKey) return 0;
+
+    if (period === "today") {
+      keysInScope.add(todayKey);
+    } else if (period === "yesterday") {
+      const yesterday = new Date(`${todayKey}T00:00:00+05:30`);
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayKey = getSriLankaDateKey(yesterday);
+      if (yesterdayKey) keysInScope.add(yesterdayKey);
+    } else {
+      for (let i = 0; i < periodDays; i += 1) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const key = getSriLankaDateKey(d);
+        if (key) keysInScope.add(key);
+      }
+    }
+
+    const activeDaySet = new Set();
+
+    earnings.forEach((item) => {
+      if (Number(item?.driver_earnings || 0) <= 0) return;
+      const deliveryKey = getSriLankaDateKey(item?.delivered_at);
+      if (!deliveryKey) return;
+      if (keysInScope.has(deliveryKey)) {
+        activeDaySet.add(deliveryKey);
+      }
+    });
+
+    return activeDaySet.size;
+  }, [earnings, period]);
+
   const dailyAvg = useMemo(() => {
     if (!summary) return 0;
-    const days =
-      period === "today"
-        ? 1
-        : period === "yesterday"
-          ? 1
-          : period === "week"
-            ? 7
-            : period === "last30"
-              ? 30
-              : Math.max(earnings.length, 1);
-    return Number(summary.total_earnings || 0) / Math.max(days, 1);
-  }, [summary, period, earnings.length]);
+    return Number(summary.total_earnings || 0) / Math.max(activeDaysCount, 1);
+  }, [summary, activeDaysCount]);
 
   const chartSubtitle =
     chartPeriod === "week"
@@ -163,7 +195,7 @@ export default function DriverEarnings() {
         ? "Last 30 Days"
         : "Last 12 Months";
 
-  const recentActivities = earnings.slice(0, 4);
+  const recentActivities = earnings.slice(0, 6);
 
   return (
     <DriverLayout>
@@ -248,7 +280,6 @@ export default function DriverEarnings() {
             </div>
           </div>
 
-          {/* Withdrawals Quick Link */}
           <div className="px-4 py-2">
             <button
               onClick={() => navigate("/driver/withdrawals")}
@@ -295,14 +326,13 @@ export default function DriverEarnings() {
             </button>
           </div>
 
-          {/* Today's Performance Section */}
           <div className="px-4 py-2">
-            <div className="bg-white rounded-xl border border-[#dbe6dd] p-4">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-[#111812] text-base font-bold flex items-center gap-2">
+            <div className="bg-white rounded-2xl border border-[#dbe6dd] p-4 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-[#111812] text-base font-bold tracking-tight">
                   Today's Performance
                 </h3>
-                <span className="text-xs text-[#618968] font-medium">
+                <span className="text-[11px] text-[#618968] font-semibold uppercase tracking-wide">
                   {new Date().toLocaleDateString("en-IN", {
                     weekday: "short",
                     month: "short",
@@ -310,43 +340,47 @@ export default function DriverEarnings() {
                   })}
                 </span>
               </div>
-              <div className="grid grid-cols-3 gap-3">
-                <div className="flex flex-col items-center gap-1 p-3 bg-linear-to-br from-green-50 to-emerald-50 rounded-xl border border-green-100">
-                  <div className="text-2xl">💰</div>
-                  <p className="text-[#111812] tracking-tight text-lg font-bold">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-xl border border-emerald-100 bg-linear-to-br from-emerald-50 to-green-50 p-4">
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-700">
+                    Total Earnings
+                  </p>
+                  <p className="mt-2 text-xl font-extrabold tracking-tight text-[#111812]">
                     {loading
                       ? "—"
                       : formatCurrency(todayPerformance?.earnings || 0)}
                   </p>
-                  <p className="text-[#618968] text-[10px] font-medium uppercase">
-                    Earnings
-                  </p>
                 </div>
-                <div className="flex flex-col items-center gap-1 p-3 bg-linear-to-br from-blue-50 to-cyan-50 rounded-xl border border-blue-100">
-                  <div className="text-2xl">🛵</div>
-                  <p className="text-[#111812] tracking-tight text-lg font-bold">
-                    {loading
-                      ? "—"
-                      : `${Number(todayPerformance?.distance_km || 0).toFixed(2)} km`}
-                  </p>
-                  <p className="text-[#618968] text-[10px] font-medium uppercase">
-                    Distance
-                  </p>
-                </div>
-                <div className="flex flex-col items-center gap-1 p-3 bg-linear-to-br from-orange-50 to-amber-50 rounded-xl border border-orange-100">
-                  <div className="text-2xl">📦</div>
-                  <p className="text-[#111812] tracking-tight text-lg font-bold">
-                    {loading ? "—" : todayPerformance?.deliveries || 0}
-                  </p>
-                  <p className="text-[#618968] text-[10px] font-medium uppercase">
+                <div className="rounded-xl border border-orange-100 bg-linear-to-br from-orange-50 to-amber-50 p-4">
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-orange-700">
                     Deliveries
+                  </p>
+                  <p className="mt-2 text-xl font-extrabold tracking-tight text-[#111812]">
+                    {loading ? "—" : todayPerformance?.deliveries || 0}
                   </p>
                 </div>
               </div>
+              <div className="mt-3 rounded-xl border border-[#dbe6dd] bg-[#f9fbf9] px-3 py-2 flex items-center justify-between">
+                <span className="text-xs font-semibold text-[#618968] uppercase tracking-wide">
+                  Avg Per Delivery
+                </span>
+                <span className="text-sm font-bold text-[#111812]">
+                  {loading
+                    ? "—"
+                    : formatCurrency(
+                        (todayPerformance?.deliveries || 0) > 0
+                          ? Number(todayPerformance?.earnings || 0) /
+                              Number(todayPerformance?.deliveries || 1)
+                          : 0,
+                      )}
+                </span>
+              </div>
+              <p className="mt-2 text-[11px] text-[#618968]">
+                Daily average excludes zero-delivery days.
+              </p>
             </div>
           </div>
 
-          {/* Period Stats - Summary for selected period */}
           <div className="flex flex-wrap gap-3 p-4">
             <div className="flex min-w-25 flex-1 flex-col gap-1 rounded-xl p-4 border border-[#dbe6dd] bg-white">
               <p className="text-[#618968] text-xs font-medium uppercase">
@@ -403,106 +437,119 @@ export default function DriverEarnings() {
                   </button>
                 ))}
               </div>
-              <div className="flex items-center justify-end mb-2">
+              <div className="flex items-center justify-between mb-2">
                 <span className="text-xs text-[#13ec37] font-bold">
                   {chartSubtitle}
                 </span>
+                {chartFetching && !chartLoading && (
+                  <span className="text-[11px] font-semibold text-[#618968]">
+                    Updating...
+                  </span>
+                )}
               </div>
-              <div className="h-56">
+              <div className="h-56 relative">
                 {chartLoading ? (
                   <div className="h-full flex items-center justify-center text-sm text-[#618968]">
                     Loading chart...
                   </div>
                 ) : (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart
-                      data={chartData}
-                      margin={{ top: 5, right: 5, left: -15, bottom: 0 }}
-                    >
-                      <defs>
-                        <linearGradient
-                          id="driverEarningsGradient"
-                          x1="0"
-                          y1="0"
-                          x2="0"
-                          y2="1"
-                        >
-                          <stop
-                            offset="5%"
-                            stopColor="#06C168"
-                            stopOpacity={0.2}
-                          />
-                          <stop
-                            offset="95%"
-                            stopColor="#06C168"
-                            stopOpacity={0}
-                          />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-                      <XAxis
-                        dataKey="date"
-                        tick={{ fontSize: 11, fill: "#9ca3af" }}
-                        tickFormatter={(val) => {
-                          if (chartPeriod === "year") {
-                            const [, m] = (val || "").split("-");
-                            const months = [
-                              "Jan",
-                              "Feb",
-                              "Mar",
-                              "Apr",
-                              "May",
-                              "Jun",
-                              "Jul",
-                              "Aug",
-                              "Sep",
-                              "Oct",
-                              "Nov",
-                              "Dec",
-                            ];
-                            return months[(parseInt(m, 10) || 1) - 1] || val;
-                          }
-                          const d = new Date(`${val}T00:00:00`);
-                          return `${d.getDate()}/${d.getMonth() + 1}`;
-                        }}
-                      />
-                      <YAxis
-                        tick={{ fontSize: 11, fill: "#9ca3af" }}
-                        tickFormatter={(val) => `Rs.${val}`}
-                      />
-                      <Tooltip
-                        contentStyle={{
-                          borderRadius: "8px",
-                          border: "1px solid #e5e7eb",
-                          boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
-                          fontSize: "12px",
-                        }}
-                        formatter={(value) => [
-                          `Rs. ${Number(value || 0).toLocaleString()}`,
-                          "Earnings",
-                        ]}
-                        labelFormatter={(label) => {
-                          if (chartPeriod === "year") return label;
-                          return new Date(
-                            `${label}T00:00:00`,
-                          ).toLocaleDateString("en-IN", {
-                            weekday: "short",
-                            day: "numeric",
-                            month: "short",
-                          });
-                        }}
-                      />
-                      <Area
-                        type="monotone"
-                        dataKey="amount"
-                        stroke="#06C168"
-                        strokeWidth={2}
-                        fill="url(#driverEarningsGradient)"
-                        dot={{ r: 2.5, fill: "#06C168" }}
-                        activeDot={{ r: 5, fill: "#05a85a" }}
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
+                  <div
+                    className={`h-full transition-opacity duration-300 ${
+                      chartFetching ? "opacity-80" : "opacity-100"
+                    }`}
+                  >
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart
+                        data={chartData}
+                        margin={{ top: 5, right: 5, left: -15, bottom: 0 }}
+                      >
+                        <defs>
+                          <linearGradient
+                            id="driverEarningsGradient"
+                            x1="0"
+                            y1="0"
+                            x2="0"
+                            y2="1"
+                          >
+                            <stop
+                              offset="5%"
+                              stopColor="#06C168"
+                              stopOpacity={0.2}
+                            />
+                            <stop
+                              offset="95%"
+                              stopColor="#06C168"
+                              stopOpacity={0}
+                            />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+                        <XAxis
+                          dataKey="date"
+                          tick={{ fontSize: 11, fill: "#9ca3af" }}
+                          tickFormatter={(val) => {
+                            if (chartPeriod === "year") {
+                              const [, m] = (val || "").split("-");
+                              const months = [
+                                "Jan",
+                                "Feb",
+                                "Mar",
+                                "Apr",
+                                "May",
+                                "Jun",
+                                "Jul",
+                                "Aug",
+                                "Sep",
+                                "Oct",
+                                "Nov",
+                                "Dec",
+                              ];
+                              return months[(parseInt(m, 10) || 1) - 1] || val;
+                            }
+                            const d = new Date(`${val}T00:00:00`);
+                            return `${d.getDate()}/${d.getMonth() + 1}`;
+                          }}
+                        />
+                        <YAxis
+                          tick={{ fontSize: 11, fill: "#9ca3af" }}
+                          tickFormatter={(val) => `Rs.${val}`}
+                        />
+                        <Tooltip
+                          contentStyle={{
+                            borderRadius: "8px",
+                            border: "1px solid #e5e7eb",
+                            boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+                            fontSize: "12px",
+                          }}
+                          formatter={(value) => [
+                            `Rs. ${Number(value || 0).toLocaleString()}`,
+                            "Earnings",
+                          ]}
+                          labelFormatter={(label) => {
+                            if (chartPeriod === "year") return label;
+                            return new Date(
+                              `${label}T00:00:00`,
+                            ).toLocaleDateString("en-IN", {
+                              weekday: "short",
+                              day: "numeric",
+                              month: "short",
+                            });
+                          }}
+                        />
+                        <Area
+                          type="monotone"
+                          dataKey="amount"
+                          stroke="#06C168"
+                          strokeWidth={2}
+                          fill="url(#driverEarningsGradient)"
+                          dot={{ r: 2.5, fill: "#06C168" }}
+                          activeDot={{ r: 5, fill: "#05a85a" }}
+                          isAnimationActive
+                          animationDuration={380}
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
                 )}
               </div>
             </div>
@@ -565,11 +612,18 @@ export default function DriverEarnings() {
                       <p className="text-base font-bold text-[#111812]">
                         {formatCurrency(getEarningsAmount(item))}
                       </p>
-                      {Number(item.bonus_amount || 0) > 0 && (
-                        <p className="text-[15px] text-[#05d027] font-bold">
-                          Bonus +{formatCurrency(item.bonus_amount)}
-                        </p>
-                      )}
+                      <p className="text-[11px] text-[#618968] leading-tight">
+                        Basic: {formatCurrency(item.base_amount)}
+                      </p>
+                      <p className="text-[11px] text-[#618968] leading-tight">
+                        Extra: {formatCurrency(item.extra_earnings)}
+                      </p>
+                      <p className="text-[11px] text-[#618968] leading-tight">
+                        Bonus: {formatCurrency(item.bonus_amount)}
+                      </p>
+                      <p className="text-[11px] text-[#618968] leading-tight">
+                        Tip: {formatCurrency(item.tip_amount)}
+                      </p>
                     </div>
                   </div>
                 ))

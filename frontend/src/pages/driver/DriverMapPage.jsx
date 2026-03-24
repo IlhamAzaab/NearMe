@@ -232,6 +232,21 @@ export default function DriverMapPage() {
   const overlayCallbackRef = useRef(null);
   const [sheetExpanded, setSheetExpanded] = useState(false);
   const sheetTouchStartY = useRef(null);
+  const routePointCount = currentTarget?.route_geometry?.coordinates?.length || 0;
+
+  const mapFitPadding = useMemo(() => {
+    const viewportHeight =
+      typeof window !== "undefined" && Number.isFinite(window.innerHeight)
+        ? window.innerHeight
+        : 800;
+    const bottomSheetRatio = sheetExpanded ? 0.6 : 0.4;
+    const bottomInset = Math.round(viewportHeight * bottomSheetRatio) + 24;
+
+    return {
+      paddingTopLeft: [32, 88],
+      paddingBottomRight: [32, Math.max(240, bottomInset)],
+    };
+  }, [sheetExpanded]);
 
   useEffect(() => {
     if (!deliveryId && currentTarget?.delivery_id) {
@@ -325,6 +340,26 @@ export default function DriverMapPage() {
     setUserHasInteracted(false);
     setShouldFitBounds(true);
   }, [currentTarget?.delivery_id, mode]);
+
+  useEffect(() => {
+    if (mode !== "delivery") return;
+    if (userHasInteracted) return;
+    if (!driverLocation || !currentTarget?.customer) return;
+
+    // Keep delivery mode framed around driver, destination and route geometry
+    // unless the user has manually moved/zoomed the map.
+    setShouldFitBounds(true);
+  }, [
+    mode,
+    userHasInteracted,
+    sheetExpanded,
+    routePointCount,
+    driverLocation?.latitude,
+    driverLocation?.longitude,
+    currentTarget?.delivery_id,
+    currentTarget?.customer?.latitude,
+    currentTarget?.customer?.longitude,
+  ]);
 
   useEffect(() => {
     const role = localStorage.getItem("role");
@@ -807,7 +842,7 @@ export default function DriverMapPage() {
           if (updatedDeliveries.length > 0) {
             setCurrentTarget(updatedDeliveries[0]);
           } else {
-            navigate("/driver/delivery/active/map");
+            navigate("/driver/dashboard", { replace: true });
           }
           setUpdating(false);
         };
@@ -824,6 +859,17 @@ export default function DriverMapPage() {
       overlayCallbackRef.current = () => setUpdating(false);
     }
   };
+
+  useEffect(() => {
+    if (loading) return;
+    if (currentTarget) return;
+
+    const redirectTimer = setTimeout(() => {
+      navigate("/driver/dashboard", { replace: true });
+    }, 1200);
+
+    return () => clearTimeout(redirectTimer);
+  }, [loading, currentTarget, navigate]);
 
   if (loading && !hasCachedSnapshot) {
     return (
@@ -864,10 +910,10 @@ export default function DriverMapPage() {
             All Deliveries Completed!
           </h2>
           <button
-            onClick={() => navigate("/driver/deliveries")}
+            onClick={() => navigate("/driver/dashboard", { replace: true })}
             className="mt-6 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-semibold"
           >
-            View Available Deliveries
+            Go to Dashboard
           </button>
         </div>
         <DriverBottomNav />
@@ -952,8 +998,8 @@ export default function DriverMapPage() {
                 shouldFitBounds={shouldFitBounds}
                 onBoundsFitted={handleBoundsFitted}
                 onUserInteraction={handleUserInteraction}
-                paddingTopLeft={[36, 90]}
-                paddingBottomRight={[36, sheetExpanded ? 420 : 280]}
+                paddingTopLeft={mapFitPadding.paddingTopLeft}
+                paddingBottomRight={mapFitPadding.paddingBottomRight}
               />
 
               {/* Driver Marker - Navigation Arrow with heading direction */}
@@ -1391,20 +1437,6 @@ function DeliveryInfo({
         <div className="flex items-start justify-between mb-2">
           <h2 className="text-xl font-bold text-green-600">{customer.name}</h2>
           <div className="flex items-center gap-2">
-            {/* Navigate to destination in Google Maps */}
-            <button
-              onClick={() =>
-                openGoogleMapsNavigation(
-                  customer.latitude,
-                  customer.longitude,
-                  customer.name,
-                )
-              }
-              className="shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-[#DC143C] hover:text-red-700 transition-colors"
-              title="Navigate in Google Maps"
-            >
-              <DestIcon className="w-5 h-5" />
-            </button>
             {customer.phone && (
               <a
                 href={`tel:${customer.phone}`}
@@ -1414,6 +1446,18 @@ function DeliveryInfo({
               </a>
             )}
           </div>
+        </div>
+        <div className="mt-3">
+          {customer.phone ? (
+            <a
+              href={`tel:${customer.phone}`}
+              className="text-sm font-semibold text-green-700 hover:text-green-800"
+            >
+              {customer.phone}
+            </a>
+          ) : (
+            <p className="text-sm text-gray-500">Not available</p>
+          )}
         </div>
         <p className="text-gray-700 text-sm leading-relaxed">
           {customer.address}

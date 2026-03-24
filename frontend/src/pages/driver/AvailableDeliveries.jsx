@@ -750,7 +750,7 @@ export default function AvailableDeliveries() {
               </div>
             </div>
           ) : initialLoading || !hasCompletedFirstFetch ? (
-            <SkeletonCard withHeartbeat />
+            <SkeletonCard />
           ) : deliveries.length === 0 ? (
             <div className="h-full flex flex-col">
               {/* Back button for empty state */}
@@ -887,10 +887,6 @@ export default function AvailableDeliveries() {
           background-size: 200% 100%;
           animation: shimmer 1.5s infinite;
         }
-        @keyframes heartbeat {
-          0%, 100% { transform: scale(1); opacity: 1; }
-          50% { transform: scale(1.02); opacity: 0.9; }
-        }
         @keyframes pulse-dot {
           0%, 100% { transform: scale(1); opacity: 1; }
           50% { transform: scale(1.2); opacity: 0.7; }
@@ -904,13 +900,9 @@ export default function AvailableDeliveries() {
 }
 
 // Skeleton Loading Card Component - Full-screen design
-function SkeletonCard({ withHeartbeat = false }) {
-  const heartbeatStyle = withHeartbeat
-    ? { animation: "heartbeat 1.2s ease-in-out infinite" }
-    : {};
-
+function SkeletonCard() {
   return (
-    <div className="relative h-full w-full" style={heartbeatStyle}>
+    <div className="relative h-full w-full skeleton-fade">
       {/* Full-screen Map Skeleton */}
       <div className="absolute inset-0 bg-gradient-to-br from-gray-100 to-gray-200">
         <div

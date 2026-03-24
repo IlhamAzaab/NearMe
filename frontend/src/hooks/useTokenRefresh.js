@@ -8,6 +8,28 @@ import {
 } from "../auth/tokenStorage";
 import { isNetworkLikeError } from "../lib/apiClient";
 
+const REFRESH_WINDOW_MS = 5 * 60 * 1000;
+
+function parseJwtExpiryMs(token) {
+  try {
+    const [, payload] = String(token).split(".");
+    if (!payload) return null;
+
+    const decoded = JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/")));
+    if (!decoded?.exp) return null;
+
+    return Number(decoded.exp) * 1000;
+  } catch {
+    return null;
+  }
+}
+
+function isTokenExpiringSoon(token, thresholdMs = REFRESH_WINDOW_MS) {
+  const expiryMs = parseJwtExpiryMs(token);
+  if (!expiryMs) return true;
+  return expiryMs - Date.now() <= thresholdMs;
+}
+
 /**
  * Hook to manage token refresh for production-level session persistence.
  * Works for all roles: customer, admin, driver, manager.
@@ -26,9 +48,14 @@ export function useTokenRefresh(options = {}) {
   const { enabled = true, redirectPath = "/login" } = options;
   const navigate = useNavigate();
 
-  const refreshToken = useCallback(async () => {
+  const refreshToken = useCallback(async ({ force = false } = {}) => {
     const token = localStorage.getItem("token");
     if (!token) return false;
+
+    // Avoid unnecessary refresh calls while access token is still healthy.
+    if (!force && !isTokenExpiringSoon(token)) {
+      return true;
+    }
 
     try {
       const mobileRefreshToken = await getRefreshToken();
@@ -50,8 +77,13 @@ export function useTokenRefresh(options = {}) {
       }
 
       if (res.status === 401 || res.status === 403) {
-        await clearStoredAuthSession();
-        navigate(redirectPath);
+        // Only force logout when current access token is already expired/expiring.
+        // This prevents false logouts when refresh cookie is unavailable.
+        const latestToken = localStorage.getItem("token");
+        if (!latestToken || isTokenExpiringSoon(latestToken, 0)) {
+          await clearStoredAuthSession();
+          navigate(redirectPath);
+        }
       }
 
       return false;
@@ -68,7 +100,7 @@ export function useTokenRefresh(options = {}) {
   useEffect(() => {
     if (!enabled) return;
 
-    // Check and refresh token on mount
+    // Check token on mount; refresh only when it is close to expiry.
     refreshToken();
 
     // Refresh periodically to keep long sessions active without user action.

@@ -1,7 +1,8 @@
 import React from "react";
 
-// Base skeleton shimmer animation
-const shimmerClass = "animate-pulse bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 bg-[length:200%_100%]";
+// Base skeleton fade animation
+const shimmerClass =
+  "skeleton-fade bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 bg-[length:200%_100%]";
 
 // Basic skeleton shapes
 export function SkeletonBox({ className = "" }) {
@@ -36,7 +37,7 @@ export function SkeletonButton({ className = "" }) {
 // Card skeleton for list items
 export function SkeletonCard({ showImage = false, showAction = false }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4 animate-pulse">
+    <div className="bg-white rounded-xl border border-gray-200 p-4 skeleton-fade">
       <div className="flex items-center gap-4">
         {showImage && (
           <div className="w-14 h-14 bg-gray-200 rounded-full shrink-0" />
@@ -64,7 +65,7 @@ export function SkeletonCard({ showImage = false, showAction = false }) {
 // Deposit card skeleton
 export function SkeletonDepositCard() {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden animate-pulse">
+    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden skeleton-fade">
       <div className="flex items-center gap-4 p-4">
         <div className="w-12 h-12 bg-gray-200 rounded-full" />
         <div className="flex-1 space-y-2">
@@ -88,7 +89,7 @@ export function SkeletonDepositCard() {
 // Hero/Summary card skeleton
 export function SkeletonHeroCard() {
   return (
-    <div className="bg-gray-200 rounded-2xl p-6 animate-pulse">
+    <div className="bg-gray-200 rounded-2xl p-6 skeleton-fade">
       <div className="flex justify-between items-start mb-6">
         <div className="space-y-2">
           <div className="h-4 bg-gray-300 rounded w-28" />
@@ -116,7 +117,7 @@ export function SkeletonMetricCards({ count = 2 }) {
   return (
     <div className="flex gap-4">
       {Array.from({ length: count }).map((_, i) => (
-        <div key={i} className="flex-1 bg-white rounded-xl border border-gray-200 p-4 animate-pulse">
+        <div key={i} className="flex-1 bg-white rounded-xl border border-gray-200 p-4 skeleton-fade">
           <div className="flex items-center gap-2 mb-2">
             <div className="w-4 h-4 bg-gray-200 rounded" />
             <div className="h-3 bg-gray-200 rounded w-16" />
@@ -131,7 +132,7 @@ export function SkeletonMetricCards({ count = 2 }) {
 // Delivery card skeleton
 export function SkeletonDeliveryCard() {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4 animate-pulse">
+    <div className="bg-white rounded-xl border border-gray-200 p-4 skeleton-fade">
       <div className="flex items-start gap-3 mb-3">
         <div className="w-12 h-12 bg-gray-200 rounded-lg" />
         <div className="flex-1 space-y-2">
@@ -161,7 +162,7 @@ export function SkeletonDeliveryCard() {
 // Order card skeleton
 export function SkeletonOrderCard() {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4 animate-pulse">
+    <div className="bg-white rounded-xl border border-gray-200 p-4 skeleton-fade">
       <div className="flex items-center gap-3 mb-3">
         <div className="w-16 h-16 bg-gray-200 rounded-lg" />
         <div className="flex-1 space-y-2">
@@ -196,7 +197,7 @@ export function PageSkeleton({ type = "list" }) {
       <div className="p-4 space-y-4">
         <SkeletonHeroCard />
         <SkeletonMetricCards count={2} />
-        <div className="h-10 bg-gray-200 rounded-lg animate-pulse" />
+        <div className="h-10 bg-gray-200 rounded-lg skeleton-fade" />
         <SkeletonList count={3}>
           <SkeletonDepositCard />
         </SkeletonList>
