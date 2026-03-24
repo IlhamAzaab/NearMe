@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import MeezoLogo from "../assets/MeezoLogo.svg";
+import { persistAuthSession } from "../auth/tokenStorage";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
@@ -86,6 +87,7 @@ export default function VerifyOtp() {
     try {
       const res = await fetch(`${API_URL}/auth/verify-otp`, {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId, otp: otpString }),
       });
@@ -99,10 +101,7 @@ export default function VerifyOtp() {
       }
 
       // Save auth data and show success animation
-      localStorage.setItem("token", data.token);
-      localStorage.setItem("role", data.role);
-      localStorage.setItem("userId", data.userId);
-      localStorage.setItem("userName", data.userName);
+      await persistAuthSession(data);
 
       setVerified(true);
 

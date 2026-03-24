@@ -3,7 +3,6 @@ import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "../supabaseAdmin.js";
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
-import { authenticate } from "../middleware/authenticate.js";
 
 if (process.env.NODE_ENV !== "production") {
   dotenv.config({ path: "../.env" });
@@ -34,6 +33,104 @@ const supabaseAnonClient = createClient(
 );
 
 const router = express.Router();
+
+const ACCESS_TOKEN_EXPIRES_IN = process.env.ACCESS_TOKEN_EXPIRES_IN || "15m";
+const REFRESH_TOKEN_EXPIRES_IN = process.env.REFRESH_TOKEN_EXPIRES_IN || "365d";
+const REFRESH_COOKIE_NAME = process.env.REFRESH_COOKIE_NAME || "nm_rt";
+
+function parseCookieHeader(cookieHeader = "") {
+  return cookieHeader
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .reduce((acc, part) => {
+      const idx = part.indexOf("=");
+      if (idx === -1) return acc;
+      const key = part.slice(0, idx);
+      const value = part.slice(idx + 1);
+      acc[key] = decodeURIComponent(value);
+      return acc;
+    }, {});
+}
+
+function getRefreshCookieOptions(req) {
+  const isProduction = process.env.NODE_ENV === "production";
+  const sameSite =
+    process.env.REFRESH_COOKIE_SAMESITE || (isProduction ? "none" : "lax");
+  const secure =
+    process.env.REFRESH_COOKIE_SECURE === "true" ||
+    (process.env.REFRESH_COOKIE_SECURE !== "false" && isProduction);
+
+  const options = {
+    httpOnly: true,
+    secure,
+    sameSite,
+    path: "/auth",
+    maxAge: 365 * 24 * 60 * 60 * 1000,
+  };
+
+  if (process.env.REFRESH_COOKIE_DOMAIN) {
+    options.domain = process.env.REFRESH_COOKIE_DOMAIN;
+  }
+
+  return options;
+}
+
+function signAccessToken({ id, role }) {
+  return jwt.sign({ id, role, type: "access" }, process.env.JWT_SECRET, {
+    expiresIn: ACCESS_TOKEN_EXPIRES_IN,
+  });
+}
+
+function signRefreshToken({ id, role }) {
+  return jwt.sign(
+    { id, role, type: "refresh" },
+    process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET,
+    {
+      expiresIn: REFRESH_TOKEN_EXPIRES_IN,
+    },
+  );
+}
+
+function verifyRefreshToken(token) {
+  return jwt.verify(
+    token,
+    process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET,
+  );
+}
+
+function shouldReturnMobileRefreshToken(req) {
+  const platform = String(req.headers["x-client-platform"] || "").toLowerCase();
+  return platform === "mobile" || platform === "react-native";
+}
+
+function clearRefreshCookie(req, res) {
+  res.clearCookie(REFRESH_COOKIE_NAME, {
+    ...getRefreshCookieOptions(req),
+    maxAge: undefined,
+    expires: new Date(0),
+  });
+}
+
+function issueAuthSession(req, res, payload, extra = {}) {
+  const token = signAccessToken(payload);
+  const refreshToken = signRefreshToken(payload);
+
+  res.cookie(REFRESH_COOKIE_NAME, refreshToken, getRefreshCookieOptions(req));
+
+  const body = {
+    token,
+    role: payload.role,
+    userId: payload.id,
+    ...extra,
+  };
+
+  if (shouldReturnMobileRefreshToken(req)) {
+    body.refreshToken = refreshToken;
+  }
+
+  return body;
+}
 
 /**
  * Send OTP to a phone number via WhatsApp Business Cloud API.
@@ -830,41 +927,48 @@ router.post("/login", async (req, res) => {
         });
       }
 
-      // Generate JWT token
-      const token = jwt.sign(
-        { id: userId, role: roleData.role },
-        process.env.JWT_SECRET,
-        { expiresIn: "180d" }, // 6 months for production-level session
+      return res.json(
+        issueAuthSession(
+          req,
+          res,
+          { id: userId, role: roleData.role },
+          {
+            role: roleData.role,
+            userId,
+            profileCompleted: true,
+            userName: customerProfile.username,
+          },
+        ),
       );
-
-      return res.json({
-        token,
-        role: roleData.role,
-        profileCompleted: true,
-        userId: userId,
-        userName: customerProfile.username,
-      });
     }
 
-    // Generate JWT token for non-customer roles
-    const token = jwt.sign(
-      { id: userId, role: roleData.role },
-      process.env.JWT_SECRET,
-      { expiresIn: "180d" }, // 6 months for production-level session
+    res.json(
+      issueAuthSession(
+        req,
+        res,
+        { id: userId, role: roleData.role },
+        {
+          role: roleData.role,
+          userId,
+          profileCompleted: true,
+        },
+      ),
     );
-
-    res.json({
-      token,
-      role: roleData.role,
-      profileCompleted: true,
-      userId: userId,
-    });
   } catch (error) {
     console.error("Login error:", error);
     res.status(500).json({
       message: "Server error during login",
     });
   }
+});
+
+/**
+ * POST /auth/logout
+ * Clears refresh cookie and lets clients clear local access token.
+ */
+router.post("/logout", (req, res) => {
+  clearRefreshCookie(req, res);
+  res.json({ message: "Logged out" });
 });
 
 /**
@@ -1247,22 +1351,21 @@ router.post("/verify-otp", async (req, res) => {
       .eq("id", userId)
       .single();
 
-    // Generate JWT token
-    const token = jwt.sign(
-      { id: userId, role: user?.role || "customer" },
-      process.env.JWT_SECRET,
-      { expiresIn: "180d" }, // 6 months for production-level session
-    );
-
     console.log(`✅ OTP verified for user ${userId}`);
 
-    res.json({
-      message: "Phone verified successfully!",
-      token,
-      role: user?.role || "customer",
-      userId,
-      userName: customer?.username || "",
-    });
+    res.json(
+      issueAuthSession(
+        req,
+        res,
+        { id: userId, role: user?.role || "customer" },
+        {
+          message: "Phone verified successfully!",
+          role: user?.role || "customer",
+          userId,
+          userName: customer?.username || "",
+        },
+      ),
+    );
   } catch (err) {
     console.error("Verify OTP error:", err);
     res.status(500).json({ message: "Failed to verify OTP" });
@@ -1341,9 +1444,33 @@ p{color:#6b7280;font-size:14px;line-height:1.5;margin-bottom:16px}
  * If the current token is valid (even if close to expiry), issue a new 180-day token.
  * This enables "stay logged in forever" like Uber Eats.
  */
-router.post("/refresh-token", authenticate, async (req, res) => {
+router.post("/refresh-token", async (req, res) => {
   try {
-    const { id, role } = req.user;
+    const cookies = parseCookieHeader(req.headers.cookie || "");
+    const tokenFromCookie = cookies[REFRESH_COOKIE_NAME];
+    const tokenFromBody = req.body?.refreshToken;
+    const refreshToken = tokenFromCookie || tokenFromBody;
+
+    if (!refreshToken) {
+      return res.status(401).json({ message: "Refresh token missing" });
+    }
+
+    let payload;
+    try {
+      payload = verifyRefreshToken(refreshToken);
+    } catch {
+      clearRefreshCookie(req, res);
+      return res
+        .status(401)
+        .json({ message: "Invalid or expired refresh token" });
+    }
+
+    if (payload?.type && payload.type !== "refresh") {
+      clearRefreshCookie(req, res);
+      return res.status(401).json({ message: "Invalid refresh token type" });
+    }
+
+    const { id, role } = payload;
 
     // Verify user still exists and is active
     let userExists = false;
@@ -1379,22 +1506,24 @@ router.post("/refresh-token", authenticate, async (req, res) => {
     }
 
     if (!userExists) {
+      clearRefreshCookie(req, res);
       return res.status(401).json({ message: "User no longer exists" });
     }
 
-    // Issue a fresh 180-day token
-    const newToken = jwt.sign({ id, role }, process.env.JWT_SECRET, {
-      expiresIn: "180d",
-    });
-
     console.log(`🔄 Token refreshed for ${role} (id: ${id})`);
 
-    res.json({
-      token: newToken,
-      role,
-      userId: id,
-      message: "Token refreshed successfully",
-    });
+    res.json(
+      issueAuthSession(
+        req,
+        res,
+        { id, role },
+        {
+          message: "Token refreshed successfully",
+          role,
+          userId: id,
+        },
+      ),
+    );
   } catch (error) {
     console.error("Refresh token error:", error);
     res.status(500).json({ message: "Failed to refresh token" });

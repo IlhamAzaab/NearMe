@@ -131,30 +131,31 @@ export default function DriverProfile() {
 
   if (isLoading && !profile) {
     return (
-      <div className="min-h-screen flex items-center justify-center relative">
-        {/* Background */}
-        <div className="absolute inset-0 bg-gradient-to-br from-[#f0fdf4] via-[#dcfce7] to-[#bbf7d0]"></div>
-        <div className="relative z-10 flex items-center gap-3">
-          <svg
-            className="w-6 h-6 animate-spin text-[#1db95b]"
-            fill="none"
-            viewBox="0 0 24 24"
-          >
-            <circle
-              className="opacity-25"
-              cx="12"
-              cy="12"
-              r="10"
-              stroke="currentColor"
-              strokeWidth="4"
-            ></circle>
-            <path
-              className="opacity-75"
-              fill="currentColor"
-              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-            ></path>
-          </svg>
-          <p className="text-[#166534] font-medium">Loading...</p>
+      <div className="min-h-screen bg-gradient-to-br from-[#f0fdf4] via-[#dcfce7] to-[#bbf7d0] font-display pb-20 animate-pulse">
+        <div className="bg-gradient-to-r from-[#1db95b] to-[#16a34a] px-6 py-6 shadow-lg">
+          <div className="flex items-center gap-4">
+            <div className="h-10 w-10 rounded-full bg-white/20" />
+            <div className="space-y-2">
+              <div className="h-6 w-32 bg-white/25 rounded" />
+              <div className="h-4 w-24 bg-white/20 rounded" />
+            </div>
+          </div>
+        </div>
+        <div className="px-6 py-6 space-y-5">
+          <div className="bg-white rounded-3xl shadow-lg p-6">
+            <div className="flex items-center gap-4">
+              <div className="h-20 w-20 rounded-full bg-gray-200" />
+              <div className="space-y-2 flex-1">
+                <div className="h-5 w-40 bg-gray-200 rounded" />
+                <div className="h-4 w-28 bg-gray-100 rounded" />
+              </div>
+            </div>
+          </div>
+          <div className="bg-white rounded-3xl shadow-lg p-6 space-y-4">
+            {[...Array(4)].map((_, idx) => (
+              <div key={idx} className="h-12 bg-gray-100 rounded-xl" />
+            ))}
+          </div>
         </div>
       </div>
     );

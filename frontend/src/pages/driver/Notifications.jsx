@@ -139,9 +139,22 @@ export default function DriverNotifications() {
           </div>
 
           {loading ? (
-            <div className="text-center py-12">
-              <div className="animate-spin rounded-full h-10 w-10 border-b-4 border-blue-600 mx-auto"></div>
-              <p className="text-gray-600 mt-4">Loading notifications...</p>
+            <div className="space-y-3 animate-pulse">
+              {[...Array(5)].map((_, i) => (
+                <div
+                  key={`notification-skeleton-${i}`}
+                  className="bg-white rounded-xl p-4 border-l-4 border-gray-200 shadow"
+                >
+                  <div className="flex items-start gap-4">
+                    <div className="w-12 h-12 bg-gray-200 rounded-full shrink-0" />
+                    <div className="flex-1 space-y-2">
+                      <div className="h-4 w-1/3 bg-gray-200 rounded" />
+                      <div className="h-3 w-full bg-gray-100 rounded" />
+                      <div className="h-3 w-2/3 bg-gray-100 rounded" />
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           ) : notifications.length === 0 ? (
             <div className="text-center py-12">
@@ -175,7 +188,7 @@ export default function DriverNotifications() {
                     <div className="flex items-start gap-4">
                       {/* Icon */}
                       <div
-                        className={`w-12 h-12 ${iconBg} rounded-full flex items-center justify-center flex-shrink-0`}
+                        className={`w-12 h-12 ${iconBg} rounded-full flex items-center justify-center shrink-0`}
                       >
                         <span className="text-xl">
                           {getNotificationIcon(notifType)}

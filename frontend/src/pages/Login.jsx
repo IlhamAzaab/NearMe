@@ -4,6 +4,7 @@ import foodBg from "../assets/food-bg.jpg";
 import mdImage from "../assets/md.jpg";
 import AnimatedAlert, { useAlert } from "../components/AnimatedAlert";
 import { API_URL } from "../config";
+import { persistAuthSession } from "../auth/tokenStorage";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -26,6 +27,7 @@ export default function Login() {
     try {
       const res = await fetch(`${API_URL}/auth/login`, {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
@@ -61,9 +63,8 @@ export default function Login() {
         return;
       }
 
-      if (data.token) {
-        localStorage.setItem("token", data.token);
-      }
+      await persistAuthSession(data);
+
       localStorage.setItem("role", data.role);
       localStorage.setItem("userEmail", email);
       if (data.userId) {

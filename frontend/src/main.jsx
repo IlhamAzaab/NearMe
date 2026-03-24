@@ -5,6 +5,9 @@ import "./index.css";
 import "leaflet/dist/leaflet.css";
 import App from "./App.jsx";
 import { appQueryClient } from "./lib/queryClient";
+import { initializeApiAuthInterceptor } from "./lib/apiClient";
+
+initializeApiAuthInterceptor();
 
 createRoot(document.getElementById("root")).render(
   <StrictMode>

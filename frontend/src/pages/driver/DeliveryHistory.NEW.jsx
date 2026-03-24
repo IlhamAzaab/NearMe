@@ -58,12 +58,32 @@ export default function DeliveryHistory() {
   if (isLoading && !deliveries.length) {
     return (
       <DriverLayout>
-        <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-green-50 to-teal-50 flex items-center justify-center">
-          <div className="text-center">
-            <div className="inline-block animate-spin rounded-full h-16 w-16 border-b-4 border-emerald-600"></div>
-            <p className="mt-4 text-gray-600 font-semibold">
-              Loading your history...
-            </p>
+        <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-green-50 to-teal-50">
+          <div className="relative overflow-hidden bg-gradient-to-r from-emerald-600 via-green-600 to-teal-600 text-white px-4 lg:px-8 py-12 shadow-xl">
+            <div className="max-w-5xl mx-auto animate-pulse">
+              <div className="h-4 w-36 bg-white/30 rounded mb-3" />
+              <div className="h-10 w-64 bg-white/30 rounded" />
+            </div>
+          </div>
+          <div className="max-w-5xl mx-auto px-4 lg:px-8 py-8 animate-pulse">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+              {[...Array(3)].map((_, i) => (
+                <div key={i} className="bg-white rounded-2xl p-6 shadow-md">
+                  <div className="h-10 w-10 bg-gray-200 rounded-xl mb-3" />
+                  <div className="h-3 w-24 bg-gray-200 rounded mb-2" />
+                  <div className="h-8 w-20 bg-gray-200 rounded" />
+                </div>
+              ))}
+            </div>
+            <div className="space-y-3">
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className="bg-white rounded-2xl p-5 shadow-sm">
+                  <div className="h-4 w-1/3 bg-gray-200 rounded mb-3" />
+                  <div className="h-3 w-full bg-gray-100 rounded mb-2" />
+                  <div className="h-3 w-2/3 bg-gray-100 rounded" />
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </DriverLayout>

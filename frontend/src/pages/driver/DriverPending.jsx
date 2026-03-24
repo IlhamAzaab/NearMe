@@ -112,10 +112,18 @@ export default function DriverPending() {
 
   if (isLoading && !driver) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading...</p>
+      <div className="min-h-screen bg-gray-50">
+        <div className="max-w-2xl mx-auto px-4 sm:px-6 py-12 animate-pulse">
+          <div className="bg-white rounded-xl shadow-lg p-8 text-center">
+            <div className="w-16 h-16 bg-gray-200 rounded-full mx-auto mb-4" />
+            <div className="h-8 w-56 bg-gray-200 rounded mx-auto mb-3" />
+            <div className="h-5 w-72 bg-gray-100 rounded mx-auto mb-8" />
+            <div className="space-y-3">
+              {[...Array(3)].map((_, i) => (
+                <div key={i} className="h-12 bg-gray-100 rounded-lg" />
+              ))}
+            </div>
+          </div>
         </div>
       </div>
     );

@@ -98,6 +98,8 @@ import ManagerNotificationOverlay from "./components/ManagerNotificationOverlay"
 import ManagerSocketConnector from "./components/ManagerSocketConnector";
 import TokenRefreshManager from "./components/TokenRefreshManager";
 import { AdminCacheProvider } from "./context/AdminCacheContext";
+import AuthSessionWatcher from "./components/AuthSessionWatcher";
+import OfflineStatusBanner from "./components/OfflineStatusBanner";
 
 function App() {
   return (
@@ -106,8 +108,10 @@ function App() {
         <AdminCacheProvider>
           <BrowserRouter>
             <TokenRefreshManager />
+            <AuthSessionWatcher />
             <DriverDeliveryNotificationProvider>
               <ManagerNotificationProvider>
+                <OfflineStatusBanner />
                 <NotificationBar />
                 <RealtimeNotificationListener />
                 <DriverDeliveryNotificationListener />

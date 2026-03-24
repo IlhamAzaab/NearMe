@@ -1193,8 +1193,24 @@ export default function DriverDashboard() {
           {/* Nearby Requests List */}
           <div className="flex flex-col gap-4 pb-28">
             {loading ? (
-              <div className="flex items-center justify-center py-12">
-                <div className="w-8 h-8 border-4 border-[#22c55e] border-t-transparent rounded-full animate-spin"></div>
+              <div className="px-4 space-y-3">
+                {[...Array(3)].map((_, idx) => (
+                  <div
+                    key={`nearby-skeleton-${idx}`}
+                    className="rounded-2xl bg-white p-4 shadow-sm border border-slate-100 animate-pulse"
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="h-4 w-24 bg-slate-200 rounded" />
+                      <div className="h-4 w-16 bg-slate-200 rounded" />
+                    </div>
+                    <div className="h-7 w-28 bg-slate-200 rounded mb-3" />
+                    <div className="space-y-2 mb-3">
+                      <div className="h-3 w-full bg-slate-100 rounded" />
+                      <div className="h-3 w-3/4 bg-slate-100 rounded" />
+                    </div>
+                    <div className="h-10 w-full bg-slate-200 rounded-xl" />
+                  </div>
+                ))}
               </div>
             ) : !isOnline && activeDeliveries.length === 0 ? (
               <div className="px-4 py-12 text-center">
