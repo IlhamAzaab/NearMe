@@ -1338,7 +1338,7 @@ router.get("/dashboard-stats", authenticate, async (req, res) => {
       .eq("status", "delivered")
       .eq("orders.payment_method", "cash");
     if (snapshotBoundary) {
-      cashQuery = cashQuery.gt("updated_at", snapshotBoundary);
+      cashQuery = cashQuery.gt("delivered_at", snapshotBoundary);
     }
     const { data: cashDeliveries } = await cashQuery;
     const cashSales = (cashDeliveries || []).reduce(

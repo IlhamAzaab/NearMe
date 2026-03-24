@@ -451,7 +451,7 @@ async function createDailySnapshot() {
     .eq("orders.payment_method", "cash");
 
   if (snapshotBoundary) {
-    salesQuery = salesQuery.gt("updated_at", snapshotBoundary);
+    salesQuery = salesQuery.gt("delivered_at", snapshotBoundary);
   }
 
   const { data: cashDeliveries } = await salesQuery;
@@ -571,10 +571,10 @@ async function checkAndCreateMissedSnapshot() {
         .select(`id, order_id, orders!inner(total_amount, payment_method)`)
         .eq("status", "delivered")
         .eq("orders.payment_method", "cash")
-        .lt("updated_at", todayMidnightSL.toISOString());
+        .lt("delivered_at", todayMidnightSL.toISOString());
 
       if (snapshotBoundary) {
-        salesQuery = salesQuery.gt("updated_at", snapshotBoundary);
+        salesQuery = salesQuery.gt("delivered_at", snapshotBoundary);
       }
 
       const { data: cashDeliveries } = await salesQuery;
@@ -687,10 +687,10 @@ async function checkAndCreateMissedSnapshot() {
         .select(`id, order_id, orders!inner(total_amount, payment_method)`)
         .eq("status", "delivered")
         .eq("orders.payment_method", "cash")
-        .lt("updated_at", todayMidnightSL.toISOString());
+        .lt("delivered_at", todayMidnightSL.toISOString());
 
       if (snapshotBoundary) {
-        salesQuery = salesQuery.gt("updated_at", snapshotBoundary);
+        salesQuery = salesQuery.gt("delivered_at", snapshotBoundary);
       }
 
       const { data: cashDeliveries } = await salesQuery;

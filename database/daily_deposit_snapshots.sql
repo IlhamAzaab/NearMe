@@ -82,7 +82,7 @@ BEGIN
     JOIN orders o ON o.id = d.order_id
     WHERE d.status = 'delivered'
       AND o.payment_method = 'cash'
-      AND d.updated_at > v_snapshot_boundary;
+      AND d.delivered_at > v_snapshot_boundary;
   ELSE
     SELECT COALESCE(SUM(o.total_amount), 0)
     INTO v_total_sales
@@ -192,7 +192,7 @@ today_sales AS (
   CROSS JOIN snapshot_values sv
   WHERE d.status = 'delivered'
     AND o.payment_method = 'cash'
-    AND (sv.boundary IS NULL OR d.updated_at > sv.boundary)
+    AND (sv.boundary IS NULL OR d.delivered_at > sv.boundary)
 ),
 today_approved AS (
   SELECT COALESCE(SUM(approved_amount), 0) as total
