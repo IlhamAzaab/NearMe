@@ -40,7 +40,9 @@ export const fetchActiveDeliverySnapshot = async ({ token, signal }) => {
   }
 
   const data = await response.json();
-  const activeDeliveries = Array.isArray(data?.deliveries) ? data.deliveries : [];
+  const activeDeliveries = Array.isArray(data?.deliveries)
+    ? data.deliveries
+    : [];
 
   return {
     deliveryId: pickCurrentActiveDeliveryId(activeDeliveries),

@@ -18,12 +18,12 @@ import {
 } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { X, Phone, ChevronDown, Navigation } from "lucide-react";
+import { Phone, Navigation } from "lucide-react";
 import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
 import SwipeToDeliver from "../../components/SwipeToDeliver";
 import StatusTransitionOverlay from "../../components/StatusTransitionOverlay";
 import DeliveryProofUpload from "../../components/DeliveryProofUpload";
-import { MapBoundsFitter } from "../../components/DraggableMap";
+import DriverBottomNav from "../../components/DriverBottomNav";
 import { API_URL } from "../../config";
 import { cacheDriverActiveDeliveryId } from "../../utils/driverActiveDelivery";
 
@@ -102,44 +102,18 @@ const createNavigationArrowIcon = (heading = 0) => {
   });
 };
 
-// ============================================================================
-// BACKGROUNDLESS CIRCLE ICONS - Clean style for restaurant/customer
-// ============================================================================
-const createCleanCircleIcon = (color, emoji = "", size = 36) => {
-  const innerSize = size - 8;
-  return L.divIcon({
-    className: "clean-marker",
-    html: `
-      <div style="
-        width: ${size}px;
-        height: ${size}px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      ">
-        <div style="
-          width: ${innerSize}px;
-          height: ${innerSize}px;
-          background: ${color};
-          border: 3px solid white;
-          border-radius: 50%;
-          box-shadow: 0 3px 8px rgba(0,0,0,0.3);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 14px;
-        ">${emoji}</div>
-      </div>
-    `,
-    iconSize: [size, size],
-    iconAnchor: [size / 2, size / 2],
-    popupAnchor: [0, -size / 2],
-  });
-};
-
-// Static icons for restaurant and customer
-const restaurantIcon = createCleanCircleIcon("#ef4444", "🍽️", 40);
-const customerIcon = createCleanCircleIcon("#10b981", "📍", 40);
+const destinationIcon = L.divIcon({
+  className: "destination-pin-marker",
+  html: `
+    <svg xmlns="http://www.w3.org/2000/svg" width="42" height="42" viewBox="0 0 24 24" fill="none">
+      <path d="M12 22s8-7.58 8-13a8 8 0 10-16 0c0 5.42 8 13 8 13z" fill="#DC143C"/>
+      <circle cx="12" cy="9" r="3.2" fill="#ffffff"/>
+    </svg>
+  `,
+  iconSize: [42, 42],
+  iconAnchor: [21, 40],
+  popupAnchor: [0, -36],
+});
 
 // Component to handle map bounds - only fits bounds on initial load or when user requests recenter
 function MapBounds({
@@ -147,6 +121,8 @@ function MapBounds({
   shouldFitBounds,
   onBoundsFitted,
   onUserInteraction,
+  paddingTopLeft = [40, 40],
+  paddingBottomRight = [40, 260],
 }) {
   const map = useMap();
   const hasInitiallyFitted = useRef(false);
@@ -170,11 +146,21 @@ function MapBounds({
     // Only fit bounds on initial load OR when explicitly requested via recenter button
     if (positions && positions.length > 0 && shouldFitBounds) {
       const bounds = L.latLngBounds(positions);
-      map.fitBounds(bounds, { padding: [50, 50] });
+      map.fitBounds(bounds, {
+        paddingTopLeft,
+        paddingBottomRight,
+      });
       hasInitiallyFitted.current = true;
       onBoundsFitted();
     }
-  }, [positions, map, shouldFitBounds, onBoundsFitted]);
+  }, [
+    positions,
+    map,
+    shouldFitBounds,
+    onBoundsFitted,
+    paddingTopLeft,
+    paddingBottomRight,
+  ]);
 
   return null;
 }
@@ -244,6 +230,8 @@ export default function DriverMapPage() {
   const [overlayActionType, setOverlayActionType] = useState("pickup");
   const [overlayErrorMsg, setOverlayErrorMsg] = useState("");
   const overlayCallbackRef = useRef(null);
+  const [sheetExpanded, setSheetExpanded] = useState(false);
+  const sheetTouchStartY = useRef(null);
 
   useEffect(() => {
     if (!deliveryId && currentTarget?.delivery_id) {
@@ -314,6 +302,30 @@ export default function DriverMapPage() {
     setShouldFitBounds(true);
   }, []);
 
+  const handleSheetTouchStart = useCallback((e) => {
+    sheetTouchStartY.current = e.touches?.[0]?.clientY ?? null;
+  }, []);
+
+  const handleSheetTouchEnd = useCallback((e) => {
+    const startY = sheetTouchStartY.current;
+    const endY = e.changedTouches?.[0]?.clientY;
+    sheetTouchStartY.current = null;
+    if (startY == null || endY == null) return;
+
+    const deltaY = endY - startY;
+    if (deltaY < -40) {
+      setSheetExpanded(true);
+    } else if (deltaY > 40) {
+      setSheetExpanded(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!currentTarget?.delivery_id) return;
+    setUserHasInteracted(false);
+    setShouldFitBounds(true);
+  }, [currentTarget?.delivery_id, mode]);
+
   useEffect(() => {
     const role = localStorage.getItem("role");
     if (role !== "driver") {
@@ -372,7 +384,10 @@ export default function DriverMapPage() {
           lastLocationRef.current = newLoc;
           lastBackendLocationRef.current = newLoc;
           setDriverLocation(newLoc);
-          updateLocationOnBackend(deliveryId, newLoc);
+          updateLocationOnBackend(
+            currentTarget?.delivery_id || deliveryId,
+            newLoc,
+          );
           return;
         }
 
@@ -403,7 +418,10 @@ export default function DriverMapPage() {
 
           if (movedSinceBackend >= FETCH_MOVEMENT_THRESHOLD_METERS) {
             lastBackendLocationRef.current = newLoc;
-            updateLocationOnBackend(deliveryId, newLoc);
+            updateLocationOnBackend(
+              currentTarget?.delivery_id || deliveryId,
+              newLoc,
+            );
             // Refresh delivery data when driver has moved significantly
             fetchPickupsAndDeliveries();
           }
@@ -427,6 +445,7 @@ export default function DriverMapPage() {
   };
 
   const updateLocationOnBackend = async (delivId, location) => {
+    if (!delivId) return;
     try {
       const token = localStorage.getItem("token");
       await fetch(`${API_URL}/driver/deliveries/${delivId}/location`, {
@@ -463,11 +482,16 @@ export default function DriverMapPage() {
       });
       const deliveriesData = await deliveriesRes.json();
 
+      let nextMode = mode;
+      let nextTarget = currentTarget;
+
       if (pickupsRes.ok) {
         setPickups(pickupsData.pickups || []);
         if (pickupsData.pickups && pickupsData.pickups.length > 0) {
-          setMode("pickup");
-          setCurrentTarget(pickupsData.pickups[0]);
+          nextMode = "pickup";
+          nextTarget = pickupsData.pickups[0];
+          setMode(nextMode);
+          setCurrentTarget(nextTarget);
         }
       }
 
@@ -479,8 +503,10 @@ export default function DriverMapPage() {
           deliveriesData.deliveries &&
           deliveriesData.deliveries.length > 0
         ) {
-          setMode("delivery");
-          setCurrentTarget(deliveriesData.deliveries[0]);
+          nextMode = "delivery";
+          nextTarget = deliveriesData.deliveries[0];
+          setMode(nextMode);
+          setCurrentTarget(nextTarget);
         }
       }
 
@@ -539,12 +565,16 @@ export default function DriverMapPage() {
 
               if (acceptedOnes.length > 0) {
                 setPickups(acceptedOnes);
-                setMode("pickup");
-                setCurrentTarget(acceptedOnes[0]);
+                nextMode = "pickup";
+                nextTarget = acceptedOnes[0];
+                setMode(nextMode);
+                setCurrentTarget(nextTarget);
               } else if (inProgressOnes.length > 0) {
                 setDeliveries(inProgressOnes);
-                setMode("delivery");
-                setCurrentTarget(inProgressOnes[0]);
+                nextMode = "delivery";
+                nextTarget = inProgressOnes[0];
+                setMode(nextMode);
+                setCurrentTarget(nextTarget);
               }
             }
           }
@@ -554,10 +584,10 @@ export default function DriverMapPage() {
       }
 
       queryClient.setQueryData(mapSnapshotKey, {
-        mode,
+        mode: nextMode,
         pickups: pickupsData.pickups || [],
         deliveries: deliveriesData.deliveries || [],
-        currentTarget,
+        currentTarget: nextTarget,
         driverLocation,
       });
     } catch (e) {
@@ -796,43 +826,54 @@ export default function DriverMapPage() {
   };
 
   if (loading && !hasCachedSnapshot) {
-    return <DriverMapSkeleton />;
+    return (
+      <>
+        <DriverMapSkeleton />
+        <DriverBottomNav />
+      </>
+    );
   }
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-green-600"></div>
-      </div>
+      <>
+        <div className="flex items-center justify-center h-[calc(100vh-4rem)] bg-gray-50">
+          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-green-600"></div>
+        </div>
+        <DriverBottomNav />
+      </>
     );
   }
 
   if (!currentTarget) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen p-6">
-        <svg
-          className="w-24 h-24 text-gray-400 mb-4"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-          />
-        </svg>
-        <h2 className="text-2xl font-bold text-gray-700 mb-2">
-          All Deliveries Completed!
-        </h2>
-        <button
-          onClick={() => navigate("/driver/deliveries")}
-          className="mt-6 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-semibold"
-        >
-          View Available Deliveries
-        </button>
-      </div>
+      <>
+        <div className="flex flex-col items-center justify-center h-[calc(100vh-4rem)] p-6 bg-gray-50">
+          <svg
+            className="w-24 h-24 text-gray-400 mb-4"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
+          </svg>
+          <h2 className="text-2xl font-bold text-gray-700 mb-2">
+            All Deliveries Completed!
+          </h2>
+          <button
+            onClick={() => navigate("/driver/deliveries")}
+            className="mt-6 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-semibold"
+          >
+            View Available Deliveries
+          </button>
+        </div>
+        <DriverBottomNav />
+      </>
     );
   }
 
@@ -854,7 +895,28 @@ export default function DriverMapPage() {
     ]);
   }
 
-  const mapCenter = mapPositions.length > 0 ? mapPositions[0] : [0, 0];
+  const routePositions =
+    currentTarget?.route_geometry?.coordinates?.map((coord) => [
+      Number(coord[1]),
+      Number(coord[0]),
+    ]) || [];
+
+  const allFitPositions = [...mapPositions, ...routePositions].filter(
+    (pos) =>
+      Array.isArray(pos) &&
+      pos.length >= 2 &&
+      Number.isFinite(Number(pos[0])) &&
+      Number.isFinite(Number(pos[1])),
+  );
+
+  const mapCenter = allFitPositions.length > 0 ? allFitPositions[0] : [0, 0];
+
+  const mapDestination =
+    mode === "pickup"
+      ? currentTarget.restaurant
+      : mode === "delivery"
+        ? currentTarget.customer
+        : null;
 
   return (
     <>
@@ -873,15 +935,14 @@ export default function DriverMapPage() {
           overlayCallbackRef.current = null;
         }}
       />
-      <div className="h-screen w-screen relative bg-gray-50">
-        {/* Fullscreen Map */}
-        <div className="absolute inset-0">
+      <div className="h-screen bg-gray-50 flex flex-col max-w-md mx-auto border-x border-gray-200">
+        <div className="relative h-[calc(100vh-4rem)] overflow-hidden">
           {driverLocation && (
             <MapContainer
               center={mapCenter}
               zoom={14}
               className="h-full w-full"
-              zoomControl={true}
+              zoomControl={false}
             >
               <TileLayer
                 attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
@@ -889,10 +950,12 @@ export default function DriverMapPage() {
               />
 
               <MapBounds
-                positions={mapPositions}
+                positions={allFitPositions}
                 shouldFitBounds={shouldFitBounds}
                 onBoundsFitted={handleBoundsFitted}
                 onUserInteraction={handleUserInteraction}
+                paddingTopLeft={[36, 90]}
+                paddingBottomRight={[36, sheetExpanded ? 420 : 280]}
               />
 
               {/* Driver Marker - Navigation Arrow with heading direction */}
@@ -911,20 +974,26 @@ export default function DriverMapPage() {
                       currentTarget.restaurant.latitude,
                       currentTarget.restaurant.longitude,
                     ]}
-                    icon={restaurantIcon}
+                    icon={destinationIcon}
                   >
                     <Popup>{currentTarget.restaurant.name}</Popup>
                   </Marker>
                   {currentTarget.route_geometry &&
                     currentTarget.route_geometry.coordinates && (
-                      <Polyline
-                        positions={currentTarget.route_geometry.coordinates.map(
-                          (coord) => [coord[1], coord[0]],
-                        )}
-                        color="#2563eb"
-                        weight={6}
-                        opacity={0.9}
-                      />
+                      <>
+                        <Polyline
+                          positions={routePositions}
+                          color="#ffffff"
+                          weight={14}
+                          opacity={0.95}
+                        />
+                        <Polyline
+                          positions={routePositions}
+                          color="#2563eb"
+                          weight={9}
+                          opacity={0.98}
+                        />
+                      </>
                     )}
                 </>
               )}
@@ -936,20 +1005,26 @@ export default function DriverMapPage() {
                       currentTarget.customer.latitude,
                       currentTarget.customer.longitude,
                     ]}
-                    icon={customerIcon}
+                    icon={destinationIcon}
                   >
                     <Popup>{currentTarget.customer.name}</Popup>
                   </Marker>
                   {currentTarget.route_geometry &&
                     currentTarget.route_geometry.coordinates && (
-                      <Polyline
-                        positions={currentTarget.route_geometry.coordinates.map(
-                          (coord) => [coord[1], coord[0]],
-                        )}
-                        color="#2563eb"
-                        weight={6}
-                        opacity={0.9}
-                      />
+                      <>
+                        <Polyline
+                          positions={routePositions}
+                          color="#ffffff"
+                          weight={14}
+                          opacity={0.95}
+                        />
+                        <Polyline
+                          positions={routePositions}
+                          color="#2563eb"
+                          weight={9}
+                          opacity={0.98}
+                        />
+                      </>
                     )}
                 </>
               )}
@@ -958,7 +1033,7 @@ export default function DriverMapPage() {
 
           {/* Back Button - Top Left */}
           <button
-            onClick={() => navigate("/driver/active")}
+            onClick={() => navigate("/driver/dashboard")}
             className="absolute top-6 left-6 z-[1000] bg-white rounded-full w-10 h-10 flex items-center justify-center shadow-lg hover:bg-gray-100 transition-colors"
             title="Go Back"
           >
@@ -977,96 +1052,105 @@ export default function DriverMapPage() {
             </svg>
           </button>
 
-          {/* Recenter Button - Shows when user has zoomed/panned */}
-          {userHasInteracted && (
-            <button
-              onClick={handleRecenterMap}
-              className="absolute top-6 right-6 bg-white p-3 rounded-full shadow-lg hover:bg-gray-50 transition-all duration-200 z-[1000]"
-              title="Recenter map to show full route"
-            >
-              <svg
-                className="w-5 h-5 text-blue-600"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
+          {/* Main Navigate Button above details card */}
+          {mapDestination?.latitude != null &&
+            mapDestination?.longitude != null && (
+              <button
+                onClick={() =>
+                  openGoogleMapsNavigation(
+                    mapDestination.latitude,
+                    mapDestination.longitude,
+                    mapDestination.name || "Destination",
+                  )
+                }
+                style={{
+                  bottom: sheetExpanded
+                    ? "calc(60vh + 0.75rem)"
+                    : "calc(40vh + 0.75rem)",
+                }}
+                className="absolute left-1/2 -translate-x-1/2 z-[1000] bg-blue-600 text-white px-5 py-2.5 rounded-full shadow-xl hover:bg-blue-700 transition-all duration-200 flex items-center gap-2"
+                title="Navigate to destination"
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"
-                />
-              </svg>
-            </button>
-          )}
-        </div>
-
-        {/* Delivery Details Card - Overlapping the map */}
-        <div className="absolute bottom-0 left-0 right-0 z-[999] bg-white rounded-t-3xl shadow-2xl max-h-[50vh] overflow-y-auto">
-          {/* Drag Handle */}
-          <div className="flex justify-center pt-3 pb-2">
-            <div className="w-12 h-1.5 bg-gray-300 rounded-full"></div>
-          </div>
-          <div className="px-6 pb-6">
-            {/* Current Target Info */}
-            {mode === "pickup" ? (
-              <PickupInfo
-                pickup={currentTarget}
-                onPickedUp={handlePickedUp}
-                updating={updating}
-              />
-            ) : (
-              <DeliveryInfo
-                delivery={currentTarget}
-                onDelivered={handleDelivered}
-                updating={updating}
-              />
+                <Navigation className="w-4 h-4" />
+                <span className="font-semibold text-sm">Navigate</span>
+              </button>
             )}
 
-            {/* Upcoming List */}
-            <div className="mt-6">
-              <h3 className="font-bold text-gray-700 mb-3">
-                {mode === "pickup"
-                  ? `Upcoming Pickups (${pickups.length - 1})`
-                  : `Upcoming Deliveries (${deliveries.length - 1})`}
-              </h3>
-
-              {mode === "pickup" &&
-                pickups
-                  .slice(1)
-                  .map((pickup, index) => (
-                    <UpcomingPickupCard
-                      key={pickup.delivery_id}
-                      pickup={pickup}
-                      index={index + 2}
-                    />
-                  ))}
-
-              {mode === "delivery" &&
-                deliveries
-                  .slice(1)
-                  .map((delivery, index) => (
-                    <UpcomingDeliveryCard
-                      key={delivery.delivery_id}
-                      delivery={delivery}
-                      index={index + 2}
-                    />
-                  ))}
+          {/* Delivery Details Card section (swipe up to 60%) */}
+          <div
+            className={`absolute left-0 right-0 bottom-0 z-[999] bg-white rounded-t-3xl shadow-2xl overflow-y-auto transition-[height] duration-200 ${sheetExpanded ? "h-[60vh]" : "h-[40vh]"}`}
+            onTouchStart={handleSheetTouchStart}
+            onTouchEnd={handleSheetTouchEnd}
+          >
+            {/* Drag Handle */}
+            <div className="flex justify-center pt-3 pb-2">
+              <div className="w-12 h-1.5 bg-gray-300 rounded-full"></div>
             </div>
-
-            {/* Start Delivery Button */}
-            {mode === "pickup" &&
-              pickups.length === 0 &&
-              deliveries.length > 0 && (
-                <button
-                  onClick={handleStartDelivery}
-                  className="w-full mt-4 py-4 bg-blue-600 text-white rounded-xl font-bold text-lg hover:bg-blue-700 transition"
-                >
-                  START DELIVERY
-                </button>
+            <div className="px-6 pb-6">
+              {/* Current Target Info */}
+              {mode === "pickup" ? (
+                <PickupInfo
+                  pickup={currentTarget}
+                  onPickedUp={handlePickedUp}
+                  updating={updating}
+                  destinationIcon={Navigation}
+                />
+              ) : (
+                <DeliveryInfo
+                  delivery={currentTarget}
+                  onDelivered={handleDelivered}
+                  updating={updating}
+                  destinationIcon={Navigation}
+                />
               )}
+
+              {/* Upcoming List */}
+              <div className="mt-6">
+                <h3 className="font-bold text-gray-700 mb-3">
+                  {mode === "pickup"
+                    ? `Upcoming Pickups (${pickups.length - 1})`
+                    : `Upcoming Deliveries (${deliveries.length - 1})`}
+                </h3>
+
+                {mode === "pickup" &&
+                  pickups
+                    .slice(1)
+                    .map((pickup, index) => (
+                      <UpcomingPickupCard
+                        key={pickup.delivery_id}
+                        pickup={pickup}
+                        index={index + 2}
+                      />
+                    ))}
+
+                {mode === "delivery" &&
+                  deliveries
+                    .slice(1)
+                    .map((delivery, index) => (
+                      <UpcomingDeliveryCard
+                        key={delivery.delivery_id}
+                        delivery={delivery}
+                        index={index + 2}
+                      />
+                    ))}
+              </div>
+
+              {/* Start Delivery Button */}
+              {mode === "pickup" &&
+                pickups.length === 0 &&
+                deliveries.length > 0 && (
+                  <button
+                    onClick={handleStartDelivery}
+                    className="w-full mt-4 py-4 bg-blue-600 text-white rounded-xl font-bold text-lg hover:bg-blue-700 transition"
+                  >
+                    START DELIVERY
+                  </button>
+                )}
+            </div>
           </div>
         </div>
+
+        <DriverBottomNav />
       </div>
     </>
   );
@@ -1089,7 +1173,12 @@ function DriverMapSkeleton() {
   );
 }
 
-function PickupInfo({ pickup, onPickedUp, updating }) {
+function PickupInfo({
+  pickup,
+  onPickedUp,
+  updating,
+  destinationIcon: DestIcon,
+}) {
   const {
     order_number,
     restaurant,
@@ -1157,7 +1246,7 @@ function PickupInfo({ pickup, onPickedUp, updating }) {
             {restaurant.name}
           </h2>
           <div className="flex items-center gap-2">
-            {/* Navigate to Restaurant in Google Maps */}
+            {/* Navigate to destination in Google Maps */}
             <button
               onClick={() =>
                 openGoogleMapsNavigation(
@@ -1166,10 +1255,10 @@ function PickupInfo({ pickup, onPickedUp, updating }) {
                   restaurant.name,
                 )
               }
-              className="shrink-0 w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center hover:bg-blue-600 transition-colors"
+              className="shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-[#DC143C] hover:text-red-700 transition-colors"
               title="Navigate in Google Maps"
             >
-              <Navigation className="w-5 h-5 text-white" />
+              <DestIcon className="w-5 h-5" />
             </button>
             {restaurant.phone && (
               <a
@@ -1224,14 +1313,19 @@ function PickupInfo({ pickup, onPickedUp, updating }) {
           onSwipe={onPickedUp}
           disabled={updating}
           buttonText="SWIPE TO PICK UP"
-          resetTrigger={`${pickup.delivery_id}-${updating ? "busy" : "idle"}`}
+          resetTrigger={pickup.delivery_id}
         />
       </div>
     </div>
   );
 }
 
-function DeliveryInfo({ delivery, onDelivered, updating }) {
+function DeliveryInfo({
+  delivery,
+  onDelivered,
+  updating,
+  destinationIcon: DestIcon,
+}) {
   const {
     order_number,
     customer,
@@ -1299,7 +1393,7 @@ function DeliveryInfo({ delivery, onDelivered, updating }) {
         <div className="flex items-start justify-between mb-2">
           <h2 className="text-xl font-bold text-green-600">{customer.name}</h2>
           <div className="flex items-center gap-2">
-            {/* Navigate to Customer in Google Maps */}
+            {/* Navigate to destination in Google Maps */}
             <button
               onClick={() =>
                 openGoogleMapsNavigation(
@@ -1308,10 +1402,10 @@ function DeliveryInfo({ delivery, onDelivered, updating }) {
                   customer.name,
                 )
               }
-              className="shrink-0 w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center hover:bg-blue-600 transition-colors"
+              className="shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-[#DC143C] hover:text-red-700 transition-colors"
               title="Navigate in Google Maps"
             >
-              <Navigation className="w-5 h-5 text-white" />
+              <DestIcon className="w-5 h-5" />
             </button>
             {customer.phone && (
               <a
@@ -1377,21 +1471,21 @@ function DeliveryInfo({ delivery, onDelivered, updating }) {
         </div>
       </div>
 
-      {/* Block 5: Delivery Proof Photo (Optional) */}
-      <DeliveryProofUpload
-        deliveryId={delivery_id}
-        onUploaded={(url) => console.log("Proof uploaded:", url)}
-      />
-
-      {/* Block 6: Swipe to Deliver */}
+      {/* Block 5: Swipe to Deliver */}
       <div className="pt-2">
         <SwipeToDeliver
           onSwipe={onDelivered}
           disabled={updating}
           buttonText="SWIPE TO DELIVER"
-          resetTrigger={`${delivery_id}-${updating ? "busy" : "idle"}`}
+          resetTrigger={delivery_id}
         />
       </div>
+
+      {/* Block 6: Delivery Proof Photo (Optional) */}
+      <DeliveryProofUpload
+        deliveryId={delivery_id}
+        onUploaded={(url) => console.log("Proof uploaded:", url)}
+      />
     </div>
   );
 }

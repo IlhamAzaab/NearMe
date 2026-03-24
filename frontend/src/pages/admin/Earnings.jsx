@@ -24,8 +24,10 @@ export default function Earnings() {
     queryKey: ["admin", "earnings", period, token],
     enabled: !!token,
     initialData: cachedEarnings || undefined,
-    staleTime: 60 * 1000,
-    refetchInterval: 90 * 1000,
+    staleTime: 15 * 1000,
+    refetchOnMount: "always",
+    refetchInterval: 20 * 1000,
+    refetchIntervalInBackground: true,
     queryFn: async () => {
       const res = await fetch(`${API_URL}/admin/earnings?period=${period}`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -40,8 +42,10 @@ export default function Earnings() {
   const { data: payouts = [] } = useQuery({
     queryKey: ["admin", "payouts", token],
     enabled: !!token,
-    staleTime: 60 * 1000,
-    refetchInterval: 120 * 1000,
+    staleTime: 20 * 1000,
+    refetchOnMount: "always",
+    refetchInterval: 30 * 1000,
+    refetchIntervalInBackground: true,
     queryFn: async () => {
       const res = await fetch(`${API_URL}/admin/payouts?limit=5`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -56,8 +60,10 @@ export default function Earnings() {
     queryKey: ["admin", "restaurant", token],
     enabled: !!token,
     initialData: cachedRestaurant || undefined,
-    staleTime: 60 * 1000,
-    refetchInterval: 120 * 1000,
+    staleTime: 30 * 1000,
+    refetchOnMount: "always",
+    refetchInterval: 30 * 1000,
+    refetchIntervalInBackground: true,
     queryFn: async () => {
       const res = await fetch(`${API_URL}/admin/restaurant`, {
         headers: { Authorization: `Bearer ${token}` },

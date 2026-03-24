@@ -42,7 +42,10 @@ export default function AdminDashboard() {
   const dashboardQuery = useQuery({
     queryKey: ["admin", "dashboard", chartPeriod],
     enabled: !!token,
-    staleTime: 60 * 1000,
+    staleTime: 15 * 1000,
+    refetchOnMount: "always",
+    refetchInterval: 20 * 1000,
+    refetchIntervalInBackground: true,
     initialData: getCache(getDashboardCacheKey(chartPeriod)) || undefined,
     queryFn: async () => {
       const res = await fetch(
@@ -61,7 +64,10 @@ export default function AdminDashboard() {
   const recentOrdersQuery = useQuery({
     queryKey: ["admin", "recent-orders"],
     enabled: !!token,
-    staleTime: 60 * 1000,
+    staleTime: 15 * 1000,
+    refetchOnMount: "always",
+    refetchInterval: 20 * 1000,
+    refetchIntervalInBackground: true,
     initialData: getCache("admin_recent_orders") || undefined,
     queryFn: async () => {
       const res = await fetch(`${API_URL}/admin/orders?limit=5`, {
@@ -80,7 +86,10 @@ export default function AdminDashboard() {
   const restaurantQuery = useQuery({
     queryKey: ["admin", "restaurant"],
     enabled: !!token,
-    staleTime: 2 * 60 * 1000,
+    staleTime: 30 * 1000,
+    refetchOnMount: "always",
+    refetchInterval: 30 * 1000,
+    refetchIntervalInBackground: true,
     initialData: getCache(CACHE_KEYS.RESTAURANT) || undefined,
     queryFn: async () => {
       const res = await fetch(`${API_URL}/admin/restaurant`, {

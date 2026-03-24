@@ -13,9 +13,12 @@ import { useEffect, useRef, useCallback } from "react";
 import { useSocket } from "../context/SocketContext";
 import AdminNotificationBanner from "./AdminNotificationBanner";
 import { useLocation } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 
 export default function AdminSocketConnector() {
+  const queryClient = useQueryClient();
   const {
+    socket,
     connectAsAdmin,
     disconnect,
     isConnected,
@@ -110,6 +113,28 @@ export default function AdminSocketConnector() {
       }
     };
   }, [disconnect]);
+
+  // Keep all admin pages fresh when realtime events arrive.
+  useEffect(() => {
+    if (!socket) return;
+
+    const invalidateAdminQueries = () => {
+      queryClient.invalidateQueries({
+        predicate: (query) =>
+          Array.isArray(query.queryKey) && query.queryKey[0] === "admin",
+      });
+    };
+
+    socket.on("order:new_order", invalidateAdminQueries);
+    socket.on("admin:order_milestone", invalidateAdminQueries);
+    socket.on("admin:payment_received", invalidateAdminQueries);
+
+    return () => {
+      socket.off("order:new_order", invalidateAdminQueries);
+      socket.off("admin:order_milestone", invalidateAdminQueries);
+      socket.off("admin:payment_received", invalidateAdminQueries);
+    };
+  }, [queryClient, socket]);
 
   // Only render for admins
   const role = localStorage.getItem("role");

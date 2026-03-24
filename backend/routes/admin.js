@@ -428,84 +428,73 @@ router.get("/dashboard-stats", authenticate, async (req, res) => {
 
     const restaurantId = adminData.restaurant_id;
 
-    // Get qualifying deliveries (picked_up or later = admin earned)
-    const { data: qualifyingDeliveries, error: qualDelError } =
-      await supabaseAdmin
-        .from("deliveries")
-        .select("order_id")
-        .in("status", ["picked_up", "on_the_way", "at_customer", "delivered"]);
+    // Use status on deliveries table as source-of-truth for successful earnings.
+    // Count earnings once delivery reaches picked_up or later, excluding failed/cancelled.
+    const SUCCESS_STATUSES = ["picked_up", "on_the_way", "at_customer", "delivered"];
 
-    if (qualDelError) {
-      console.error("Qualifying deliveries error:", qualDelError);
+    const { data: deliveryRows, error: deliveryError } = await supabaseAdmin
+      .from("deliveries")
+      .select(
+        "order_id, status, created_at, picked_up_at, on_the_way_at, arrived_customer_at, delivered_at, orders!inner(restaurant_id, admin_subtotal)",
+      )
+      .eq("orders.restaurant_id", restaurantId)
+      .in("status", SUCCESS_STATUSES);
+
+    if (deliveryError) {
+      console.error("Dashboard deliveries fetch error:", deliveryError);
       return res
         .status(500)
         .json({ message: "Failed to fetch dashboard data" });
     }
 
-    const qualifyingOrderIds = (qualifyingDeliveries || []).map(
-      (d) => d.order_id,
-    );
+    const getEarningTimestamp = (row) =>
+      row.picked_up_at ||
+      row.on_the_way_at ||
+      row.arrived_customer_at ||
+      row.delivered_at ||
+      row.created_at;
 
-    // --- Time calculations ---
-    const now = new Date();
-    const todayStart = new Date(now);
-    todayStart.setHours(0, 0, 0, 0);
+    const records = (deliveryRows || [])
+      .map((row) => ({
+        earned_at: getEarningTimestamp(row),
+        amount: parseFloat(row.orders?.admin_subtotal || 0),
+      }))
+      .filter((r) => !!r.earned_at);
 
-    const yesterdayStart = new Date(todayStart);
-    yesterdayStart.setDate(yesterdayStart.getDate() - 1);
-
-    // Yesterday at same time = from yesterday midnight to exactly 24h ago
-    const yesterdaySameTime = new Date(now);
-    yesterdaySameTime.setDate(yesterdaySameTime.getDate() - 1);
-
-    // Helper to build a scoped query on order_financial_details
-    const buildQuery = (selectFields) => {
-      let q = supabaseAdmin
-        .from("order_financial_details")
-        .select(selectFields)
-        .eq("restaurant_id", restaurantId);
-      if (qualifyingOrderIds.length > 0) {
-        q = q.in("order_id", qualifyingOrderIds);
-      } else {
-        return null; // no qualifying orders
-      }
-      return q;
+    const inRange = (timestamp, start, end) => {
+      if (!timestamp) return false;
+      if (start && timestamp < start) return false;
+      if (end && timestamp > end) return false;
+      return true;
     };
 
-    // --- Today's data (from midnight to now) ---
-    let todaySales = 0,
-      todayOrders = 0,
-      todayAvg = 0;
-    const todayQ = buildQuery("restaurant_payment");
-    if (todayQ) {
-      const { data: todayData } = await todayQ.gte(
-        "placed_at",
-        todayStart.toISOString(),
-      );
-      todayOrders = todayData?.length || 0;
-      todaySales = (todayData || []).reduce(
-        (s, o) => s + parseFloat(o.restaurant_payment || 0),
-        0,
-      );
-      todayAvg = todayOrders > 0 ? todaySales / todayOrders : 0;
-    }
+    // --- Time calculations (Sri Lanka local day windows) ---
+    const now = new Date();
+    const {
+      dateStr: todayDateStr,
+      start: todayStart,
+      end: todayEnd,
+    } = getSriLankaDayRange(now);
+    const yesterdayDateStr = shiftSriLankaDateString(todayDateStr, -1);
+    const { start: yesterdayStart, end: yesterdayEnd } =
+      getSriLankaDayRangeFromDateStr(yesterdayDateStr);
 
-    // --- Yesterday at same time (from yesterday midnight to yesterday same hour/minute) ---
-    let yesterdaySales = 0,
-      yesterdayOrders = 0,
-      yesterdayAvg = 0;
-    const yesterdayQ = buildQuery("restaurant_payment");
-    if (yesterdayQ) {
-      const { data: yesterdayData } = await yesterdayQ
-        .gte("placed_at", yesterdayStart.toISOString())
-        .lte("placed_at", yesterdaySameTime.toISOString());
-      yesterdayOrders = yesterdayData?.length || 0;
-      yesterdaySales = (yesterdayData || []).reduce(
-        (s, o) => s + parseFloat(o.restaurant_payment || 0),
-        0,
-      );
-      yesterdayAvg = yesterdayOrders > 0 ? yesterdaySales / yesterdayOrders : 0;
-    }
+    // --- Today's data ---
+    const todayRecords = records.filter((r) =>
+      inRange(r.earned_at, todayStart, todayEnd),
+    );
+    const todayOrders = todayRecords.length;
+    const todaySales = todayRecords.reduce((sum, r) => sum + r.amount, 0);
+    const todayAvg = todayOrders > 0 ? todaySales / todayOrders : 0;
+
+    // --- Yesterday data (full day) ---
+    const yesterdayRecords = records.filter((r) =>
+      inRange(r.earned_at, yesterdayStart, yesterdayEnd),
+    );
+    const yesterdayOrders = yesterdayRecords.length;
+    const yesterdaySales = yesterdayRecords.reduce((sum, r) => sum + r.amount, 0);
+    const yesterdayAvg =
+      yesterdayOrders > 0 ? yesterdaySales / yesterdayOrders : 0;
 
     // --- Percentage changes ---
     const calcChange = (today, yesterday) => {
@@ -518,41 +507,27 @@ router.get("/dashboard-stats", authenticate, async (req, res) => {
     const avgChange = calcChange(todayAvg, yesterdayAvg);
 
     // --- Last 30 days totals (using admin earnings) ---
-    const thirtyDaysAgo = new Date(now);
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    thirtyDaysAgo.setHours(0, 0, 0, 0);
+    const last30StartDateStr = shiftSriLankaDateString(todayDateStr, -29);
+    const prev30StartDateStr = shiftSriLankaDateString(todayDateStr, -59);
+    const prev30EndDateStr = shiftSriLankaDateString(todayDateStr, -30);
 
-    // --- Previous 30 days (days 31-60) for comparison ---
-    const sixtyDaysAgo = new Date(now);
-    sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
-    sixtyDaysAgo.setHours(0, 0, 0, 0);
+    const { start: last30Start } =
+      getSriLankaDayRangeFromDateStr(last30StartDateStr);
+    const { start: prev30Start } =
+      getSriLankaDayRangeFromDateStr(prev30StartDateStr);
+    const { end: prev30End } =
+      getSriLankaDayRangeFromDateStr(prev30EndDateStr);
 
-    let last30Revenue = 0,
-      last30Orders = 0;
-    const last30Q = buildQuery("restaurant_payment");
-    if (last30Q) {
-      const { data: last30Data } = await last30Q.gte(
-        "placed_at",
-        thirtyDaysAgo.toISOString(),
-      );
-      last30Orders = last30Data?.length || 0;
-      last30Revenue = (last30Data || []).reduce(
-        (s, o) => s + parseFloat(o.restaurant_payment || 0),
-        0,
-      );
-    }
+    const last30Records = records.filter((r) =>
+      inRange(r.earned_at, last30Start, todayEnd),
+    );
+    const last30Revenue = last30Records.reduce((sum, r) => sum + r.amount, 0);
+    const last30Orders = last30Records.length;
 
-    let prev30Revenue = 0;
-    const prev30Q = buildQuery("restaurant_payment");
-    if (prev30Q) {
-      const { data: prev30Data } = await prev30Q
-        .gte("placed_at", sixtyDaysAgo.toISOString())
-        .lt("placed_at", thirtyDaysAgo.toISOString());
-      prev30Revenue = (prev30Data || []).reduce(
-        (s, o) => s + parseFloat(o.restaurant_payment || 0),
-        0,
-      );
-    }
+    const prev30Records = records.filter((r) =>
+      inRange(r.earned_at, prev30Start, prev30End),
+    );
+    const prev30Revenue = prev30Records.reduce((sum, r) => sum + r.amount, 0);
 
     const last30Change =
       prev30Revenue === 0
@@ -575,75 +550,76 @@ router.get("/dashboard-stats", authenticate, async (req, res) => {
       .eq("is_available", true);
 
     // --- Chart data ---
-    let chartStartDate = new Date(now);
-    let groupBy = "day"; // day or month
+    let chartStart = todayStart;
+    let chartStartDateStr = todayDateStr;
+    let groupBy = "day"; // day | month
+    let monthsWindow = 12;
 
     switch (chartPeriod) {
       case "week":
-        chartStartDate.setDate(chartStartDate.getDate() - 7);
+        chartStartDateStr = shiftSriLankaDateString(todayDateStr, -6);
+        chartStart = getSriLankaDayRangeFromDateStr(chartStartDateStr).start;
         groupBy = "day";
         break;
       case "month":
-        chartStartDate.setDate(chartStartDate.getDate() - 30);
+        chartStartDateStr = shiftSriLankaDateString(todayDateStr, -29);
+        chartStart = getSriLankaDayRangeFromDateStr(chartStartDateStr).start;
         groupBy = "day";
         break;
       case "year":
-        chartStartDate.setFullYear(chartStartDate.getFullYear() - 1);
+        chartStartDateStr = shiftSriLankaDateString(todayDateStr, -364);
+        chartStart = getSriLankaDayRangeFromDateStr(chartStartDateStr).start;
         groupBy = "month";
+        monthsWindow = 12;
         break;
       default:
-        chartStartDate.setDate(chartStartDate.getDate() - 7);
+        chartStartDateStr = shiftSriLankaDateString(todayDateStr, -6);
+        chartStart = getSriLankaDayRangeFromDateStr(chartStartDateStr).start;
         groupBy = "day";
     }
 
-    let chartData = [];
-    const chartQ = buildQuery("restaurant_payment, placed_at");
-    if (chartQ) {
-      const { data: chartOrders } = await chartQ
-        .gte("placed_at", chartStartDate.toISOString())
-        .order("placed_at", { ascending: true });
+    const chartRecords = records.filter((r) =>
+      inRange(r.earned_at, chartStart, todayEnd),
+    );
+    const grouped = {};
 
-      const grouped = {};
-      (chartOrders || []).forEach((order) => {
-        const d = new Date(order.placed_at);
-        const key =
-          groupBy === "month"
-            ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
-            : d.toISOString().split("T")[0];
-        if (!grouped[key]) grouped[key] = { amount: 0, orders: 0 };
-        grouped[key].amount += parseFloat(order.restaurant_payment || 0);
-        grouped[key].orders += 1;
-      });
+    chartRecords.forEach((record) => {
+      const dayKey = getSriLankaDateKey(record.earned_at);
+      const key = groupBy === "month" ? dayKey.slice(0, 7) : dayKey;
+      if (!grouped[key]) grouped[key] = { amount: 0, orders: 0 };
+      grouped[key].amount += record.amount;
+      grouped[key].orders += 1;
+    });
 
-      // Fill missing dates/months with zero values
-      if (groupBy === "day") {
-        const cursor = new Date(chartStartDate);
-        cursor.setHours(0, 0, 0, 0);
-        const endDate = new Date(now);
-        endDate.setHours(0, 0, 0, 0);
-        while (cursor <= endDate) {
-          const key = cursor.toISOString().split("T")[0];
-          if (!grouped[key]) grouped[key] = { amount: 0, orders: 0 };
-          cursor.setDate(cursor.getDate() + 1);
-        }
-      } else {
-        const cursor = new Date(chartStartDate);
-        const endMonth = now.getFullYear() * 12 + now.getMonth();
-        while (cursor.getFullYear() * 12 + cursor.getMonth() <= endMonth) {
-          const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`;
-          if (!grouped[key]) grouped[key] = { amount: 0, orders: 0 };
-          cursor.setMonth(cursor.getMonth() + 1);
-        }
+    if (groupBy === "day") {
+      let cursor = chartStartDateStr;
+      while (cursor <= todayDateStr) {
+        if (!grouped[cursor]) grouped[cursor] = { amount: 0, orders: 0 };
+        cursor = shiftSriLankaDateString(cursor, 1);
       }
-
-      chartData = Object.entries(grouped)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([date, data]) => ({
-          date,
-          amount: Math.round(data.amount),
-          orders: data.orders,
-        }));
+    } else {
+      const todayMonth = todayDateStr.slice(0, 7);
+      const monthKeys = new Set();
+      const startDateObj = new Date(chartStart);
+      for (let i = 0; i < monthsWindow; i += 1) {
+        const d = new Date(startDateObj);
+        d.setUTCMonth(startDateObj.getUTCMonth() + i);
+        const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+        monthKeys.add(key);
+        if (key >= todayMonth) break;
+      }
+      monthKeys.forEach((key) => {
+        if (!grouped[key]) grouped[key] = { amount: 0, orders: 0 };
+      });
     }
+
+    const chartData = Object.entries(grouped)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, data]) => ({
+        date,
+        amount: Math.round(data.amount),
+        orders: data.orders,
+      }));
 
     return res.json({
       today: {
@@ -1381,34 +1357,45 @@ router.get("/earnings", authenticate, async (req, res) => {
         break;
     }
 
-    const { data: deliveredRows, error: deliveredError } = await supabaseAdmin
+    const SUCCESS_STATUSES = ["picked_up", "on_the_way", "at_customer", "delivered"];
+
+    const { data: qualifyingRows, error: qualifyingError } = await supabaseAdmin
       .from("deliveries")
       .select(
-        "order_id, delivered_at, orders!inner(restaurant_id, admin_subtotal)",
+        "order_id, status, created_at, picked_up_at, on_the_way_at, arrived_customer_at, delivered_at, orders!inner(restaurant_id, admin_subtotal)",
       )
-      .eq("status", "delivered")
+      .in("status", SUCCESS_STATUSES)
       .eq("orders.restaurant_id", restaurantId)
-      .not("delivered_at", "is", null);
+      .not("orders.admin_subtotal", "is", null);
 
-    if (deliveredError) {
-      console.error("Delivered rows fetch error:", deliveredError);
+    if (qualifyingError) {
+      console.error("Qualifying rows fetch error:", qualifyingError);
       return res.status(500).json({ message: "Failed to fetch earnings data" });
     }
 
-    const records = (deliveredRows || []).map((row) => ({
-      delivered_at: row.delivered_at,
-      amount: parseFloat(row.orders?.admin_subtotal || 0),
-    }));
+    const getEarningTimestamp = (row) =>
+      row.picked_up_at ||
+      row.on_the_way_at ||
+      row.arrived_customer_at ||
+      row.delivered_at ||
+      row.created_at;
+
+    const records = (qualifyingRows || [])
+      .map((row) => ({
+        earned_at: getEarningTimestamp(row),
+        amount: parseFloat(row.orders?.admin_subtotal || 0),
+      }))
+      .filter((r) => !!r.earned_at);
 
     const periodRecords = records.filter((r) =>
-      inRange(r.delivered_at, periodStart, periodEnd),
+      inRange(r.earned_at, periodStart, periodEnd),
     );
 
     const totalRevenue = periodRecords.reduce((sum, r) => sum + r.amount, 0);
     const totalOrders = periodRecords.length;
 
     const todayRecords = records.filter((r) =>
-      inRange(r.delivered_at, todayStart, todayEnd),
+      inRange(r.earned_at, todayStart, todayEnd),
     );
     const todaySales = todayRecords.reduce((sum, r) => sum + r.amount, 0);
     const todayOrderCount = todayRecords.length;
@@ -1416,7 +1403,7 @@ router.get("/earnings", authenticate, async (req, res) => {
     const weekStartDateStr = shiftSriLankaDateString(todayDateStr, -6);
     const weekStart = getSriLankaDayRangeFromDateStr(weekStartDateStr).start;
     const thisWeekRecords = records.filter((r) =>
-      inRange(r.delivered_at, weekStart, todayEnd),
+      inRange(r.earned_at, weekStart, todayEnd),
     );
     const thisWeekRevenue = thisWeekRecords.reduce(
       (sum, r) => sum + r.amount,
@@ -1463,7 +1450,7 @@ router.get("/earnings", authenticate, async (req, res) => {
 
     if (prevStart && prevEnd) {
       previousRevenue = records
-        .filter((r) => inRange(r.delivered_at, prevStart, prevEnd))
+        .filter((r) => inRange(r.earned_at, prevStart, prevEnd))
         .reduce((sum, r) => sum + r.amount, 0);
     }
 
@@ -1482,9 +1469,9 @@ router.get("/earnings", authenticate, async (req, res) => {
 
     const dailyEarnings = {};
     records
-      .filter((r) => inRange(r.delivered_at, chartStart, todayEnd))
+      .filter((r) => inRange(r.earned_at, chartStart, todayEnd))
       .forEach((record) => {
-        const date = getSriLankaDateKey(record.delivered_at);
+        const date = getSriLankaDateKey(record.earned_at);
         if (!dailyEarnings[date]) {
           dailyEarnings[date] = 0;
         }
@@ -1492,10 +1479,12 @@ router.get("/earnings", authenticate, async (req, res) => {
       });
 
     // Convert to array for chart
-    const chartData = Object.entries(dailyEarnings).map(([date, amount]) => ({
-      date,
-      amount: Math.round(amount),
-    }));
+    const chartData = Object.entries(dailyEarnings)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, amount]) => ({
+        date,
+        amount: Math.round(amount),
+      }));
 
     return res.json({
       earnings: {

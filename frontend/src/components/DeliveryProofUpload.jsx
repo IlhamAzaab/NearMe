@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback } from "react";
-import { Camera, Upload, X, Check, Loader2, Image } from "lucide-react";
+import { Camera, Upload, X, Check, Loader2 } from "lucide-react";
 import { API_URL } from "../config";
 
 /**
@@ -23,7 +23,6 @@ export default function DeliveryProofUpload({
   const [showPreview, setShowPreview] = useState(false);
   const [previewSrc, setPreviewSrc] = useState(null);
   const [error, setError] = useState(null);
-  const fileInputRef = useRef(null);
   const cameraInputRef = useRef(null);
 
   const handleFileSelected = useCallback(async (file) => {
@@ -188,17 +187,10 @@ export default function DeliveryProofUpload({
           <div className="flex gap-3">
             <button
               onClick={() => cameraInputRef.current?.click()}
-              className="flex-1 flex flex-col items-center gap-2 py-4 border-2 border-dashed border-green-300 rounded-xl bg-green-50/50 text-green-600 active:scale-95 transition-transform"
+              className="w-full flex flex-col items-center gap-2 py-4 border-2 border-dashed border-green-300 rounded-xl bg-green-50/50 text-green-600 active:scale-95 transition-transform"
             >
               <Camera className="w-6 h-6" />
               <span className="text-xs font-semibold">Take Photo</span>
-            </button>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="flex-1 flex flex-col items-center gap-2 py-4 border-2 border-dashed border-gray-300 rounded-xl bg-gray-50/50 text-gray-500 active:scale-95 transition-transform"
-            >
-              <Image className="w-6 h-6" />
-              <span className="text-xs font-semibold">Gallery</span>
             </button>
           </div>
         )}
@@ -218,13 +210,6 @@ export default function DeliveryProofUpload({
         type="file"
         accept="image/*"
         capture="environment"
-        className="hidden"
-        onChange={(e) => handleFileSelected(e.target.files[0])}
-      />
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
         className="hidden"
         onChange={(e) => handleFileSelected(e.target.files[0])}
       />
