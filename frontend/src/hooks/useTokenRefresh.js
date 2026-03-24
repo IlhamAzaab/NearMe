@@ -59,6 +59,9 @@ export function useTokenRefresh(options = {}) {
 
     try {
       const mobileRefreshToken = await getRefreshToken();
+      const isWebRuntime =
+        typeof window !== "undefined" && typeof window.localStorage !== "undefined";
+
       const res = await fetch(`${API_URL}/auth/refresh-token`, {
         method: "POST",
         credentials: "include",
@@ -66,7 +69,9 @@ export function useTokenRefresh(options = {}) {
           "Content-Type": "application/json",
         },
         body: JSON.stringify(
-          mobileRefreshToken ? { refreshToken: mobileRefreshToken } : {},
+          !isWebRuntime && mobileRefreshToken
+            ? { refreshToken: mobileRefreshToken }
+            : {},
         ),
       });
 

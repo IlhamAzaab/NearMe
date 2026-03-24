@@ -77,6 +77,9 @@ export async function persistAuthSession(session = {}) {
     if (refreshToken) {
       // Mobile/webview fallback only. On web we primarily rely on httpOnly cookie.
       window.localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+    } else {
+      // Prevent stale cross-role refresh token reuse from older sessions.
+      window.localStorage.removeItem(REFRESH_TOKEN_KEY);
     }
 
     return;

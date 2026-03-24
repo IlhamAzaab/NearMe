@@ -40,13 +40,18 @@ async function refreshAccessToken(nativeFetch) {
   if (!refreshPromise) {
     refreshPromise = (async () => {
       const refreshToken = await getRefreshToken();
+      const isWebRuntime =
+        typeof window !== "undefined" && typeof window.localStorage !== "undefined";
+
       const refreshRes = await nativeFetch(`${API_URL}/auth/refresh-token`, {
         method: "POST",
         credentials: "include",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(refreshToken ? { refreshToken } : {}),
+        body: JSON.stringify(
+          !isWebRuntime && refreshToken ? { refreshToken } : {},
+        ),
       });
 
       if (!refreshRes.ok) {
