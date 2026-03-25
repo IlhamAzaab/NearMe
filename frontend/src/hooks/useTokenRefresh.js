@@ -1,33 +1,18 @@
 import { useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { API_URL } from "../config";
 import {
   clearStoredAuthSession,
-  getRefreshToken,
-  persistAuthSession,
+  getAuthFieldsFromToken,
 } from "../auth/tokenStorage";
-import { isNetworkLikeError } from "../lib/apiClient";
+import {
+  isNetworkLikeError,
+  refreshAccessTokenWithLock,
+} from "../lib/apiClient";
 
 const REFRESH_WINDOW_MS = 5 * 60 * 1000;
 
-function parseJwtExpiryMs(token) {
-  try {
-    const [, payload] = String(token).split(".");
-    if (!payload) return null;
-
-    const decoded = JSON.parse(
-      atob(payload.replace(/-/g, "+").replace(/_/g, "/")),
-    );
-    if (!decoded?.exp) return null;
-
-    return Number(decoded.exp) * 1000;
-  } catch {
-    return null;
-  }
-}
-
 function isTokenExpiringSoon(token, thresholdMs = REFRESH_WINDOW_MS) {
-  const expiryMs = parseJwtExpiryMs(token);
+  const expiryMs = getAuthFieldsFromToken(token)?.expiresAtMs;
   if (!expiryMs) return true;
   return expiryMs - Date.now() <= thresholdMs;
 }
@@ -47,7 +32,11 @@ function isTokenExpiringSoon(token, thresholdMs = REFRESH_WINDOW_MS) {
  * @param {string} options.redirectPath - Path to redirect on logout (default: "/login")
  */
 export function useTokenRefresh(options = {}) {
-  const { enabled = true, redirectPath = "/login" } = options;
+  const {
+    enabled = true,
+    redirectPath = "/login",
+    disableAutoInterval = false,
+  } = options;
   const navigate = useNavigate();
 
   const refreshToken = useCallback(
@@ -61,39 +50,25 @@ export function useTokenRefresh(options = {}) {
       }
 
       try {
-        const mobileRefreshToken = await getRefreshToken();
-        const isWebRuntime =
-          typeof window !== "undefined" &&
-          typeof window.localStorage !== "undefined";
+        const refreshResult = await refreshAccessTokenWithLock();
 
-        const res = await fetch(`${API_URL}/auth/refresh-token`, {
-          method: "POST",
-          credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(
-            !isWebRuntime && mobileRefreshToken
-              ? { refreshToken: mobileRefreshToken }
-              : {},
-          ),
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          await persistAuthSession(data);
+        if (refreshResult.ok) {
+          const latestToken = localStorage.getItem("token");
+          const decoded = getAuthFieldsFromToken(latestToken);
+          if (decoded?.role) {
+            console.log("[AUTH] Role set:", decoded.role);
+          }
           return true;
         }
 
-        if (res.status === 401 || res.status === 403) {
-          // Only force logout when current access token is already expired/expiring.
-          // This prevents false logouts when refresh cookie is unavailable.
-          const latestToken = localStorage.getItem("token");
-          if (!latestToken || isTokenExpiringSoon(latestToken, 0)) {
-            await clearStoredAuthSession();
-            navigate(redirectPath);
-          }
+        if (refreshResult.shouldLogout) {
+          console.log("[AUTH] Logging out user");
+          await clearStoredAuthSession();
+          navigate(redirectPath);
+          return false;
         }
+
+        console.log("[AUTH] Refresh failed, retrying...");
 
         return false;
       } catch (error) {
@@ -109,7 +84,7 @@ export function useTokenRefresh(options = {}) {
   );
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || disableAutoInterval) return;
 
     // Check token on mount; refresh only when it is close to expiry.
     refreshToken();

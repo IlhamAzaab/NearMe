@@ -503,6 +503,50 @@ export default function DriverMapPage() {
     try {
       const token = localStorage.getItem("token");
 
+      const hydrateTargetWithMapData = async (target, targetMode) => {
+        if (!target?.delivery_id) return target;
+
+        try {
+          const mapRes = await fetch(
+            `${API_URL}/driver/deliveries/${target.delivery_id}/map`,
+            {
+              headers: { Authorization: `Bearer ${token}` },
+            },
+          );
+
+          if (!mapRes.ok) return target;
+
+          const mapData = await mapRes.json();
+          const isPickupMode = targetMode === "pickup";
+          const activeRoute = isPickupMode
+            ? mapData?.routes?.driver_to_restaurant
+            : mapData?.routes?.driver_to_customer;
+
+          const distanceMeters = Number(activeRoute?.distance);
+          const durationSeconds = Number(activeRoute?.duration);
+
+          return {
+            ...target,
+            route_geometry:
+              activeRoute?.coordinates && Array.isArray(activeRoute.coordinates)
+                ? { coordinates: activeRoute.coordinates }
+                : target.route_geometry || null,
+            distance_meters: Number.isFinite(distanceMeters)
+              ? distanceMeters
+              : target.distance_meters ?? null,
+            distance_km: Number.isFinite(distanceMeters)
+              ? (distanceMeters / 1000).toFixed(2)
+              : target.distance_km ?? null,
+            estimated_time_minutes: Number.isFinite(durationSeconds)
+              ? Math.ceil(durationSeconds / 60)
+              : target.estimated_time_minutes ?? null,
+          };
+        } catch (mapErr) {
+          console.warn("[DRIVER MAP] Map hydration failed:", mapErr?.message);
+          return target;
+        }
+      };
+
       // Fetch pickups (accepted status)
       const pickupsUrl = `${API_URL}/driver/deliveries/pickups?driver_latitude=${driverLocation.latitude}&driver_longitude=${driverLocation.longitude}`;
       const pickupsRes = await fetch(pickupsUrl, {
@@ -586,9 +630,10 @@ export default function DriverMapPage() {
                   latitude: d.order?.delivery?.latitude || 0,
                   longitude: d.order?.delivery?.longitude || 0,
                 },
-                distance_meters: d.total_distance || 0,
-                distance_km: ((d.total_distance || 0) / 1000).toFixed(2),
-                estimated_time_minutes: 0,
+                distance_meters: null,
+                distance_km: null,
+                estimated_time_minutes: null,
+                route_geometry: null,
               }));
 
               const acceptedOnes = fallbackDeliveries.filter(
@@ -601,13 +646,19 @@ export default function DriverMapPage() {
               if (acceptedOnes.length > 0) {
                 setPickups(acceptedOnes);
                 nextMode = "pickup";
-                nextTarget = acceptedOnes[0];
+                nextTarget = await hydrateTargetWithMapData(
+                  acceptedOnes[0],
+                  "pickup",
+                );
                 setMode(nextMode);
                 setCurrentTarget(nextTarget);
               } else if (inProgressOnes.length > 0) {
                 setDeliveries(inProgressOnes);
                 nextMode = "delivery";
-                nextTarget = inProgressOnes[0];
+                nextTarget = await hydrateTargetWithMapData(
+                  inProgressOnes[0],
+                  "delivery",
+                );
                 setMode(nextMode);
                 setCurrentTarget(nextTarget);
               }
@@ -656,12 +707,18 @@ export default function DriverMapPage() {
                 latitude: first.order?.delivery?.latitude || 0,
                 longitude: first.order?.delivery?.longitude || 0,
               },
-              distance_meters: first.total_distance || 0,
-              distance_km: ((first.total_distance || 0) / 1000).toFixed(2),
-              estimated_time_minutes: 0,
+              distance_meters: null,
+              distance_km: null,
+              estimated_time_minutes: null,
+              route_geometry: null,
             };
-            setMode(first.status === "accepted" ? "pickup" : "delivery");
-            setCurrentTarget(target);
+            const fallbackMode = first.status === "accepted" ? "pickup" : "delivery";
+            const hydratedTarget = await hydrateTargetWithMapData(
+              target,
+              fallbackMode,
+            );
+            setMode(fallbackMode);
+            setCurrentTarget(hydratedTarget);
           }
         }
       } catch (fallbackErr) {
@@ -1258,7 +1315,7 @@ function PickupInfo({
                 />
               </svg>
               <span className="text-sm font-bold text-green-700">
-                {distance_km} km
+                {distance_km != null ? `${distance_km} km` : "--"}
               </span>
             </div>
             <div className="flex items-center gap-1 bg-green-50 px-2 py-1 rounded">
@@ -1276,7 +1333,9 @@ function PickupInfo({
                 />
               </svg>
               <span className="text-sm font-bold text-green-700">
-                {estimated_time_minutes} min
+                {estimated_time_minutes != null
+                  ? `${estimated_time_minutes} min`
+                  : "--"}
               </span>
             </div>
           </div>
@@ -1407,7 +1466,7 @@ function DeliveryInfo({
                 />
               </svg>
               <span className="text-sm font-bold text-green-700">
-                {distance_km} km
+                {distance_km != null ? `${distance_km} km` : "--"}
               </span>
             </div>
             <div className="flex items-center gap-1 bg-green-50 px-2 py-1 rounded">
@@ -1425,7 +1484,9 @@ function DeliveryInfo({
                 />
               </svg>
               <span className="text-sm font-bold text-green-700">
-                {estimated_time_minutes} min
+                {estimated_time_minutes != null
+                  ? `${estimated_time_minutes} min`
+                  : "--"}
               </span>
             </div>
           </div>

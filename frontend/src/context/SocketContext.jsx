@@ -64,6 +64,23 @@ export function SocketProvider({ children }) {
   const socketRef = useRef(null);
   const maxReconnectAttempts = 5;
 
+  const hasValidAuth = useCallback((expectedRole, userId) => {
+    const token = localStorage.getItem("token");
+    const role = localStorage.getItem("role");
+
+    if (!token || !role || !userId) {
+      console.log("[Socket] Waiting for auth...");
+      return { ok: false, token: null };
+    }
+
+    if (expectedRole && role !== expectedRole) {
+      console.log("[Socket] Waiting for auth...");
+      return { ok: false, token: null };
+    }
+
+    return { ok: true, token };
+  }, []);
+
   const getReminderSnoozeMap = useCallback(() => {
     try {
       const raw = localStorage.getItem(ADMIN_REMINDER_SNOOZE_KEY);
@@ -108,6 +125,9 @@ export function SocketProvider({ children }) {
         return;
       }
 
+      const auth = hasValidAuth("driver", driverId);
+      if (!auth.ok) return;
+
       // Prevent duplicate connections
       if (socketRef.current && socketRef.current.connected) {
         console.log("[Socket] Already connected as driver");
@@ -121,6 +141,7 @@ export function SocketProvider({ children }) {
       }
 
       console.log(`[Socket] Connecting as driver: ${driverId}`);
+      console.log("[Socket] Connecting with token:", auth.token);
 
       // Get the current JWT token for authentication
       const token = localStorage.getItem("token");
@@ -135,7 +156,7 @@ export function SocketProvider({ children }) {
         autoConnect: true,
         forceNew: true, // Force a new connection
         auth: {
-          token: token || "",
+          token: auth.token || token || "",
           driverId: driverId,
         },
       });
@@ -201,7 +222,7 @@ export function SocketProvider({ children }) {
 
       return newSocket;
     },
-    [], // No dependencies - we use ref instead
+    [hasValidAuth], // No state dependencies - socket instance is tracked via ref
   );
 
   // Initialize socket connection for customers
@@ -210,6 +231,9 @@ export function SocketProvider({ children }) {
       console.warn("[Socket] No customerId provided");
       return;
     }
+
+    const auth = hasValidAuth("customer", customerId);
+    if (!auth.ok) return;
 
     // Prevent duplicate connections
     if (socketRef.current && socketRef.current.connected) {
@@ -224,6 +248,7 @@ export function SocketProvider({ children }) {
     }
 
     console.log(`[Socket] Connecting as customer: ${customerId}`);
+    console.log("[Socket] Connecting with token:", auth.token);
 
     // Get the current JWT token for authentication
     const token = localStorage.getItem("token");
@@ -238,7 +263,7 @@ export function SocketProvider({ children }) {
       autoConnect: true,
       forceNew: true, // Force a new connection
       auth: {
-        token: token || "",
+        token: auth.token || token || "",
         customerId: customerId,
       },
     });
@@ -312,7 +337,7 @@ export function SocketProvider({ children }) {
     setSocket(newSocket);
 
     return newSocket;
-  }, []);
+  }, [hasValidAuth]);
 
   // Initialize socket connection for admins (restaurant)
   const connectAsAdmin = useCallback((adminId) => {
@@ -320,6 +345,9 @@ export function SocketProvider({ children }) {
       console.warn("[Socket] No adminId provided");
       return;
     }
+
+    const auth = hasValidAuth("admin", adminId);
+    if (!auth.ok) return;
 
     // Prevent duplicate connections
     if (socketRef.current && socketRef.current.connected) {
@@ -334,6 +362,7 @@ export function SocketProvider({ children }) {
     }
 
     console.log(`[Socket] Connecting as admin: ${adminId}`);
+    console.log("[Socket] Connecting with token:", auth.token);
 
     // Get the current JWT token for authentication
     const token = localStorage.getItem("token");
@@ -348,7 +377,7 @@ export function SocketProvider({ children }) {
       autoConnect: true,
       forceNew: true,
       auth: {
-        token: token || "",
+        token: auth.token || token || "",
         adminId: adminId,
       },
     });
@@ -493,7 +522,7 @@ export function SocketProvider({ children }) {
     setSocket(newSocket);
 
     return newSocket;
-  }, []);
+  }, [hasValidAuth]);
 
   // Initialize socket connection for managers
   const connectAsManager = useCallback((managerId) => {
@@ -501,6 +530,9 @@ export function SocketProvider({ children }) {
       console.warn("[Socket] No managerId provided");
       return;
     }
+
+    const auth = hasValidAuth("manager", managerId);
+    if (!auth.ok) return;
 
     // Prevent duplicate connections
     if (socketRef.current && socketRef.current.connected) {
@@ -515,6 +547,7 @@ export function SocketProvider({ children }) {
     }
 
     console.log(`[Socket] Connecting as manager: ${managerId}`);
+    console.log("[Socket] Connecting with token:", auth.token);
 
     // Get the current JWT token for authentication
     const token = localStorage.getItem("token");
@@ -529,7 +562,7 @@ export function SocketProvider({ children }) {
       autoConnect: true,
       forceNew: true,
       auth: {
-        token: token || "",
+        token: auth.token || token || "",
         managerId: managerId,
       },
     });
@@ -563,7 +596,43 @@ export function SocketProvider({ children }) {
     socketRef.current = newSocket;
     setSocket(newSocket);
     return newSocket;
-  }, []);
+  }, [hasValidAuth]);
+
+  useEffect(() => {
+    const reconnectAfterRefresh = () => {
+      const role = localStorage.getItem("role");
+      const userId = localStorage.getItem("userId");
+
+      if (!role || !userId) {
+        return;
+      }
+
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
+        setSocket(null);
+        setIsConnected(false);
+      }
+
+      if (role === "driver") {
+        connectAsDriver(userId);
+      } else if (role === "customer") {
+        connectAsCustomer(userId);
+      } else if (role === "admin") {
+        connectAsAdmin(userId);
+      } else if (role === "manager") {
+        connectAsManager(userId);
+      }
+    };
+
+    window.addEventListener("auth:token_refreshed", reconnectAfterRefresh);
+    return () => {
+      window.removeEventListener(
+        "auth:token_refreshed",
+        reconnectAfterRefresh,
+      );
+    };
+  }, [connectAsAdmin, connectAsCustomer, connectAsDriver, connectAsManager]);
 
   // Disconnect socket
   const disconnect = useCallback(() => {

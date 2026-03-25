@@ -67,7 +67,13 @@ export default function ManagerSocketConnector() {
       disconnect();
       hasConnected.current = false;
     }
-  }, [connectAsManager, disconnect, location.pathname, isConnected, shouldConnect]);
+  }, [
+    connectAsManager,
+    disconnect,
+    location.pathname,
+    isConnected,
+    shouldConnect,
+  ]);
 
   // Listen for auth changes via storage events (login/logout in another tab)
   useEffect(() => {

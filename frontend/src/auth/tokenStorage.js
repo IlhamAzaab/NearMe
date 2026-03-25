@@ -14,6 +14,57 @@ function isWebStorageAvailable() {
   return typeof window !== "undefined" && !!window.localStorage;
 }
 
+function decodeBase64Url(value) {
+  const normalized = String(value || "")
+    .replace(/-/g, "+")
+    .replace(/_/g, "/");
+  const padding = normalized.length % 4;
+  const padded =
+    padding === 0 ? normalized : normalized + "=".repeat(4 - padding);
+  return atob(padded);
+}
+
+export function decodeAccessTokenPayload(token) {
+  try {
+    const [, payload] = String(token || "").split(".");
+    if (!payload) return null;
+    return JSON.parse(decodeBase64Url(payload));
+  } catch {
+    return null;
+  }
+}
+
+export function getAuthFieldsFromToken(token) {
+  const payload = decodeAccessTokenPayload(token);
+  if (!payload) {
+    return {
+      payload: null,
+      role: null,
+      userId: null,
+      expiresAtMs: null,
+    };
+  }
+
+  const role =
+    payload.role || payload.userRole || payload.user_role || payload.type || null;
+  const userId =
+    payload.userId || payload.user_id || payload.id || payload.sub || null;
+  const expiresAtMs = payload.exp ? Number(payload.exp) * 1000 : null;
+
+  return {
+    payload,
+    role: role ? String(role) : null,
+    userId: userId ? String(userId) : null,
+    expiresAtMs: Number.isFinite(expiresAtMs) ? expiresAtMs : null,
+  };
+}
+
+export function isAccessTokenExpired(token, skewMs = 0) {
+  const { expiresAtMs } = getAuthFieldsFromToken(token);
+  if (!expiresAtMs) return true;
+  return expiresAtMs - Date.now() <= skewMs;
+}
+
 async function getFromNative(key) {
   if (!nativeStorageAdapter?.getItem) return null;
   try {
@@ -57,10 +108,16 @@ export async function getRefreshToken() {
 
 export async function persistAuthSession(session = {}) {
   const token = session.token || null;
-  const role = session.role || null;
-  const userId = session.userId || null;
+  const decoded = token ? getAuthFieldsFromToken(token) : null;
+  // Role/userId must come from JWT when token is present.
+  const role = decoded?.role || session.role || null;
+  const userId = decoded?.userId || session.userId || null;
   const userName = session.userName || null;
   const refreshToken = session.refreshToken || null;
+
+  if (role) {
+    console.log("[AUTH] Role set:", role);
+  }
 
   if (isWebStorageAvailable()) {
     if (token) window.localStorage.setItem(ACCESS_TOKEN_KEY, token);

@@ -211,15 +211,7 @@ async function getRouteDistance(
     return {
       distance: null,
       duration: null,
-      geometry:
-        overview === "full"
-          ? {
-              coordinates: [
-                [startLng, startLat],
-                [endLng, endLat],
-              ],
-            }
-          : undefined,
+      geometry: null,
       isUnavailable: true,
       unavailableReason: "OSRM circuit breaker active",
     };
@@ -283,15 +275,7 @@ async function getRouteDistance(
   return {
     distance: null,
     duration: null,
-    geometry:
-      overview === "full"
-        ? {
-            coordinates: [
-              [startLng, startLat],
-              [endLng, endLat],
-            ],
-          }
-        : undefined,
+    geometry: null,
     isUnavailable: true,
     unavailableReason: "All OSRM servers failed after retries",
   };
@@ -1436,11 +1420,20 @@ router.get(
               longitude: customerLng,
             },
             order_items: d.orders.order_items || [],
-            distance_meters: route.distance || 0,
-            distance_km: ((route.distance || 0) / 1000).toFixed(2),
-            estimated_time_minutes: Math.ceil((route.duration || 0) / 60),
-            estimated_time_seconds: route.duration || 0,
-            route_geometry: route.geometry,
+            distance_meters: Number.isFinite(route.distance)
+              ? route.distance
+              : null,
+            distance_km: Number.isFinite(route.distance)
+              ? (route.distance / 1000).toFixed(2)
+              : null,
+            estimated_time_minutes: Number.isFinite(route.duration)
+              ? Math.ceil(route.duration / 60)
+              : null,
+            estimated_time_seconds: Number.isFinite(route.duration)
+              ? route.duration
+              : null,
+            route_geometry: route.geometry || null,
+            route_unavailable: !!route.isUnavailable,
             customer_route_geometry: customerRoute?.geometry,
             accepted_at: d.accepted_at,
             // Include pending earnings so driver can see expected earnings
@@ -1451,7 +1444,13 @@ router.get(
 
       // Sort by shortest distance (1st pickup = minimum distance)
       pickupsWithDistances.sort(
-        (a, b) => a.distance_meters - b.distance_meters,
+        (a, b) =>
+          (Number.isFinite(a.distance_meters)
+            ? a.distance_meters
+            : Number.POSITIVE_INFINITY) -
+          (Number.isFinite(b.distance_meters)
+            ? b.distance_meters
+            : Number.POSITIVE_INFINITY),
       );
 
       return res.json({
@@ -1611,11 +1610,20 @@ router.get(
             payment_method: d.orders.payment_method,
             restaurant_name: d.orders.restaurant_name,
             items: d.orders.order_items || [],
-            distance_meters: route.distance || 0,
-            distance_km: ((route.distance || 0) / 1000).toFixed(2),
-            estimated_time_minutes: Math.ceil((route.duration || 0) / 60),
-            estimated_time_seconds: route.duration || 0,
-            route_geometry: route.geometry,
+            distance_meters: Number.isFinite(route.distance)
+              ? route.distance
+              : null,
+            distance_km: Number.isFinite(route.distance)
+              ? (route.distance / 1000).toFixed(2)
+              : null,
+            estimated_time_minutes: Number.isFinite(route.duration)
+              ? Math.ceil(route.duration / 60)
+              : null,
+            estimated_time_seconds: Number.isFinite(route.duration)
+              ? route.duration
+              : null,
+            route_geometry: route.geometry || null,
+            route_unavailable: !!route.isUnavailable,
             picked_up_at: d.picked_up_at,
             // Include pending earnings so driver can see expected earnings
             pending_earnings: pendingEarningsData,
@@ -1625,7 +1633,13 @@ router.get(
 
       // Sort by shortest distance (1st delivery = minimum distance)
       deliveriesWithDistances.sort(
-        (a, b) => a.distance_meters - b.distance_meters,
+        (a, b) =>
+          (Number.isFinite(a.distance_meters)
+            ? a.distance_meters
+            : Number.POSITIVE_INFINITY) -
+          (Number.isFinite(b.distance_meters)
+            ? b.distance_meters
+            : Number.POSITIVE_INFINITY),
       );
 
       return res.json({
@@ -1724,10 +1738,7 @@ router.get(
 
         if (restaurantRoute) {
           driverToRestaurantRoute = {
-            coordinates: restaurantRoute.geometry?.coordinates || [
-              [driverLng, driverLat],
-              [restaurantLng, restaurantLat],
-            ],
+            coordinates: restaurantRoute.geometry?.coordinates || null,
             distance: restaurantRoute.distance, // meters
             duration: restaurantRoute.duration, // seconds
           };
@@ -1746,10 +1757,7 @@ router.get(
 
         if (restaurantCustomerRoute) {
           restaurantToCustomerRoute = {
-            coordinates: restaurantCustomerRoute.geometry?.coordinates || [
-              [restaurantLng, restaurantLat],
-              [customerLng, customerLat],
-            ],
+            coordinates: restaurantCustomerRoute.geometry?.coordinates || null,
             distance: restaurantCustomerRoute.distance,
             duration: restaurantCustomerRoute.duration,
           };
@@ -1768,10 +1776,7 @@ router.get(
 
         if (customerRoute) {
           driverToCustomerRoute = {
-            coordinates: customerRoute.geometry?.coordinates || [
-              [driverLng, driverLat],
-              [customerLng, customerLat],
-            ],
+            coordinates: customerRoute.geometry?.coordinates || null,
             distance: customerRoute.distance,
             duration: customerRoute.duration,
           };

@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { useState } from "react";
 import Home from "./pages/Home";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
@@ -102,12 +103,14 @@ import AuthSessionWatcher from "./components/AuthSessionWatcher";
 import OfflineStatusBanner from "./components/OfflineStatusBanner";
 
 function App() {
+  const [isAuthReady, setIsAuthReady] = useState(false);
+
   return (
     <SocketProvider>
       <NotificationProvider>
         <AdminCacheProvider>
           <BrowserRouter>
-            <TokenRefreshManager />
+            <TokenRefreshManager onAuthReadyChange={setIsAuthReady} />
             <AuthSessionWatcher />
             <DriverDeliveryNotificationProvider>
               <ManagerNotificationProvider>
@@ -115,13 +118,14 @@ function App() {
                 <NotificationBar />
                 <RealtimeNotificationListener />
                 <DriverDeliveryNotificationListener />
-                <CustomerSocketConnector />
-                <AdminSocketConnector />
-                <DriverSocketConnector />
-                <ManagerSocketConnector />
-                <DeliveryNotificationOverlay />
-                <ManagerNotificationOverlay />
-                <Routes>
+                {isAuthReady && <CustomerSocketConnector />}
+                {isAuthReady && <AdminSocketConnector />}
+                {isAuthReady && <DriverSocketConnector />}
+                {isAuthReady && <ManagerSocketConnector />}
+                {isAuthReady && <DeliveryNotificationOverlay />}
+                {isAuthReady && <ManagerNotificationOverlay />}
+                {isAuthReady ? (
+                  <Routes>
                   {/* Default route: redirect to login if not authenticated */}
                   <Route
                     path="/"
@@ -744,7 +748,12 @@ function App() {
                       </ProtectedRoute>
                     }
                   />
-                </Routes>
+                  </Routes>
+                ) : (
+                  <div className="min-h-screen flex items-center justify-center">
+                    <p className="text-sm text-gray-600">Preparing session...</p>
+                  </div>
+                )}
               </ManagerNotificationProvider>
             </DriverDeliveryNotificationProvider>
           </BrowserRouter>

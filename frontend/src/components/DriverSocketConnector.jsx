@@ -69,7 +69,13 @@ export default function DriverSocketConnector() {
       disconnect();
       hasConnected.current = false;
     }
-  }, [connectAsDriver, disconnect, location.pathname, isConnected, shouldConnect]);
+  }, [
+    connectAsDriver,
+    disconnect,
+    location.pathname,
+    isConnected,
+    shouldConnect,
+  ]);
 
   // Listen for auth changes via storage events (login/logout in another tab)
   useEffect(() => {

@@ -202,8 +202,8 @@ function MiniDeliveryMap({ delivery }) {
           icon={customerIcon}
         />
 
-        {/* Route Lines */}
-        {hasRouteData ? (
+        {/* Route Lines (route geometry only) */}
+        {hasRouteData && (
           <>
             {driverToRestaurantPath.length > 0 && (
               <Polyline
@@ -218,20 +218,6 @@ function MiniDeliveryMap({ delivery }) {
               />
             )}
           </>
-        ) : (
-          /* Fallback: straight line */
-          <Polyline
-            positions={[
-              [restaurant.latitude, restaurant.longitude],
-              [customerLocation.latitude, customerLocation.longitude],
-            ]}
-            pathOptions={{
-              color: "#22c55e",
-              weight: 2,
-              opacity: 0.7,
-              dashArray: "5, 5",
-            }}
-          />
         )}
       </MapContainer>
     </div>
@@ -825,19 +811,28 @@ export default function DriverDashboard() {
   // ============================================================================
 
   const calculateDistance = (delivery) => {
-    // Use route_impact values (same as AvailableDeliveries page)
+    // Route-based shortest distance only (no straight-line fallback)
     const routeImpact = delivery.route_impact || {};
-    if (routeImpact.total_delivery_distance_km) {
-      return parseFloat(routeImpact.total_delivery_distance_km).toFixed(1);
+
+    if (Number.isFinite(Number(delivery.total_delivery_distance_km))) {
+      return Number(delivery.total_delivery_distance_km).toFixed(1);
     }
-    if (routeImpact.r1_distance_km) {
-      return parseFloat(routeImpact.r1_distance_km).toFixed(1);
+
+    if (Number.isFinite(Number(routeImpact.total_distance_km))) {
+      return Number(routeImpact.total_distance_km).toFixed(1);
     }
-    // Fallback to distance_km only if route_impact not available
-    if (delivery.distance_km) {
-      return parseFloat(delivery.distance_km).toFixed(1);
+
+    if (Number.isFinite(Number(routeImpact.r1_distance_km))) {
+      return Number(routeImpact.r1_distance_km).toFixed(1);
     }
-    return "—";
+
+    const dtrKm = Number(routeImpact.driver_to_restaurant_km);
+    const rtcKm = Number(routeImpact.restaurant_to_customer_km);
+    if (Number.isFinite(dtrKm) && Number.isFinite(rtcKm)) {
+      return (dtrKm + rtcKm).toFixed(1);
+    }
+
+    return null;
   };
 
   // Get earnings breakdown from delivery
@@ -1235,96 +1230,103 @@ export default function DriverDashboard() {
                 </p>
               </div>
             ) : (
-              availableDeliveries.slice(0, 5).map((delivery, index) => (
-                <div key={delivery.delivery_id} className="px-4">
-                  <div className="flex flex-col gap-4 rounded-2xl bg-white p-4 shadow-sm border border-slate-100">
-                    <div className="flex justify-between items-start gap-3">
-                      <div className="flex flex-col gap-1.5 flex-1">
-                        <div className="flex items-center gap-2">
-                          {index === 0 && (
-                            <span className="bg-[#22c55e]/10 text-[#22c55e] text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
-                              New Order
-                            </span>
-                          )}
-                          {delivery.orders?.length > 1 && (
-                            <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
-                              Bulk Order
-                            </span>
-                          )}
-                          <p className="text-slate-400 text-[11px] font-bold leading-normal uppercase">
-                            {calculateDistance(delivery)} km away
+              availableDeliveries.slice(0, 5).map((delivery, index) => {
+                const routeDistanceKm = calculateDistance(delivery);
+
+                return (
+                  <div key={delivery.delivery_id} className="px-4">
+                    <div className="flex flex-col gap-4 rounded-2xl bg-white p-4 shadow-sm border border-slate-100">
+                      <div className="flex justify-between items-start gap-3">
+                        <div className="flex flex-col gap-1.5 flex-1">
+                          <div className="flex items-center gap-2">
+                            {index === 0 && (
+                              <span className="bg-[#22c55e]/10 text-[#22c55e] text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                New Order
+                              </span>
+                            )}
+                            {delivery.orders?.length > 1 && (
+                              <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                Bulk Order
+                              </span>
+                            )}
+                            <p className="text-slate-400 text-[11px] font-bold leading-normal uppercase">
+                              {routeDistanceKm
+                                ? `${routeDistanceKm} km away`
+                                : "Route distance unavailable"}
+                            </p>
+                          </div>
+                          <p className="text-[#22c55e] text-2xl font-bold leading-tight">
+                            Rs. {getDeliveryEarnings(delivery)}
                           </p>
-                        </div>
-                        <p className="text-[#22c55e] text-2xl font-bold leading-tight">
-                          Rs. {getDeliveryEarnings(delivery)}
-                        </p>
-                        {/* Earnings Breakdown */}
-                        {(() => {
-                          const breakdown = getEarningsBreakdown(delivery);
-                          const hasExtras =
-                            breakdown.bonusAmount > 0 ||
-                            breakdown.tipAmount > 0;
-                          return hasExtras ? (
-                            <div className="flex flex-col gap-0.5">
-                              <p className="text-slate-500 text-xs">
-                                {breakdown.isFirst ? "Base" : "Extra"}: Rs.{" "}
-                                {breakdown.primaryEarning.toFixed(0)}
-                              </p>
-                              {breakdown.bonusAmount > 0 && (
-                                <p className="text-orange-600 text-xs font-medium">
-                                  🎁 Bonus: Rs.{" "}
-                                  {breakdown.bonusAmount.toFixed(0)}
+                          {/* Earnings Breakdown */}
+                          {(() => {
+                            const breakdown = getEarningsBreakdown(delivery);
+                            const hasExtras =
+                              breakdown.bonusAmount > 0 ||
+                              breakdown.tipAmount > 0;
+                            return hasExtras ? (
+                              <div className="flex flex-col gap-0.5">
+                                <p className="text-slate-500 text-xs">
+                                  {breakdown.isFirst ? "Base" : "Extra"}: Rs.{" "}
+                                  {breakdown.primaryEarning.toFixed(0)}
                                 </p>
-                              )}
-                              {breakdown.tipAmount > 0 && (
-                                <p className="text-yellow-700 text-xs font-medium">
-                                  💰 Tip: Rs. {breakdown.tipAmount.toFixed(0)}
-                                </p>
-                              )}
-                            </div>
-                          ) : null;
-                        })()}
-                        <div className="flex items-center gap-1.5">
-                          <span className="material-symbols-outlined text-[18px] text-slate-400">
-                            store
-                          </span>
-                          <p className="text-slate-600 text-[15px] font-medium leading-normal">
-                            {delivery.restaurant?.name ||
-                              delivery.restaurant_name ||
-                              "Restaurant"}
-                          </p>
+                                {breakdown.bonusAmount > 0 && (
+                                  <p className="text-orange-600 text-xs font-medium">
+                                    🎁 Bonus: Rs. {breakdown.bonusAmount.toFixed(0)}
+                                  </p>
+                                )}
+                                {breakdown.tipAmount > 0 && (
+                                  <p className="text-yellow-700 text-xs font-medium">
+                                    💰 Tip: Rs. {breakdown.tipAmount.toFixed(0)}
+                                  </p>
+                                )}
+                              </div>
+                            ) : null;
+                          })()}
+                          <div className="flex items-center gap-1.5">
+                            <span className="material-symbols-outlined text-[18px] text-slate-400">
+                              store
+                            </span>
+                            <p className="text-slate-600 text-[15px] font-medium leading-normal">
+                              {delivery.restaurant?.name ||
+                                delivery.restaurant_name ||
+                                "Restaurant"}
+                            </p>
+                          </div>
+                          {getEstimatedTime(delivery) > 0 && (
+                            <p className="text-slate-400 text-xs mt-0.5">
+                              ~{getEstimatedTime(delivery)} mins
+                            </p>
+                          )}
                         </div>
-                        {getEstimatedTime(delivery) > 0 && (
-                          <p className="text-slate-400 text-xs mt-0.5">
-                            ~{getEstimatedTime(delivery)} mins
-                          </p>
-                        )}
+
+                        {/* Map Preview with Routes */}
+                        <MiniDeliveryMap delivery={delivery} />
                       </div>
-                      {/* Map Preview with Routes */}
-                      <MiniDeliveryMap delivery={delivery} />
+
+                      <button
+                        onClick={() => handleAcceptDelivery(delivery.delivery_id)}
+                        disabled={acceptingOrder === delivery.delivery_id}
+                        className="flex w-full cursor-pointer items-center justify-center rounded-xl h-12 bg-[#22c55e] text-white gap-2 text-base font-bold shadow-md shadow-[#22c55e]/20 active:bg-[#16a34a] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {acceptingOrder === delivery.delivery_id ? (
+                          <>
+                            <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                            <span>Accepting...</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="material-symbols-outlined text-[22px]">
+                              check_circle
+                            </span>
+                            <span>Accept Request</span>
+                          </>
+                        )}
+                      </button>
                     </div>
-                    <button
-                      onClick={() => handleAcceptDelivery(delivery.delivery_id)}
-                      disabled={acceptingOrder === delivery.delivery_id}
-                      className="flex w-full cursor-pointer items-center justify-center rounded-xl h-12 bg-[#22c55e] text-white gap-2 text-base font-bold shadow-md shadow-[#22c55e]/20 active:bg-[#16a34a] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {acceptingOrder === delivery.delivery_id ? (
-                        <>
-                          <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                          <span>Accepting...</span>
-                        </>
-                      ) : (
-                        <>
-                          <span className="material-symbols-outlined text-[22px]">
-                            check_circle
-                          </span>
-                          <span>Accept Request</span>
-                        </>
-                      )}
-                    </button>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
 
