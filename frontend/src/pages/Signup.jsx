@@ -57,6 +57,9 @@ export default function Signup() {
         email,
         userId: data?.userId || "",
       });
+      if (data?.pendingLoginToken) {
+        params.set("pendingLoginToken", data.pendingLoginToken);
+      }
       navigate(`/auth/verify-pending?${params.toString()}`);
     } catch (error) {
       console.error("Signup error:", error);

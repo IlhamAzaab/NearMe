@@ -21,8 +21,22 @@ export default function CompleteProfile() {
   const { alert, visible, showError } = useAlert();
 
   useEffect(() => {
-    if (!userId) {
+    const token = localStorage.getItem("token");
+    const role = localStorage.getItem("role");
+    const profileCompleted = localStorage.getItem("profileCompleted");
+
+    if (!token || role !== "customer") {
       navigate("/login");
+      return;
+    }
+
+    if (profileCompleted === "true") {
+      navigate("/");
+      return;
+    }
+
+    if (!userId) {
+      navigate("/");
     }
   }, [userId, navigate]);
 
@@ -136,6 +150,8 @@ export default function CompleteProfile() {
         setLoading(false);
         return;
       }
+
+      localStorage.setItem("profileCompleted", "true");
 
       // Navigate to OTP verification page
       const otpParams = new URLSearchParams({

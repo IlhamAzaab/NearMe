@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { persistAuthSession } from "../auth/tokenStorage";
 import { API_URL } from "../config";
 
 const POLL_INTERVAL_MS = 5000;
@@ -9,14 +10,69 @@ export default function VerifyPending() {
   const [searchParams] = useSearchParams();
   const email = searchParams.get("email") || "";
   const userId = searchParams.get("userId") || "";
+  const pendingLoginToken = searchParams.get("pendingLoginToken") || "";
 
   const [statusMessage, setStatusMessage] = useState(
     "Waiting for email verification...",
   );
   const [isResending, setIsResending] = useState(false);
   const [error, setError] = useState("");
+  const [isVerified, setIsVerified] = useState(false);
+  const [isStarting, setIsStarting] = useState(false);
+  const [showLoginSuccess, setShowLoginSuccess] = useState(false);
 
   const canPoll = useMemo(() => Boolean(userId), [userId]);
+
+  const goToCompleteProfile = () => {
+    const token = localStorage.getItem("token");
+    const authUserId = localStorage.getItem("userId") || userId;
+    const params = new URLSearchParams({ userId: authUserId });
+    if (token) params.set("access_token", token);
+    navigate(`/auth/complete-profile?${params.toString()}`);
+  };
+
+  const handleGetStarted = async () => {
+    setError("");
+    setIsStarting(true);
+
+    try {
+      if (pendingLoginToken) {
+        const res = await fetch(`${API_URL}/auth/complete-email-login`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pendingLoginToken }),
+        });
+
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setError(data?.message || "Unable to complete login. Please verify again.");
+          setIsStarting(false);
+          return;
+        }
+
+        await persistAuthSession(data);
+        localStorage.setItem("profileCompleted", data?.profileCompleted ? "true" : "false");
+        if (data?.email) localStorage.setItem("userEmail", data.email);
+      }
+
+      const token = localStorage.getItem("token");
+      const role = localStorage.getItem("role");
+      if (!token || role !== "customer") {
+        setError("Login session not ready yet. Please verify from the same browser.");
+        setIsStarting(false);
+        return;
+      }
+
+      setShowLoginSuccess(true);
+      setTimeout(() => {
+        goToCompleteProfile();
+      }, 1400);
+    } catch {
+      setError("Network error while preparing your account.");
+      setIsStarting(false);
+    }
+  };
 
   useEffect(() => {
     if (!canPoll) {
@@ -32,19 +88,8 @@ export default function VerifyPending() {
         const data = await res.json().catch(() => ({}));
 
         if (data?.verified) {
-          const token = localStorage.getItem("token");
-          const role = localStorage.getItem("role");
-          const authUserId = localStorage.getItem("userId") || userId;
-
-          if (token && role === "customer") {
-            navigate(
-              `/auth/complete-profile?userId=${encodeURIComponent(authUserId)}`,
-            );
-          } else {
-            setStatusMessage(
-              "Email verified. Continue in the tab where verification completed, or login here.",
-            );
-          }
+          setIsVerified(true);
+          setStatusMessage("Email verified successfully. Tap Get Started.");
         }
       } catch {
         // Keep polling silently during transient network issues.
@@ -59,15 +104,8 @@ export default function VerifyPending() {
   useEffect(() => {
     const onStorage = (event) => {
       if (event.key === "token" || event.key === "nm_email_verified") {
-        const token = localStorage.getItem("token");
-        const role = localStorage.getItem("role");
-        const authUserId = localStorage.getItem("userId") || userId;
-
-        if (token && role === "customer") {
-          navigate(
-            `/auth/complete-profile?userId=${encodeURIComponent(authUserId)}`,
-          );
-        }
+        setIsVerified(true);
+        setStatusMessage("Email verified successfully. Tap Get Started.");
       }
     };
 
@@ -104,6 +142,19 @@ export default function VerifyPending() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-green-50 px-4">
+      {showLoginSuccess ? (
+        <div className="fixed inset-0 bg-linear-to-br from-green-500 to-emerald-600 flex items-center justify-center z-50">
+          <div className="text-center text-white">
+            <div className="mx-auto mb-4 h-16 w-16 rounded-full bg-white/20 flex items-center justify-center">
+              <svg className="h-9 w-9" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <h2 className="text-3xl font-bold">Login Successful</h2>
+          </div>
+        </div>
+      ) : null}
+
       <div className="w-full max-w-md bg-white rounded-2xl shadow-lg p-8">
         <h1 className="text-2xl font-bold text-gray-900 mb-3">
           Verify your email
@@ -119,23 +170,34 @@ export default function VerifyPending() {
 
         {error ? <p className="text-sm text-red-600 mb-3">{error}</p> : null}
 
-        <div className="space-y-3">
+        {isVerified ? (
           <button
             type="button"
-            onClick={handleResend}
-            disabled={isResending || !email}
+            onClick={handleGetStarted}
+            disabled={isStarting}
             className="w-full py-3 rounded-xl bg-green-600 text-white font-semibold disabled:opacity-60"
           >
-            {isResending ? "Resending..." : "Resend verification email"}
+            {isStarting ? "Starting..." : "Get Started"}
           </button>
-          <button
-            type="button"
-            onClick={() => navigate("/login")}
-            className="w-full py-3 rounded-xl bg-gray-100 text-gray-700 font-semibold"
-          >
-            Back to login
-          </button>
-        </div>
+        ) : (
+          <div className="space-y-3">
+            <button
+              type="button"
+              onClick={handleResend}
+              disabled={isResending || !email}
+              className="w-full py-3 rounded-xl bg-green-600 text-white font-semibold disabled:opacity-60"
+            >
+              {isResending ? "Resending..." : "Resend verification email"}
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate("/login")}
+              className="w-full py-3 rounded-xl bg-gray-100 text-gray-700 font-semibold"
+            >
+              Back to login
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

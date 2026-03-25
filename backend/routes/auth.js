@@ -202,6 +202,18 @@ function createEmailVerificationToken({ userId, email, nonce }) {
   );
 }
 
+function createPostVerifyLoginToken({ userId, nonce }) {
+  return jwt.sign(
+    {
+      userId,
+      nonce,
+      purpose: "post_verify_login",
+    },
+    process.env.JWT_SECRET,
+    { expiresIn: "24h" },
+  );
+}
+
 async function sendVerificationEmail(email, verificationLink) {
   const resendApiKey = process.env.RESEND_API_KEY;
 
@@ -586,6 +598,7 @@ router.post("/signup", async (req, res) => {
     }
 
     const verificationNonce = crypto.randomUUID();
+    const pendingLoginNonce = crypto.randomUUID();
     const existingUserMetadata = authData.user.user_metadata || {};
 
     const { error: metadataError } =
@@ -594,6 +607,7 @@ router.post("/signup", async (req, res) => {
           ...existingUserMetadata,
           email_verification_nonce: verificationNonce,
           email_verification_issued_at: new Date().toISOString(),
+          pending_login_nonce: pendingLoginNonce,
         },
       });
 
@@ -608,6 +622,10 @@ router.post("/signup", async (req, res) => {
       userId: authData.user.id,
       email,
       nonce: verificationNonce,
+    });
+    const pendingLoginToken = createPostVerifyLoginToken({
+      userId: authData.user.id,
+      nonce: pendingLoginNonce,
     });
 
     const verificationLink = `${BACKEND_PUBLIC_URL}/auth/confirm-email?token=${encodeURIComponent(verifyToken)}`;
@@ -628,6 +646,7 @@ router.post("/signup", async (req, res) => {
           userId: authData.user.id,
           email,
           emailSent: true,
+          pendingLoginToken,
         });
       }
     } catch (emailError) {
@@ -648,6 +667,7 @@ router.post("/signup", async (req, res) => {
       userId: authData.user.id,
       email,
       emailSent: false,
+      pendingLoginToken,
       testVerificationLink: verificationLink, // For testing/development only
     });
   } catch (error) {
@@ -937,8 +957,13 @@ router.post("/complete-profile", async (req, res) => {
       });
     }
 
+    // A valid auth token is required to complete profile.
+    if (!access_token) {
+      return res.status(401).json({ message: "Authentication token is required" });
+    }
+
     // Verify the caller owns this userId via either app JWT or Supabase access token.
-    if (access_token) {
+    {
       let tokenMatchesUser = false;
 
       try {
@@ -1079,6 +1104,60 @@ router.post("/complete-profile", async (req, res) => {
     res.status(500).json({
       message: "Server error completing profile",
     });
+  }
+});
+
+/**
+ * GET /auth/customer-profile-status?userId=...
+ * Returns whether customer profile is completed.
+ */
+router.get("/customer-profile-status", async (req, res) => {
+  try {
+    const { userId } = req.query;
+    if (!userId) {
+      return res.status(400).json({ message: "userId is required" });
+    }
+
+    const auth = req.headers.authorization || "";
+    if (!auth.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const token = auth.split(" ")[1];
+    let tokenMatchesUser = false;
+
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const jwtUserId = String(decoded?.id || decoded?.userId || "");
+      if (jwtUserId && jwtUserId === String(userId)) {
+        tokenMatchesUser = true;
+      }
+    } catch {
+      // Not app JWT, try Supabase token.
+    }
+
+    if (!tokenMatchesUser) {
+      const { data: tokenUser, error: tokenError } =
+        await supabaseAdmin.auth.getUser(token);
+      if (!tokenError && tokenUser?.user && tokenUser.user.id === userId) {
+        tokenMatchesUser = true;
+      }
+    }
+
+    if (!tokenMatchesUser) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    const { data: customerProfile } = await supabaseAdmin
+      .from("customers")
+      .select("id")
+      .eq("id", userId)
+      .maybeSingle();
+
+    return res.json({ profileCompleted: !!customerProfile });
+  } catch (error) {
+    console.error("customer-profile-status error:", error);
+    return res.status(500).json({ message: "Failed to check profile status" });
   }
 });
 
@@ -1405,6 +1484,120 @@ router.post("/verify-email", async (req, res) => {
       message: "Server error during email verification",
       code: "verification_server_error",
     });
+  }
+});
+
+/**
+ * POST /auth/complete-email-login
+ * Exchange a one-time pending login token for an authenticated session
+ * after email verification is complete.
+ */
+router.post("/complete-email-login", async (req, res) => {
+  try {
+    const pendingToken = String(req.body?.pendingLoginToken || "").trim();
+    if (!pendingToken) {
+      return res.status(400).json({
+        message: "Pending login token is required",
+      });
+    }
+
+    let payload;
+    try {
+      payload = jwt.verify(pendingToken, process.env.JWT_SECRET);
+    } catch {
+      return res.status(401).json({
+        message: "Invalid or expired pending login token",
+      });
+    }
+
+    const userId = String(payload?.userId || "").trim();
+    const nonce = String(payload?.nonce || "").trim();
+
+    if (!userId || !nonce || payload?.purpose !== "post_verify_login") {
+      return res.status(401).json({
+        message: "Invalid pending login token payload",
+      });
+    }
+
+    const { data: authUserData, error: authUserError } =
+      await supabaseAdmin.auth.admin.getUserById(userId);
+
+    if (authUserError || !authUserData?.user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const authUser = authUserData.user;
+    const storedPendingNonce = String(
+      authUser.user_metadata?.pending_login_nonce || "",
+    ).trim();
+
+    if (!storedPendingNonce || storedPendingNonce !== nonce) {
+      return res.status(401).json({
+        message: "Pending login token already used or invalid",
+      });
+    }
+
+    if (!authUser.email_confirmed_at) {
+      return res.status(403).json({
+        message: "Email is not verified yet",
+      });
+    }
+
+    const { error: metadataClearError } =
+      await supabaseAdmin.auth.admin.updateUserById(userId, {
+        user_metadata: {
+          ...(authUser.user_metadata || {}),
+          pending_login_nonce: null,
+        },
+      });
+
+    if (metadataClearError) {
+      console.error("Failed clearing pending_login_nonce:", metadataClearError);
+    }
+
+    const { data: existingUser } = await supabaseAdmin
+      .from("users")
+      .select("id")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (!existingUser) {
+      const { error: insertUserError } = await supabaseAdmin.from("users").insert({
+        id: userId,
+        role: "customer",
+        email: authUser.email,
+        created_at: new Date().toISOString(),
+      });
+
+      if (insertUserError) {
+        console.error("complete-email-login users insert error:", insertUserError);
+      }
+    }
+
+    const { data: customerProfile } = await supabaseAdmin
+      .from("customers")
+      .select("username")
+      .eq("id", userId)
+      .maybeSingle();
+
+    return res.json(
+      issueAuthSession(
+        req,
+        res,
+        { id: userId, role: "customer" },
+        {
+          role: "customer",
+          userId,
+          profileCompleted: !!customerProfile,
+          userName: customerProfile?.username || null,
+          email: authUser.email,
+          message: "Login successful",
+        },
+      ),
+    );
+  } catch (error) {
+    console.error("complete-email-login error:", error);
+    return res.status(500).json({ message: "Failed to complete email login" });
   }
 });
 
