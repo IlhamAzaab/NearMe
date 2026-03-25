@@ -107,6 +107,15 @@ async function refreshAccessToken(nativeFetch) {
       "Content-Type": "application/json",
     };
 
+    const expectedRole =
+      (typeof window !== "undefined" && window.localStorage
+        ? window.localStorage.getItem("role")
+        : null) || null;
+
+    if (expectedRole) {
+      headers["x-expected-role"] = expectedRole;
+    }
+
     if (refreshToken) {
       headers.Authorization = `Bearer ${refreshToken}`;
     }

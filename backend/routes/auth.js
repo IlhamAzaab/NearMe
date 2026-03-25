@@ -37,6 +37,31 @@ const router = express.Router();
 const ACCESS_TOKEN_EXPIRES_IN = process.env.ACCESS_TOKEN_EXPIRES_IN || "15m";
 const REFRESH_TOKEN_EXPIRES_IN = process.env.REFRESH_TOKEN_EXPIRES_IN || "365d";
 const REFRESH_COOKIE_NAME = process.env.REFRESH_COOKIE_NAME || "nm_rt";
+const SUPPORTED_AUTH_ROLES = new Set([
+  "customer",
+  "admin",
+  "driver",
+  "manager",
+]);
+
+function normalizeRole(value) {
+  const role = String(value || "").toLowerCase().trim();
+  return SUPPORTED_AUTH_ROLES.has(role) ? role : null;
+}
+
+function getRefreshCookieName(role) {
+  const normalizedRole = normalizeRole(role);
+  return normalizedRole
+    ? `${REFRESH_COOKIE_NAME}_${normalizedRole}`
+    : REFRESH_COOKIE_NAME;
+}
+
+function getRefreshCookieCandidates(expectedRole) {
+  const normalizedRole = normalizeRole(expectedRole);
+  return normalizedRole
+    ? [getRefreshCookieName(normalizedRole), REFRESH_COOKIE_NAME]
+    : [REFRESH_COOKIE_NAME];
+}
 
 function parseCookieHeader(cookieHeader = "") {
   return cookieHeader
@@ -104,19 +129,32 @@ function shouldReturnMobileRefreshToken(req) {
   return platform === "mobile" || platform === "react-native";
 }
 
-function clearRefreshCookie(req, res) {
-  res.clearCookie(REFRESH_COOKIE_NAME, {
+function clearRefreshCookie(req, res, role) {
+  res.clearCookie(getRefreshCookieName(role), {
     ...getRefreshCookieOptions(req),
     maxAge: undefined,
     expires: new Date(0),
   });
 }
 
+function clearAllRefreshCookies(req, res) {
+  clearRefreshCookie(req, res);
+  for (const role of SUPPORTED_AUTH_ROLES) {
+    clearRefreshCookie(req, res, role);
+  }
+}
+
 function issueAuthSession(req, res, payload, extra = {}) {
   const token = signAccessToken(payload);
   const refreshToken = signRefreshToken(payload);
 
-  res.cookie(REFRESH_COOKIE_NAME, refreshToken, getRefreshCookieOptions(req));
+  const roleCookieName = getRefreshCookieName(payload.role);
+  res.cookie(roleCookieName, refreshToken, getRefreshCookieOptions(req));
+
+  // Backward compatibility: keep issuing legacy cookie while old clients migrate.
+  if (roleCookieName !== REFRESH_COOKIE_NAME) {
+    res.cookie(REFRESH_COOKIE_NAME, refreshToken, getRefreshCookieOptions(req));
+  }
 
   const body = {
     token,
@@ -967,6 +1005,10 @@ router.post("/login", async (req, res) => {
  * Clears refresh cookie and lets clients clear local access token.
  */
 router.post("/logout", (req, res) => {
+  const expectedRole = normalizeRole(req.headers["x-expected-role"]);
+  if (expectedRole) {
+    clearRefreshCookie(req, res, expectedRole);
+  }
   clearRefreshCookie(req, res);
   res.json({ message: "Logged out" });
 });
@@ -1447,7 +1489,11 @@ p{color:#6b7280;font-size:14px;line-height:1.5;margin-bottom:16px}
 router.post("/refresh-token", async (req, res) => {
   try {
     const cookies = parseCookieHeader(req.headers.cookie || "");
-    const tokenFromCookie = cookies[REFRESH_COOKIE_NAME];
+    const expectedRole = normalizeRole(req.headers["x-expected-role"]);
+    const cookieCandidates = getRefreshCookieCandidates(expectedRole);
+    const tokenFromCookie = cookieCandidates
+      .map((cookieName) => cookies[cookieName])
+      .find(Boolean);
     const tokenFromBody = req.body?.refreshToken;
     const refreshToken = tokenFromCookie || tokenFromBody;
 
@@ -1459,6 +1505,9 @@ router.post("/refresh-token", async (req, res) => {
     try {
       payload = verifyRefreshToken(refreshToken);
     } catch {
+      if (expectedRole) {
+        clearRefreshCookie(req, res, expectedRole);
+      }
       clearRefreshCookie(req, res);
       return res
         .status(401)
@@ -1466,11 +1515,21 @@ router.post("/refresh-token", async (req, res) => {
     }
 
     if (payload?.type && payload.type !== "refresh") {
+      if (expectedRole) {
+        clearRefreshCookie(req, res, expectedRole);
+      }
       clearRefreshCookie(req, res);
       return res.status(401).json({ message: "Invalid refresh token type" });
     }
 
     const { id, role } = payload;
+
+    if (expectedRole && expectedRole !== role) {
+      // Prevent cross-role refresh cookie collisions between different app sessions.
+      return res.status(401).json({
+        message: "Refresh role mismatch",
+      });
+    }
 
     // Verify user still exists and is active
     let userExists = false;
@@ -1506,7 +1565,7 @@ router.post("/refresh-token", async (req, res) => {
     }
 
     if (!userExists) {
-      clearRefreshCookie(req, res);
+      clearAllRefreshCookies(req, res);
       return res.status(401).json({ message: "User no longer exists" });
     }
 
