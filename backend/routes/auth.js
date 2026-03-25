@@ -38,9 +38,18 @@ const router = express.Router();
 const ACCESS_TOKEN_EXPIRES_IN = process.env.ACCESS_TOKEN_EXPIRES_IN || "15m";
 const REFRESH_TOKEN_EXPIRES_IN = process.env.REFRESH_TOKEN_EXPIRES_IN || "365d";
 const REFRESH_COOKIE_NAME = process.env.REFRESH_COOKIE_NAME || "nm_rt";
+const DEFAULT_FRONTEND_ORIGIN =
+  process.env.NODE_ENV === "production"
+    ? "https://meezo-eta.vercel.app"
+    : "http://localhost:5174";
 const FRONTEND_VERIFY_EMAIL_URL =
   process.env.FRONTEND_VERIFY_EMAIL_URL ||
-  "https://meezo-eta.vercel.app/auth/verify-email";
+  `${DEFAULT_FRONTEND_ORIGIN}/auth/verify-email`;
+const FRONTEND_COMPLETE_PROFILE_URL =
+  process.env.FRONTEND_COMPLETE_PROFILE_URL ||
+  `${DEFAULT_FRONTEND_ORIGIN}/auth/complete-profile`;
+const FRONTEND_SIGNUP_URL =
+  process.env.FRONTEND_SIGNUP_URL || `${DEFAULT_FRONTEND_ORIGIN}/signup`;
 const BACKEND_PUBLIC_URL =
   process.env.BACKEND_PUBLIC_URL || "https://meezo-backend-d3gw.onrender.com";
 const MOBILE_VERIFY_DEEPLINK_BASE =
@@ -235,6 +244,140 @@ p{color:#6b7280;font-size:14px;line-height:1.6;margin-bottom:16px}
   }
 
   return { ok: true };
+}
+
+async function resolveVerifiedCustomerSession(token) {
+  let payload;
+  try {
+    payload = jwt.verify(token, process.env.JWT_SECRET);
+  } catch (tokenError) {
+    if (tokenError?.name === "TokenExpiredError") {
+      return {
+        ok: false,
+        status: 410,
+        message: "Verification link expired. Please request a new email.",
+        code: "verification_link_expired",
+      };
+    }
+
+    return {
+      ok: false,
+      status: 400,
+      message: "Invalid verification link",
+      code: "invalid_verification_token",
+    };
+  }
+
+  const userId = String(payload?.userId || "").trim();
+  const email = String(payload?.email || "")
+    .trim()
+    .toLowerCase();
+  const nonce = String(payload?.nonce || "").trim();
+
+  if (payload?.purpose !== "email_verification" || !userId || !nonce) {
+    return {
+      ok: false,
+      status: 400,
+      message: "Invalid verification link",
+      code: "invalid_verification_payload",
+    };
+  }
+
+  const { data: authUserData, error: authUserError } =
+    await supabaseAdmin.auth.admin.getUserById(userId);
+
+  if (authUserError || !authUserData?.user) {
+    return {
+      ok: false,
+      status: 404,
+      message: "User not found",
+      code: "user_not_found",
+    };
+  }
+
+  const authUser = authUserData.user;
+  const authEmail = String(authUser.email || "")
+    .trim()
+    .toLowerCase();
+  if (email && authEmail && email !== authEmail) {
+    return {
+      ok: false,
+      status: 400,
+      message: "Invalid verification link",
+      code: "verification_email_mismatch",
+    };
+  }
+
+  const storedNonce = String(
+    authUser.user_metadata?.email_verification_nonce || "",
+  ).trim();
+
+  if (!storedNonce || storedNonce !== nonce) {
+    return {
+      ok: false,
+      status: 409,
+      message: "This verification link has already been used.",
+      code: "verification_link_used",
+    };
+  }
+
+  const { error: confirmError } =
+    await supabaseAdmin.auth.admin.updateUserById(userId, {
+      email_confirm: true,
+      user_metadata: {
+        ...(authUser.user_metadata || {}),
+        email_verification_nonce: null,
+        email_verified_at: new Date().toISOString(),
+      },
+    });
+
+  if (confirmError) {
+    console.error("verify-email confirm error:", confirmError);
+    return {
+      ok: false,
+      status: 500,
+      message: "Failed to verify email",
+      code: "verification_update_failed",
+    };
+  }
+
+  const { data: existingUser } = await supabaseAdmin
+    .from("users")
+    .select("id")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (!existingUser) {
+    const { error: insertUserError } = await supabaseAdmin.from("users").insert({
+      id: userId,
+      role: "customer",
+      email: authEmail,
+      created_at: new Date().toISOString(),
+    });
+
+    if (insertUserError) {
+      console.error("verify-email users insert error:", insertUserError);
+    }
+  }
+
+  const { data: customerProfile } = await supabaseAdmin
+    .from("customers")
+    .select("username")
+    .eq("id", userId)
+    .maybeSingle();
+
+  return {
+    ok: true,
+    sessionPayload: { id: userId, role: "customer" },
+    sessionExtra: {
+      message: "Email verified successfully",
+      role: "customer",
+      userId,
+      email: authEmail,
+      userName: customerProfile?.username || null,
+      profileCompleted: !!customerProfile,
+    },
+  };
 }
 
 /**
@@ -794,11 +937,29 @@ router.post("/complete-profile", async (req, res) => {
       });
     }
 
-    // Verify the caller owns this userId via Supabase access token
+    // Verify the caller owns this userId via either app JWT or Supabase access token.
     if (access_token) {
-      const { data: tokenUser, error: tokenError } =
-        await supabaseAdmin.auth.getUser(access_token);
-      if (tokenError || !tokenUser?.user || tokenUser.user.id !== userId) {
+      let tokenMatchesUser = false;
+
+      try {
+        const decoded = jwt.verify(access_token, process.env.JWT_SECRET);
+        const jwtUserId = String(decoded?.id || decoded?.userId || "");
+        if (jwtUserId && jwtUserId === String(userId)) {
+          tokenMatchesUser = true;
+        }
+      } catch {
+        // Not an app JWT. Continue with Supabase token validation.
+      }
+
+      if (!tokenMatchesUser) {
+        const { data: tokenUser, error: tokenError } =
+          await supabaseAdmin.auth.getUser(access_token);
+        if (!tokenError && tokenUser?.user && tokenUser.user.id === userId) {
+          tokenMatchesUser = true;
+        }
+      }
+
+      if (!tokenMatchesUser) {
         return res
           .status(403)
           .json({ message: "Access denied — token does not match userId" });
@@ -1222,128 +1383,20 @@ router.post("/verify-email", async (req, res) => {
       return res.status(400).json({ message: "Token is required" });
     }
 
-    let payload;
-    try {
-      payload = jwt.verify(token, process.env.JWT_SECRET);
-    } catch (tokenError) {
-      if (tokenError?.name === "TokenExpiredError") {
-        return res.status(410).json({
-          message: "Verification link expired. Please request a new email.",
-          code: "verification_link_expired",
-        });
-      }
-
-      return res.status(400).json({
-        message: "Invalid verification link",
-        code: "invalid_verification_token",
+    const verificationResult = await resolveVerifiedCustomerSession(token);
+    if (!verificationResult.ok) {
+      return res.status(verificationResult.status).json({
+        message: verificationResult.message,
+        code: verificationResult.code,
       });
     }
-
-    const userId = String(payload?.userId || "").trim();
-    const email = String(payload?.email || "")
-      .trim()
-      .toLowerCase();
-    const nonce = String(payload?.nonce || "").trim();
-
-    if (payload?.purpose !== "email_verification" || !userId || !nonce) {
-      return res.status(400).json({
-        message: "Invalid verification link",
-        code: "invalid_verification_payload",
-      });
-    }
-
-    const { data: authUserData, error: authUserError } =
-      await supabaseAdmin.auth.admin.getUserById(userId);
-
-    if (authUserError || !authUserData?.user) {
-      return res.status(404).json({
-        message: "User not found",
-        code: "user_not_found",
-      });
-    }
-
-    const authUser = authUserData.user;
-    const authEmail = String(authUser.email || "")
-      .trim()
-      .toLowerCase();
-    if (email && authEmail && email !== authEmail) {
-      return res.status(400).json({
-        message: "Invalid verification link",
-        code: "verification_email_mismatch",
-      });
-    }
-
-    const storedNonce = String(
-      authUser.user_metadata?.email_verification_nonce || "",
-    ).trim();
-
-    if (!storedNonce || storedNonce !== nonce) {
-      return res.status(409).json({
-        message: "This verification link has already been used.",
-        code: "verification_link_used",
-      });
-    }
-
-    const { error: confirmError } =
-      await supabaseAdmin.auth.admin.updateUserById(userId, {
-        email_confirm: true,
-        user_metadata: {
-          ...(authUser.user_metadata || {}),
-          email_verification_nonce: null,
-          email_verified_at: new Date().toISOString(),
-        },
-      });
-
-    if (confirmError) {
-      console.error("verify-email confirm error:", confirmError);
-      return res.status(500).json({
-        message: "Failed to verify email",
-        code: "verification_update_failed",
-      });
-    }
-
-    const { data: existingUser } = await supabaseAdmin
-      .from("users")
-      .select("id")
-      .eq("id", userId)
-      .maybeSingle();
-
-    if (!existingUser) {
-      const { error: insertUserError } = await supabaseAdmin
-        .from("users")
-        .insert({
-          id: userId,
-          role: "customer",
-          email: authEmail,
-          created_at: new Date().toISOString(),
-        });
-
-      if (insertUserError) {
-        console.error("verify-email users insert error:", insertUserError);
-      }
-    }
-
-    const { data: customerProfile } = await supabaseAdmin
-      .from("customers")
-      .select("username")
-      .eq("id", userId)
-      .maybeSingle();
-
-    const profileCompleted = !!customerProfile;
 
     return res.json(
       issueAuthSession(
         req,
         res,
-        { id: userId, role: "customer" },
-        {
-          message: "Email verified successfully",
-          role: "customer",
-          userId,
-          email: authEmail,
-          userName: customerProfile?.username || null,
-          profileCompleted,
-        },
+        verificationResult.sessionPayload,
+        verificationResult.sessionExtra,
       ),
     );
   } catch (error) {
@@ -1370,41 +1423,29 @@ router.get("/confirm-email", async (req, res) => {
   const token = String(req.query?.token || "").trim();
 
   if (!token) {
-    return res.redirect("302", "https://meezo-eta.vercel.app/signup");
+    return res.redirect("302", FRONTEND_SIGNUP_URL);
   }
 
-  const webUrl = `${FRONTEND_VERIFY_EMAIL_URL}?token=${encodeURIComponent(token)}`;
-  const appUrl = `${MOBILE_VERIFY_DEEPLINK_BASE}?token=${encodeURIComponent(token)}`;
+  try {
+    const verificationResult = await resolveVerifiedCustomerSession(token);
+    if (!verificationResult.ok) {
+      const fallbackUrl = `${FRONTEND_VERIFY_EMAIL_URL}?token=${encodeURIComponent(token)}`;
+      return res.redirect("302", fallbackUrl);
+    }
 
-  res.setHeader("Content-Type", "text/html");
-  return res.send(`<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>NearMe Email Verification</title>
-  <style>
-    *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:linear-gradient(135deg,#f0fdf4,#ffffff,#ecfdf5);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px}
-    .card{max-width:420px;width:100%;background:#fff;border:1px solid #d1fae5;border-radius:20px;padding:24px;box-shadow:0 18px 50px rgba(0,0,0,.08);text-align:center}
-    h1{font-size:24px;color:#111827;margin-bottom:10px}
-    p{color:#4b5563;font-size:14px;line-height:1.5;margin-bottom:12px}
-    .btn{display:block;width:100%;text-decoration:none;font-weight:700;border-radius:12px;padding:12px 14px;margin-top:10px}
-    .btn-primary{background:linear-gradient(to right,#22c55e,#10b981);color:#fff}
-    .btn-secondary{background:#f3f4f6;color:#374151}
-    .hint{font-size:12px;color:#6b7280;margin-top:14px}
-  </style>
-</head>
-<body>
-  <div class="card">
-    <h1>Verify Your Email</h1>
-    <p>Choose where you want to continue verification.</p>
-    <a class="btn btn-primary" href="${appUrl}">Continue In Mobile App</a>
-    <a class="btn btn-secondary" href="${webUrl}">Continue On Web</a>
-    <p class="hint">This link expires in 1 hour and can only be used once.</p>
-  </div>
-</body>
-</html>`);
+    const authSession = issueAuthSession(
+      req,
+      res,
+      verificationResult.sessionPayload,
+      verificationResult.sessionExtra,
+    );
+
+    const redirectUrl = `${FRONTEND_COMPLETE_PROFILE_URL}?userId=${encodeURIComponent(authSession.userId)}&access_token=${encodeURIComponent(authSession.token)}`;
+    return res.redirect("302", redirectUrl);
+  } catch (error) {
+    console.error("confirm-email redirect error:", error);
+    return res.redirect("302", FRONTEND_SIGNUP_URL);
+  }
 });
 
 /**
