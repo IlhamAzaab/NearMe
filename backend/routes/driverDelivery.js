@@ -2462,6 +2462,16 @@ router.patch(
           .limit(1);
         if (hasActive && hasActive.length > 0) return null;
 
+        // Check if there are still deliveries to pick up (accepted status)
+        // Business logic: delivery should only start after ALL orders are picked up
+        const { data: hasAccepted } = await supabaseAdmin
+          .from("deliveries")
+          .select("id")
+          .eq("driver_id", req.user.id)
+          .eq("status", "accepted")
+          .limit(1);
+        if (hasAccepted && hasAccepted.length > 0) return null;
+
         // Find remaining picked_up deliveries
         const { data: nextList } = await supabaseAdmin
           .from("deliveries")

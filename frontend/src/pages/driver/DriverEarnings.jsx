@@ -138,6 +138,7 @@ export default function DriverEarnings() {
   };
 
   const getEarningsAmount = (item) => Number(item?.driver_earnings || 0);
+  const hasPositiveAmount = (value) => Number(value || 0) > 0;
 
   const periodLabel = useMemo(() => {
     if (period === "today") return "Today's Earnings";
@@ -612,18 +613,26 @@ export default function DriverEarnings() {
                       <p className="text-base font-bold text-[#111812]">
                         {formatCurrency(getEarningsAmount(item))}
                       </p>
-                      <p className="text-[11px] text-[#618968] leading-tight">
-                        Basic: {formatCurrency(item.base_amount)}
-                      </p>
-                      <p className="text-[11px] text-[#618968] leading-tight">
-                        Extra: {formatCurrency(item.extra_earnings)}
-                      </p>
-                      <p className="text-[11px] text-[#618968] leading-tight">
-                        Bonus: {formatCurrency(item.bonus_amount)}
-                      </p>
-                      <p className="text-[11px] text-[#618968] leading-tight">
-                        Tip: {formatCurrency(item.tip_amount)}
-                      </p>
+                      {hasPositiveAmount(item.base_amount) && (
+                        <p className="text-[11px] text-[#618968] leading-tight">
+                          Basic: {formatCurrency(item.base_amount)}
+                        </p>
+                      )}
+                      {hasPositiveAmount(item.extra_earnings) && (
+                        <p className="text-[11px] text-[#618968] leading-tight">
+                          Extra: {formatCurrency(item.extra_earnings)}
+                        </p>
+                      )}
+                      {hasPositiveAmount(item.bonus_amount) && (
+                        <p className="text-[11px] text-[#618968] leading-tight">
+                          Bonus: {formatCurrency(item.bonus_amount)}
+                        </p>
+                      )}
+                      {hasPositiveAmount(item.tip_amount) && (
+                        <p className="text-[11px] text-[#618968] leading-tight">
+                          Tip: {formatCurrency(item.tip_amount)}
+                        </p>
+                      )}
                     </div>
                   </div>
                 ))

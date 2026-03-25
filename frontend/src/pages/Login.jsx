@@ -65,14 +65,8 @@ export default function Login() {
 
       await persistAuthSession(data);
 
-      localStorage.setItem("role", data.role);
+      // Store email separately (not included in persistAuthSession)
       localStorage.setItem("userEmail", email);
-      if (data.userId) {
-        localStorage.setItem("userId", data.userId);
-      }
-      if (data.userName) {
-        localStorage.setItem("userName", data.userName);
-      }
 
       setIsLoading(false);
       setIsTransitioning(true);

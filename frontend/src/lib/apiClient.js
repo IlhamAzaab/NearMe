@@ -41,7 +41,8 @@ async function refreshAccessToken(nativeFetch) {
     refreshPromise = (async () => {
       const refreshToken = await getRefreshToken();
       const isWebRuntime =
-        typeof window !== "undefined" && typeof window.localStorage !== "undefined";
+        typeof window !== "undefined" &&
+        typeof window.localStorage !== "undefined";
 
       const refreshRes = await nativeFetch(`${API_URL}/auth/refresh-token`, {
         method: "POST",

@@ -15,7 +15,9 @@ function parseJwtExpiryMs(token) {
     const [, payload] = String(token).split(".");
     if (!payload) return null;
 
-    const decoded = JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/")));
+    const decoded = JSON.parse(
+      atob(payload.replace(/-/g, "+").replace(/_/g, "/")),
+    );
     if (!decoded?.exp) return null;
 
     return Number(decoded.exp) * 1000;
@@ -48,59 +50,63 @@ export function useTokenRefresh(options = {}) {
   const { enabled = true, redirectPath = "/login" } = options;
   const navigate = useNavigate();
 
-  const refreshToken = useCallback(async ({ force = false } = {}) => {
-    const token = localStorage.getItem("token");
-    if (!token) return false;
+  const refreshToken = useCallback(
+    async ({ force = false } = {}) => {
+      const token = localStorage.getItem("token");
+      if (!token) return false;
 
-    // Avoid unnecessary refresh calls while access token is still healthy.
-    if (!force && !isTokenExpiringSoon(token)) {
-      return true;
-    }
-
-    try {
-      const mobileRefreshToken = await getRefreshToken();
-      const isWebRuntime =
-        typeof window !== "undefined" && typeof window.localStorage !== "undefined";
-
-      const res = await fetch(`${API_URL}/auth/refresh-token`, {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(
-          !isWebRuntime && mobileRefreshToken
-            ? { refreshToken: mobileRefreshToken }
-            : {},
-        ),
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        await persistAuthSession(data);
+      // Avoid unnecessary refresh calls while access token is still healthy.
+      if (!force && !isTokenExpiringSoon(token)) {
         return true;
       }
 
-      if (res.status === 401 || res.status === 403) {
-        // Only force logout when current access token is already expired/expiring.
-        // This prevents false logouts when refresh cookie is unavailable.
-        const latestToken = localStorage.getItem("token");
-        if (!latestToken || isTokenExpiringSoon(latestToken, 0)) {
-          await clearStoredAuthSession();
-          navigate(redirectPath);
-        }
-      }
+      try {
+        const mobileRefreshToken = await getRefreshToken();
+        const isWebRuntime =
+          typeof window !== "undefined" &&
+          typeof window.localStorage !== "undefined";
 
-      return false;
-    } catch (error) {
-      // Preserve local auth state when backend/network is temporarily unavailable.
-      if (isNetworkLikeError(error)) {
+        const res = await fetch(`${API_URL}/auth/refresh-token`, {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(
+            !isWebRuntime && mobileRefreshToken
+              ? { refreshToken: mobileRefreshToken }
+              : {},
+          ),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          await persistAuthSession(data);
+          return true;
+        }
+
+        if (res.status === 401 || res.status === 403) {
+          // Only force logout when current access token is already expired/expiring.
+          // This prevents false logouts when refresh cookie is unavailable.
+          const latestToken = localStorage.getItem("token");
+          if (!latestToken || isTokenExpiringSoon(latestToken, 0)) {
+            await clearStoredAuthSession();
+            navigate(redirectPath);
+          }
+        }
+
+        return false;
+      } catch (error) {
+        // Preserve local auth state when backend/network is temporarily unavailable.
+        if (isNetworkLikeError(error)) {
+          return false;
+        }
+
         return false;
       }
-
-      return false;
-    }
-  }, [navigate, redirectPath]);
+    },
+    [navigate, redirectPath],
+  );
 
   useEffect(() => {
     if (!enabled) return;
@@ -131,16 +137,6 @@ export function getAuthState() {
   const token = localStorage.getItem("token");
   const role = localStorage.getItem("role");
   const userId = localStorage.getItem("userId");
-
-  if (!token || token === "null" || token === "undefined") {
-    return {
-      isAuthenticated: false,
-      token: null,
-      role: null,
-      userId: null,
-      payload: null,
-    };
-  }
 
   if (!token || token === "null" || token === "undefined") {
     return {

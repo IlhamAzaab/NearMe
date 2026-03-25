@@ -711,7 +711,12 @@ export default function AdminDashboard() {
 
           {dashboardData?.chartData?.length > 0 ? (
             <div className="w-full min-w-0 h-56 sm:h-72">
-              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={220}>
+              <ResponsiveContainer
+                width="100%"
+                height="100%"
+                minWidth={0}
+                minHeight={220}
+              >
                 <AreaChart
                   data={dashboardData.chartData}
                   margin={{ top: 5, right: 5, left: -15, bottom: 0 }}

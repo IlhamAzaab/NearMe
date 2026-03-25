@@ -558,10 +558,12 @@ router.post(
       // ====================================================================
       const driverId = deposit.driver_id;
       const notificationPayload = {
-        type: newStatus === "approved" ? "deposit_approved" : "deposit_rejected",
+        type:
+          newStatus === "approved" ? "deposit_approved" : "deposit_rejected",
         deposit_id: depositId,
         amount: parseFloat(deposit.amount),
-        approved_amount: newStatus === "approved" ? updateData.approved_amount : null,
+        approved_amount:
+          newStatus === "approved" ? updateData.approved_amount : null,
         status: newStatus,
         review_note: review_note || null,
         reviewed_at: updateData.reviewed_at,
@@ -573,9 +575,14 @@ router.post(
       // 📡 SOCKET: Realtime notification to driver
       try {
         notifyDriver(driverId, "driver:deposit_reviewed", notificationPayload);
-        console.log(`[DEPOSITS] 📡 Socket notification sent to driver ${driverId}`);
+        console.log(
+          `[DEPOSITS] 📡 Socket notification sent to driver ${driverId}`,
+        );
       } catch (socketError) {
-        console.error(`[DEPOSITS] ⚠️ Socket notification failed (non-fatal):`, socketError.message);
+        console.error(
+          `[DEPOSITS] ⚠️ Socket notification failed (non-fatal):`,
+          socketError.message,
+        );
       }
 
       // 📱 PUSH: Reach driver even when offline
@@ -584,12 +591,18 @@ router.post(
           depositId,
           status: newStatus,
           amount: parseFloat(deposit.amount),
-          approvedAmount: newStatus === "approved" ? updateData.approved_amount : null,
+          approvedAmount:
+            newStatus === "approved" ? updateData.approved_amount : null,
           reviewNote: review_note,
         });
-        console.log(`[DEPOSITS] 📱 Push notification sent to driver ${driverId}`);
+        console.log(
+          `[DEPOSITS] 📱 Push notification sent to driver ${driverId}`,
+        );
       } catch (pushError) {
-        console.error(`[DEPOSITS] ⚠️ Push notification failed (non-fatal):`, pushError.message);
+        console.error(
+          `[DEPOSITS] ⚠️ Push notification failed (non-fatal):`,
+          pushError.message,
+        );
       }
 
       return res.json({
