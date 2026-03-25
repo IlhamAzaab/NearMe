@@ -598,14 +598,50 @@ export function SocketProvider({ children }) {
     return newSocket;
   }, [hasValidAuth]);
 
+  // Track last reconnect time to debounce
+  const lastReconnectTimeRef = useRef(0);
+  const reconnectDebounceTimerRef = useRef(null);
+
   useEffect(() => {
-    const reconnectAfterRefresh = () => {
+    const reconnectAfterRefresh = (event) => {
       const role = localStorage.getItem("role");
       const userId = localStorage.getItem("userId");
 
       if (!role || !userId) {
         return;
       }
+
+      // Skip if socket is already connected and working fine
+      // Only reconnect if the socket was disconnected or needs token update
+      if (socketRef.current?.connected) {
+        console.log("[Socket] Already connected, skipping reconnect on token refresh");
+        return;
+      }
+
+      // Debounce reconnection to prevent storms
+      const now = Date.now();
+      const MIN_RECONNECT_INTERVAL = 5000; // 5 seconds minimum between reconnects
+
+      if (now - lastReconnectTimeRef.current < MIN_RECONNECT_INTERVAL) {
+        console.log("[Socket] Reconnect debounced (too soon after last reconnect)");
+
+        // Clear any pending timer and schedule a new one
+        if (reconnectDebounceTimerRef.current) {
+          clearTimeout(reconnectDebounceTimerRef.current);
+        }
+
+        reconnectDebounceTimerRef.current = setTimeout(() => {
+          reconnectDebounceTimerRef.current = null;
+          // Dispatch the event again after the cooldown
+          window.dispatchEvent(new CustomEvent("auth:token_refreshed", { detail: event?.detail }));
+        }, MIN_RECONNECT_INTERVAL - (now - lastReconnectTimeRef.current));
+
+        return;
+      }
+
+      lastReconnectTimeRef.current = now;
+
+      console.log("[Socket] Reconnecting after token refresh for role:", role);
 
       if (socketRef.current) {
         socketRef.current.disconnect();
@@ -614,15 +650,18 @@ export function SocketProvider({ children }) {
         setIsConnected(false);
       }
 
-      if (role === "driver") {
-        connectAsDriver(userId);
-      } else if (role === "customer") {
-        connectAsCustomer(userId);
-      } else if (role === "admin") {
-        connectAsAdmin(userId);
-      } else if (role === "manager") {
-        connectAsManager(userId);
-      }
+      // Small delay before reconnecting to let things settle
+      setTimeout(() => {
+        if (role === "driver") {
+          connectAsDriver(userId);
+        } else if (role === "customer") {
+          connectAsCustomer(userId);
+        } else if (role === "admin") {
+          connectAsAdmin(userId);
+        } else if (role === "manager") {
+          connectAsManager(userId);
+        }
+      }, 500);
     };
 
     window.addEventListener("auth:token_refreshed", reconnectAfterRefresh);
@@ -631,6 +670,9 @@ export function SocketProvider({ children }) {
         "auth:token_refreshed",
         reconnectAfterRefresh,
       );
+      if (reconnectDebounceTimerRef.current) {
+        clearTimeout(reconnectDebounceTimerRef.current);
+      }
     };
   }, [connectAsAdmin, connectAsCustomer, connectAsDriver, connectAsManager]);
 

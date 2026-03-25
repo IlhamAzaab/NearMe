@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   clearStoredAuthSession,
@@ -7,14 +7,21 @@ import {
 import {
   isNetworkLikeError,
   refreshAccessTokenWithLock,
+  resetRefreshFailureCount,
 } from "../lib/apiClient";
 
 const REFRESH_WINDOW_MS = 5 * 60 * 1000;
+const MIN_REFRESH_INTERVAL_MS = 5000; // Minimum 5 seconds between refresh attempts
 
 function isTokenExpiringSoon(token, thresholdMs = REFRESH_WINDOW_MS) {
   const expiryMs = getAuthFieldsFromToken(token)?.expiresAtMs;
   if (!expiryMs) return true;
   return expiryMs - Date.now() <= thresholdMs;
+}
+
+function isOnline() {
+  if (typeof navigator === "undefined") return true;
+  return navigator.onLine !== false;
 }
 
 /**
@@ -24,8 +31,9 @@ function isTokenExpiringSoon(token, thresholdMs = REFRESH_WINDOW_MS) {
  * Features:
  * - Refreshes session on app load and periodically in background
  * - Uses httpOnly cookie refresh on web and body refresh token fallback on mobile
- * - Logs out only when refresh is explicitly rejected (401/403)
+ * - Logs out only when refresh is explicitly rejected (invalid token, user deleted)
  * - Preserves session on transient network/server errors
+ * - Rate limits refresh attempts to prevent storms
  *
  * @param {object} options - Configuration options
  * @param {boolean} options.enabled - Whether to enable the hook (default: true)
@@ -38,19 +46,56 @@ export function useTokenRefresh(options = {}) {
     disableAutoInterval = false,
   } = options;
   const navigate = useNavigate();
+  const lastRefreshAttemptRef = useRef(0);
+  const isRefreshingRef = useRef(false);
 
   const refreshToken = useCallback(
-    async ({ force = false } = {}) => {
+    async ({ force = false, bypassCooldown = false } = {}) => {
       const token = localStorage.getItem("token");
-      if (!token) return false;
+      if (!token) {
+        console.log("[AUTH] No token found, skipping refresh");
+        return false;
+      }
+
+      // Check if we're online
+      if (!isOnline()) {
+        console.log("[AUTH] Offline, skipping refresh");
+        return false;
+      }
+
+      // Rate limiting - prevent refresh storms
+      const now = Date.now();
+      if (!bypassCooldown && now - lastRefreshAttemptRef.current < MIN_REFRESH_INTERVAL_MS) {
+        console.log("[AUTH] Refresh rate limited");
+        return false;
+      }
 
       // Avoid unnecessary refresh calls while access token is still healthy.
       if (!force && !isTokenExpiringSoon(token)) {
         return true;
       }
 
+      // Prevent concurrent refresh attempts from this hook
+      if (isRefreshingRef.current) {
+        console.log("[AUTH] Already refreshing from hook");
+        return false;
+      }
+
       try {
-        const refreshResult = await refreshAccessTokenWithLock();
+        isRefreshingRef.current = true;
+        lastRefreshAttemptRef.current = now;
+
+        const refreshResult = await refreshAccessTokenWithLock({ bypassCooldown });
+
+        // Handle cooldown response - not a real failure
+        if (!refreshResult.ok && refreshResult.reason === "cooldown") {
+          return false;
+        }
+
+        // Handle offline response - not a real failure
+        if (!refreshResult.ok && refreshResult.reason === "offline") {
+          return false;
+        }
 
         if (refreshResult.ok) {
           const latestToken = localStorage.getItem("token");
@@ -62,22 +107,26 @@ export function useTokenRefresh(options = {}) {
         }
 
         if (refreshResult.shouldLogout) {
-          console.log("[AUTH] Logging out user");
+          console.log("[AUTH] Logging out user due to:", refreshResult.reason);
           await clearStoredAuthSession();
           navigate(redirectPath);
           return false;
         }
 
-        console.log("[AUTH] Refresh failed, retrying...");
-
+        // Non-fatal failure - don't logout, just log
+        console.log("[AUTH] Refresh failed (non-fatal):", refreshResult.reason);
         return false;
       } catch (error) {
         // Preserve local auth state when backend/network is temporarily unavailable.
         if (isNetworkLikeError(error)) {
+          console.log("[AUTH] Network error during refresh, preserving session");
           return false;
         }
 
+        console.error("[AUTH] Unexpected refresh error:", error);
         return false;
+      } finally {
+        isRefreshingRef.current = false;
       }
     },
     [navigate, redirectPath],
@@ -98,9 +147,9 @@ export function useTokenRefresh(options = {}) {
     );
 
     return () => clearInterval(interval);
-  }, [enabled, refreshToken]);
+  }, [enabled, refreshToken, disableAutoInterval]);
 
-  return { refreshToken };
+  return { refreshToken, resetRefreshFailureCount };
 }
 
 /**

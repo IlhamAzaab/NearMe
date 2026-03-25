@@ -3,6 +3,7 @@ import { useState } from "react";
 import Home from "./pages/Home";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
+import VerifyPending from "./pages/VerifyPending";
 import CompleteProfile from "./pages/CompleteProfile";
 import VerifyOtp from "./pages/VerifyOtp";
 import VerifyEmail from "./pages/VerifyEmail";
@@ -137,6 +138,10 @@ function App() {
                   />
                   <Route path="/login" element={<Login />} />
                   <Route path="/signup" element={<Signup />} />
+                  <Route
+                    path="/auth/verify-pending"
+                    element={<VerifyPending />}
+                  />
                   <Route path="/auth/verify-email" element={<VerifyEmail />} />
                   <Route
                     path="/restaurant/:restaurantId/foods"

@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "../supabaseAdmin.js";
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
+import crypto from "crypto";
 
 if (process.env.NODE_ENV !== "production") {
   dotenv.config({ path: "../.env" });
@@ -37,6 +38,13 @@ const router = express.Router();
 const ACCESS_TOKEN_EXPIRES_IN = process.env.ACCESS_TOKEN_EXPIRES_IN || "15m";
 const REFRESH_TOKEN_EXPIRES_IN = process.env.REFRESH_TOKEN_EXPIRES_IN || "365d";
 const REFRESH_COOKIE_NAME = process.env.REFRESH_COOKIE_NAME || "nm_rt";
+const FRONTEND_VERIFY_EMAIL_URL =
+  process.env.FRONTEND_VERIFY_EMAIL_URL ||
+  "https://meezo-eta.vercel.app/auth/verify-email";
+const BACKEND_PUBLIC_URL =
+  process.env.BACKEND_PUBLIC_URL || "https://meezo-backend-d3gw.onrender.com";
+const MOBILE_VERIFY_DEEPLINK_BASE =
+  process.env.MOBILE_VERIFY_DEEPLINK_BASE || "nearmemobile://verify-email";
 const SUPPORTED_AUTH_ROLES = new Set([
   "customer",
   "admin",
@@ -168,6 +176,63 @@ function issueAuthSession(req, res, payload, extra = {}) {
   }
 
   return body;
+}
+
+function createEmailVerificationToken({ userId, email, nonce }) {
+  return jwt.sign(
+    {
+      userId,
+      email,
+      nonce,
+      purpose: "email_verification",
+    },
+    process.env.JWT_SECRET,
+    { expiresIn: "1h" },
+  );
+}
+
+async function sendVerificationEmail(email, verificationLink) {
+  const resendApiKey = process.env.RESEND_API_KEY;
+
+  if (!resendApiKey) {
+    return { ok: false, reason: "missing_resend_key" };
+  }
+
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${resendApiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: "NearMe <noreply@nearme.com>",
+      to: email,
+      subject: "Verify Your NearMe Email",
+      html: `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"/><style>
+body{font-family:sans-serif;background:#f0fdf4}
+.container{max-width:500px;margin:40px auto;background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 12px rgba(0,0,0,0.1)}
+h1{color:#111827;font-size:24px;margin-bottom:16px}
+p{color:#6b7280;font-size:14px;line-height:1.6;margin-bottom:16px}
+.btn{display:block;background:linear-gradient(to right,#22c55e,#10b981);color:white;padding:14px;border-radius:8px;text-align:center;text-decoration:none;font-weight:bold;margin:24px 0}
+.footer{border-top:1px solid #e5e7eb;padding-top:16px;color:#9ca3af;font-size:12px}
+</style></head><body>
+<div class="container">
+<h1>Welcome to NearMe! 👋</h1>
+<p>Thank you for signing up. Click the button below to verify your email address.</p>
+<a class="btn" href="${verificationLink}">Verify Email Address</a>
+<p style="font-size:12px;color:#9ca3af">This link expires in 1 hour and can only be used once. If you didn't sign up for NearMe, you can safely ignore this email.</p>
+<div class="footer"><p>NearMe &copy; 2026 | All rights reserved</p></div>
+</div></body></html>`,
+    }),
+  });
+
+  const resendData = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(resendData.message || "Resend API error");
+  }
+
+  return { ok: true };
 }
 
 /**
@@ -375,78 +440,56 @@ router.post("/signup", async (req, res) => {
       });
     }
 
-    // Generate OUR OWN verification JWT token (1 hour expiry)
-    const verifyToken = jwt.sign(
-      {
-        userId: authData.user.id,
-        email,
-        purpose: "email_verification",
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: "1h" },
-    );
+    const verificationNonce = crypto.randomUUID();
+    const existingUserMetadata = authData.user.user_metadata || {};
 
-    // Build verification link pointing to /auth/confirm-email
-    const verificationLink = `https://meezo-backend-d3gw.onrender.com/auth/confirm-email?token=${encodeURIComponent(verifyToken)}`;
+    const { error: metadataError } =
+      await supabaseAdmin.auth.admin.updateUserById(authData.user.id, {
+        user_metadata: {
+          ...existingUserMetadata,
+          email_verification_nonce: verificationNonce,
+          email_verification_issued_at: new Date().toISOString(),
+        },
+      });
+
+    if (metadataError) {
+      console.error("Failed to store verification nonce:", metadataError);
+      return res.status(500).json({
+        message: "Failed to prepare email verification. Please try again.",
+      });
+    }
+
+    const verifyToken = createEmailVerificationToken({
+      userId: authData.user.id,
+      email,
+      nonce: verificationNonce,
+    });
+
+    const verificationLink = `${BACKEND_PUBLIC_URL}/auth/confirm-email?token=${encodeURIComponent(verifyToken)}`;
 
     console.log(
       `✅ Signup: ${email} registered (userId: ${authData.user.id}). Verification link ready.`,
     );
     console.log(`📧 Verification link: ${verificationLink}`);
 
-    // Send verification email via Resend API (HTTP-based, not SMTP - works on Render)
-    const resendApiKey = process.env.RESEND_API_KEY;
-
-    if (resendApiKey) {
-      try {
-        const response = await fetch("https://api.resend.com/emails", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${resendApiKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            from: "NearMe <noreply@nearme.com>",
-            to: email,
-            subject: "Verify Your NearMe Email",
-            html: `<!DOCTYPE html>
-<html><head><meta charset="UTF-8"/><style>
-body{font-family:sans-serif;background:#f0fdf4}
-.container{max-width:500px;margin:40px auto;background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 12px rgba(0,0,0,0.1)}
-h1{color:#111827;font-size:24px;margin-bottom:16px}
-p{color:#6b7280;font-size:14px;line-height:1.6;margin-bottom:16px}
-.btn{display:block;background:linear-gradient(to right,#22c55e,#10b981);color:white;padding:14px;border-radius:8px;text-align:center;text-decoration:none;font-weight:bold;margin:24px 0}
-.footer{border-top:1px solid #e5e7eb;padding-top:16px;color:#9ca3af;font-size:12px}
-</style></head><body>
-<div class="container">
-<h1>Welcome to NearMe! 👋</h1>
-<p>Thank you for signing up. Click the button below to verify your email address.</p>
-<a class="btn" href="${verificationLink}">Verify Email Address</a>
-<p style="font-size:12px;color:#9ca3af">This link expires in 1 hour. If you didn't sign up for NearMe, you can safely ignore this email.</p>
-<div class="footer"><p>NearMe &copy; 2026 | All rights reserved</p></div>
-</div></body></html>`,
-          }),
-        });
-
-        const resendData = await response.json();
-        if (!response.ok) {
-          throw new Error(resendData.message || "Resend API error");
-        }
-
+    try {
+      const emailResult = await sendVerificationEmail(email, verificationLink);
+      if (emailResult.ok) {
         console.log(`📧 Email sent via Resend to ${email}`);
 
         return res.status(201).json({
           message:
             "Signup successful! Please check your email to verify your account.",
           userId: authData.user.id,
+          email,
           emailSent: true,
         });
-      } catch (emailError) {
-        console.error("Resend email failed:", emailError.message);
-        return res.status(500).json({
-          message: "Failed to send verification email. Please try again.",
-        });
       }
+    } catch (emailError) {
+      console.error("Resend email failed:", emailError.message);
+      return res.status(500).json({
+        message: "Failed to send verification email. Please try again.",
+      });
     }
 
     // Fallback if RESEND_API_KEY not set — return token for manual testing
@@ -458,6 +501,7 @@ p{color:#6b7280;font-size:14px;line-height:1.6;margin-bottom:16px}
       message:
         "Signup successful! Please check your email to verify your account.",
       userId: authData.user.id,
+      email,
       emailSent: false,
       testVerificationLink: verificationLink, // For testing/development only
     });
@@ -599,6 +643,83 @@ router.post("/check-availability", async (req, res) => {
     res.status(500).json({
       message: "Server error checking availability",
     });
+  }
+});
+
+/**
+ * POST /auth/resend-verification-email
+ * Resend one-time verification email for unverified accounts.
+ */
+router.post("/resend-verification-email", async (req, res) => {
+  try {
+    const email = String(req.body?.email || "").trim().toLowerCase();
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    const { data: usersData, error: usersError } =
+      await supabaseAdmin.auth.admin.listUsers({
+        page: 1,
+        perPage: 1000,
+      });
+
+    if (usersError) {
+      console.error("Resend list users error:", usersError);
+      return res.status(500).json({ message: "Failed to resend email" });
+    }
+
+    const matchedUser = (usersData?.users || []).find(
+      (u) => String(u.email || "").toLowerCase() === email,
+    );
+
+    if (!matchedUser) {
+      // Avoid account enumeration.
+      return res.json({
+        message: "If this email exists, a verification link has been sent.",
+      });
+    }
+
+    if (matchedUser.email_confirmed_at) {
+      return res.json({
+        message: "Email is already verified.",
+        alreadyVerified: true,
+      });
+    }
+
+    const verificationNonce = crypto.randomUUID();
+    const existingUserMetadata = matchedUser.user_metadata || {};
+
+    const { error: updateMetadataError } =
+      await supabaseAdmin.auth.admin.updateUserById(matchedUser.id, {
+        user_metadata: {
+          ...existingUserMetadata,
+          email_verification_nonce: verificationNonce,
+          email_verification_issued_at: new Date().toISOString(),
+        },
+      });
+
+    if (updateMetadataError) {
+      console.error("Resend metadata update failed:", updateMetadataError);
+      return res.status(500).json({ message: "Failed to resend email" });
+    }
+
+    const verifyToken = createEmailVerificationToken({
+      userId: matchedUser.id,
+      email,
+      nonce: verificationNonce,
+    });
+
+    const verificationLink = `${BACKEND_PUBLIC_URL}/auth/confirm-email?token=${encodeURIComponent(verifyToken)}`;
+
+    await sendVerificationEmail(email, verificationLink);
+
+    return res.json({
+      message: "Verification email sent. Please check your inbox.",
+      alreadyVerified: false,
+    });
+  } catch (error) {
+    console.error("Resend verification email error:", error);
+    return res.status(500).json({ message: "Failed to resend email" });
   }
 });
 
@@ -1086,6 +1207,147 @@ router.post("/verify-token", async (req, res) => {
 });
 
 /**
+ * POST /auth/verify-email
+ * One-time email verification + auto-login session issuance.
+ */
+router.post("/verify-email", async (req, res) => {
+  try {
+    const token = String(req.body?.token || "").trim();
+
+    if (!token) {
+      return res.status(400).json({ message: "Token is required" });
+    }
+
+    let payload;
+    try {
+      payload = jwt.verify(token, process.env.JWT_SECRET);
+    } catch (tokenError) {
+      if (tokenError?.name === "TokenExpiredError") {
+        return res.status(410).json({
+          message: "Verification link expired. Please request a new email.",
+          code: "verification_link_expired",
+        });
+      }
+
+      return res.status(400).json({
+        message: "Invalid verification link",
+        code: "invalid_verification_token",
+      });
+    }
+
+    const userId = String(payload?.userId || "").trim();
+    const email = String(payload?.email || "").trim().toLowerCase();
+    const nonce = String(payload?.nonce || "").trim();
+
+    if (payload?.purpose !== "email_verification" || !userId || !nonce) {
+      return res.status(400).json({
+        message: "Invalid verification link",
+        code: "invalid_verification_payload",
+      });
+    }
+
+    const { data: authUserData, error: authUserError } =
+      await supabaseAdmin.auth.admin.getUserById(userId);
+
+    if (authUserError || !authUserData?.user) {
+      return res.status(404).json({
+        message: "User not found",
+        code: "user_not_found",
+      });
+    }
+
+    const authUser = authUserData.user;
+    const authEmail = String(authUser.email || "").trim().toLowerCase();
+    if (email && authEmail && email !== authEmail) {
+      return res.status(400).json({
+        message: "Invalid verification link",
+        code: "verification_email_mismatch",
+      });
+    }
+
+    const storedNonce = String(
+      authUser.user_metadata?.email_verification_nonce || "",
+    ).trim();
+
+    if (!storedNonce || storedNonce !== nonce) {
+      return res.status(409).json({
+        message: "This verification link has already been used.",
+        code: "verification_link_used",
+      });
+    }
+
+    const { error: confirmError } =
+      await supabaseAdmin.auth.admin.updateUserById(userId, {
+        email_confirm: true,
+        user_metadata: {
+          ...(authUser.user_metadata || {}),
+          email_verification_nonce: null,
+          email_verified_at: new Date().toISOString(),
+        },
+      });
+
+    if (confirmError) {
+      console.error("verify-email confirm error:", confirmError);
+      return res.status(500).json({
+        message: "Failed to verify email",
+        code: "verification_update_failed",
+      });
+    }
+
+    const { data: existingUser } = await supabaseAdmin
+      .from("users")
+      .select("id")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (!existingUser) {
+      const { error: insertUserError } = await supabaseAdmin
+        .from("users")
+        .insert({
+          id: userId,
+          role: "customer",
+          email: authEmail,
+          created_at: new Date().toISOString(),
+        });
+
+      if (insertUserError) {
+        console.error("verify-email users insert error:", insertUserError);
+      }
+    }
+
+    const { data: customerProfile } = await supabaseAdmin
+      .from("customers")
+      .select("username")
+      .eq("id", userId)
+      .maybeSingle();
+
+    const profileCompleted = !!customerProfile;
+
+    return res.json(
+      issueAuthSession(
+        req,
+        res,
+        { id: userId, role: "customer" },
+        {
+          message: "Email verified successfully",
+          role: "customer",
+          userId,
+          email: authEmail,
+          userName: customerProfile?.username || null,
+          profileCompleted,
+        },
+      ),
+    );
+  } catch (error) {
+    console.error("verify-email error:", error);
+    return res.status(500).json({
+      message: "Server error during email verification",
+      code: "verification_server_error",
+    });
+  }
+});
+
+/**
  * GET /auth/confirm-email?token=JWT
  * The user clicks this link from the verification email.
  * Everything happens SERVER-SIDE:
@@ -1097,198 +1359,44 @@ router.post("/verify-token", async (req, res) => {
  * No frontend load, no Supabase redirect, no localhost issues.
  */
 router.get("/confirm-email", async (req, res) => {
-  const frontendUrl = "https://meezo-eta.vercel.app";
-  const mobileScheme = "nearmemobile";
+  const token = String(req.query?.token || "").trim();
 
-  // Helper to send an HTML response
-  const sendPage = (title, icon, iconBg, heading, msg, buttons) => {
-    const btnHtml = buttons
-      .map((b) => `<a class="btn ${b.cls}" href="${b.href}">${b.text}</a>`)
-      .join("");
-    res.setHeader("Content-Type", "text/html");
-    res.send(`<!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>${title}</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
-     min-height:100vh;display:flex;align-items:center;justify-content:center;
-     background:linear-gradient(135deg,#f0fdf4,#fff,#ecfdf5);padding:16px}
-.card{max-width:400px;width:100%;background:#fff;border-radius:24px;
-      padding:32px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.08);
-      border:1px solid #d1fae5}
-.icon{width:80px;height:80px;border-radius:50%;display:flex;align-items:center;
-      justify-content:center;margin:0 auto 20px;font-size:40px;color:#fff;
-      background:${iconBg}}
-h2{font-size:24px;font-weight:800;color:#111827;margin-bottom:8px}
-p{color:#6b7280;font-size:14px;line-height:1.5;margin-bottom:16px}
-.btn{display:block;width:100%;padding:14px;border:none;border-radius:14px;
-     font-size:16px;font-weight:700;cursor:pointer;text-decoration:none;
-     text-align:center;transition:all .2s;margin-top:10px}
-.btn-green{background:linear-gradient(to right,#22c55e,#10b981);color:#fff}
-.btn-green:hover{opacity:.9;transform:scale(1.02)}
-.btn-gray{background:#f3f4f6;color:#374151}
-.btn-gray:hover{background:#e5e7eb}
-</style></head><body><div class="card">
-<div class="icon">${icon}</div>
-<h2>${heading}</h2>
-<p>${msg}</p>
-${btnHtml}
-</div></body></html>`);
-  };
-
-  try {
-    const { token } = req.query;
-
-    if (!token) {
-      return sendPage(
-        "NearMe – Invalid Link",
-        "✕",
-        "linear-gradient(135deg,#ef4444,#dc2626)",
-        "Invalid Link",
-        "No verification token found. Please use the link from your email.",
-        [
-          {
-            cls: "btn-green",
-            href: `${frontendUrl}/signup`,
-            text: "Back to Signup",
-          },
-        ],
-      );
-    }
-
-    // Verify our own JWT
-    let payload;
-    try {
-      payload = jwt.verify(token, process.env.JWT_SECRET);
-    } catch (jwtErr) {
-      const isExpired = jwtErr.name === "TokenExpiredError";
-      return sendPage(
-        "NearMe – Verification Failed",
-        "✕",
-        "linear-gradient(135deg,#ef4444,#dc2626)",
-        isExpired ? "Link Expired" : "Invalid Link",
-        isExpired
-          ? "This verification link has expired. Please sign up again to get a new link."
-          : "This verification link is invalid. Please check your email for the correct link.",
-        [
-          {
-            cls: "btn-green",
-            href: `${frontendUrl}/signup`,
-            text: "Back to Signup",
-          },
-          {
-            cls: "btn-gray",
-            href: `${frontendUrl}/login`,
-            text: "Go to Login",
-          },
-        ],
-      );
-    }
-
-    if (payload.purpose !== "email_verification" || !payload.userId) {
-      return sendPage(
-        "NearMe – Invalid Link",
-        "✕",
-        "linear-gradient(135deg,#ef4444,#dc2626)",
-        "Invalid Link",
-        "This link is not a valid email verification link.",
-        [
-          {
-            cls: "btn-green",
-            href: `${frontendUrl}/signup`,
-            text: "Back to Signup",
-          },
-        ],
-      );
-    }
-
-    // Confirm email in Supabase auth via admin API
-    const { error: updateError } =
-      await supabaseAdmin.auth.admin.updateUserById(payload.userId, {
-        email_confirm: true,
-      });
-
-    if (updateError) {
-      console.error("Failed to confirm email in auth:", updateError.message);
-      return sendPage(
-        "NearMe – Verification Failed",
-        "✕",
-        "linear-gradient(135deg,#ef4444,#dc2626)",
-        "Verification Failed",
-        "Could not verify your email. The account may not exist. Please try signing up again.",
-        [
-          {
-            cls: "btn-green",
-            href: `${frontendUrl}/signup`,
-            text: "Back to Signup",
-          },
-        ],
-      );
-    }
-
-    // Create record in public.users (if not already there)
-    const { data: existingUser } = await supabaseAdmin
-      .from("users")
-      .select("id")
-      .eq("id", payload.userId)
-      .maybeSingle();
-
-    if (!existingUser) {
-      const { error: insertError } = await supabaseAdmin.from("users").insert({
-        id: payload.userId,
-        role: "customer",
-        email: payload.email,
-        created_at: new Date().toISOString(),
-      });
-
-      if (insertError) {
-        console.error("Users table insert failed:", insertError.message);
-        // Non-fatal — login self-healing can recover
-      } else {
-        console.log(
-          `✅ Created users record for ${payload.email} after email confirmation`,
-        );
-      }
-    }
-
-    console.log(
-      `✅ Email confirmed for ${payload.email} (userId: ${payload.userId})`,
-    );
-
-    // Success page
-    sendPage(
-      "NearMe – Email Verified!",
-      "✓",
-      "linear-gradient(135deg,#22c55e,#16a34a)",
-      "Email Verified!",
-      "Your email has been confirmed successfully. You can now login to your account.",
-      [
-        {
-          cls: "btn-green",
-          href: `${frontendUrl}/login`,
-          text: "Go to Login",
-        },
-      ],
-    );
-  } catch (error) {
-    console.error("Confirm email error:", error);
-    sendPage(
-      "NearMe – Error",
-      "✕",
-      "linear-gradient(135deg,#ef4444,#dc2626)",
-      "Something Went Wrong",
-      "An unexpected error occurred. Please try again later.",
-      [
-        {
-          cls: "btn-green",
-          href: `${frontendUrl}/signup`,
-          text: "Back to Signup",
-        },
-        { cls: "btn-gray", href: `${frontendUrl}/login`, text: "Go to Login" },
-      ],
-    );
+  if (!token) {
+    return res.redirect("302", "https://meezo-eta.vercel.app/signup");
   }
+
+  const webUrl = `${FRONTEND_VERIFY_EMAIL_URL}?token=${encodeURIComponent(token)}`;
+  const appUrl = `${MOBILE_VERIFY_DEEPLINK_BASE}?token=${encodeURIComponent(token)}`;
+
+  res.setHeader("Content-Type", "text/html");
+  return res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>NearMe Email Verification</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:linear-gradient(135deg,#f0fdf4,#ffffff,#ecfdf5);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px}
+    .card{max-width:420px;width:100%;background:#fff;border:1px solid #d1fae5;border-radius:20px;padding:24px;box-shadow:0 18px 50px rgba(0,0,0,.08);text-align:center}
+    h1{font-size:24px;color:#111827;margin-bottom:10px}
+    p{color:#4b5563;font-size:14px;line-height:1.5;margin-bottom:12px}
+    .btn{display:block;width:100%;text-decoration:none;font-weight:700;border-radius:12px;padding:12px 14px;margin-top:10px}
+    .btn-primary{background:linear-gradient(to right,#22c55e,#10b981);color:#fff}
+    .btn-secondary{background:#f3f4f6;color:#374151}
+    .hint{font-size:12px;color:#6b7280;margin-top:14px}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Verify Your Email</h1>
+    <p>Choose where you want to continue verification.</p>
+    <a class="btn btn-primary" href="${appUrl}">Continue In Mobile App</a>
+    <a class="btn btn-secondary" href="${webUrl}">Continue On Web</a>
+    <p class="hint">This link expires in 1 hour and can only be used once.</p>
+  </div>
+</body>
+</html>`);
 });
 
 /**

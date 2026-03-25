@@ -87,10 +87,15 @@ export default function CompleteProfile() {
 
     try {
       const accessToken = searchParams.get("access_token");
+      const jwtToken = localStorage.getItem("token");
 
       // Get email from backend
       const headers = {};
-      if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+      if (accessToken) {
+        headers.Authorization = `Bearer ${accessToken}`;
+      } else if (jwtToken) {
+        headers.Authorization = `Bearer ${jwtToken}`;
+      }
 
       const userResponse = await fetch(
         `${API_URL}/auth/user-email?userId=${userId}`,
