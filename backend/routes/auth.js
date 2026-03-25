@@ -53,7 +53,9 @@ const SUPPORTED_AUTH_ROLES = new Set([
 ]);
 
 function normalizeRole(value) {
-  const role = String(value || "").toLowerCase().trim();
+  const role = String(value || "")
+    .toLowerCase()
+    .trim();
   return SUPPORTED_AUTH_ROLES.has(role) ? role : null;
 }
 
@@ -652,7 +654,9 @@ router.post("/check-availability", async (req, res) => {
  */
 router.post("/resend-verification-email", async (req, res) => {
   try {
-    const email = String(req.body?.email || "").trim().toLowerCase();
+    const email = String(req.body?.email || "")
+      .trim()
+      .toLowerCase();
     if (!email) {
       return res.status(400).json({ message: "Email is required" });
     }
@@ -1236,7 +1240,9 @@ router.post("/verify-email", async (req, res) => {
     }
 
     const userId = String(payload?.userId || "").trim();
-    const email = String(payload?.email || "").trim().toLowerCase();
+    const email = String(payload?.email || "")
+      .trim()
+      .toLowerCase();
     const nonce = String(payload?.nonce || "").trim();
 
     if (payload?.purpose !== "email_verification" || !userId || !nonce) {
@@ -1257,7 +1263,9 @@ router.post("/verify-email", async (req, res) => {
     }
 
     const authUser = authUserData.user;
-    const authEmail = String(authUser.email || "").trim().toLowerCase();
+    const authEmail = String(authUser.email || "")
+      .trim()
+      .toLowerCase();
     if (email && authEmail && email !== authEmail) {
       return res.status(400).json({
         message: "Invalid verification link",

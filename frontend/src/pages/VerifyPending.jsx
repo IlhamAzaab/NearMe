@@ -37,7 +37,9 @@ export default function VerifyPending() {
           const authUserId = localStorage.getItem("userId") || userId;
 
           if (token && role === "customer") {
-            navigate(`/auth/complete-profile?userId=${encodeURIComponent(authUserId)}`);
+            navigate(
+              `/auth/complete-profile?userId=${encodeURIComponent(authUserId)}`,
+            );
           } else {
             setStatusMessage(
               "Email verified. Continue in the tab where verification completed, or login here.",
@@ -62,7 +64,9 @@ export default function VerifyPending() {
         const authUserId = localStorage.getItem("userId") || userId;
 
         if (token && role === "customer") {
-          navigate(`/auth/complete-profile?userId=${encodeURIComponent(authUserId)}`);
+          navigate(
+            `/auth/complete-profile?userId=${encodeURIComponent(authUserId)}`,
+          );
         }
       }
     };
@@ -101,9 +105,12 @@ export default function VerifyPending() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-green-50 px-4">
       <div className="w-full max-w-md bg-white rounded-2xl shadow-lg p-8">
-        <h1 className="text-2xl font-bold text-gray-900 mb-3">Verify your email</h1>
+        <h1 className="text-2xl font-bold text-gray-900 mb-3">
+          Verify your email
+        </h1>
         <p className="text-sm text-gray-600 mb-4">
-          We sent a verification link to <span className="font-semibold">{email || "your email"}</span>.
+          We sent a verification link to{" "}
+          <span className="font-semibold">{email || "your email"}</span>.
         </p>
 
         <div className="rounded-xl border border-green-100 bg-green-50 p-3 mb-4">
