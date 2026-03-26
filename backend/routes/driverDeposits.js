@@ -1149,7 +1149,11 @@ router.post("/cron/daily-snapshot", async (req, res) => {
   // Require CRON_SECRET env var — no fallback default
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret || secret !== cronSecret) {
-    return res.status(401).json({ success: false, message: "Unauthorized" });
+    return res.status(401).json({
+      success: false,
+      message: "Unauthorized",
+      code: "auth_unauthorized",
+    });
   }
 
   console.log(`\n[DEPOSITS] ⏰ Running daily snapshot cron job`);

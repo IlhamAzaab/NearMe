@@ -75,8 +75,12 @@ export default function Signup() {
     <div className="min-h-screen flex items-center justify-center bg-green-50 px-4">
       <div className="w-full max-w-md rounded-2xl bg-white shadow-lg p-8">
         <AnimatedAlert alert={alert} visible={visible} />
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Create account</h1>
-        <p className="text-sm text-gray-600 mb-6">Sign up with email verification.</p>
+        <h1 className="text-3xl font-bold text-gray-900 mb-2">
+          Create account
+        </h1>
+        <p className="text-sm text-gray-600 mb-6">
+          Sign up with email verification.
+        </p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>

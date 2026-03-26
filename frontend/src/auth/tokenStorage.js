@@ -99,13 +99,6 @@ export async function getAccessToken() {
   return getFromNative(ACCESS_TOKEN_KEY);
 }
 
-export async function getRefreshToken() {
-  if (isWebStorageAvailable()) {
-    return window.localStorage.getItem(REFRESH_TOKEN_KEY);
-  }
-  return getFromNative(REFRESH_TOKEN_KEY);
-}
-
 export async function persistAuthSession(session = {}) {
   const token = session.token || null;
   const decoded = token ? getAuthFieldsFromToken(token) : null;
@@ -113,7 +106,6 @@ export async function persistAuthSession(session = {}) {
   const role = decoded?.role || session.role || null;
   const userId = decoded?.userId || session.userId || null;
   const userName = session.userName || null;
-  const refreshToken = session.refreshToken || null;
 
   if (role) {
     console.log("[AUTH] Role set:", role);
@@ -131,13 +123,8 @@ export async function persistAuthSession(session = {}) {
 
     if (userName) window.localStorage.setItem(USER_NAME_KEY, userName);
 
-    if (refreshToken) {
-      // Mobile/webview fallback only. On web we primarily rely on httpOnly cookie.
-      window.localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
-    } else {
-      // Prevent stale cross-role refresh token reuse from older sessions.
-      window.localStorage.removeItem(REFRESH_TOKEN_KEY);
-    }
+    // Always clear legacy refresh token key from older builds.
+    window.localStorage.removeItem(REFRESH_TOKEN_KEY);
 
     return;
   }
@@ -152,7 +139,7 @@ export async function persistAuthSession(session = {}) {
   else await removeFromNative(USER_ID_KEY);
 
   if (userName) await setToNative(USER_NAME_KEY, userName);
-  if (refreshToken) await setToNative(REFRESH_TOKEN_KEY, refreshToken);
+  await removeFromNative(REFRESH_TOKEN_KEY);
 }
 
 export async function clearStoredAuthSession() {

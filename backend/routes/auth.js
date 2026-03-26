@@ -35,9 +35,12 @@ const supabaseAnonClient = createClient(
 
 const router = express.Router();
 
-const ACCESS_TOKEN_EXPIRES_IN = process.env.ACCESS_TOKEN_EXPIRES_IN || "15m";
-const REFRESH_TOKEN_EXPIRES_IN = process.env.REFRESH_TOKEN_EXPIRES_IN || "365d";
-const REFRESH_COOKIE_NAME = process.env.REFRESH_COOKIE_NAME || "nm_rt";
+const WEB_ACCESS_TOKEN_EXPIRES_IN =
+  process.env.WEB_ACCESS_TOKEN_EXPIRES_IN || "14d";
+const MOBILE_ACCESS_TOKEN_EXPIRES_IN =
+  process.env.MOBILE_ACCESS_TOKEN_EXPIRES_IN ||
+  process.env.ACCESS_TOKEN_EXPIRES_IN ||
+  "180d";
 const DEFAULT_FRONTEND_ORIGIN =
   process.env.NODE_ENV === "production"
     ? "https://meezo-eta.vercel.app"
@@ -54,139 +57,48 @@ const BACKEND_PUBLIC_URL =
   process.env.BACKEND_PUBLIC_URL || "https://meezo-backend-d3gw.onrender.com";
 const MOBILE_VERIFY_DEEPLINK_BASE =
   process.env.MOBILE_VERIFY_DEEPLINK_BASE || "nearmemobile://verify-email";
-const SUPPORTED_AUTH_ROLES = new Set([
-  "customer",
-  "admin",
-  "driver",
-  "manager",
-]);
 
-function normalizeRole(value) {
-  const role = String(value || "")
+function auth401(res, code, message, extra = {}) {
+  return res.status(401).json({
+    message,
+    code,
+    ...extra,
+  });
+}
+
+function signAccessToken({ id, role }, expiresIn) {
+  return jwt.sign({ id, role, type: "access" }, process.env.JWT_SECRET, {
+    expiresIn,
+  });
+}
+
+function getClientPlatform(req) {
+  return String(req.headers["x-client-platform"] || "")
     .toLowerCase()
     .trim();
-  return SUPPORTED_AUTH_ROLES.has(role) ? role : null;
 }
 
-function getRefreshCookieName(role) {
-  const normalizedRole = normalizeRole(role);
-  return normalizedRole
-    ? `${REFRESH_COOKIE_NAME}_${normalizedRole}`
-    : REFRESH_COOKIE_NAME;
-}
-
-function getRefreshCookieCandidates(expectedRole) {
-  const normalizedRole = normalizeRole(expectedRole);
-  return normalizedRole
-    ? [getRefreshCookieName(normalizedRole), REFRESH_COOKIE_NAME]
-    : [REFRESH_COOKIE_NAME];
-}
-
-function parseCookieHeader(cookieHeader = "") {
-  return cookieHeader
-    .split(";")
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .reduce((acc, part) => {
-      const idx = part.indexOf("=");
-      if (idx === -1) return acc;
-      const key = part.slice(0, idx);
-      const value = part.slice(idx + 1);
-      acc[key] = decodeURIComponent(value);
-      return acc;
-    }, {});
-}
-
-function getRefreshCookieOptions(req) {
-  const isProduction = process.env.NODE_ENV === "production";
-  const sameSite =
-    process.env.REFRESH_COOKIE_SAMESITE || (isProduction ? "none" : "lax");
-  const secure =
-    process.env.REFRESH_COOKIE_SECURE === "true" ||
-    (process.env.REFRESH_COOKIE_SECURE !== "false" && isProduction);
-
-  const options = {
-    httpOnly: true,
-    secure,
-    sameSite,
-    path: "/auth",
-    maxAge: 365 * 24 * 60 * 60 * 1000,
-  };
-
-  if (process.env.REFRESH_COOKIE_DOMAIN) {
-    options.domain = process.env.REFRESH_COOKIE_DOMAIN;
+function getAccessTokenExpiry(req) {
+  const platform = getClientPlatform(req);
+  if (
+    platform === "react-native" ||
+    platform === "mobile" ||
+    platform === "android" ||
+    platform === "ios"
+  ) {
+    return MOBILE_ACCESS_TOKEN_EXPIRES_IN;
   }
-
-  return options;
+  return WEB_ACCESS_TOKEN_EXPIRES_IN;
 }
 
-function signAccessToken({ id, role }) {
-  return jwt.sign({ id, role, type: "access" }, process.env.JWT_SECRET, {
-    expiresIn: ACCESS_TOKEN_EXPIRES_IN,
-  });
-}
-
-function signRefreshToken({ id, role }) {
-  return jwt.sign(
-    { id, role, type: "refresh" },
-    process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET,
-    {
-      expiresIn: REFRESH_TOKEN_EXPIRES_IN,
-    },
-  );
-}
-
-function verifyRefreshToken(token) {
-  return jwt.verify(
-    token,
-    process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET,
-  );
-}
-
-function shouldReturnMobileRefreshToken(req) {
-  const platform = String(req.headers["x-client-platform"] || "").toLowerCase();
-  return platform === "mobile" || platform === "react-native";
-}
-
-function clearRefreshCookie(req, res, role) {
-  res.clearCookie(getRefreshCookieName(role), {
-    ...getRefreshCookieOptions(req),
-    maxAge: undefined,
-    expires: new Date(0),
-  });
-}
-
-function clearAllRefreshCookies(req, res) {
-  clearRefreshCookie(req, res);
-  for (const role of SUPPORTED_AUTH_ROLES) {
-    clearRefreshCookie(req, res, role);
-  }
-}
-
-function issueAuthSession(req, res, payload, extra = {}) {
-  const token = signAccessToken(payload);
-  const refreshToken = signRefreshToken(payload);
-
-  const roleCookieName = getRefreshCookieName(payload.role);
-  res.cookie(roleCookieName, refreshToken, getRefreshCookieOptions(req));
-
-  // Backward compatibility: keep issuing legacy cookie while old clients migrate.
-  if (roleCookieName !== REFRESH_COOKIE_NAME) {
-    res.cookie(REFRESH_COOKIE_NAME, refreshToken, getRefreshCookieOptions(req));
-  }
-
-  const body = {
+function issueAuthSession(req, payload, extra = {}) {
+  const token = signAccessToken(payload, getAccessTokenExpiry(req));
+  return {
     token,
     role: payload.role,
     userId: payload.id,
     ...extra,
   };
-
-  if (shouldReturnMobileRefreshToken(req)) {
-    body.refreshToken = refreshToken;
-  }
-
-  return body;
 }
 
 function createEmailVerificationToken({ userId, email, nonce }) {
@@ -333,15 +245,17 @@ async function resolveVerifiedCustomerSession(token) {
     };
   }
 
-  const { error: confirmError } =
-    await supabaseAdmin.auth.admin.updateUserById(userId, {
+  const { error: confirmError } = await supabaseAdmin.auth.admin.updateUserById(
+    userId,
+    {
       email_confirm: true,
       user_metadata: {
         ...(authUser.user_metadata || {}),
         email_verification_nonce: null,
         email_verified_at: new Date().toISOString(),
       },
-    });
+    },
+  );
 
   if (confirmError) {
     console.error("verify-email confirm error:", confirmError);
@@ -360,12 +274,14 @@ async function resolveVerifiedCustomerSession(token) {
     .maybeSingle();
 
   if (!existingUser) {
-    const { error: insertUserError } = await supabaseAdmin.from("users").insert({
-      id: userId,
-      role: "customer",
-      email: authEmail,
-      created_at: new Date().toISOString(),
-    });
+    const { error: insertUserError } = await supabaseAdmin
+      .from("users")
+      .insert({
+        id: userId,
+        role: "customer",
+        email: authEmail,
+        created_at: new Date().toISOString(),
+      });
 
     if (insertUserError) {
       console.error("verify-email users insert error:", insertUserError);
@@ -920,7 +836,7 @@ router.get("/user-email", async (req, res) => {
     }
 
     if (!authorized) {
-      return res.status(401).json({ message: "Unauthorized" });
+      return auth401(res, "auth_token_invalid", "Unauthorized");
     }
 
     // Get user from auth
@@ -959,7 +875,11 @@ router.post("/complete-profile", async (req, res) => {
 
     // A valid auth token is required to complete profile.
     if (!access_token) {
-      return res.status(401).json({ message: "Authentication token is required" });
+      return auth401(
+        res,
+        "auth_token_missing",
+        "Authentication token is required",
+      );
     }
 
     // Verify the caller owns this userId via either app JWT or Supabase access token.
@@ -1120,7 +1040,7 @@ router.get("/customer-profile-status", async (req, res) => {
 
     const auth = req.headers.authorization || "";
     if (!auth.startsWith("Bearer ")) {
-      return res.status(401).json({ message: "Unauthorized" });
+      return auth401(res, "auth_token_missing", "Unauthorized");
     }
 
     const token = auth.split(" ")[1];
@@ -1178,9 +1098,7 @@ router.post("/login", async (req, res) => {
     });
 
     if (error) {
-      return res.status(401).json({
-        message: error.message,
-      });
+      return auth401(res, "auth_invalid_credentials", error.message);
     }
 
     const userId = data.user.id;
@@ -1333,7 +1251,6 @@ router.post("/login", async (req, res) => {
       return res.json(
         issueAuthSession(
           req,
-          res,
           { id: userId, role: roleData.role },
           {
             role: roleData.role,
@@ -1348,7 +1265,6 @@ router.post("/login", async (req, res) => {
     res.json(
       issueAuthSession(
         req,
-        res,
         { id: userId, role: roleData.role },
         {
           role: roleData.role,
@@ -1367,14 +1283,9 @@ router.post("/login", async (req, res) => {
 
 /**
  * POST /auth/logout
- * Clears refresh cookie and lets clients clear local access token.
+ * Stateless logout endpoint; clients clear local token storage.
  */
 router.post("/logout", (req, res) => {
-  const expectedRole = normalizeRole(req.headers["x-expected-role"]);
-  if (expectedRole) {
-    clearRefreshCookie(req, res, expectedRole);
-  }
-  clearRefreshCookie(req, res);
   res.json({ message: "Logged out" });
 });
 
@@ -1398,9 +1309,7 @@ router.post("/verify-token", async (req, res) => {
     const { data, error } = await supabaseAdmin.auth.getUser(token);
 
     if (error || !data.user) {
-      return res.status(401).json({
-        message: "Invalid or expired token",
-      });
+      return auth401(res, "auth_token_invalid", "Invalid or expired token");
     }
 
     const emailConfirmed = !!data.user.email_confirmed_at;
@@ -1473,7 +1382,6 @@ router.post("/verify-email", async (req, res) => {
     return res.json(
       issueAuthSession(
         req,
-        res,
         verificationResult.sessionPayload,
         verificationResult.sessionExtra,
       ),
@@ -1505,18 +1413,22 @@ router.post("/complete-email-login", async (req, res) => {
     try {
       payload = jwt.verify(pendingToken, process.env.JWT_SECRET);
     } catch {
-      return res.status(401).json({
-        message: "Invalid or expired pending login token",
-      });
+      return auth401(
+        res,
+        "auth_pending_login_invalid",
+        "Invalid or expired pending login token",
+      );
     }
 
     const userId = String(payload?.userId || "").trim();
     const nonce = String(payload?.nonce || "").trim();
 
     if (!userId || !nonce || payload?.purpose !== "post_verify_login") {
-      return res.status(401).json({
-        message: "Invalid pending login token payload",
-      });
+      return auth401(
+        res,
+        "auth_pending_login_invalid",
+        "Invalid pending login token payload",
+      );
     }
 
     const { data: authUserData, error: authUserError } =
@@ -1532,9 +1444,11 @@ router.post("/complete-email-login", async (req, res) => {
     ).trim();
 
     if (!storedPendingNonce || storedPendingNonce !== nonce) {
-      return res.status(401).json({
-        message: "Pending login token already used or invalid",
-      });
+      return auth401(
+        res,
+        "auth_pending_login_invalid",
+        "Pending login token already used or invalid",
+      );
     }
 
     if (!authUser.email_confirmed_at) {
@@ -1562,15 +1476,20 @@ router.post("/complete-email-login", async (req, res) => {
       .maybeSingle();
 
     if (!existingUser) {
-      const { error: insertUserError } = await supabaseAdmin.from("users").insert({
-        id: userId,
-        role: "customer",
-        email: authUser.email,
-        created_at: new Date().toISOString(),
-      });
+      const { error: insertUserError } = await supabaseAdmin
+        .from("users")
+        .insert({
+          id: userId,
+          role: "customer",
+          email: authUser.email,
+          created_at: new Date().toISOString(),
+        });
 
       if (insertUserError) {
-        console.error("complete-email-login users insert error:", insertUserError);
+        console.error(
+          "complete-email-login users insert error:",
+          insertUserError,
+        );
       }
     }
 
@@ -1583,7 +1502,6 @@ router.post("/complete-email-login", async (req, res) => {
     return res.json(
       issueAuthSession(
         req,
-        res,
         { id: userId, role: "customer" },
         {
           role: "customer",
@@ -1628,7 +1546,6 @@ router.get("/confirm-email", async (req, res) => {
 
     const authSession = issueAuthSession(
       req,
-      res,
       verificationResult.sessionPayload,
       verificationResult.sessionExtra,
     );
@@ -1748,7 +1665,6 @@ router.post("/verify-otp", async (req, res) => {
     res.json(
       issueAuthSession(
         req,
-        res,
         { id: userId, role: user?.role || "customer" },
         {
           message: "Phone verified successfully!",
@@ -1828,115 +1744,6 @@ p{color:#6b7280;font-size:14px;line-height:1.5;margin-bottom:16px}
 <p>Your email has been confirmed successfully. You can now login to your account.</p>
 <a class="btn" href="${frontendUrl}/login">Go to Login</a>
 </div></body></html>`);
-});
-
-/**
- * POST /auth/refresh-token
- * Refresh JWT token for all roles (customer, admin, driver, manager).
- * If the current token is valid (even if close to expiry), issue a new 180-day token.
- * This enables "stay logged in forever" like Uber Eats.
- */
-router.post("/refresh-token", async (req, res) => {
-  try {
-    const cookies = parseCookieHeader(req.headers.cookie || "");
-    const expectedRole = normalizeRole(req.headers["x-expected-role"]);
-    const cookieCandidates = getRefreshCookieCandidates(expectedRole);
-    const tokenFromCookie = cookieCandidates
-      .map((cookieName) => cookies[cookieName])
-      .find(Boolean);
-    const tokenFromBody = req.body?.refreshToken;
-    const refreshToken = tokenFromCookie || tokenFromBody;
-
-    if (!refreshToken) {
-      return res.status(401).json({ message: "Refresh token missing" });
-    }
-
-    let payload;
-    try {
-      payload = verifyRefreshToken(refreshToken);
-    } catch {
-      if (expectedRole) {
-        clearRefreshCookie(req, res, expectedRole);
-      }
-      clearRefreshCookie(req, res);
-      return res
-        .status(401)
-        .json({ message: "Invalid or expired refresh token" });
-    }
-
-    if (payload?.type && payload.type !== "refresh") {
-      if (expectedRole) {
-        clearRefreshCookie(req, res, expectedRole);
-      }
-      clearRefreshCookie(req, res);
-      return res.status(401).json({ message: "Invalid refresh token type" });
-    }
-
-    const { id, role } = payload;
-
-    if (expectedRole && expectedRole !== role) {
-      // Prevent cross-role refresh cookie collisions between different app sessions.
-      return res.status(401).json({
-        message: "Refresh role mismatch",
-      });
-    }
-
-    // Verify user still exists and is active
-    let userExists = false;
-
-    if (role === "customer") {
-      const { data } = await supabaseAdmin
-        .from("customers")
-        .select("id")
-        .eq("id", id)
-        .maybeSingle();
-      userExists = !!data;
-    } else if (role === "admin") {
-      const { data } = await supabaseAdmin
-        .from("admins")
-        .select("user_id")
-        .eq("user_id", id)
-        .maybeSingle();
-      userExists = !!data;
-    } else if (role === "driver") {
-      const { data } = await supabaseAdmin
-        .from("drivers")
-        .select("id")
-        .eq("id", id)
-        .maybeSingle();
-      userExists = !!data;
-    } else if (role === "manager") {
-      const { data } = await supabaseAdmin
-        .from("managers")
-        .select("user_id")
-        .eq("user_id", id)
-        .maybeSingle();
-      userExists = !!data;
-    }
-
-    if (!userExists) {
-      clearAllRefreshCookies(req, res);
-      return res.status(401).json({ message: "User no longer exists" });
-    }
-
-    console.log(`🔄 Token refreshed for ${role} (id: ${id})`);
-
-    res.json(
-      issueAuthSession(
-        req,
-        res,
-        { id, role },
-        {
-          message: "Token refreshed successfully",
-          role,
-          userId: id,
-        },
-      ),
-    );
-  } catch (error) {
-    console.error("Refresh token error:", error);
-    res.status(500).json({ message: "Failed to refresh token" });
-  }
 });
 
 export default router;

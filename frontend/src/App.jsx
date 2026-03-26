@@ -98,20 +98,18 @@ import DriverSocketConnector from "./components/DriverSocketConnector";
 import { ManagerNotificationProvider } from "./context/ManagerNotificationContext";
 import ManagerNotificationOverlay from "./components/ManagerNotificationOverlay";
 import ManagerSocketConnector from "./components/ManagerSocketConnector";
-import TokenRefreshManager from "./components/TokenRefreshManager";
 import { AdminCacheProvider } from "./context/AdminCacheContext";
 import AuthSessionWatcher from "./components/AuthSessionWatcher";
 import OfflineStatusBanner from "./components/OfflineStatusBanner";
 
 function App() {
-  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [isAuthReady] = useState(true);
 
   return (
     <SocketProvider>
       <NotificationProvider>
         <AdminCacheProvider>
           <BrowserRouter>
-            <TokenRefreshManager onAuthReadyChange={setIsAuthReady} />
             <AuthSessionWatcher />
             <DriverDeliveryNotificationProvider>
               <ManagerNotificationProvider>

@@ -46,20 +46,27 @@ export default function VerifyPending() {
 
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
-          setError(data?.message || "Unable to complete login. Please verify again.");
+          setError(
+            data?.message || "Unable to complete login. Please verify again.",
+          );
           setIsStarting(false);
           return;
         }
 
         await persistAuthSession(data);
-        localStorage.setItem("profileCompleted", data?.profileCompleted ? "true" : "false");
+        localStorage.setItem(
+          "profileCompleted",
+          data?.profileCompleted ? "true" : "false",
+        );
         if (data?.email) localStorage.setItem("userEmail", data.email);
       }
 
       const token = localStorage.getItem("token");
       const role = localStorage.getItem("role");
       if (!token || role !== "customer") {
-        setError("Login session not ready yet. Please verify from the same browser.");
+        setError(
+          "Login session not ready yet. Please verify from the same browser.",
+        );
         setIsStarting(false);
         return;
       }
@@ -146,8 +153,18 @@ export default function VerifyPending() {
         <div className="fixed inset-0 bg-linear-to-br from-green-500 to-emerald-600 flex items-center justify-center z-50">
           <div className="text-center text-white">
             <div className="mx-auto mb-4 h-16 w-16 rounded-full bg-white/20 flex items-center justify-center">
-              <svg className="h-9 w-9" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+              <svg
+                className="h-9 w-9"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2.5}
+                  d="M5 13l4 4L19 7"
+                />
               </svg>
             </div>
             <h2 className="text-3xl font-bold">Login Successful</h2>
