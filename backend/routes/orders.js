@@ -210,6 +210,10 @@ router.post("/place", authenticate, async (req, res) => {
     payment_method,
     distance_km,
     estimated_duration_min,
+    checkout_subtotal,
+    checkout_service_fee,
+    checkout_delivery_fee,
+    checkout_total_amount,
   } = req.body;
 
   // Validate required fields
@@ -546,7 +550,84 @@ router.post("/place", authenticate, async (req, res) => {
 
     const serviceFee = await calculateServiceFee(subtotal);
     const deliveryFee = await calculateDeliveryFee(distance_km);
-    const totalAmount = subtotal + serviceFee + deliveryFee;
+    const serverSubtotal = Number(subtotal.toFixed(2));
+    const serverServiceFee = Number(serviceFee.toFixed(2));
+    const serverDeliveryFee = Number(deliveryFee.toFixed(2));
+    const serverTotalAmount = Number(
+      (serverSubtotal + serverServiceFee + serverDeliveryFee).toFixed(2),
+    );
+
+    const hasCheckoutPricing =
+      checkout_subtotal !== undefined &&
+      checkout_service_fee !== undefined &&
+      checkout_delivery_fee !== undefined &&
+      checkout_total_amount !== undefined;
+
+    if (hasCheckoutPricing) {
+      const checkoutPricing = {
+        subtotal: Number(checkout_subtotal),
+        service_fee: Number(checkout_service_fee),
+        delivery_fee: Number(checkout_delivery_fee),
+        total_amount: Number(checkout_total_amount),
+      };
+
+      const hasInvalidCheckoutPricing = Object.values(checkoutPricing).some(
+        (value) => !Number.isFinite(value),
+      );
+
+      if (hasInvalidCheckoutPricing) {
+        return res.status(400).json({
+          message: "Invalid checkout pricing values",
+          error_type: "invalid_checkout_pricing",
+        });
+      }
+
+      const normalizedCheckoutTotal = Number(
+        (
+          checkoutPricing.subtotal +
+          checkoutPricing.service_fee +
+          checkoutPricing.delivery_fee
+        ).toFixed(2),
+      );
+
+      if (Math.abs(normalizedCheckoutTotal - checkoutPricing.total_amount) > 0.01) {
+        return res.status(400).json({
+          message: "Checkout total is invalid. Please try again.",
+          error_type: "invalid_checkout_total",
+        });
+      }
+
+      const amountMismatch =
+        Math.abs(checkoutPricing.subtotal - serverSubtotal) > 0.01 ||
+        Math.abs(checkoutPricing.service_fee - serverServiceFee) > 0.01 ||
+        Math.abs(checkoutPricing.delivery_fee - serverDeliveryFee) > 0.01 ||
+        Math.abs(checkoutPricing.total_amount - serverTotalAmount) > 0.01;
+
+      if (amountMismatch) {
+        return res.status(409).json({
+          message:
+            "Order amount changed while placing the order. Please review checkout and place again.",
+          error_type: "price_mismatch",
+          checkout_pricing: {
+            subtotal: Number(checkoutPricing.subtotal.toFixed(2)),
+            service_fee: Number(checkoutPricing.service_fee.toFixed(2)),
+            delivery_fee: Number(checkoutPricing.delivery_fee.toFixed(2)),
+            total_amount: Number(checkoutPricing.total_amount.toFixed(2)),
+          },
+          server_pricing: {
+            subtotal: serverSubtotal,
+            service_fee: serverServiceFee,
+            delivery_fee: serverDeliveryFee,
+            total_amount: serverTotalAmount,
+          },
+        });
+      }
+    }
+
+    const subtotalAmount = serverSubtotal;
+    const serviceFeeAmount = serverServiceFee;
+    const deliveryFeeAmount = serverDeliveryFee;
+    const totalAmount = serverTotalAmount;
 
     // ========================================================================
     // STEP 6: Generate order number
@@ -575,11 +656,11 @@ router.post("/place", authenticate, async (req, res) => {
         delivery_city: delivery_city || "",
         delivery_latitude: delivery_latitude,
         delivery_longitude: delivery_longitude,
-        subtotal: subtotal.toFixed(2),
+        subtotal: subtotalAmount.toFixed(2),
         admin_subtotal: adminSubtotal.toFixed(2),
         commission_total: commissionTotal.toFixed(2),
-        delivery_fee: deliveryFee.toFixed(2),
-        service_fee: serviceFee.toFixed(2),
+        delivery_fee: deliveryFeeAmount.toFixed(2),
+        service_fee: serviceFeeAmount.toFixed(2),
         total_amount: totalAmount.toFixed(2),
         distance_km: distance_km.toFixed(2),
         estimated_duration_min: Math.ceil(estimated_duration_min),

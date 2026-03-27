@@ -491,6 +491,10 @@ const Checkout = () => {
           payment_method: paymentMethod,
           distance_km: routeInfo.distance,
           estimated_duration_min: routeInfo.duration,
+          checkout_subtotal: subtotal,
+          checkout_service_fee: serviceFee,
+          checkout_delivery_fee: deliveryFee,
+          checkout_total_amount: totalAmount,
         }),
       });
 
@@ -519,12 +523,17 @@ const Checkout = () => {
         });
         return; // Exit early, don't continue processing
       } else {
+        if (response.status === 409 && data.error_type === "price_mismatch") {
+          setError(
+            "Order amount changed before confirmation. Please review checkout and place your order again.",
+          );
+          await fetchCheckoutData();
+          isPlacingRef.current = false;
+          return;
+        }
+
         // Check if it's a duplicate order error (cart already completed)
-        if (
-          data.message?.includes("already") ||
-          data.message?.includes("completed") ||
-          response.status === 409
-        ) {
+        if (data.message?.includes("already") || data.message?.includes("completed")) {
           // Cart was already ordered - navigate to placing-order if we have order info
           if (data.order) {
             navigate("/placing-order", {
@@ -540,16 +549,16 @@ const Checkout = () => {
               replace: true,
             });
             return;
-          } else {
-            setError(
-              "This order has already been placed. Please check your orders.",
-            );
           }
-        } else {
-          setError(data.message || "Failed to place order");
-          // Only clear the lock if it's a recoverable error
+
+          setError("This order has already been placed. Please check your orders.");
           isPlacingRef.current = false;
+          return;
         }
+
+        setError(data.message || "Failed to place order");
+        // Only clear the lock if it's a recoverable error
+        isPlacingRef.current = false;
       }
     } catch (err) {
       console.error("Place order error:", err);
