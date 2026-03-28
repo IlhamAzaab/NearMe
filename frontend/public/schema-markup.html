@@ -1,0 +1,52 @@
+<!-- Google Analytics (replace with your actual GA ID) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-XXXXXXXXXX');
+</script>
+
+<!-- Structured Data for Organization -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  "name": "Meezo",
+  "url": "https://meezo.lk",
+  "logo": "https://meezo.lk/logo.png",
+  "description": "Fast Food Delivery Service in Sri Lanka",
+  "sameAs": [
+    "https://www.facebook.com/meezo",
+    "https://www.instagram.com/meezo",
+    "https://twitter.com/meezo"
+  ],
+  "address": {
+    "@type": "PostalAddress",
+    "addressCountry": "LK"
+  },
+  "contactPoint": {
+    "@type": "ContactPoint",
+    "contactType": "Customer Support",
+    "telephone": "+94XXXXXXXXXXX"
+  }
+}
+</script>
+
+<!-- Structured Data for Website -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Meezo",
+  "url": "https://meezo.lk",
+  "potentialAction": {
+    "@type": "SearchAction",
+    "target": {
+      "@type": "EntryPoint",
+      "urlTemplate": "https://meezo.lk/search?q={search_term_string}"
+    },
+    "query-input": "required name=search_term_string"
+  }
+}
+</script>

@@ -97,6 +97,27 @@ export function getDeliveryFeeTiers(config) {
 }
 
 /**
+ * Parse launch promotion config from system config
+ * @param {Object} config - system config object
+ * @returns {Object} normalized launch promotion config
+ */
+export function getLaunchPromoConfig(config) {
+  const defaults = getDefaults();
+  return {
+    enabled: Boolean(
+      config?.launch_promo_enabled ?? defaults.launch_promo_enabled,
+    ),
+    first_km_rate: parseFloat(
+      config?.launch_promo_first_km_rate ?? defaults.launch_promo_first_km_rate,
+    ),
+    max_km: parseFloat(config?.launch_promo_max_km ?? defaults.launch_promo_max_km),
+    beyond_km_rate: parseFloat(
+      config?.launch_promo_beyond_km_rate ?? defaults.launch_promo_beyond_km_rate,
+    ),
+  };
+}
+
+/**
  * Calculate service fee from config tiers
  */
 export function calculateServiceFeeFromConfig(subtotal, config) {
@@ -173,5 +194,9 @@ function getDefaults() {
       { min_km: 15, max_km: 25, min_subtotal: 3000 },
     ],
     max_order_distance_km: 25,
+    launch_promo_enabled: true,
+    launch_promo_first_km_rate: 1,
+    launch_promo_max_km: 5,
+    launch_promo_beyond_km_rate: 40,
   };
 }

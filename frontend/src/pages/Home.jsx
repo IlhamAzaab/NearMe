@@ -110,6 +110,9 @@ const Home = () => {
   const [unreadCount, setUnreadCount] = useState(0);
   const [cartCount, setCartCount] = useState(0);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [launchPromo, setLaunchPromo] = useState(null);
+  const [showLaunchPromoModal, setShowLaunchPromoModal] = useState(false);
+  const [acknowledgingPromo, setAcknowledgingPromo] = useState(false);
 
   // Food categories
   const categories = [
@@ -183,8 +186,45 @@ const Home = () => {
       fetchNotificationCount();
       fetchCartCount();
       checkCustomerLocation();
+      fetchLaunchPromotionStatus();
     }
   }, []);
+
+  const fetchLaunchPromotionStatus = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch(`${API_URL}/customer/launch-promotion`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+
+      const data = await res.json();
+      setLaunchPromo(data);
+      setShowLaunchPromoModal(Boolean(data.should_show_popup));
+    } catch (error) {
+      console.error("Launch promotion status fetch error:", error);
+    }
+  };
+
+  const handleLaunchPromoOk = async () => {
+    try {
+      setAcknowledgingPromo(true);
+      const token = localStorage.getItem("token");
+      const res = await fetch(`${API_URL}/customer/launch-promotion/acknowledge`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (res.ok) {
+        setShowLaunchPromoModal(false);
+        fetchLaunchPromotionStatus();
+      }
+    } catch (error) {
+      console.error("Launch promotion acknowledge error:", error);
+    } finally {
+      setAcknowledgingPromo(false);
+    }
+  };
 
   // Check if customer has delivery location for distance calculations
   const checkCustomerLocation = async () => {
@@ -281,6 +321,48 @@ const Home = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 font-poppins pb-24 page-slide-up">
+      {showLaunchPromoModal && launchPromo?.promotion && (
+        <div className="fixed inset-0 z-70 bg-black/50 backdrop-blur-[1px] flex items-end sm:items-center justify-center p-4">
+          <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden">
+            <div className="bg-linear-to-r from-[#FF7A00] to-[#FF9A3D] p-5 text-white">
+              <p className="text-xs font-semibold uppercase tracking-wider opacity-90">
+                Launch Offer
+              </p>
+              <h3 className="text-xl font-bold mt-1">Welcome to Near Me</h3>
+              <p className="text-sm mt-2 opacity-95">
+                Your first delivery gets a special fee discount.
+              </p>
+            </div>
+            <div className="p-5 space-y-3">
+              <div className="bg-orange-50 border border-orange-100 rounded-xl p-3">
+                <p className="text-sm text-gray-700">
+                  Rs. {launchPromo.promotion.first_km_rate} per 1km up to {" "}
+                  {launchPromo.promotion.max_km}km
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  Beyond {launchPromo.promotion.max_km}km: Rs. {" "}
+                  {launchPromo.promotion.beyond_km_rate} per 1km
+                </p>
+              </div>
+              <p className="text-xs text-gray-500">
+                This offer applies only to your first order for this account.
+              </p>
+              <button
+                onClick={handleLaunchPromoOk}
+                disabled={acknowledgingPromo}
+                className={`w-full py-3 rounded-xl text-sm font-bold transition-all ${
+                  acknowledgingPromo
+                    ? "bg-gray-200 text-gray-500"
+                    : "bg-[#FF7A00] text-white hover:bg-orange-600"
+                }`}
+              >
+                {acknowledgingPromo ? "Saving..." : "OK"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Top Header */}
       <header className="sticky top-0 z-50 bg-white px-4 py-3 shadow-sm">
         <div className="max-w-6xl mx-auto">

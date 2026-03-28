@@ -33,6 +33,7 @@ import {
   calculateDeliveryFeeFromConfig,
   calculateServiceFeeFromConfig,
   getSystemConfig,
+  getLaunchPromoConfig,
 } from "../utils/systemConfig.js";
 import { getSriLankaDayRange } from "../utils/sriLankaTime.js";
 
@@ -102,6 +103,29 @@ async function calculateDeliveryFee(distanceKm) {
 }
 
 /**
+ * Calculate launch promotion delivery fee (first order only)
+ * Formula (requested):
+ * - distance <= max_km: distance * first_km_rate
+ * - distance > max_km:
+ *   (max_km * first_km_rate) + ((distance - max_km) * beyond_km_rate)
+ */
+function calculateLaunchPromoDeliveryFee(distanceKm, promoConfig) {
+  if (distanceKm === null || distanceKm === undefined) return null;
+
+  const distance = Math.max(0, Number(distanceKm));
+  const maxKm = Math.max(0, Number(promoConfig.max_km));
+  const firstKmRate = Math.max(0, Number(promoConfig.first_km_rate));
+  const beyondRate = Math.max(0, Number(promoConfig.beyond_km_rate));
+
+  const fee =
+    distance <= maxKm
+      ? distance * firstKmRate
+      : maxKm * firstKmRate + (distance - maxKm) * beyondRate;
+
+  return Number(fee.toFixed(2));
+}
+
+/**
  * Generate order number
  * Format: YYMMDD-SEQ[L]
  * Example: 260324-071W, 260324-1000P
@@ -135,9 +159,7 @@ async function generateOrderNumber() {
       ? sequenceNumber.toString().padStart(4, "0")
       : sequenceNumber.toString().padStart(3, "0");
 
-  const randomLetter = String.fromCharCode(
-    65 + Math.floor(Math.random() * 26),
-  );
+  const randomLetter = String.fromCharCode(65 + Math.floor(Math.random() * 26));
 
   return `${compactDate}-${sequenceText}${randomLetter}`;
 }
@@ -372,7 +394,9 @@ router.post("/place", authenticate, async (req, res) => {
     // ========================================================================
     const { data: customer, error: customerError } = await supabaseAdmin
       .from("customers")
-      .select("id, username, phone, email, address, city, latitude, longitude")
+      .select(
+        "id, username, phone, email, address, city, latitude, longitude, launch_promo_acknowledged, launch_promo_acknowledged_at",
+      )
       .eq("id", customerId)
       .single();
 
@@ -549,7 +573,44 @@ router.post("/place", authenticate, async (req, res) => {
     }
 
     const serviceFee = await calculateServiceFee(subtotal);
-    const deliveryFee = await calculateDeliveryFee(distance_km);
+    const normalDeliveryFee = await calculateDeliveryFee(distance_km);
+
+    // Launch promotion: apply only for first-ever order when customer acknowledged popup.
+    const { count: previousOrdersCount, error: previousOrdersError } =
+      await supabaseAdmin
+        .from("orders")
+        .select("id", { count: "exact", head: true })
+        .eq("customer_id", customerId);
+
+    if (previousOrdersError) {
+      console.error("Previous orders count error:", previousOrdersError);
+    }
+
+    const launchPromoConfig = getLaunchPromoConfig(config);
+    const isFirstOrder = (previousOrdersCount || 0) === 0;
+    const launchPromoEligible =
+      launchPromoConfig.enabled &&
+      isFirstOrder &&
+      Boolean(customer.launch_promo_acknowledged);
+
+    let deliveryFee = normalDeliveryFee;
+    let launchPromoApplied = false;
+    let launchPromoDiscount = 0;
+
+    if (launchPromoEligible) {
+      const promoDeliveryFee = calculateLaunchPromoDeliveryFee(
+        distance_km,
+        launchPromoConfig,
+      );
+      if (promoDeliveryFee !== null && Number.isFinite(promoDeliveryFee)) {
+        deliveryFee = promoDeliveryFee;
+        launchPromoApplied = true;
+        launchPromoDiscount = Number(
+          Math.max(0, normalDeliveryFee - promoDeliveryFee).toFixed(2),
+        );
+      }
+    }
+
     const serverSubtotal = Number(subtotal.toFixed(2));
     const serverServiceFee = Number(serviceFee.toFixed(2));
     const serverDeliveryFee = Number(deliveryFee.toFixed(2));
@@ -590,7 +651,9 @@ router.post("/place", authenticate, async (req, res) => {
         ).toFixed(2),
       );
 
-      if (Math.abs(normalizedCheckoutTotal - checkoutPricing.total_amount) > 0.01) {
+      if (
+        Math.abs(normalizedCheckoutTotal - checkoutPricing.total_amount) > 0.01
+      ) {
         return res.status(400).json({
           message: "Checkout total is invalid. Please try again.",
           error_type: "invalid_checkout_total",
@@ -664,6 +727,11 @@ router.post("/place", authenticate, async (req, res) => {
         total_amount: totalAmount.toFixed(2),
         distance_km: distance_km.toFixed(2),
         estimated_duration_min: Math.ceil(estimated_duration_min),
+        launch_promo_applied: launchPromoApplied,
+        launch_promo_discount: launchPromoDiscount.toFixed(2),
+        launch_promo_delivery_fee: launchPromoApplied
+          ? serverDeliveryFee.toFixed(2)
+          : null,
         payment_method: payment_method,
         payment_status: payment_method === "cash" ? "pending" : "pending",
         placed_at: new Date().toISOString(),
@@ -865,6 +933,12 @@ router.post("/place", authenticate, async (req, res) => {
         delivery_fee: parseFloat(order.delivery_fee),
         service_fee: parseFloat(order.service_fee),
         total_amount: parseFloat(order.total_amount),
+        launch_promo: {
+          applied: launchPromoApplied,
+          discount_amount: launchPromoDiscount,
+          normal_delivery_fee: Number(normalDeliveryFee.toFixed(2)),
+          applied_delivery_fee: Number(serverDeliveryFee.toFixed(2)),
+        },
         payment_method: order.payment_method,
         estimated_duration_min: order.estimated_duration_min,
         placed_at: order.placed_at,

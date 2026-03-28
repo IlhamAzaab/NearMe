@@ -1,0 +1,23 @@
+# Allow all search engines to crawl the website
+User-agent: *
+Allow: /
+
+# Disallow private pages
+Disallow: /admin/
+Disallow: /private/
+Disallow: /dashboard/
+Disallow: /account/
+
+# Rate limiting for aggressive crawlers
+User-agent: AhrefsBot
+Disallow: /
+
+User-agent: SemrushBot
+Disallow: /
+
+# Sitemap location
+Sitemap: https://meezo.lk/sitemap.xml
+Sitemap: https://meezo.lk/sitemap-products.xml
+
+# Crawl delay (optional)
+Crawl-delay: 1

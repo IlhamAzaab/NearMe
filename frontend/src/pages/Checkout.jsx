@@ -175,6 +175,7 @@ const Checkout = () => {
 
   // Fee config from API (loaded dynamically)
   const [feeConfig, setFeeConfig] = useState(null);
+  const [launchPromoStatus, setLaunchPromoStatus] = useState(null);
 
   // Load fee config on mount
   useEffect(() => {
@@ -182,6 +183,21 @@ const Checkout = () => {
       .then((res) => res.json())
       .then((data) => setFeeConfig(data))
       .catch((err) => console.error("Failed to load fee config:", err));
+  }, []);
+
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    const role = localStorage.getItem("role");
+    if (!token || role !== "customer") return;
+
+    fetch(`${API_URL}/customer/launch-promotion`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => res.json())
+      .then((data) => setLaunchPromoStatus(data))
+      .catch((err) =>
+        console.error("Failed to load launch promotion status:", err),
+      );
   }, []);
 
   // Calculate service fee based on subtotal (uses API config or fallback)
@@ -203,8 +219,8 @@ const Checkout = () => {
     return 62;
   };
 
-  // Calculate delivery fee based on distance in km (uses API config or fallback)
-  const calculateDeliveryFee = (distanceKm) => {
+  // Calculate regular (non-promo) delivery fee based on distance in km.
+  const calculateStandardDeliveryFee = (distanceKm) => {
     if (distanceKm === null || distanceKm === undefined) return null;
 
     if (feeConfig?.delivery_fee_tiers) {
@@ -230,6 +246,38 @@ const Checkout = () => {
     const extraMeters = (distanceKm - 2.5) * 1000;
     const extra100mUnits = Math.ceil(extraMeters / 100);
     return 87 + extra100mUnits * 2.3;
+  };
+
+  const calculateLaunchPromoDeliveryFee = (distanceKm, promo) => {
+    if (distanceKm === null || distanceKm === undefined || !promo) return null;
+
+    const distance = Math.max(0, Number(distanceKm));
+    const maxKm = Math.max(0, Number(promo.max_km || 0));
+    const firstKmRate = Math.max(0, Number(promo.first_km_rate || 0));
+    const beyondRate = Math.max(0, Number(promo.beyond_km_rate || 0));
+
+    if (distance <= maxKm) {
+      return distance * firstKmRate;
+    }
+
+    return maxKm * firstKmRate + (distance - maxKm) * beyondRate;
+  };
+
+  // Calculate effective delivery fee (promo for eligible first order, otherwise normal fee).
+  const calculateDeliveryFee = (distanceKm) => {
+    const standardFee = calculateStandardDeliveryFee(distanceKm);
+    const promo = launchPromoStatus?.promotion;
+    const canApplyPromo =
+      Boolean(promo?.enabled) &&
+      Boolean(launchPromoStatus?.has_acknowledged) &&
+      Boolean(launchPromoStatus?.is_eligible_for_first_order);
+
+    if (!canApplyPromo) return standardFee;
+
+    const promoFee = calculateLaunchPromoDeliveryFee(distanceKm, promo);
+    if (promoFee === null || !Number.isFinite(promoFee)) return standardFee;
+
+    return Number(promoFee.toFixed(2));
   };
 
   useEffect(() => {
@@ -398,9 +446,21 @@ const Checkout = () => {
   const adminTotal = cart ? parseFloat(cart.admin_total || 0) : 0;
   const commissionTotal = cart ? parseFloat(cart.commission_total || 0) : 0;
   const serviceFee = calculateServiceFee(subtotal);
+  const standardDeliveryFee = routeInfo
+    ? calculateStandardDeliveryFee(routeInfo.distance)
+    : null;
   const deliveryFee = routeInfo
     ? calculateDeliveryFee(routeInfo.distance)
     : null;
+  const launchPromoIsEligible =
+    Boolean(launchPromoStatus?.promotion?.enabled) &&
+    Boolean(launchPromoStatus?.has_acknowledged) &&
+    Boolean(launchPromoStatus?.is_eligible_for_first_order);
+  const launchPromoApplied =
+    Boolean(routeInfo) && launchPromoIsEligible && deliveryFee !== null;
+  const launchPromoSavings = launchPromoApplied
+    ? Math.max(0, standardDeliveryFee - deliveryFee)
+    : 0;
 
   // Distance-based minimum subtotal validation
   const distanceConstraints =
@@ -533,7 +593,10 @@ const Checkout = () => {
         }
 
         // Check if it's a duplicate order error (cart already completed)
-        if (data.message?.includes("already") || data.message?.includes("completed")) {
+        if (
+          data.message?.includes("already") ||
+          data.message?.includes("completed")
+        ) {
           // Cart was already ordered - navigate to placing-order if we have order info
           if (data.order) {
             navigate("/placing-order", {
@@ -551,7 +614,9 @@ const Checkout = () => {
             return;
           }
 
-          setError("This order has already been placed. Please check your orders.");
+          setError(
+            "This order has already been placed. Please check your orders.",
+          );
           isPlacingRef.current = false;
           return;
         }
@@ -1408,6 +1473,12 @@ const Checkout = () => {
                     : "--"}
               </span>
             </div>
+            {launchPromoApplied && (
+              <div className="flex justify-between text-emerald-700">
+                <span className="text-sm">Launch offer savings</span>
+                <span className="font-semibold">- {formatPrice(launchPromoSavings)}</span>
+              </div>
+            )}
             <div className="flex justify-between">
               <span className="text-gray-600">Service fee</span>
               <span className="font-medium text-gray-900">

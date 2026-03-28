@@ -5,6 +5,7 @@ import {
   getSystemConfig,
   getServiceFeeTiers,
   getDeliveryFeeTiers,
+  getLaunchPromoConfig,
 } from "../utils/systemConfig.js";
 import {
   isFoodAvailableNow,
@@ -306,6 +307,7 @@ router.get("/fee-config", async (req, res) => {
       delivery_fee_tiers: getDeliveryFeeTiers(config),
       order_distance_constraints: orderDistanceConstraints,
       max_order_distance_km: parseFloat(config.max_order_distance_km || 25),
+      launch_promo: getLaunchPromoConfig(config),
     });
   } catch (err) {
     console.error("Fee config fetch error:", err);

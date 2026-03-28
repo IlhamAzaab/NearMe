@@ -83,6 +83,29 @@ export default function OperationsConfig() {
   ]);
   const [maxOrderDistanceKm, setMaxOrderDistanceKm] = useState(25);
 
+  // Section 8: Launch Promotion
+  const [launchPromoEnabled, setLaunchPromoEnabled] = useState(true);
+  const [launchPromoFirstKmRate, setLaunchPromoFirstKmRate] = useState(1);
+  const [launchPromoMaxKm, setLaunchPromoMaxKm] = useState(5);
+  const [launchPromoBeyondKmRate, setLaunchPromoBeyondKmRate] = useState(40);
+  const [launchPromoCustomers, setLaunchPromoCustomers] = useState([]);
+  const [calculatorDistanceKm, setCalculatorDistanceKm] = useState("3.3");
+
+  const fetchLaunchPromoCustomers = useCallback(async () => {
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch(`${API_URL}/manager/launch-promotion/customers`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Failed to fetch launch promo customers");
+      const data = await res.json();
+      setLaunchPromoCustomers(data.customers || []);
+    } catch (err) {
+      console.error("Launch promo customers fetch error:", err);
+      setLaunchPromoCustomers([]);
+    }
+  }, []);
+
   const fetchConfig = useCallback(async () => {
     try {
       const token = localStorage.getItem("token");
@@ -150,13 +173,25 @@ export default function OperationsConfig() {
       if (config.max_order_distance_km !== undefined) {
         setMaxOrderDistanceKm(parseFloat(config.max_order_distance_km));
       }
+
+      // Section 8
+      setLaunchPromoEnabled(Boolean(config.launch_promo_enabled ?? true));
+      setLaunchPromoFirstKmRate(
+        parseFloat(config.launch_promo_first_km_rate ?? 1),
+      );
+      setLaunchPromoMaxKm(parseFloat(config.launch_promo_max_km ?? 5));
+      setLaunchPromoBeyondKmRate(
+        parseFloat(config.launch_promo_beyond_km_rate ?? 40),
+      );
+
+      fetchLaunchPromoCustomers();
     } catch (err) {
       console.error(err);
       setError("Failed to load configuration");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [fetchLaunchPromoCustomers]);
 
   useEffect(() => {
     fetchConfig();
@@ -215,6 +250,10 @@ export default function OperationsConfig() {
           min_subtotal: parseFloat(c.min_subtotal) || 0,
         })),
         max_order_distance_km: parseFloat(maxOrderDistanceKm) || 25,
+        launch_promo_enabled: Boolean(launchPromoEnabled),
+        launch_promo_first_km_rate: parseFloat(launchPromoFirstKmRate) || 1,
+        launch_promo_max_km: parseFloat(launchPromoMaxKm) || 5,
+        launch_promo_beyond_km_rate: parseFloat(launchPromoBeyondKmRate) || 40,
       };
 
       // validate times
@@ -254,6 +293,7 @@ export default function OperationsConfig() {
       }
 
       setSaved(true);
+      fetchLaunchPromoCustomers();
       setTimeout(() => setSaved(false), 3000);
     } catch (err) {
       setError(err.message);
@@ -309,6 +349,77 @@ export default function OperationsConfig() {
   const removeConstraint = (idx) => {
     setOrderDistanceConstraints((prev) => prev.filter((_, i) => i !== idx));
   };
+
+  const calculateNormalDeliveryFeeForDistance = (distanceKm) => {
+    if (distanceKm === null || distanceKm === undefined || Number.isNaN(distanceKm)) {
+      return null;
+    }
+
+    const parsedDistance = Number(distanceKm);
+    if (parsedDistance < 0) return null;
+
+    const tiers = [...deliveryFeeTiers]
+      .map((t) => ({
+        max_km: Number(t.max_km),
+        fee: Number(t.fee),
+      }))
+      .filter((t) => Number.isFinite(t.max_km) && Number.isFinite(t.fee))
+      .sort((a, b) => a.max_km - b.max_km);
+
+    for (const tier of tiers) {
+      if (parsedDistance <= tier.max_km) return Number(tier.fee.toFixed(2));
+    }
+
+    const baseKm = Number(overflowTier.base_km);
+    const baseFee = Number(overflowTier.base_fee);
+    const per100m = Number(overflowTier.extra_per_100m);
+
+    if (
+      !Number.isFinite(baseKm) ||
+      !Number.isFinite(baseFee) ||
+      !Number.isFinite(per100m)
+    ) {
+      return null;
+    }
+
+    const extraMeters = Math.max(0, (parsedDistance - baseKm) * 1000);
+    const extra100mUnits = Math.ceil(extraMeters / 100);
+    return Number((baseFee + extra100mUnits * per100m).toFixed(2));
+  };
+
+  const calculatePromoDeliveryFeeForDistance = (distanceKm) => {
+    if (distanceKm === null || distanceKm === undefined || Number.isNaN(distanceKm)) {
+      return null;
+    }
+
+    const distance = Math.max(0, Number(distanceKm));
+    const maxKm = Math.max(0, Number(launchPromoMaxKm));
+    const firstKmRate = Math.max(0, Number(launchPromoFirstKmRate));
+    const beyondRate = Math.max(0, Number(launchPromoBeyondKmRate));
+
+    const fee =
+      distance <= maxKm
+        ? distance * firstKmRate
+        : maxKm * firstKmRate + (distance - maxKm) * beyondRate;
+
+    return Number(fee.toFixed(2));
+  };
+
+  const parsedCalculatorDistance = Number(calculatorDistanceKm);
+  const calculatorDistanceIsValid =
+    calculatorDistanceKm !== "" &&
+    Number.isFinite(parsedCalculatorDistance) &&
+    parsedCalculatorDistance >= 0;
+  const calculatorNormalFee = calculatorDistanceIsValid
+    ? calculateNormalDeliveryFeeForDistance(parsedCalculatorDistance)
+    : null;
+  const calculatorPromoFee = calculatorDistanceIsValid
+    ? calculatePromoDeliveryFeeForDistance(parsedCalculatorDistance)
+    : null;
+  const calculatorDifference =
+    calculatorNormalFee !== null && calculatorPromoFee !== null
+      ? Number((calculatorNormalFee - calculatorPromoFee).toFixed(2))
+      : null;
 
   if (loading) {
     return <ManagerPageSkeleton type="reports" />;
@@ -939,6 +1050,183 @@ export default function OperationsConfig() {
                 <span className="material-symbols-outlined text-sm">add</span>
                 Add Constraint
               </button>
+            </div>
+          </div>
+        </div>
+
+        {/* ========== SECTION 8: Launch Promotion ========== */}
+        <div className="bg-white rounded-xl border border-[#dbe6e3] overflow-hidden">
+          <div className="px-4 py-3 bg-linear-to-r from-emerald-50 to-transparent border-b border-[#dbe6e3]">
+            <div className="flex items-center gap-2">
+              <span className="material-symbols-outlined text-emerald-600">
+                local_offer
+              </span>
+              <h3 className="text-[#111816] font-bold text-sm">
+                Launch Promotion (First Delivery)
+              </h3>
+              <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium">
+                Customer Facing
+              </span>
+            </div>
+            <p className="text-[#618980] text-xs mt-0.5">
+              Applies only to first-ever order after customer accepts popup
+            </p>
+          </div>
+          <div className="p-4 space-y-4">
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={launchPromoEnabled}
+                onChange={(e) => setLaunchPromoEnabled(e.target.checked)}
+                className="w-4 h-4 accent-[#13ecb9]"
+              />
+              <span className="text-sm font-semibold text-[#111816]">
+                Enable launch promotion
+              </span>
+            </label>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <label className={labelClass}>Promo price per 1km (Rs.)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={launchPromoFirstKmRate}
+                  onChange={(e) => setLaunchPromoFirstKmRate(e.target.value)}
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Promo valid up to (km)</label>
+                <input
+                  type="number"
+                  step="1"
+                  value={launchPromoMaxKm}
+                  onChange={(e) => setLaunchPromoMaxKm(e.target.value)}
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Beyond promo per 1km (Rs.)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={launchPromoBeyondKmRate}
+                  onChange={(e) => setLaunchPromoBeyondKmRate(e.target.value)}
+                  className={inputClass}
+                />
+              </div>
+            </div>
+
+            <div className="bg-gray-50 rounded-lg p-3 border border-[#dbe6e3] text-xs text-[#618980]">
+              Formula: up to {launchPromoMaxKm} km = distance x Rs. {launchPromoFirstKmRate}. Above {launchPromoMaxKm} km = ({launchPromoMaxKm} x Rs. {launchPromoFirstKmRate}) + ((distance - {launchPromoMaxKm}) x Rs. {launchPromoBeyondKmRate}).
+            </div>
+
+            <div className="bg-[#f8fbfa] rounded-lg p-3 border border-[#dbe6e3] space-y-3">
+              <p className="text-[10px] font-semibold text-[#618980] uppercase tracking-wider">
+                Live Calculator
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <label className={labelClass}>Distance (km)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    value={calculatorDistanceKm}
+                    onChange={(e) => setCalculatorDistanceKm(e.target.value)}
+                    className={inputClass}
+                    placeholder="e.g. 3.3"
+                  />
+                </div>
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700">
+                    Promo Fee (1st Order)
+                  </p>
+                  <p className="text-lg font-bold text-emerald-800 mt-1">
+                    {calculatorPromoFee === null
+                      ? "--"
+                      : `Rs. ${calculatorPromoFee.toFixed(2)}`}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-white p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-600">
+                    Normal Fee (2nd+ Orders)
+                  </p>
+                  <p className="text-lg font-bold text-slate-800 mt-1">
+                    {calculatorNormalFee === null
+                      ? "--"
+                      : `Rs. ${calculatorNormalFee.toFixed(2)}`}
+                  </p>
+                </div>
+              </div>
+              {calculatorDifference !== null && (
+                <p
+                  className={`text-xs font-medium ${
+                    calculatorDifference >= 0 ? "text-emerald-700" : "text-amber-700"
+                  }`}
+                >
+                  Difference (normal - promo): Rs. {calculatorDifference.toFixed(2)}
+                </p>
+              )}
+              {!calculatorDistanceIsValid && (
+                <p className="text-xs text-red-600">
+                  Enter a valid non-negative distance to see calculation.
+                </p>
+              )}
+            </div>
+
+            <div className="mt-2">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-[10px] font-semibold text-[#618980] uppercase tracking-wider">
+                  Customers who accepted promotion ({launchPromoCustomers.length})
+                </p>
+                <button
+                  onClick={fetchLaunchPromoCustomers}
+                  className="text-xs text-[#13ecb9] font-medium hover:underline"
+                >
+                  Refresh
+                </button>
+              </div>
+              <div className="overflow-x-auto border border-[#dbe6e3] rounded-lg">
+                <table className="w-full text-xs">
+                  <thead className="bg-[#f8fbfa] text-[#618980]">
+                    <tr>
+                      <th className="text-left px-3 py-2 font-semibold">Customer</th>
+                      <th className="text-left px-3 py-2 font-semibold">Phone</th>
+                      <th className="text-left px-3 py-2 font-semibold">Accepted</th>
+                      <th className="text-left px-3 py-2 font-semibold">Orders</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {launchPromoCustomers.length === 0 ? (
+                      <tr>
+                        <td className="px-3 py-3 text-[#8aa39c]" colSpan={4}>
+                          No customers have acknowledged this promotion yet.
+                        </td>
+                      </tr>
+                    ) : (
+                      launchPromoCustomers.map((customer) => (
+                        <tr key={customer.id} className="border-t border-[#eef4f2]">
+                          <td className="px-3 py-2 text-[#111816]">
+                            <div className="font-medium">{customer.username || "-"}</div>
+                            <div className="text-[#8aa39c]">{customer.email || "-"}</div>
+                          </td>
+                          <td className="px-3 py-2 text-[#111816]">{customer.phone || "-"}</td>
+                          <td className="px-3 py-2 text-[#111816]">
+                            {customer.launch_promo_acknowledged_at
+                              ? new Date(customer.launch_promo_acknowledged_at).toLocaleString()
+                              : "-"}
+                          </td>
+                          <td className="px-3 py-2 text-[#111816]">
+                            {customer.orders_count || 0}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </div>

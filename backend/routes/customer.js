@@ -1,8 +1,103 @@
 import express from "express";
 import { authenticate } from "../middleware/authenticate.js";
 import { supabaseAdmin } from "../supabaseAdmin.js";
+import { getSystemConfig, getLaunchPromoConfig } from "../utils/systemConfig.js";
 
 const router = express.Router();
+
+/**
+ * GET /customer/launch-promotion
+ * Returns launch promo config + customer eligibility state
+ */
+router.get("/launch-promotion", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "customer") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const customerId = req.user.id;
+    const [config, customerResult, ordersCountResult] = await Promise.all([
+      getSystemConfig(),
+      supabaseAdmin
+        .from("customers")
+        .select(
+          "id, launch_promo_acknowledged, launch_promo_seen_at, launch_promo_acknowledged_at",
+        )
+        .eq("id", customerId)
+        .single(),
+      supabaseAdmin
+        .from("orders")
+        .select("id", { count: "exact", head: true })
+        .eq("customer_id", customerId),
+    ]);
+
+    if (customerResult.error || !customerResult.data) {
+      return res.status(404).json({ message: "Customer not found" });
+    }
+
+    const promo = getLaunchPromoConfig(config);
+    const hasAcknowledged = Boolean(
+      customerResult.data.launch_promo_acknowledged,
+    );
+    const totalOrders = ordersCountResult.count || 0;
+    const isEligibleForFirstOrder = totalOrders === 0;
+    const shouldShowPopup =
+      promo.enabled && isEligibleForFirstOrder && !hasAcknowledged;
+
+    return res.json({
+      promotion: promo,
+      has_acknowledged: hasAcknowledged,
+      acknowledged_at: customerResult.data.launch_promo_acknowledged_at,
+      seen_at: customerResult.data.launch_promo_seen_at,
+      total_orders: totalOrders,
+      is_eligible_for_first_order: isEligibleForFirstOrder,
+      should_show_popup: shouldShowPopup,
+    });
+  } catch (e) {
+    console.error("/customer/launch-promotion error:", e);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
+/**
+ * POST /customer/launch-promotion/acknowledge
+ * Marks that customer accepted/acknowledged launch promo popup
+ */
+router.post("/launch-promotion/acknowledge", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "customer") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const customerId = req.user.id;
+    const nowIso = new Date().toISOString();
+
+    const { data, error } = await supabaseAdmin
+      .from("customers")
+      .update({
+        launch_promo_acknowledged: true,
+        launch_promo_seen_at: nowIso,
+        launch_promo_acknowledged_at: nowIso,
+      })
+      .eq("id", customerId)
+      .select("id, launch_promo_acknowledged, launch_promo_acknowledged_at")
+      .single();
+
+    if (error || !data) {
+      console.error("Launch promo acknowledge error:", error);
+      return res.status(500).json({ message: "Failed to acknowledge promotion" });
+    }
+
+    return res.json({
+      message: "Promotion acknowledged",
+      has_acknowledged: Boolean(data.launch_promo_acknowledged),
+      acknowledged_at: data.launch_promo_acknowledged_at,
+    });
+  } catch (e) {
+    console.error("/customer/launch-promotion/acknowledge error:", e);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
 
 /**
  * GET /customer/notifications

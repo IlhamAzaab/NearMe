@@ -31,7 +31,7 @@ export default function AdminLayout({
       <style>{`
         @keyframes fadeIn {
           from { opacity: 0; transform: translateY(12px); }
-          to { opacity: 1; transform: translateY(0); }
+          to { opacity: 1; transform: none; }
         }
 
         .animate-fadeIn {

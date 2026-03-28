@@ -51,6 +51,12 @@ CREATE TABLE IF NOT EXISTS system_config (
   night_shift_start NUMERIC(4,2) NOT NULL DEFAULT 18.0, -- 6:00 PM
   night_shift_end NUMERIC(4,2) NOT NULL DEFAULT 6.0,    -- 6:00 AM
 
+  -- Section 7: Launch Promotion (First Delivery)
+  launch_promo_enabled BOOLEAN NOT NULL DEFAULT true,
+  launch_promo_first_km_rate NUMERIC(10,2) NOT NULL DEFAULT 1,
+  launch_promo_max_km NUMERIC(10,2) NOT NULL DEFAULT 5,
+  launch_promo_beyond_km_rate NUMERIC(10,2) NOT NULL DEFAULT 40,
+
   -- Metadata
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_by UUID REFERENCES users(id)

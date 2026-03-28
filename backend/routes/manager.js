@@ -2219,6 +2219,10 @@ router.put("/system-config", authenticate, async (req, res) => {
       night_shift_end,
       order_distance_constraints,
       max_order_distance_km,
+      launch_promo_enabled,
+      launch_promo_first_km_rate,
+      launch_promo_max_km,
+      launch_promo_beyond_km_rate,
     } = req.body;
 
     const updatePayload = {
@@ -2241,6 +2245,10 @@ router.put("/system-config", authenticate, async (req, res) => {
       night_shift_end,
       order_distance_constraints,
       max_order_distance_km,
+      launch_promo_enabled,
+      launch_promo_first_km_rate,
+      launch_promo_max_km,
+      launch_promo_beyond_km_rate,
       updated_by: req.user.id,
     };
 
@@ -2272,6 +2280,80 @@ router.put("/system-config", authenticate, async (req, res) => {
     });
   } catch (err) {
     console.error("System config update error:", err);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+/**
+ * GET /manager/launch-promotion/customers
+ * List customers who acknowledged launch promotion popup
+ */
+router.get("/launch-promotion/customers", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "manager") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const limit = Math.min(parseInt(req.query.limit) || 100, 500);
+
+    const { data: customers, error } = await supabaseAdmin
+      .from("customers")
+      .select(
+        "id, username, email, phone, created_at, launch_promo_acknowledged_at",
+      )
+      .eq("launch_promo_acknowledged", true)
+      .order("launch_promo_acknowledged_at", { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      console.error("Launch promo customers fetch error:", error);
+      return res.status(500).json({ message: "Failed to fetch launch promo customers" });
+    }
+
+    const customerIds = (customers || []).map((c) => c.id);
+    let orderStatsByCustomer = new Map();
+
+    if (customerIds.length > 0) {
+      const { data: ordersData, error: ordersError } = await supabaseAdmin
+        .from("orders")
+        .select("id, customer_id, placed_at")
+        .in("customer_id", customerIds)
+        .order("placed_at", { ascending: true });
+
+      if (ordersError) {
+        console.error("Launch promo orders stats error:", ordersError);
+      } else {
+        for (const order of ordersData || []) {
+          const prev = orderStatsByCustomer.get(order.customer_id) || {
+            orders_count: 0,
+            first_order_at: null,
+          };
+          prev.orders_count += 1;
+          if (!prev.first_order_at) {
+            prev.first_order_at = order.placed_at;
+          }
+          orderStatsByCustomer.set(order.customer_id, prev);
+        }
+      }
+    }
+
+    const customersWithStats = (customers || []).map((customer) => {
+      const stats = orderStatsByCustomer.get(customer.id) || {
+        orders_count: 0,
+        first_order_at: null,
+      };
+      return {
+        ...customer,
+        ...stats,
+      };
+    });
+
+    return res.json({
+      customers: customersWithStats,
+      total: customersWithStats.length,
+    });
+  } catch (err) {
+    console.error("Launch promo customers route error:", err);
     return res.status(500).json({ message: "Internal server error" });
   }
 });

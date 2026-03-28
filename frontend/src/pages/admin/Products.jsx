@@ -759,9 +759,9 @@ function AddProductModal({ food, onClose, onSave }) {
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center">
-      <div className="bg-gray-50 w-full sm:max-w-md sm:rounded-2xl rounded-t-3xl max-h-[95vh] flex flex-col shadow-2xl">
+      <div className="bg-gray-50 w-full sm:max-w-md sm:rounded-2xl rounded-t-3xl max-h-dvh sm:max-h-[95vh] flex flex-col shadow-2xl overflow-hidden">
         {/* ── Header ── */}
-        <div className="sticky top-0 bg-white z-10 px-4 py-3.5 flex items-center justify-between border-b border-gray-100 sm:rounded-t-2xl">
+        <div className="bg-white z-10 px-4 py-3.5 flex items-center justify-between border-b border-gray-100 sm:rounded-t-2xl shrink-0">
           <div className="flex items-center gap-3">
             <button
               type="button"
@@ -806,7 +806,7 @@ function AddProductModal({ food, onClose, onSave }) {
           <form
             id="product-form"
             onSubmit={handleSubmit}
-            className="px-4 py-4 space-y-4"
+            className="px-4 pt-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] space-y-4"
           >
             <AnimatedAlert alert={alertState2} visible={alertVisible2} />
 
