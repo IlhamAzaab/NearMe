@@ -94,6 +94,8 @@ const app = express();
 // --- CORS: only allow your own frontend origins ---
 const allowedOrigins = [
   process.env.FRONTEND_URL || "http://localhost:5173",
+  "https://meezo.lk",
+  "https://www.meezo.lk",
   "http://localhost:5173",
   "http://localhost:5174",
   "http://localhost:5175",
@@ -103,11 +105,15 @@ const allowedOrigins = [
   "http://localhost:5179",
 ];
 
+const normalizedAllowedOrigins = allowedOrigins.map((origin) =>
+  String(origin || "").trim().replace(/\/$/, ""),
+);
+
 // Add any extra allowed origins from environment (comma-separated)
 if (process.env.ALLOWED_ORIGINS) {
   process.env.ALLOWED_ORIGINS.split(",").forEach((o) => {
-    const trimmed = o.trim();
-    if (trimmed) allowedOrigins.push(trimmed);
+    const trimmed = o.trim().replace(/\/$/, "");
+    if (trimmed) normalizedAllowedOrigins.push(trimmed);
   });
 }
 
@@ -116,10 +122,15 @@ app.use(
     origin: (origin, cb) => {
       // Allow requests with no origin (mobile apps, curl, server-to-server)
       if (!origin) return cb(null, true);
+      const normalizedOrigin = origin.trim().replace(/\/$/, "");
       // Exact match or match *.vercel.app deployments
-      if (allowedOrigins.includes(origin) || origin.endsWith(".vercel.app")) {
+      if (
+        normalizedAllowedOrigins.includes(normalizedOrigin) ||
+        normalizedOrigin.endsWith(".vercel.app")
+      ) {
         return cb(null, true);
       }
+      console.warn(`[CORS] Blocked origin: ${origin}`);
       return cb(new Error("Not allowed by CORS"));
     },
     credentials: true,

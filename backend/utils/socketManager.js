@@ -50,18 +50,39 @@ function verifySocketToken(token) {
  * @param {http.Server} server - HTTP server instance
  */
 export function initializeSocket(server) {
+  const socketAllowedOrigins = [
+    process.env.FRONTEND_URL || "http://localhost:5173",
+    "https://meezo.lk",
+    "https://www.meezo.lk",
+  ];
+
+  if (process.env.ALLOWED_ORIGINS) {
+    process.env.ALLOWED_ORIGINS.split(",").forEach((o) => {
+      const trimmed = o.trim();
+      if (trimmed) socketAllowedOrigins.push(trimmed);
+    });
+  }
+
+  const normalizedSocketAllowedOrigins = socketAllowedOrigins.map((origin) =>
+    String(origin || "").trim().replace(/\/$/, ""),
+  );
+
   io = new Server(server, {
     cors: {
       origin: (origin, cb) => {
+        const normalizedOrigin = String(origin || "")
+          .trim()
+          .replace(/\/$/, "");
         // Allow no-origin requests and Vercel deployments
         if (
           !origin ||
-          origin.endsWith(".vercel.app") ||
-          origin.startsWith("http://localhost")
+          normalizedSocketAllowedOrigins.includes(normalizedOrigin) ||
+          normalizedOrigin.endsWith(".vercel.app") ||
+          normalizedOrigin.startsWith("http://localhost")
         ) {
           return cb(null, true);
         }
-        return cb(null, true); // Allow all for socket connections
+        return cb(new Error("Not allowed by Socket CORS"));
       },
       methods: ["GET", "POST"],
     },
