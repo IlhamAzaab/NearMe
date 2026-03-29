@@ -256,13 +256,17 @@ const OrderDelivered = () => {
                 ))}
               </div>
             )}
-            {(order?.total_amount || totalAmount) && (
+            {order?.total_amount ? (
               <div className="total-row">
                 <span>Total Paid</span>
                 <span className="total-amount">
-                  Rs.{" "}
-                  {parseFloat(order?.total_amount || totalAmount).toFixed(2)}
+                  Rs. {parseFloat(order.total_amount).toFixed(2)}
                 </span>
+              </div>
+            ) : (
+              <div className="total-row">
+                <span>Total Paid</span>
+                <span className="total-amount">Awaiting confirmation</span>
               </div>
             )}
           </div>

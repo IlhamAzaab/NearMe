@@ -15,6 +15,7 @@ import { API_URL } from "../../config";
 import { useDataPulse } from "../../hooks/useDataPulse";
 
 const PERIOD_OPTIONS = [
+  { value: "all", label: "All Time" },
   { value: "today", label: "Today" },
   { value: "yesterday", label: "Yesterday" },
   { value: "week", label: "Last 7 Days" },
@@ -42,7 +43,7 @@ export default function DriverEarnings() {
   const role = localStorage.getItem("role");
   const isDriver = role === "driver";
 
-  const [period, setPeriod] = useState("last30");
+  const [period, setPeriod] = useState("all");
   const [chartPeriod, setChartPeriod] = useState("week");
 
   useEffect(() => {
@@ -141,6 +142,7 @@ export default function DriverEarnings() {
   const hasPositiveAmount = (value) => Number(value || 0) > 0;
 
   const periodLabel = useMemo(() => {
+    if (period === "all") return "All Time Earnings";
     if (period === "today") return "Today's Earnings";
     if (period === "yesterday") return "Yesterday's Earnings";
     if (period === "week") return "Last 7 Days Earnings";
@@ -563,7 +565,7 @@ export default function DriverEarnings() {
               </h3>
               <button
                 className="text-sm font-semibold text-[#13ec37]"
-                onClick={() => setPeriod("last30")}
+                onClick={() => setPeriod("all")}
               >
                 See All
               </button>

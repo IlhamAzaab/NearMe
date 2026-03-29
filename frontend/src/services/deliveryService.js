@@ -80,8 +80,8 @@ export async function updateDriverLocation(token, deliveryId, location) {
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({
-        latitude: location.lat || location.latitude,
-        longitude: location.lng || location.longitude,
+        driver_latitude: location.lat || location.latitude,
+        driver_longitude: location.lng || location.longitude,
       }),
     },
   );

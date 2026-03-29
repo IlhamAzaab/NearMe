@@ -1182,7 +1182,9 @@ router.get("/dashboard-stats", authenticate, async (req, res) => {
     // ---- 1. Today's delivered orders with earnings ----
     const { data: todayDeliveries, error: delErr } = await supabaseAdmin
       .from("deliveries")
-      .select("order_id, driver_earnings, status, driver_id, delivered_at")
+      .select(
+        "order_id, driver_earnings, base_amount, extra_earnings, bonus_amount, tip_amount, status, driver_id, delivered_at",
+      )
       .eq("status", "delivered")
       .gte("delivered_at", todayStart)
       .lte("delivered_at", todayEnd);
@@ -1193,10 +1195,20 @@ router.get("/dashboard-stats", authenticate, async (req, res) => {
     }
 
     const allOrderIds = (todayDeliveries || []).map((d) => d.order_id);
+    const getFinalDriverEarnings = (d) => {
+      const stored = parseFloat(d.driver_earnings || 0);
+      if (stored > 0) return stored;
+      return (
+        parseFloat(d.base_amount || 0) +
+        parseFloat(d.extra_earnings || 0) +
+        parseFloat(d.bonus_amount || 0) +
+        parseFloat(d.tip_amount || 0)
+      );
+    };
     const deliveriesMap = {};
     for (const d of todayDeliveries || []) {
       deliveriesMap[d.order_id] = {
-        driver_earnings: parseFloat(d.driver_earnings || 0),
+        driver_earnings: getFinalDriverEarnings(d),
         driver_id: d.driver_id,
       };
     }
@@ -1245,7 +1257,9 @@ router.get("/dashboard-stats", authenticate, async (req, res) => {
     // Get ALL delivered deliveries for computing balance payments
     const { data: allDeliveries } = await supabaseAdmin
       .from("deliveries")
-      .select("order_id, driver_earnings, driver_id, status")
+      .select(
+        "order_id, driver_earnings, base_amount, extra_earnings, bonus_amount, tip_amount, driver_id, status",
+      )
       .eq("status", "delivered");
 
     const allDeliveriesOrderIds = (allDeliveries || []).map((d) => d.order_id);
@@ -1254,10 +1268,11 @@ router.get("/dashboard-stats", authenticate, async (req, res) => {
     let totalDriverEarnings = 0;
 
     for (const d of allDeliveries || []) {
+      const finalDriverEarnings = getFinalDriverEarnings(d);
       allDeliveriesMap[d.order_id] = {
-        driver_earnings: parseFloat(d.driver_earnings || 0),
+        driver_earnings: finalDriverEarnings,
       };
-      totalDriverEarnings += parseFloat(d.driver_earnings || 0);
+      totalDriverEarnings += finalDriverEarnings;
       if (d.driver_id) {
         allDriverSet.add(d.driver_id);
       }
@@ -1386,7 +1401,9 @@ router.get("/dashboard-stats", authenticate, async (req, res) => {
     const weekStart = graphDays[0].start;
     const { data: weekDeliveries } = await supabaseAdmin
       .from("deliveries")
-      .select("order_id, driver_earnings, delivered_at")
+      .select(
+        "order_id, driver_earnings, base_amount, extra_earnings, bonus_amount, tip_amount, delivered_at",
+      )
       .eq("status", "delivered")
       .gte("delivered_at", weekStart)
       .lte("delivered_at", todayEnd);
@@ -1395,7 +1412,7 @@ router.get("/dashboard-stats", authenticate, async (req, res) => {
     const weekDeliveriesMap = {};
     for (const d of weekDeliveries || []) {
       weekDeliveriesMap[d.order_id] = {
-        driver_earnings: parseFloat(d.driver_earnings || 0),
+        driver_earnings: getFinalDriverEarnings(d),
         delivered_at: d.delivered_at,
       };
     }
@@ -1512,7 +1529,9 @@ router.get("/earnings/summary", authenticate, async (req, res) => {
     // Only delivered status (cancelled/failed orders excluded automatically)
     let delQuery = supabaseAdmin
       .from("deliveries")
-      .select("order_id, driver_earnings, status, delivered_at")
+      .select(
+        "order_id, driver_earnings, base_amount, extra_earnings, bonus_amount, tip_amount, status, delivered_at",
+      )
       .eq("status", "delivered");
 
     if (startDate) {
@@ -1534,9 +1553,19 @@ router.get("/earnings/summary", authenticate, async (req, res) => {
 
     // Build deliveries map for driver earnings
     let deliveriesMap = {};
+    const getFinalDriverEarnings = (d) => {
+      const stored = parseFloat(d.driver_earnings || 0);
+      if (stored > 0) return stored;
+      return (
+        parseFloat(d.base_amount || 0) +
+        parseFloat(d.extra_earnings || 0) +
+        parseFloat(d.bonus_amount || 0) +
+        parseFloat(d.tip_amount || 0)
+      );
+    };
     for (const d of deliveries || []) {
       deliveriesMap[d.order_id] = {
-        driver_earnings: parseFloat(d.driver_earnings || 0),
+        driver_earnings: getFinalDriverEarnings(d),
         status: d.status,
       };
     }

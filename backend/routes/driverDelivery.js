@@ -668,7 +668,7 @@ router.post(
           `tip_amount, orders (
             restaurant_latitude, restaurant_longitude,
             delivery_latitude, delivery_longitude,
-            delivery_fee, service_fee, order_number
+            delivery_fee, service_fee, distance_km, order_number
           )`,
         )
         .eq("id", deliveryId)
@@ -676,239 +676,272 @@ router.post(
       const tipAmount = parseFloat(deliveryRecord?.tip_amount || 0);
 
       // ─── EARNINGS CALCULATION ──────────────────────────────────────────────
-      let earningsData = earnings_data || null;
+      // Load earnings config from DB (or defaults) once.
+      const { earnings: earningsConfigLoaded } = await loadConfigConstants();
+      const earningsConfig = earningsConfigLoaded || DRIVER_EARNINGS;
 
-      // If no earnings_data from frontend (e.g., WebSocket notification), calculate server-side
-      if (!earningsData) {
+      // SECURITY: Never trust client-provided earnings_data for persisted payouts.
+      if (earnings_data) {
         console.log(
-          `[ACCEPT DELIVERY]   ⚠️ No earnings_data from frontend, calculating server-side...`,
+          `[ACCEPT DELIVERY]   🔒 Ignoring client earnings_data; using server-authoritative calculation only`,
         );
+      }
 
-        try {
-          // Load earnings config from DB
-          const { earnings: earningsConfig } = await loadConfigConstants();
+      const frontendEarningsData = null;
+      let earningsData = null;
 
-          // Determine driver location (from request body or DB fallback)
-          let driverLat = driver_latitude ? parseFloat(driver_latitude) : null;
-          let driverLng = driver_longitude
-            ? parseFloat(driver_longitude)
-            : null;
+      // Always calculate server-side first so persisted earnings are authoritative.
+      try {
+        // Determine driver location (from request body or DB fallback)
+        let driverLat = driver_latitude ? parseFloat(driver_latitude) : null;
+        let driverLng = driver_longitude ? parseFloat(driver_longitude) : null;
 
-          if (!driverLat || !driverLng) {
-            const { data: lastLoc } = await supabaseAdmin
-              .from("deliveries")
-              .select("current_latitude, current_longitude")
-              .eq("driver_id", req.user.id)
-              .not("status", "in", "(delivered,cancelled,failed)")
-              .order("last_location_update", { ascending: false })
-              .limit(1)
-              .maybeSingle();
-            driverLat = lastLoc?.current_latitude || null;
-            driverLng = lastLoc?.current_longitude || null;
-          }
+        if (!driverLat || !driverLng) {
+          const { data: lastLoc } = await supabaseAdmin
+            .from("deliveries")
+            .select("current_latitude, current_longitude")
+            .eq("driver_id", req.user.id)
+            .not("status", "in", "(delivered,cancelled,failed)")
+            .order("last_location_update", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          driverLat = lastLoc?.current_latitude || null;
+          driverLng = lastLoc?.current_longitude || null;
+        }
 
-          if (!driverLat || !driverLng) {
-            // Final fallback: get from drivers table or use default
-            const { data: driverProfile } = await supabaseAdmin
-              .from("drivers")
-              .select("current_latitude, current_longitude")
-              .eq("id", req.user.id)
-              .single();
-            driverLat = driverProfile?.current_latitude || 8.5017;
-            driverLng = driverProfile?.current_longitude || 81.186;
-          }
+        if (!driverLat || !driverLng) {
+          // Final fallback: get from drivers table or use default
+          const { data: driverProfile } = await supabaseAdmin
+            .from("drivers")
+            .select("current_latitude, current_longitude")
+            .eq("id", req.user.id)
+            .single();
+          driverLat = driverProfile?.current_latitude || 8.5017;
+          driverLng = driverProfile?.current_longitude || 81.186;
+        }
 
-          const restaurantLat = parseFloat(
-            deliveryRecord?.orders?.restaurant_latitude,
-          );
-          const restaurantLng = parseFloat(
-            deliveryRecord?.orders?.restaurant_longitude,
-          );
-          const customerLat = parseFloat(
-            deliveryRecord?.orders?.delivery_latitude,
-          );
-          const customerLng = parseFloat(
-            deliveryRecord?.orders?.delivery_longitude,
+        const restaurantLat = parseFloat(deliveryRecord?.orders?.restaurant_latitude);
+        const restaurantLng = parseFloat(deliveryRecord?.orders?.restaurant_longitude);
+        const customerLat = parseFloat(deliveryRecord?.orders?.delivery_latitude);
+        const customerLng = parseFloat(deliveryRecord?.orders?.delivery_longitude);
+
+        if (isFirstDelivery) {
+          // ═══ FIRST DELIVERY: DTR + RTC earnings ═══
+          console.log(
+            `[ACCEPT DELIVERY]   🚗 Calculating FIRST delivery earnings server-side`,
           );
 
-          if (isFirstDelivery) {
-            // ═══ FIRST DELIVERY: DTR + RTC earnings ═══
-            console.log(
-              `[ACCEPT DELIVERY]   🚗 Calculating FIRST delivery earnings server-side`,
-            );
+          const driverLocation = {
+            lat: driverLat,
+            lng: driverLng,
+            label: "Driver",
+          };
+          const restaurant = {
+            lat: restaurantLat,
+            lng: restaurantLng,
+            label: "Restaurant",
+          };
+          const customer = {
+            lat: customerLat,
+            lng: customerLng,
+            label: "Customer",
+          };
 
-            const driverLocation = {
-              lat: driverLat,
-              lng: driverLng,
-              label: "Driver",
-            };
-            const restaurant = {
-              lat: restaurantLat,
-              lng: restaurantLng,
-              label: "Restaurant",
-            };
-            const customer = {
-              lat: customerLat,
-              lng: customerLng,
-              label: "Customer",
-            };
+          const earningsDistance = await getFirstDeliveryEarningsDistance(
+            driverLocation,
+            restaurant,
+            customer,
+            "Accept - Server Calc",
+          );
 
-            const earningsDistance = await getFirstDeliveryEarningsDistance(
-              driverLocation,
-              restaurant,
-              customer,
-              "Accept - Server Calc",
-            );
+          const paidDTR = Math.min(
+            earningsDistance.driverToRestaurantKm,
+            earningsConfig.MAX_DRIVER_TO_RESTAURANT_KM,
+          );
+          const dtrEarnings = paidDTR * earningsConfig.MAX_DRIVER_TO_RESTAURANT_AMOUNT;
+          const rtcEarnings =
+            earningsDistance.restaurantToCustomerKm * earningsConfig.RATE_PER_KM;
+          const baseAmount = dtrEarnings + rtcEarnings;
+          const totalDistKm =
+            earningsDistance.driverToRestaurantKm +
+            earningsDistance.restaurantToCustomerKm;
 
-            const paidDTR = Math.min(
-              earningsDistance.driverToRestaurantKm,
-              earningsConfig.MAX_DRIVER_TO_RESTAURANT_KM,
-            );
-            const dtrEarnings =
-              paidDTR * earningsConfig.MAX_DRIVER_TO_RESTAURANT_AMOUNT;
-            const rtcEarnings =
-              earningsDistance.restaurantToCustomerKm *
-              earningsConfig.RATE_PER_KM;
-            const baseAmount = dtrEarnings + rtcEarnings;
-            const totalDistKm =
-              earningsDistance.driverToRestaurantKm +
-              earningsDistance.restaurantToCustomerKm;
+          earningsData = {
+            delivery_sequence: serverDeliverySequence,
+            base_amount: baseAmount,
+            extra_earnings: 0,
+            bonus_amount: 0,
+            r0_distance_km: null,
+            r1_distance_km: totalDistKm,
+            extra_distance_km: 0,
+            total_distance_km: totalDistKm,
+          };
 
-            earningsData = {
-              delivery_sequence: serverDeliverySequence,
-              base_amount: baseAmount,
-              extra_earnings: 0,
-              bonus_amount: 0,
-              r0_distance_km: null,
-              r1_distance_km: totalDistKm,
-              extra_distance_km: 0,
-              total_distance_km: totalDistKm,
-            };
+          console.log(
+            `[ACCEPT DELIVERY]   ✅ 1st delivery earnings: base=Rs.${baseAmount.toFixed(2)}, total_dist=${totalDistKm.toFixed(3)}km`,
+          );
+        } else {
+          // ═══ 2nd+ DELIVERY: extra_earnings + bonus ═══
+          console.log(
+            `[ACCEPT DELIVERY]   🚗 Calculating SUBSEQUENT delivery (#${serverDeliverySequence}) earnings server-side`,
+          );
 
-            console.log(
-              `[ACCEPT DELIVERY]   ✅ 1st delivery earnings: base=Rs.${baseAmount.toFixed(2)}, total_dist=${totalDistKm.toFixed(3)}km`,
-            );
-          } else {
-            // ═══ 2nd+ DELIVERY: extra_earnings + bonus ═══
-            console.log(
-              `[ACCEPT DELIVERY]   🚗 Calculating SUBSEQUENT delivery (#${serverDeliverySequence}) earnings server-side`,
-            );
+          // Get route context for current deliveries
+          const routeContext = await getDriverRouteContext(
+            req.user.id,
+            driverLat,
+            driverLng,
+          );
 
-            // Get route context for current deliveries
-            const routeContext = await getDriverRouteContext(
-              req.user.id,
-              driverLat,
-              driverLng,
-            );
+          const driverLocation = {
+            lat: driverLat,
+            lng: driverLng,
+            label: "Driver",
+          };
+          const currentRestaurants = [];
+          const currentCustomers = [];
+          const processedIds = new Set();
 
-            const driverLocation = {
-              lat: driverLat,
-              lng: driverLng,
-              label: "Driver",
-            };
-            const currentRestaurants = [];
-            const currentCustomers = [];
-            const processedIds = new Set();
-
-            for (const stop of routeContext.stops || []) {
-              if (!processedIds.has(stop.delivery_id)) {
-                const rStop = routeContext.stops.find(
-                  (s) =>
-                    s.delivery_id === stop.delivery_id &&
-                    s.stop_type === "restaurant",
-                );
-                const cStop = routeContext.stops.find(
-                  (s) =>
-                    s.delivery_id === stop.delivery_id &&
-                    s.stop_type === "customer",
-                );
-                if (rStop && cStop) {
-                  currentRestaurants.push({
-                    lat: rStop.latitude,
-                    lng: rStop.longitude,
-                    label: `R${currentRestaurants.length + 1}`,
-                  });
-                  currentCustomers.push({
-                    lat: cStop.latitude,
-                    lng: cStop.longitude,
-                    label: `C${currentCustomers.length + 1}`,
-                  });
-                  processedIds.add(stop.delivery_id);
-                }
+          for (const stop of routeContext.stops || []) {
+            if (!processedIds.has(stop.delivery_id)) {
+              const rStop = routeContext.stops.find(
+                (s) =>
+                  s.delivery_id === stop.delivery_id &&
+                  s.stop_type === "restaurant",
+              );
+              const cStop = routeContext.stops.find(
+                (s) =>
+                  s.delivery_id === stop.delivery_id &&
+                  s.stop_type === "customer",
+              );
+              if (rStop && cStop) {
+                currentRestaurants.push({
+                  lat: rStop.latitude,
+                  lng: rStop.longitude,
+                  label: `R${currentRestaurants.length + 1}`,
+                });
+                currentCustomers.push({
+                  lat: cStop.latitude,
+                  lng: cStop.longitude,
+                  label: `C${currentCustomers.length + 1}`,
+                });
+                processedIds.add(stop.delivery_id);
               }
             }
-
-            // Calculate R0 (current route without new delivery)
-            let r0Distance = 0;
-            if (currentRestaurants.length > 0) {
-              const r0Result = await calculateSegmentBySegmentRouteDistance(
-                driverLocation,
-                currentRestaurants,
-                currentCustomers,
-                "R0 - Accept Server Calc",
-              );
-              r0Distance = r0Result.totalDistance;
-            }
-
-            // Calculate R1 (combined route with new delivery)
-            const newRestaurant = {
-              lat: restaurantLat,
-              lng: restaurantLng,
-              label: "New R",
-            };
-            const newCustomer = {
-              lat: customerLat,
-              lng: customerLng,
-              label: "New C",
-            };
-            const allRestaurants = [...currentRestaurants, newRestaurant];
-            const allCustomers = [...currentCustomers, newCustomer];
-
-            const r1Result = await calculateSegmentBySegmentRouteDistance(
-              driverLocation,
-              allRestaurants,
-              allCustomers,
-              "R1 - Accept Server Calc",
-            );
-            const r1Distance = r1Result.totalDistance;
-
-            const extraDistanceKm = Math.max(
-              0,
-              (r1Distance - r0Distance) / 1000,
-            );
-            const extraEarnings = extraDistanceKm * earningsConfig.RATE_PER_KM;
-
-            let bonusAmount = 0;
-            if (serverDeliverySequence === 2) {
-              bonusAmount = earningsConfig.DELIVERY_BONUS.SECOND_DELIVERY;
-            } else if (serverDeliverySequence >= 3) {
-              bonusAmount = earningsConfig.DELIVERY_BONUS.ADDITIONAL_DELIVERY;
-            }
-
-            earningsData = {
-              delivery_sequence: serverDeliverySequence,
-              base_amount: 0,
-              extra_earnings: extraEarnings,
-              bonus_amount: bonusAmount,
-              r0_distance_km: r0Distance / 1000,
-              r1_distance_km: r1Distance / 1000,
-              extra_distance_km: extraDistanceKm,
-              total_distance_km: r1Distance / 1000,
-            };
-
-            console.log(
-              `[ACCEPT DELIVERY]   ✅ Subsequent delivery earnings: extra=Rs.${extraEarnings.toFixed(2)}, bonus=Rs.${bonusAmount.toFixed(2)}, extra_dist=${extraDistanceKm.toFixed(3)}km`,
-            );
           }
-        } catch (calcError) {
-          console.error(
-            `[ACCEPT DELIVERY]   ❌ Earnings calculation failed:`,
-            calcError.message,
+
+          // Calculate R0 (current route without new delivery)
+          let r0Distance = 0;
+          if (currentRestaurants.length > 0) {
+            const r0Result = await calculateSegmentBySegmentRouteDistance(
+              driverLocation,
+              currentRestaurants,
+              currentCustomers,
+              "R0 - Accept Server Calc",
+            );
+            r0Distance = r0Result.totalDistance;
+          }
+
+          // Calculate R1 (combined route with new delivery)
+          const newRestaurant = {
+            lat: restaurantLat,
+            lng: restaurantLng,
+            label: "New R",
+          };
+          const newCustomer = {
+            lat: customerLat,
+            lng: customerLng,
+            label: "New C",
+          };
+          const allRestaurants = [...currentRestaurants, newRestaurant];
+          const allCustomers = [...currentCustomers, newCustomer];
+
+          const r1Result = await calculateSegmentBySegmentRouteDistance(
+            driverLocation,
+            allRestaurants,
+            allCustomers,
+            "R1 - Accept Server Calc",
           );
-          // Fallback: at minimum set correct delivery_sequence and bonus
+          const r1Distance = r1Result.totalDistance;
+
+          const extraDistanceKm = Math.max(0, (r1Distance - r0Distance) / 1000);
+          const extraEarnings = extraDistanceKm * earningsConfig.RATE_PER_KM;
+
+          let bonusAmount = 0;
+          if (serverDeliverySequence === 2) {
+            bonusAmount = earningsConfig.DELIVERY_BONUS.SECOND_DELIVERY;
+          } else if (serverDeliverySequence >= 3) {
+            bonusAmount = earningsConfig.DELIVERY_BONUS.ADDITIONAL_DELIVERY;
+          }
+
+          earningsData = {
+            delivery_sequence: serverDeliverySequence,
+            base_amount: 0,
+            extra_earnings: extraEarnings,
+            bonus_amount: bonusAmount,
+            r0_distance_km: r0Distance / 1000,
+            r1_distance_km: r1Distance / 1000,
+            extra_distance_km: extraDistanceKm,
+            total_distance_km: r1Distance / 1000,
+          };
+
+          console.log(
+            `[ACCEPT DELIVERY]   ✅ Subsequent delivery earnings: extra=Rs.${extraEarnings.toFixed(2)}, bonus=Rs.${bonusAmount.toFixed(2)}, extra_dist=${extraDistanceKm.toFixed(3)}km`,
+          );
+        }
+      } catch (calcError) {
+        console.error(
+          `[ACCEPT DELIVERY]   ❌ Server earnings calculation failed:`,
+          calcError.message,
+        );
+
+        const frontendGross = frontendEarningsData
+          ? isFirstDelivery
+            ? frontendEarningsData.base_amount
+            : frontendEarningsData.extra_earnings +
+              frontendEarningsData.bonus_amount
+          : 0;
+
+        if (frontendEarningsData && frontendGross > 0) {
+          earningsData = { ...frontendEarningsData };
+          console.log(
+            `[ACCEPT DELIVERY]   ⚠️ Falling back to frontend earnings_data after server calc failure`,
+          );
+        } else if (isFirstDelivery) {
+          // Last-resort fallback for first delivery: use order distance-based estimate.
+          const orderDistanceKm = Math.max(
+            0,
+            parseFloat(deliveryRecord?.orders?.distance_km || 0),
+          );
+          const fallbackBase = Math.max(
+            orderDistanceKm * earningsConfig.RATE_PER_KM,
+            earningsConfig.RATE_PER_KM,
+          );
+
+          earningsData = {
+            delivery_sequence: serverDeliverySequence,
+            base_amount: fallbackBase,
+            extra_earnings: 0,
+            bonus_amount: 0,
+            r0_distance_km: null,
+            r1_distance_km: orderDistanceKm || null,
+            extra_distance_km: 0,
+            total_distance_km: orderDistanceKm,
+          };
+
+          console.log(
+            `[ACCEPT DELIVERY]   ⚠️ Using first-delivery fallback base=Rs.${fallbackBase.toFixed(2)} from order distance ${orderDistanceKm.toFixed(3)}km`,
+          );
+        } else {
+          // Last-resort fallback for subsequent deliveries: ensure at least bonus is stored.
           let fallbackBonus = 0;
-          if (serverDeliverySequence === 2) fallbackBonus = 20;
-          else if (serverDeliverySequence >= 3) fallbackBonus = 30;
+          if (serverDeliverySequence === 2) {
+            fallbackBonus =
+              earningsConfig.DELIVERY_BONUS.SECOND_DELIVERY ?? 20;
+          } else if (serverDeliverySequence >= 3) {
+            fallbackBonus =
+              earningsConfig.DELIVERY_BONUS.ADDITIONAL_DELIVERY ?? 30;
+          }
 
           earningsData = {
             delivery_sequence: serverDeliverySequence,
@@ -920,43 +953,34 @@ router.post(
             extra_distance_km: 0,
             total_distance_km: 0,
           };
+
+          console.log(
+            `[ACCEPT DELIVERY]   ⚠️ Using subsequent-delivery fallback bonus=Rs.${fallbackBonus.toFixed(2)}`,
+          );
         }
-      } else {
-        // earnings_data provided from frontend - override delivery_sequence with server value
-        earningsData.delivery_sequence = serverDeliverySequence;
-
-        // Sanitize and cap frontend earnings values to prevent manipulation
-        earningsData.base_amount = Math.max(
-          0,
-          Math.min(parseFloat(earningsData.base_amount) || 0, 5000),
-        );
-        earningsData.extra_earnings = Math.max(
-          0,
-          Math.min(parseFloat(earningsData.extra_earnings) || 0, 5000),
-        );
-        earningsData.bonus_amount = Math.max(
-          0,
-          Math.min(parseFloat(earningsData.bonus_amount) || 0, 500),
-        );
-        earningsData.r0_distance_km = earningsData.r0_distance_km
-          ? Math.max(0, Math.min(parseFloat(earningsData.r0_distance_km), 100))
-          : null;
-        earningsData.r1_distance_km = earningsData.r1_distance_km
-          ? Math.max(0, Math.min(parseFloat(earningsData.r1_distance_km), 100))
-          : null;
-        earningsData.extra_distance_km = Math.max(
-          0,
-          Math.min(parseFloat(earningsData.extra_distance_km) || 0, 100),
-        );
-        earningsData.total_distance_km = Math.max(
-          0,
-          Math.min(parseFloat(earningsData.total_distance_km) || 0, 200),
-        );
-
-        console.log(
-          `[ACCEPT DELIVERY]   ✓ Using frontend earnings_data (sanitized), overriding delivery_sequence to ${serverDeliverySequence}`,
-        );
       }
+
+      // If server result is non-positive but frontend had a valid positive value,
+      // keep the positive fallback to avoid persisting zero earnings.
+      if (frontendEarningsData) {
+        const serverGross = isFirstDelivery
+          ? parseFloat(earningsData?.base_amount || 0)
+          : parseFloat(earningsData?.extra_earnings || 0) +
+            parseFloat(earningsData?.bonus_amount || 0);
+        const frontendGross = isFirstDelivery
+          ? frontendEarningsData.base_amount
+          : frontendEarningsData.extra_earnings +
+            frontendEarningsData.bonus_amount;
+
+        if (serverGross <= 0 && frontendGross > 0) {
+          earningsData = { ...frontendEarningsData };
+          console.log(
+            `[ACCEPT DELIVERY]   ⚠️ Replaced non-positive server earnings with frontend fallback to prevent zero persistence`,
+          );
+        }
+      }
+
+      earningsData.delivery_sequence = serverDeliverySequence;
 
       // ─── BUILD EARNINGS FIELDS FOR DB ────────────────────────────────────
       const deliverySequence = earningsData.delivery_sequence;
@@ -2185,7 +2209,7 @@ router.patch(
         const { data: deliveryWithPending } = await supabaseAdmin
           .from("deliveries")
           .select(
-            "pending_earnings, delivery_sequence, driver_earnings, base_amount, extra_earnings, bonus_amount, tip_amount",
+            "order_id, pending_earnings, delivery_sequence, driver_earnings, base_amount, extra_earnings, bonus_amount, tip_amount, orders(distance_km)",
           )
           .eq("id", deliveryId)
           .single();
@@ -2229,6 +2253,98 @@ router.patch(
           console.log(
             `[DELIVERED] ⚠️ No pending_earnings found for delivery ${deliveryId}, earnings columns already set: Rs.${deliveryWithPending?.driver_earnings}`,
           );
+
+          // Safety net: never finalize a delivered order with zero earnings.
+          const existingDriverEarnings = parseFloat(
+            deliveryWithPending?.driver_earnings || 0,
+          );
+          if (existingDriverEarnings <= 0) {
+            try {
+              const { earnings: earningsConfigLoaded } =
+                await loadConfigConstants();
+              const earningsConfig = earningsConfigLoaded || DRIVER_EARNINGS;
+
+              const sequence = parseInt(
+                deliveryWithPending?.delivery_sequence || 1,
+                10,
+              );
+              const existingBase = parseFloat(
+                deliveryWithPending?.base_amount || 0,
+              );
+              const existingExtra = parseFloat(
+                deliveryWithPending?.extra_earnings || 0,
+              );
+              const existingBonus = parseFloat(
+                deliveryWithPending?.bonus_amount || 0,
+              );
+              const existingTip = parseFloat(
+                deliveryWithPending?.tip_amount || 0,
+              );
+
+              let fallbackBase = existingBase;
+              let fallbackExtra = existingExtra;
+              let fallbackBonus = existingBonus;
+
+              if (sequence <= 1) {
+                const orderDistanceKm = Math.max(
+                  0,
+                  parseFloat(deliveryWithPending?.orders?.distance_km || 0),
+                );
+                fallbackBase = Math.max(
+                  fallbackBase,
+                  orderDistanceKm * earningsConfig.RATE_PER_KM,
+                  earningsConfig.RATE_PER_KM,
+                );
+                fallbackExtra = 0;
+                fallbackBonus = 0;
+              } else if (fallbackExtra + fallbackBonus <= 0) {
+                fallbackBase = 0;
+                fallbackExtra = 0;
+                if (sequence === 2) {
+                  fallbackBonus =
+                    earningsConfig.DELIVERY_BONUS.SECOND_DELIVERY ?? 20;
+                } else {
+                  fallbackBonus =
+                    earningsConfig.DELIVERY_BONUS.ADDITIONAL_DELIVERY ?? 30;
+                }
+              }
+
+              const fallbackDriverEarnings =
+                sequence <= 1
+                  ? fallbackBase + existingTip
+                  : fallbackExtra + fallbackBonus + existingTip;
+
+              if (fallbackDriverEarnings > 0) {
+                const { error: fallbackApplyError } = await supabaseAdmin
+                  .from("deliveries")
+                  .update({
+                    base_amount: fallbackBase,
+                    extra_earnings: fallbackExtra,
+                    bonus_amount: fallbackBonus,
+                    tip_amount: existingTip,
+                    driver_earnings: fallbackDriverEarnings,
+                    pending_earnings: null,
+                  })
+                  .eq("id", deliveryId);
+
+                if (fallbackApplyError) {
+                  console.error(
+                    `[DELIVERED] ❌ Failed to apply fallback earnings for delivery ${deliveryId}:`,
+                    fallbackApplyError,
+                  );
+                } else {
+                  console.log(
+                    `[DELIVERED] ✅ Applied fallback earnings for delivery ${deliveryId}: Rs.${fallbackDriverEarnings.toFixed(2)}`,
+                  );
+                }
+              }
+            } catch (fallbackErr) {
+              console.error(
+                `[DELIVERED] ❌ Error while applying delivered-time fallback earnings:`,
+                fallbackErr,
+              );
+            }
+          }
         }
 
         // ======================================================================
@@ -2879,6 +2995,13 @@ router.get(
         accepted_at,
         picked_up_at,
         delivered_at,
+        delivery_sequence,
+        driver_earnings,
+        base_amount,
+        extra_earnings,
+        bonus_amount,
+        tip_amount,
+        pending_earnings,
         orders (
           order_number,
           restaurant_name,
@@ -2898,7 +3021,42 @@ router.get(
         return res.status(500).json({ message: "Failed to fetch history" });
       }
 
-      return res.json({ deliveries: deliveries || [] });
+      const normalizedDeliveries = (deliveries || []).map((d) => {
+        let pending = null;
+        if (d.pending_earnings) {
+          try {
+            pending =
+              typeof d.pending_earnings === "string"
+                ? JSON.parse(d.pending_earnings)
+                : d.pending_earnings;
+          } catch {
+            pending = null;
+          }
+        }
+
+        const storedEarnings = parseFloat(d.driver_earnings || 0);
+        const componentEarnings =
+          parseFloat(d.base_amount || 0) +
+          parseFloat(d.extra_earnings || 0) +
+          parseFloat(d.bonus_amount || 0) +
+          parseFloat(d.tip_amount || 0);
+        const pendingEarnings = parseFloat(pending?.driver_earnings || 0);
+
+        // Prefer finalized stored value, then computed components, then pending snapshot.
+        const finalDriverEarnings =
+          storedEarnings > 0
+            ? storedEarnings
+            : componentEarnings > 0
+              ? componentEarnings
+              : pendingEarnings;
+
+        return {
+          ...d,
+          driver_earnings: finalDriverEarnings,
+        };
+      });
+
+      return res.json({ deliveries: normalizedDeliveries });
     } catch (error) {
       console.error("Get delivery history error:", error);
       return res.status(500).json({ message: "Server error" });
@@ -3285,25 +3443,36 @@ router.get("/earnings/history", authenticate, driverOnly, async (req, res) => {
     }
 
     // Format the response
-    const formattedEarnings = earnings.map((e) => ({
-      delivery_id: e.id,
-      order_id: e.order_id,
-      order_number: e.orders?.order_number,
-      customer_name: e.orders?.customer_name,
-      customer_address: e.orders?.delivery_address,
-      restaurant_name: e.orders?.restaurant_name,
-      delivery_sequence: e.delivery_sequence,
-      base_amount: parseFloat(e.base_amount || 0),
-      extra_earnings: parseFloat(e.extra_earnings || 0),
-      bonus_amount: parseFloat(e.bonus_amount || 0),
-      tip_amount: parseFloat(e.tip_amount || 0),
-      driver_earnings: parseFloat(e.driver_earnings || 0),
-      total_distance_km: parseFloat(e.total_distance_km || 0),
-      extra_distance_km: parseFloat(e.extra_distance_km || 0),
-      accepted_at: e.accepted_at,
-      delivered_at: e.delivered_at,
-      status: e.status,
-    }));
+    const formattedEarnings = earnings.map((e) => {
+      const baseAmount = parseFloat(e.base_amount || 0);
+      const extraEarnings = parseFloat(e.extra_earnings || 0);
+      const bonusAmount = parseFloat(e.bonus_amount || 0);
+      const tipAmount = parseFloat(e.tip_amount || 0);
+      const storedEarnings = parseFloat(e.driver_earnings || 0);
+      const componentEarnings =
+        baseAmount + extraEarnings + bonusAmount + tipAmount;
+
+      return {
+        delivery_id: e.id,
+        order_id: e.order_id,
+        order_number: e.orders?.order_number,
+        customer_name: e.orders?.customer_name,
+        customer_address: e.orders?.delivery_address,
+        restaurant_name: e.orders?.restaurant_name,
+        delivery_sequence: e.delivery_sequence,
+        base_amount: baseAmount,
+        extra_earnings: extraEarnings,
+        bonus_amount: bonusAmount,
+        tip_amount: tipAmount,
+        driver_earnings:
+          storedEarnings > 0 ? storedEarnings : componentEarnings,
+        total_distance_km: parseFloat(e.total_distance_km || 0),
+        extra_distance_km: parseFloat(e.extra_distance_km || 0),
+        accepted_at: e.accepted_at,
+        delivered_at: e.delivered_at,
+        status: e.status,
+      };
+    });
 
     console.log(
       `[EARNINGS HISTORY] ✅ Found ${formattedEarnings.length} earnings records`,
@@ -3407,10 +3576,25 @@ router.get("/earnings/summary", authenticate, driverOnly, async (req, res) => {
     }
 
     // Calculate summary for selected period
+    const getFinalDeliveryEarnings = (d) => {
+      const stored = parseFloat(d.driver_earnings || 0);
+      if (stored > 0) return stored;
+      return (
+        parseFloat(d.base_amount || 0) +
+        parseFloat(d.extra_earnings || 0) +
+        parseFloat(d.bonus_amount || 0) +
+        parseFloat(d.tip_amount || 0)
+      );
+    };
+
     const summary = {
       total_deliveries: deliveries.length,
       total_distance_km: deliveries.reduce(
-        (sum, d) => sum + parseFloat(d.extra_distance_km || 0),
+        (sum, d) =>
+          sum +
+          parseFloat(
+            d.total_distance_km ?? d.extra_distance_km ?? 0,
+          ),
         0,
       ),
       total_base: deliveries.reduce(
@@ -3430,15 +3614,13 @@ router.get("/earnings/summary", authenticate, driverOnly, async (req, res) => {
         0,
       ),
       total_earnings: deliveries.reduce(
-        (sum, d) => sum + parseFloat(d.driver_earnings || 0),
+        (sum, d) => sum + getFinalDeliveryEarnings(d),
         0,
       ),
       avg_per_delivery:
         deliveries.length > 0
-          ? deliveries.reduce(
-              (sum, d) => sum + parseFloat(d.driver_earnings || 0),
-              0,
-            ) / deliveries.length
+          ? deliveries.reduce((sum, d) => sum + getFinalDeliveryEarnings(d), 0) /
+            deliveries.length
           : 0,
     };
 
@@ -3446,11 +3628,15 @@ router.get("/earnings/summary", authenticate, driverOnly, async (req, res) => {
     const todayPerformance = {
       deliveries: todayDeliveries?.length || 0,
       earnings: (todayDeliveries || []).reduce(
-        (sum, d) => sum + parseFloat(d.driver_earnings || 0),
+        (sum, d) => sum + getFinalDeliveryEarnings(d),
         0,
       ),
       distance_km: (todayDeliveries || []).reduce(
-        (sum, d) => sum + parseFloat(d.extra_distance_km || 0),
+        (sum, d) =>
+          sum +
+          parseFloat(
+            d.total_distance_km ?? d.extra_distance_km ?? 0,
+          ),
         0,
       ),
     };
@@ -3504,7 +3690,9 @@ router.get("/earnings/chart", authenticate, driverOnly, async (req, res) => {
 
     const { data: deliveries, error } = await supabaseAdmin
       .from("deliveries")
-      .select("delivered_at, driver_earnings")
+      .select(
+        "delivered_at, driver_earnings, base_amount, extra_earnings, bonus_amount, tip_amount",
+      )
       .eq("driver_id", driverId)
       .eq("status", "delivered")
       .not("delivered_at", "is", null)
@@ -3519,6 +3707,16 @@ router.get("/earnings/chart", authenticate, driverOnly, async (req, res) => {
     }
 
     const rows = deliveries || [];
+    const getFinalDeliveryEarnings = (row) => {
+      const stored = parseFloat(row.driver_earnings || 0);
+      if (stored > 0) return stored;
+      return (
+        parseFloat(row.base_amount || 0) +
+        parseFloat(row.extra_earnings || 0) +
+        parseFloat(row.bonus_amount || 0) +
+        parseFloat(row.tip_amount || 0)
+      );
+    };
     let chartData = [];
 
     if (chartPeriod === "year") {
@@ -3537,7 +3735,7 @@ router.get("/earnings/chart", authenticate, driverOnly, async (req, res) => {
         const dayKey = getSriLankaDateKey(row.delivered_at);
         const monthKey = dayKey ? dayKey.slice(0, 7) : null;
         if (monthKey && grouped[monthKey] !== undefined) {
-          grouped[monthKey] += parseFloat(row.driver_earnings || 0);
+          grouped[monthKey] += getFinalDeliveryEarnings(row);
         }
       }
 
@@ -3558,7 +3756,7 @@ router.get("/earnings/chart", authenticate, driverOnly, async (req, res) => {
       for (const row of rows) {
         const dayKey = getSriLankaDateKey(row.delivered_at);
         if (dayKey && grouped[dayKey] !== undefined) {
-          grouped[dayKey] += parseFloat(row.driver_earnings || 0);
+          grouped[dayKey] += getFinalDeliveryEarnings(row);
         }
       }
 

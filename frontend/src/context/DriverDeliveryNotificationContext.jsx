@@ -239,7 +239,6 @@ export function DriverDeliveryNotificationProvider({ children }) {
       const body = {
         driver_latitude: driverLocation?.latitude,
         driver_longitude: driverLocation?.longitude,
-        earnings_data: notification.earnings_data || null,
       };
 
       const res = await fetch(

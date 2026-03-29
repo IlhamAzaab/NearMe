@@ -750,33 +750,9 @@ export default function DriverDashboard() {
     try {
       const token = localStorage.getItem("token");
 
-      // Find the delivery to build earnings_data
-      const delivery = availableDeliveries.find(
-        (d) => d.delivery_id === deliveryId,
-      );
-
       const body = {
         driver_latitude: driverLocation?.latitude,
         driver_longitude: driverLocation?.longitude,
-        earnings_data: delivery
-          ? {
-              delivery_sequence: delivery.route_impact?.delivery_sequence || 1,
-              base_amount:
-                delivery.route_impact?.base_amount ||
-                delivery.pricing?.total_trip_earnings ||
-                0,
-              extra_earnings: delivery.route_impact?.extra_earnings || 0,
-              bonus_amount: delivery.route_impact?.bonus_amount || 0,
-              tip_amount: parseFloat(delivery.pricing?.tip_amount || 0),
-              r0_distance_km: delivery.route_impact?.r0_distance_km || null,
-              r1_distance_km:
-                delivery.route_impact?.r1_distance_km ||
-                delivery.total_delivery_distance_km ||
-                0,
-              extra_distance_km: delivery.route_impact?.extra_distance_km || 0,
-              total_distance_km: delivery.total_delivery_distance_km || 0,
-            }
-          : null,
       };
 
       const res = await fetch(
