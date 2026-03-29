@@ -4,6 +4,10 @@ import { supabaseAdmin } from "../supabaseAdmin.js";
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
 import crypto from "crypto";
+import {
+  getValidatedAuthConfig,
+  verifyJwtWithRotation,
+} from "../utils/authConfig.js";
 
 if (process.env.NODE_ENV !== "production") {
   dotenv.config({ path: "../.env" });
@@ -35,12 +39,11 @@ const supabaseAnonClient = createClient(
 
 const router = express.Router();
 
-const WEB_ACCESS_TOKEN_EXPIRES_IN =
-  process.env.WEB_ACCESS_TOKEN_EXPIRES_IN || "14d";
-const MOBILE_ACCESS_TOKEN_EXPIRES_IN =
-  process.env.MOBILE_ACCESS_TOKEN_EXPIRES_IN ||
-  process.env.ACCESS_TOKEN_EXPIRES_IN ||
-  "180d";
+const {
+  jwtSecret: JWT_SECRET,
+  webAccessTokenExpiresIn: WEB_ACCESS_TOKEN_EXPIRES_IN,
+  mobileAccessTokenExpiresIn: MOBILE_ACCESS_TOKEN_EXPIRES_IN,
+} = getValidatedAuthConfig();
 const DEFAULT_FRONTEND_ORIGIN =
   process.env.NODE_ENV === "production"
     ? "https://meezo-eta.vercel.app"
@@ -67,7 +70,7 @@ function auth401(res, code, message, extra = {}) {
 }
 
 function signAccessToken({ id, role }, expiresIn) {
-  return jwt.sign({ id, role, type: "access" }, process.env.JWT_SECRET, {
+  return jwt.sign({ id, role, type: "access" }, JWT_SECRET, {
     expiresIn,
   });
 }
@@ -109,7 +112,7 @@ function createEmailVerificationToken({ userId, email, nonce }) {
       nonce,
       purpose: "email_verification",
     },
-    process.env.JWT_SECRET,
+    JWT_SECRET,
     { expiresIn: "1h" },
   );
 }
@@ -121,7 +124,7 @@ function createPostVerifyLoginToken({ userId, nonce }) {
       nonce,
       purpose: "post_verify_login",
     },
-    process.env.JWT_SECRET,
+    JWT_SECRET,
     { expiresIn: "24h" },
   );
 }
@@ -173,7 +176,7 @@ p{color:#6b7280;font-size:14px;line-height:1.6;margin-bottom:16px}
 async function resolveVerifiedCustomerSession(token) {
   let payload;
   try {
-    payload = jwt.verify(token, process.env.JWT_SECRET);
+    payload = verifyJwtWithRotation(token);
   } catch (tokenError) {
     if (tokenError?.name === "TokenExpiredError") {
       return {
@@ -826,7 +829,7 @@ router.get("/user-email", async (req, res) => {
       try {
         // Try JWT first (for logged-in users)
         const jwt = await import("jsonwebtoken");
-        jwt.default.verify(token, process.env.JWT_SECRET);
+        verifyJwtWithRotation(token);
         authorized = true;
       } catch {
         // Not a valid JWT — try as Supabase access_token
@@ -887,7 +890,7 @@ router.post("/complete-profile", async (req, res) => {
       let tokenMatchesUser = false;
 
       try {
-        const decoded = jwt.verify(access_token, process.env.JWT_SECRET);
+        const decoded = verifyJwtWithRotation(access_token);
         const jwtUserId = String(decoded?.id || decoded?.userId || "");
         if (jwtUserId && jwtUserId === String(userId)) {
           tokenMatchesUser = true;
@@ -1047,7 +1050,7 @@ router.get("/customer-profile-status", async (req, res) => {
     let tokenMatchesUser = false;
 
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const decoded = verifyJwtWithRotation(token);
       const jwtUserId = String(decoded?.id || decoded?.userId || "");
       if (jwtUserId && jwtUserId === String(userId)) {
         tokenMatchesUser = true;
@@ -1411,7 +1414,7 @@ router.post("/complete-email-login", async (req, res) => {
 
     let payload;
     try {
-      payload = jwt.verify(pendingToken, process.env.JWT_SECRET);
+      payload = verifyJwtWithRotation(pendingToken);
     } catch {
       return auth401(
         res,

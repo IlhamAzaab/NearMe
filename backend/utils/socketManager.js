@@ -6,12 +6,14 @@
  */
 
 import { Server } from "socket.io";
-import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
+import { getValidatedAuthConfig, verifyJwtWithRotation } from "./authConfig.js";
 
 if (process.env.NODE_ENV !== "production") {
   dotenv.config({ path: "../.env" });
 }
+
+getValidatedAuthConfig();
 
 let io = null;
 
@@ -37,7 +39,7 @@ function verifySocketToken(token) {
     return null;
   }
   try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    const payload = verifyJwtWithRotation(token);
     return payload;
   } catch (err) {
     console.warn("[Socket] Token verification failed:", err.message);

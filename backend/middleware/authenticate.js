@@ -1,9 +1,11 @@
-import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
+import { getValidatedAuthConfig, verifyJwtWithRotation } from "../utils/authConfig.js";
 
 if (process.env.NODE_ENV !== "production") {
   dotenv.config({ path: "../.env" });
 }
+
+getValidatedAuthConfig();
 
 /**
  * Middleware to authenticate JWT tokens
@@ -29,7 +31,7 @@ export function authenticate(req, res, next) {
   }
 
   try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    const payload = verifyJwtWithRotation(token);
     req.user = payload; // { id, role }
     next();
   } catch (err) {

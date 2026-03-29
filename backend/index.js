@@ -11,11 +11,14 @@ import {
   runFoodAvailabilityScheduler,
 } from "./utils/restaurantScheduler.js";
 import { initializeSocket } from "./utils/socketManager.js";
+import { getValidatedAuthConfig } from "./utils/authConfig.js";
 
 // Load .env file only if NODE_ENV is not production and .env exists
 if (process.env.NODE_ENV !== "production") {
   dotenv.config({ path: "../.env" });
 }
+
+const authConfig = getValidatedAuthConfig();
 
 // Verify Supabase configuration on startup
 console.log("\n🔍 Checking Supabase configuration...");
@@ -39,6 +42,22 @@ console.log(
   "SUPABASE_ANON_KEY:",
   process.env.SUPABASE_ANON_KEY ? "✓ Set" : "✗ Missing",
 );
+console.log("JWT_SECRET:", `✓ Set (${authConfig.jwtSecret.length} chars)`);
+console.log(
+  "WEB_ACCESS_TOKEN_EXPIRES_IN:",
+  authConfig.webAccessTokenExpiresIn,
+);
+console.log(
+  "MOBILE_ACCESS_TOKEN_EXPIRES_IN:",
+  authConfig.mobileAccessTokenExpiresIn,
+);
+if (authConfig.previousJwtSecret) {
+  console.warn(
+    "JWT_SECRET_PREVIOUS: ✓ Set (rotation mode active, remove after transition window)",
+  );
+} else {
+  console.log("JWT_SECRET_PREVIOUS:", "✗ Not set");
+}
 
 // Test Supabase connection
 (async () => {
