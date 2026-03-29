@@ -126,6 +126,24 @@ function calculateLaunchPromoDeliveryFee(distanceKm, promoConfig) {
 }
 
 /**
+ * Detect production schema drift for launch promo columns on orders table.
+ * This allows safe fallback inserts when DB migrations were not applied yet.
+ */
+function isMissingLaunchPromoOrderColumnError(error) {
+  if (!error) return false;
+
+  const text = `${error.message || ""} ${error.details || ""} ${error.hint || ""}`.toLowerCase();
+
+  return (
+    text.includes("launch_promo_") &&
+    (text.includes("column") ||
+      text.includes("schema cache") ||
+      text.includes("not found") ||
+      text.includes("does not exist"))
+  );
+}
+
+/**
  * Generate order number
  * Format: YYMMDD-SEQ[L]
  * Example: 260324-071W, 260324-1000P
@@ -702,42 +720,61 @@ router.post("/place", authenticate, async (req, res) => {
     // ========================================================================
 
     // Insert order
-    const { data: order, error: orderError } = await supabaseAdmin
+    const baseOrderPayload = {
+      order_number: orderNumber,
+      customer_id: customerId,
+      customer_name: customer.username || "Customer",
+      customer_phone: customer.phone || "",
+      customer_email: customer.email,
+      restaurant_id: restaurant.id,
+      restaurant_name: restaurant.restaurant_name,
+      restaurant_address: restaurant.address,
+      restaurant_latitude: restaurant.latitude,
+      restaurant_longitude: restaurant.longitude,
+      delivery_address: delivery_address,
+      delivery_city: delivery_city || "",
+      delivery_latitude: delivery_latitude,
+      delivery_longitude: delivery_longitude,
+      subtotal: subtotalAmount.toFixed(2),
+      admin_subtotal: adminSubtotal.toFixed(2),
+      commission_total: commissionTotal.toFixed(2),
+      delivery_fee: deliveryFeeAmount.toFixed(2),
+      service_fee: serviceFeeAmount.toFixed(2),
+      total_amount: totalAmount.toFixed(2),
+      distance_km: distance_km.toFixed(2),
+      estimated_duration_min: Math.ceil(estimated_duration_min),
+      payment_method: payment_method,
+      payment_status: payment_method === "cash" ? "pending" : "pending",
+      placed_at: new Date().toISOString(),
+    };
+
+    const orderPayloadWithPromo = {
+      ...baseOrderPayload,
+      launch_promo_applied: launchPromoApplied,
+      launch_promo_discount: launchPromoDiscount.toFixed(2),
+      launch_promo_delivery_fee: launchPromoApplied
+        ? serverDeliveryFee.toFixed(2)
+        : null,
+    };
+
+    let orderInsertResult = await supabaseAdmin
       .from("orders")
-      .insert({
-        order_number: orderNumber,
-        customer_id: customerId,
-        customer_name: customer.username || "Customer",
-        customer_phone: customer.phone || "",
-        customer_email: customer.email,
-        restaurant_id: restaurant.id,
-        restaurant_name: restaurant.restaurant_name,
-        restaurant_address: restaurant.address,
-        restaurant_latitude: restaurant.latitude,
-        restaurant_longitude: restaurant.longitude,
-        delivery_address: delivery_address,
-        delivery_city: delivery_city || "",
-        delivery_latitude: delivery_latitude,
-        delivery_longitude: delivery_longitude,
-        subtotal: subtotalAmount.toFixed(2),
-        admin_subtotal: adminSubtotal.toFixed(2),
-        commission_total: commissionTotal.toFixed(2),
-        delivery_fee: deliveryFeeAmount.toFixed(2),
-        service_fee: serviceFeeAmount.toFixed(2),
-        total_amount: totalAmount.toFixed(2),
-        distance_km: distance_km.toFixed(2),
-        estimated_duration_min: Math.ceil(estimated_duration_min),
-        launch_promo_applied: launchPromoApplied,
-        launch_promo_discount: launchPromoDiscount.toFixed(2),
-        launch_promo_delivery_fee: launchPromoApplied
-          ? serverDeliveryFee.toFixed(2)
-          : null,
-        payment_method: payment_method,
-        payment_status: payment_method === "cash" ? "pending" : "pending",
-        placed_at: new Date().toISOString(),
-      })
+      .insert(orderPayloadWithPromo)
       .select()
       .single();
+
+    if (isMissingLaunchPromoOrderColumnError(orderInsertResult.error)) {
+      console.warn(
+        "Launch promo columns missing on orders table; retrying order insert without promo snapshot fields.",
+      );
+      orderInsertResult = await supabaseAdmin
+        .from("orders")
+        .insert(baseOrderPayload)
+        .select()
+        .single();
+    }
+
+    const { data: order, error: orderError } = orderInsertResult;
 
     if (orderError) {
       console.error("Order insert error:", orderError);
