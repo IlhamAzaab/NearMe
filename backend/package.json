@@ -25,6 +25,7 @@
     "multer": "^2.0.2",
     "node-cron": "^4.2.1",
     "nodemailer": "^7.0.12",
-    "socket.io": "^4.8.3"
+    "socket.io": "^4.8.3",
+    "standardwebhooks": "^1.0.0"
   }
 }

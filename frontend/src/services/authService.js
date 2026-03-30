@@ -133,11 +133,15 @@ function mapSupabasePhoneAuthError(error, fallbackMessage) {
   }
 
   if (message.includes("hook requires authorization token")) {
-    return "Supabase Send SMS Hook auth token is missing. In Supabase Auth -> Hooks -> Send SMS, set Authorization token to the same value as SUPABASE_SMS_HOOK_SECRET.";
+    return "Supabase Send SMS hook is not signed correctly. Regenerate the hook secret in Supabase Hooks and set the same full value (v1,whsec_...) in Render SUPABASE_SMS_HOOK_SECRET.";
+  }
+
+  if (message.includes("invalid signature") || message.includes("signature") || message.includes("standard webhook")) {
+    return "Supabase hook signature verification failed. Ensure backend uses raw body + Standard Webhooks verification and that Supabase/Render secrets match exactly.";
   }
 
   if (message.includes("invalid hook secret") || message.includes("unauthorized")) {
-    return "Send SMS Hook secret mismatch. Ensure Supabase hook token and backend SUPABASE_SMS_HOOK_SECRET are exactly the same value.";
+    return "Send SMS Hook secret mismatch. Use Supabase-generated full secret (v1,whsec_...) and set the exact same value in Render SUPABASE_SMS_HOOK_SECRET.";
   }
 
   return error?.message || fallbackMessage;

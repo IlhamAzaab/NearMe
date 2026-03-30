@@ -94,6 +94,12 @@ import smsHookRoutes from "./routes/smsHookRoutes.js";
 
 const app = express();
 
+function captureAuthHookRawBody(req, res, buffer) {
+  if (req.originalUrl === "/auth/send-sms-hook" && buffer?.length) {
+    req.rawBody = buffer.toString("utf8");
+  }
+}
+
 // --- CORS: only allow your own frontend origins ---
 const allowedOrigins = [
   process.env.FRONTEND_URL || "http://localhost:5173",
@@ -132,8 +138,14 @@ app.use((req, res, next) => {
 });
 
 // --- Body size limits (10MB for image uploads, not 50MB) ---
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ limit: "10mb", extended: true }));
+app.use(express.json({ limit: "10mb", verify: captureAuthHookRawBody }));
+app.use(
+  express.urlencoded({
+    limit: "10mb",
+    extended: true,
+    verify: captureAuthHookRawBody,
+  }),
+);
 
 // --- Global rate limiter: 500 requests per minute per IP ---
 // Increased from 200 to handle web + mobile + dev hot reloads on same IP
