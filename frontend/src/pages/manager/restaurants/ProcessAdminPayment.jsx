@@ -445,7 +445,7 @@ export default function ProcessAdminPayment() {
                 className="block w-full text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer"
               />
               <p className="text-xs text-gray-500 mt-2">
-                Upload image (JPEG, PNG, WebP) or PDF. Max size: 5MB
+                Upload image (JPEG, PNG, WebP) or PDF. Max size: 5MB (PDF is stored as first-page image)
               </p>
 
               {/* File Preview */}

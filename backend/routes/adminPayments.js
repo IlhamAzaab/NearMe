@@ -38,6 +38,44 @@ const upload = multer({
   },
 });
 
+const getPdfFirstPageImageUrl = (url, publicId) => {
+  if (publicId) {
+    return cloudinary.url(publicId, {
+      resource_type: "image",
+      format: "jpg",
+      page: 1,
+      secure: true,
+    });
+  }
+
+  if (!url) return url;
+
+  let imageUrl = url;
+  if (imageUrl.includes("/raw/upload/")) {
+    imageUrl = imageUrl.replace("/raw/upload/", "/image/upload/");
+  }
+  if (imageUrl.includes("/upload/")) {
+    imageUrl = imageUrl.replace("/upload/", "/upload/pg_1/");
+  }
+
+  return imageUrl.replace(/\.pdf(\?|$)/i, ".jpg$1");
+};
+
+const normalizeAdminPaymentProof = (payment) => {
+  if (!payment?.proof_url) return payment;
+
+  const isPdfProof =
+    payment.proof_type === "pdf" || /\.pdf(\?|$)/i.test(payment.proof_url);
+
+  if (!isPdfProof) return payment;
+
+  return {
+    ...payment,
+    proof_url: getPdfFirstPageImageUrl(payment.proof_url),
+    proof_type: "image",
+  };
+};
+
 // Middleware: only managers
 const managerOnly = async (req, res, next) => {
   if (req.user.role !== "manager") {
@@ -375,7 +413,8 @@ router.get(
 
       if (error) throw error;
 
-      return res.json({ success: true, payments: payments || [] });
+      const normalizedPayments = (payments || []).map(normalizeAdminPaymentProof);
+      return res.json({ success: true, payments: normalizedPayments });
     } catch (error) {
       console.error("[ADMIN-PAYMENTS] History error:", error.message);
       return res.status(500).json({ success: false, message: "Server error" });
@@ -459,25 +498,41 @@ router.post(
         });
       }
 
-      // Upload proof to Cloudinary
+      // Upload proof to Cloudinary.
+      // If receipt is a PDF, store only the first page as an image URL.
       let proofUrl;
       let proofType;
       const isPdf = file.mimetype === "application/pdf";
-      proofType = isPdf ? "pdf" : "image";
+      proofType = "image";
 
       try {
         const b64 = Buffer.from(file.buffer).toString("base64");
         const dataURI = `data:${file.mimetype};base64,${b64}`;
 
-        const uploadResult = await cloudinary.uploader.upload(dataURI, {
-          folder: `nearme/admin-payments/${restaurantId}`,
-          public_id: `payment_${Date.now()}`,
-          resource_type: isPdf ? "raw" : "image",
-          overwrite: true,
-          access_mode: "public",
-        });
+        if (isPdf) {
+          const uploadResult = await cloudinary.uploader.upload(dataURI, {
+            folder: `nearme/admin-payments/${restaurantId}`,
+            public_id: `payment_${Date.now()}`,
+            resource_type: "raw",
+            overwrite: true,
+            access_mode: "public",
+          });
 
-        proofUrl = uploadResult.secure_url;
+          proofUrl = getPdfFirstPageImageUrl(
+            uploadResult.secure_url,
+            uploadResult.public_id,
+          );
+        } else {
+          const uploadResult = await cloudinary.uploader.upload(dataURI, {
+            folder: `nearme/admin-payments/${restaurantId}`,
+            public_id: `payment_${Date.now()}`,
+            resource_type: "image",
+            overwrite: true,
+            access_mode: "public",
+          });
+
+          proofUrl = uploadResult.secure_url;
+        }
       } catch (uploadError) {
         console.error("[ADMIN-PAYMENTS] Upload error:", uploadError.message);
         return res.status(500).json({
@@ -520,12 +575,12 @@ router.post(
         notifyAdmin(restaurant.admin_id, "admin:payment_received", {
           type: "payment_received",
           title: "Payment Received",
-          message: `Manager sent Rs.${payAmount.toFixed(2)} with ${proofType.toUpperCase()} receipt.`,
+          message: `Manager sent Rs.${payAmount.toFixed(2)} with IMAGE receipt.`,
           payment_id: payment.id,
           restaurant_id: restaurantId,
           restaurant_name: restaurant.restaurant_name,
           amount: payAmount,
-          proof_type: proofType,
+          proof_type: "image",
           proof_url: proofUrl,
           note: note || null,
           created_at: payment.created_at,
@@ -541,7 +596,7 @@ router.post(
             type: "admin_payment_received",
             paymentId: String(payment.id),
             amount: String(payAmount),
-            proofType: proofType,
+            proofType: "image",
             screen: "AdminWithdrawals",
             channelId: "payments",
           },
@@ -553,7 +608,7 @@ router.post(
       return res.json({
         success: true,
         message: `Payment of Rs.${payAmount.toFixed(2)} to ${restaurant.restaurant_name} recorded successfully`,
-        payment,
+        payment: normalizeAdminPaymentProof(payment),
         new_withdrawal_balance: newBalance,
       });
     } catch (error) {
@@ -731,7 +786,8 @@ router.get("/admin/history", authenticate, adminOnly, async (req, res) => {
 
     if (error) throw error;
 
-    return res.json({ success: true, payments: payments || [] });
+    const normalizedPayments = (payments || []).map(normalizeAdminPaymentProof);
+    return res.json({ success: true, payments: normalizedPayments });
   } catch (error) {
     console.error("[ADMIN-WITHDRAWALS] History error:", error.message);
     return res.status(500).json({ success: false, message: "Server error" });
