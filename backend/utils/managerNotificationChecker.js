@@ -560,13 +560,13 @@ async function checkAdminOrderReminders() {
         // Enforce one-time reminder per order per admin.
         const { data: existingReminderRows, error: existingReminderError } =
           await supabaseAdmin
-          .from("notifications")
-          .select("id")
-          .eq("recipient_id", adminId)
-          .eq("recipient_role", "admin")
-          .eq("type", "order_reminder_10min")
-          .eq("order_id", order.id)
-          .limit(1);
+            .from("notifications")
+            .select("id")
+            .eq("recipient_id", adminId)
+            .eq("recipient_role", "admin")
+            .eq("type", "order_reminder_10min")
+            .eq("order_id", order.id)
+            .limit(1);
 
         if (existingReminderError) {
           console.error(
@@ -623,19 +623,19 @@ async function checkAdminOrderReminders() {
         const { error: insertReminderError } = await supabaseAdmin
           .from("notifications")
           .insert({
-          recipient_id: adminId,
-          recipient_role: "admin",
-          type: "order_reminder_10min",
-          title: "Order Waiting Alert",
-          message: `Order #${order.order_number || order.id?.slice(-6)} is pending for ${waitingMinutes} minutes`,
-          order_id: order.id,
-          restaurant_id: order.restaurant_id,
-          is_read: false,
-          metadata: {
-            waiting_minutes: waitingMinutes,
-            source: "auto_reminder_10min",
-          },
-        });
+            recipient_id: adminId,
+            recipient_role: "admin",
+            type: "order_reminder_10min",
+            title: "Order Waiting Alert",
+            message: `Order #${order.order_number || order.id?.slice(-6)} is pending for ${waitingMinutes} minutes`,
+            order_id: order.id,
+            restaurant_id: order.restaurant_id,
+            is_read: false,
+            metadata: {
+              waiting_minutes: waitingMinutes,
+              source: "auto_reminder_10min",
+            },
+          });
 
         if (insertReminderError) {
           console.error(

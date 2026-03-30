@@ -1484,6 +1484,23 @@ router.get("/earnings", authenticate, async (req, res) => {
         amount: Math.round(amount),
       }));
 
+    // Day-by-day analysis (always last 30 days, including zero-sales days)
+    const dayByDayAnalysis = [];
+    for (let i = 29; i >= 0; i -= 1) {
+      const dateStr = shiftSriLankaDateString(todayDateStr, -i);
+      const sales = Math.round(dailyEarnings[dateStr] || 0);
+      const weekday = new Date(`${dateStr}T00:00:00+05:30`).toLocaleDateString(
+        "en-US",
+        { weekday: "short" },
+      );
+
+      dayByDayAnalysis.push({
+        date: dateStr,
+        day: weekday,
+        sales,
+      });
+    }
+
     return res.json({
       earnings: {
         totalRevenue: Math.round(totalRevenue),
@@ -1494,6 +1511,7 @@ router.get("/earnings", authenticate, async (req, res) => {
         previousRevenue: Math.round(previousRevenue),
         percentageChange: Math.round(percentageChange * 10) / 10,
         chartData,
+        dayByDayAnalysis,
         period,
       },
     });
