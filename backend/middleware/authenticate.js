@@ -1,5 +1,6 @@
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
+import { supabaseAdmin } from "../supabaseAdmin.js";
 
 if (process.env.NODE_ENV !== "production") {
   dotenv.config({ path: "../.env" });
@@ -9,7 +10,7 @@ if (process.env.NODE_ENV !== "production") {
  * Middleware to authenticate JWT tokens
  * Validates Bearer token and attaches user payload to req.user
  */
-export function authenticate(req, res, next) {
+export async function authenticate(req, res, next) {
   const auth = req.headers.authorization || "";
 
   if (!auth.startsWith("Bearer ")) {
@@ -31,6 +32,16 @@ export function authenticate(req, res, next) {
     req.user = payload; // { id, role }
     next();
   } catch (err) {
-    return res.status(401).json({ message: "Invalid or expired token" });
+    // Fallback: accept Supabase access token for auth.users-based flows
+    const { data, error } = await supabaseAdmin.auth.getUser(token);
+    if (error || !data?.user?.id) {
+      return res.status(401).json({ message: "Invalid or expired token" });
+    }
+
+    req.user = {
+      id: data.user.id,
+      role: data.user.user_metadata?.role || null,
+    };
+    next();
   }
 }

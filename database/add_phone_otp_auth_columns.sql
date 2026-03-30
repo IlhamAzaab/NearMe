@@ -1,0 +1,8 @@
+-- Supabase Phone Auth + Send SMS Hook architecture
+-- ------------------------------------------------
+-- OTP generation/validation and user identity state are handled by Supabase Auth
+-- and stored in auth.users / GoTrue tables.
+--
+-- Therefore, no OTP/password columns are required in public.users for this flow.
+--
+-- This file is intentionally a no-op to avoid accidental schema drift.

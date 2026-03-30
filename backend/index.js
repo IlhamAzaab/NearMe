@@ -73,6 +73,8 @@ import publicRoutes from "./routes/public.js";
 import pushNotificationRoutes from "./routes/pushNotification.js";
 import reportsRoutes from "./routes/reports.js";
 import restaurantOnboardingRoutes from "./routes/restaurantOnboarding.js";
+import authOtpRoutes from "./routes/authOtp.js";
+import smsHookRoutes from "./routes/smsHookRoutes.js";
 
 const app = express();
 
@@ -169,6 +171,8 @@ app.get("/health", (req, res) => {
 });
 
 // Routes
+app.use("/auth", smsHookRoutes);
+app.use("/auth", authLimiter, authOtpRoutes);
 app.use("/auth", authLimiter, authRoutes);
 app.use("/manager", managerRoutes);
 app.use("/admin", adminRoutes);
@@ -191,7 +195,17 @@ app.use("/push", pushNotificationRoutes);
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error("Unhandled error:", err);
-  res.status(500).json({ message: "Internal server error" });
+
+  // body-parser sends this for malformed JSON payloads
+  if (err?.type === "entity.parse.failed") {
+    return res.status(400).json({ message: "Invalid JSON payload" });
+  }
+
+  const statusCode = Number(err?.statusCode || err?.status || 500);
+  const safeMessage = statusCode >= 500 ? "Internal server error" : err?.message;
+  return res.status(statusCode).json({
+    message: safeMessage || "Request failed",
+  });
 });
 
 // Server

@@ -95,12 +95,14 @@ import DriverSocketConnector from "./components/DriverSocketConnector";
 import { ManagerNotificationProvider } from "./context/ManagerNotificationContext";
 import ManagerNotificationOverlay from "./components/ManagerNotificationOverlay";
 import ManagerSocketConnector from "./components/ManagerSocketConnector";
+import SessionBootstrap from "./components/SessionBootstrap";
 
 function App() {
   return (
     <SocketProvider>
       <NotificationProvider>
         <BrowserRouter>
+          <SessionBootstrap />
           <DriverDeliveryNotificationProvider>
             <ManagerNotificationProvider>
               <NotificationBar />
@@ -115,6 +117,14 @@ function App() {
               <Routes>
                 <Route
                   path="/"
+                  element={
+                    <ProtectedRoute allowedRole="customer">
+                      <Home />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/home"
                   element={
                     <ProtectedRoute allowedRole="customer">
                       <Home />

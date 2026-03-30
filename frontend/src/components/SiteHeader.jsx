@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { API_URL } from "../config";
+import { logout as logoutSession } from "../services/authService";
 
 export default function SiteHeader({
   isLoggedIn,
@@ -13,6 +14,18 @@ export default function SiteHeader({
   const [open, setOpen] = useState(false);
   const [managerUsername, setManagerUsername] = useState("");
   const [cartCount, setCartCount] = useState(0);
+
+  const handleLogoutClick = async () => {
+    const token = localStorage.getItem("token");
+    await logoutSession(token);
+
+    if (typeof onLogout === "function") {
+      onLogout();
+      return;
+    }
+
+    navigate("/login");
+  };
 
   // When logged in as manager, fetch manager username from API
   useEffect(() => {
@@ -198,7 +211,7 @@ export default function SiteHeader({
                   </div>
                   <div className="px-2 py-2 border-t border-gray-200">
                     <button
-                      onClick={onLogout}
+                      onClick={handleLogoutClick}
                       className="w-full px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded"
                     >
                       Logout
