@@ -720,10 +720,18 @@ router.post(
           driverLng = driverProfile?.current_longitude || 81.186;
         }
 
-        const restaurantLat = parseFloat(deliveryRecord?.orders?.restaurant_latitude);
-        const restaurantLng = parseFloat(deliveryRecord?.orders?.restaurant_longitude);
-        const customerLat = parseFloat(deliveryRecord?.orders?.delivery_latitude);
-        const customerLng = parseFloat(deliveryRecord?.orders?.delivery_longitude);
+        const restaurantLat = parseFloat(
+          deliveryRecord?.orders?.restaurant_latitude,
+        );
+        const restaurantLng = parseFloat(
+          deliveryRecord?.orders?.restaurant_longitude,
+        );
+        const customerLat = parseFloat(
+          deliveryRecord?.orders?.delivery_latitude,
+        );
+        const customerLng = parseFloat(
+          deliveryRecord?.orders?.delivery_longitude,
+        );
 
         if (isFirstDelivery) {
           // ═══ FIRST DELIVERY: DTR + RTC earnings ═══
@@ -758,9 +766,11 @@ router.post(
             earningsDistance.driverToRestaurantKm,
             earningsConfig.MAX_DRIVER_TO_RESTAURANT_KM,
           );
-          const dtrEarnings = paidDTR * earningsConfig.MAX_DRIVER_TO_RESTAURANT_AMOUNT;
+          const dtrEarnings =
+            paidDTR * earningsConfig.MAX_DRIVER_TO_RESTAURANT_AMOUNT;
           const rtcEarnings =
-            earningsDistance.restaurantToCustomerKm * earningsConfig.RATE_PER_KM;
+            earningsDistance.restaurantToCustomerKm *
+            earningsConfig.RATE_PER_KM;
           const baseAmount = dtrEarnings + rtcEarnings;
           const totalDistKm =
             earningsDistance.driverToRestaurantKm +
@@ -936,8 +946,7 @@ router.post(
           // Last-resort fallback for subsequent deliveries: ensure at least bonus is stored.
           let fallbackBonus = 0;
           if (serverDeliverySequence === 2) {
-            fallbackBonus =
-              earningsConfig.DELIVERY_BONUS.SECOND_DELIVERY ?? 20;
+            fallbackBonus = earningsConfig.DELIVERY_BONUS.SECOND_DELIVERY ?? 20;
           } else if (serverDeliverySequence >= 3) {
             fallbackBonus =
               earningsConfig.DELIVERY_BONUS.ADDITIONAL_DELIVERY ?? 30;
@@ -3591,10 +3600,7 @@ router.get("/earnings/summary", authenticate, driverOnly, async (req, res) => {
       total_deliveries: deliveries.length,
       total_distance_km: deliveries.reduce(
         (sum, d) =>
-          sum +
-          parseFloat(
-            d.total_distance_km ?? d.extra_distance_km ?? 0,
-          ),
+          sum + parseFloat(d.total_distance_km ?? d.extra_distance_km ?? 0),
         0,
       ),
       total_base: deliveries.reduce(
@@ -3619,8 +3625,10 @@ router.get("/earnings/summary", authenticate, driverOnly, async (req, res) => {
       ),
       avg_per_delivery:
         deliveries.length > 0
-          ? deliveries.reduce((sum, d) => sum + getFinalDeliveryEarnings(d), 0) /
-            deliveries.length
+          ? deliveries.reduce(
+              (sum, d) => sum + getFinalDeliveryEarnings(d),
+              0,
+            ) / deliveries.length
           : 0,
     };
 
@@ -3633,10 +3641,7 @@ router.get("/earnings/summary", authenticate, driverOnly, async (req, res) => {
       ),
       distance_km: (todayDeliveries || []).reduce(
         (sum, d) =>
-          sum +
-          parseFloat(
-            d.total_distance_km ?? d.extra_distance_km ?? 0,
-          ),
+          sum + parseFloat(d.total_distance_km ?? d.extra_distance_km ?? 0),
         0,
       ),
     };

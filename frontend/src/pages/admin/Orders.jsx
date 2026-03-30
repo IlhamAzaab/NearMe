@@ -61,6 +61,47 @@ export default function Orders() {
   const [showPeriodDropdown, setShowPeriodDropdown] = useState(false);
   const periodRef = useRef(null);
 
+  const SUCCESS_EARNING_STATUSES = new Set([
+    "picked_up",
+    "on_the_way",
+    "at_customer",
+    "delivered",
+  ]);
+  const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+  const SRI_LANKA_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+
+  const getSriLankaDateString = (date = new Date()) =>
+    new Date(date.getTime() + SRI_LANKA_OFFSET_MS).toISOString().split("T")[0];
+
+  const getSriLankaDayStartMs = (dateStr) =>
+    new Date(`${dateStr}T00:00:00+05:30`).getTime();
+
+  const getPeriodRangeMs = (selectedPeriod) => {
+    if (selectedPeriod === "all") return null;
+
+    const todayDateStr = getSriLankaDateString(new Date());
+    const todayStart = getSriLankaDayStartMs(todayDateStr);
+
+    switch (selectedPeriod) {
+      case "today":
+        return { start: todayStart, end: todayStart + ONE_DAY_MS };
+      case "yesterday":
+        return { start: todayStart - ONE_DAY_MS, end: todayStart };
+      case "last7":
+        return {
+          start: todayStart - 6 * ONE_DAY_MS,
+          end: todayStart + ONE_DAY_MS,
+        };
+      case "last30":
+        return {
+          start: todayStart - 29 * ONE_DAY_MS,
+          end: todayStart + ONE_DAY_MS,
+        };
+      default:
+        return null;
+    }
+  };
+
   const {
     data: queriedOrders = [],
     isLoading,
@@ -144,6 +185,23 @@ export default function Orders() {
   const getDriver = (order) => {
     const dels = normalizeDeliveries(order?.deliveries);
     return dels[0]?.drivers || null;
+  };
+
+  const getOrderPeriodAnchor = (order) => {
+    const delivery = normalizeDeliveries(order?.deliveries)[0] || {};
+    const status = getDeliveryStatus(order);
+
+    if (SUCCESS_EARNING_STATUSES.has(status)) {
+      return delivery.picked_up_at || null;
+    }
+
+    return (
+      order?.placed_at ||
+      delivery.res_accepted_at ||
+      delivery.accepted_at ||
+      delivery.created_at ||
+      order?.created_at
+    );
   };
 
   // Static version for initial state
@@ -410,41 +468,20 @@ export default function Orders() {
   };
 
   const isInPeriod = (dateStr) => {
+    if (period === "all") return true;
     if (!dateStr) return false;
-    const d = new Date(dateStr);
-    const now = new Date();
-    const todayStart = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-    );
-    const yesterdayStart = new Date(todayStart);
-    yesterdayStart.setDate(yesterdayStart.getDate() - 1);
 
-    switch (period) {
-      case "today":
-        return d >= todayStart;
-      case "yesterday":
-        return d >= yesterdayStart && d < todayStart;
-      case "last7": {
-        const start = new Date(todayStart);
-        start.setDate(start.getDate() - 7);
-        return d >= start;
-      }
-      case "last30": {
-        const start = new Date(todayStart);
-        start.setDate(start.getDate() - 30);
-        return d >= start;
-      }
-      case "all":
-        return true;
-      default:
-        return true;
-    }
+    const ts = new Date(dateStr).getTime();
+    if (Number.isNaN(ts)) return false;
+
+    const range = getPeriodRangeMs(period);
+    if (!range) return true;
+
+    return ts >= range.start && ts < range.end;
   };
 
   const periodOrders = orders.filter((o) => {
-    const relevantDate = o.placed_at || o.created_at;
+    const relevantDate = getOrderPeriodAnchor(o);
 
     if (isInPeriod(relevantDate)) return true;
 
@@ -623,26 +660,19 @@ export default function Orders() {
   };
 
   const getPeriodRevenue = () => {
-    const pickedUpStatuses = [
-      "picked_up",
-      "on_the_way",
-      "at_customer",
-      "delivered",
-    ];
     return periodOrders
-      .filter((o) => pickedUpStatuses.includes(getDeliveryStatus(o)))
-      .reduce((sum, o) => sum + parseFloat(o.subtotal || 0), 0);
+      .filter((o) => SUCCESS_EARNING_STATUSES.has(getDeliveryStatus(o)))
+      .reduce(
+        (sum, o) =>
+          sum +
+          parseFloat(o.admin_total ?? o.admin_subtotal ?? o.subtotal ?? 0),
+        0,
+      );
   };
 
   const getPeriodOrdersCount = () => {
-    const pickedUpStatuses = [
-      "picked_up",
-      "on_the_way",
-      "at_customer",
-      "delivered",
-    ];
     return periodOrders.filter((o) =>
-      pickedUpStatuses.includes(getDeliveryStatus(o)),
+      SUCCESS_EARNING_STATUSES.has(getDeliveryStatus(o)),
     ).length;
   };
 

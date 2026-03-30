@@ -2336,7 +2336,9 @@ router.get("/launch-promotion/customers", authenticate, async (req, res) => {
 
     if (error) {
       console.error("Launch promo customers fetch error:", error);
-      return res.status(500).json({ message: "Failed to fetch launch promo customers" });
+      return res
+        .status(500)
+        .json({ message: "Failed to fetch launch promo customers" });
     }
 
     const customerIds = (customers || []).map((c) => c.id);

@@ -316,43 +316,43 @@ router.get("/stats", authenticate, async (req, res) => {
 
     const restId = adminProfile.restaurant_id;
 
-    // Total orders (scoped to this restaurant)
-    const { count: ordersCount, error: ordersErr } = await supabaseAdmin
-      .from("orders")
-      .select("id", { count: "exact", head: true })
-      .eq("restaurant_id", restId);
+    const SUCCESS_STATUSES = [
+      "picked_up",
+      "on_the_way",
+      "at_customer",
+      "delivered",
+    ];
 
-    if (ordersErr) throw ordersErr;
+    const { data: qualifyingRows, error: qualifyingError } = await supabaseAdmin
+      .from("deliveries")
+      .select(
+        "status, picked_up_at, orders!inner(restaurant_id, admin_subtotal, customer_id)",
+      )
+      .eq("orders.restaurant_id", restId)
+      .in("status", SUCCESS_STATUSES)
+      .not("orders.admin_subtotal", "is", null);
 
-    // Total revenue (scoped)
-    const { data: revenueData, error: revenueErr } = await supabaseAdmin
-      .from("orders")
-      .select("total_amount")
-      .eq("restaurant_id", restId);
+    if (qualifyingError) throw qualifyingError;
 
-    const totalRevenue =
-      revenueData?.reduce(
-        (sum, order) => sum + (parseFloat(order.total_amount) || 0),
-        0,
-      ) || 0;
+    const records = (qualifyingRows || [])
+      .map((row) => ({
+        earned_at: row.picked_up_at,
+        amount: parseFloat(row.orders?.admin_subtotal || 0),
+        customer_id: row.orders?.customer_id,
+      }))
+      .filter((r) => !!r.earned_at);
 
-    // Today's orders and revenue (scoped)
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const todayISO = today.toISOString();
+    const totalOrders = records.length;
+    const totalRevenue = records.reduce((sum, r) => sum + r.amount, 0);
 
-    const { data: todayOrders, error: todayErr } = await supabaseAdmin
-      .from("orders")
-      .select("total_amount")
-      .eq("restaurant_id", restId)
-      .gte("created_at", todayISO);
-
-    const todayOrdersCount = todayOrders?.length || 0;
-    const todayRevenue =
-      todayOrders?.reduce(
-        (sum, order) => sum + (parseFloat(order.total_amount) || 0),
-        0,
-      ) || 0;
+    const { start: todayStart, end: todayEnd } = getSriLankaDayRange(
+      new Date(),
+    );
+    const todayRecords = records.filter(
+      (r) => r.earned_at >= todayStart && r.earned_at <= todayEnd,
+    );
+    const todayOrdersCount = todayRecords.length;
+    const todayRevenue = todayRecords.reduce((sum, r) => sum + r.amount, 0);
 
     // Foods count (scoped to this restaurant)
     const { count: foodsCount, error: foodsErr } = await supabaseAdmin
@@ -368,20 +368,16 @@ router.get("/stats", authenticate, async (req, res) => {
       .eq("is_available", true);
 
     // Unique customers who ordered from this restaurant
-    const { data: customerData, error: custErr } = await supabaseAdmin
-      .from("orders")
-      .select("customer_id")
-      .eq("restaurant_id", restId);
     const uniqueCustomers = new Set(
-      (customerData || []).map((o) => o.customer_id),
+      records.map((r) => r.customer_id).filter(Boolean),
     ).size;
 
     // Calculate average order value
-    const avgOrderValue = ordersCount > 0 ? totalRevenue / ordersCount : 0;
+    const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
 
     return res.json({
       stats: {
-        totalOrders: ordersCount || 0,
+        totalOrders: totalOrders,
         totalRevenue: totalRevenue,
         totalProducts: foodsCount || 0,
         availableProducts: availableFoods || 0,
@@ -429,7 +425,7 @@ router.get("/dashboard-stats", authenticate, async (req, res) => {
     const restaurantId = adminData.restaurant_id;
 
     // Use status on deliveries table as source-of-truth for successful earnings.
-    // Count earnings once delivery reaches picked_up or later, excluding failed/cancelled.
+    // Earnings time anchor is strictly picked_up_at once the order reaches a paid status.
     const SUCCESS_STATUSES = [
       "picked_up",
       "on_the_way",
@@ -452,11 +448,7 @@ router.get("/dashboard-stats", authenticate, async (req, res) => {
         .json({ message: "Failed to fetch dashboard data" });
     }
 
-    const getEarningTimestamp = (row) =>
-      row.picked_up_at ||
-      row.on_the_way_at ||
-      row.arrived_customer_at ||
-      row.delivered_at;
+    const getEarningTimestamp = (row) => row.picked_up_at;
 
     const records = (deliveryRows || [])
       .map((row) => ({
@@ -1384,11 +1376,7 @@ router.get("/earnings", authenticate, async (req, res) => {
       return res.status(500).json({ message: "Failed to fetch earnings data" });
     }
 
-    const getEarningTimestamp = (row) =>
-      row.picked_up_at ||
-      row.on_the_way_at ||
-      row.arrived_customer_at ||
-      row.delivered_at;
+    const getEarningTimestamp = (row) => row.picked_up_at;
 
     const records = (qualifyingRows || [])
       .map((row) => ({
@@ -1540,13 +1528,24 @@ router.get("/payouts", authenticate, async (req, res) => {
       return res.status(404).json({ message: "Restaurant not found" });
     }
 
-    // Get delivered orders as payouts using the view
+    const SUCCESS_STATUSES = [
+      "picked_up",
+      "on_the_way",
+      "at_customer",
+      "delivered",
+    ];
+
+    // Get earning events using picked_up_at as the earnings timestamp anchor.
     const { data: payouts, error } = await supabaseAdmin
-      .from("order_financial_details")
-      .select("order_id, order_number, restaurant_payment, placed_at, status")
-      .eq("restaurant_id", adminData.restaurant_id)
-      .eq("status", "delivered")
-      .order("placed_at", { ascending: false })
+      .from("deliveries")
+      .select(
+        "order_id, status, picked_up_at, orders!inner(restaurant_id, order_number, admin_subtotal)",
+      )
+      .eq("orders.restaurant_id", adminData.restaurant_id)
+      .in("status", SUCCESS_STATUSES)
+      .not("picked_up_at", "is", null)
+      .not("orders.admin_subtotal", "is", null)
+      .order("picked_up_at", { ascending: false })
       .limit(limit);
 
     if (error) {
@@ -1554,13 +1553,13 @@ router.get("/payouts", authenticate, async (req, res) => {
       return res.status(500).json({ message: "Failed to fetch payouts" });
     }
 
-    // Format as payout records - restaurant_payment is what admin receives
-    const formattedPayouts = (payouts || []).map((order) => ({
-      id: order.order_id,
-      order_number: order.order_number,
-      amount: parseFloat(order.restaurant_payment || 0),
-      date: order.placed_at,
-      status: "processed", // Since delivered orders are considered paid
+    // Format as payout records - admin_subtotal is what admin receives.
+    const formattedPayouts = (payouts || []).map((row) => ({
+      id: row.order_id,
+      order_number: row.orders?.order_number,
+      amount: parseFloat(row.orders?.admin_subtotal || 0),
+      date: row.picked_up_at,
+      status: "processed",
       type: "order_payment",
     }));
 

@@ -132,7 +132,8 @@ function calculateLaunchPromoDeliveryFee(distanceKm, promoConfig) {
 function isMissingLaunchPromoOrderColumnError(error) {
   if (!error) return false;
 
-  const text = `${error.message || ""} ${error.details || ""} ${error.hint || ""}`.toLowerCase();
+  const text =
+    `${error.message || ""} ${error.details || ""} ${error.hint || ""}`.toLowerCase();
 
   return (
     text.includes("launch_promo_") &&
@@ -1443,6 +1444,13 @@ router.get("/restaurant/orders", authenticate, async (req, res) => {
           id,
           status,
           driver_id,
+          res_accepted_at,
+          accepted_at,
+          picked_up_at,
+          on_the_way_at,
+          arrived_customer_at,
+          delivered_at,
+          created_at,
           drivers (
             id,
             full_name,

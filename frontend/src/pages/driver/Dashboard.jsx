@@ -1248,7 +1248,8 @@ export default function DriverDashboard() {
                                 </p>
                                 {breakdown.bonusAmount > 0 && (
                                   <p className="text-orange-600 text-xs font-medium">
-                                    🎁 Bonus: Rs. {breakdown.bonusAmount.toFixed(0)}
+                                    🎁 Bonus: Rs.{" "}
+                                    {breakdown.bonusAmount.toFixed(0)}
                                   </p>
                                 )}
                                 {breakdown.tipAmount > 0 && (
@@ -1281,7 +1282,9 @@ export default function DriverDashboard() {
                       </div>
 
                       <button
-                        onClick={() => handleAcceptDelivery(delivery.delivery_id)}
+                        onClick={() =>
+                          handleAcceptDelivery(delivery.delivery_id)
+                        }
                         disabled={acceptingOrder === delivery.delivery_id}
                         className="flex w-full cursor-pointer items-center justify-center rounded-xl h-12 bg-[#22c55e] text-white gap-2 text-base font-bold shadow-md shadow-[#22c55e]/20 active:bg-[#16a34a] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                       >
