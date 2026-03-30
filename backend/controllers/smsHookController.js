@@ -13,10 +13,47 @@ function getHeader(req, key) {
   return req.headers[key] || req.headers[key.toLowerCase()] || "";
 }
 
+function normalizeSecretValue(raw) {
+  let value = String(raw || "").trim();
+  if (!value) {
+    return "";
+  }
+
+  // Supabase/UI can sometimes wrap values in quotes.
+  value = value.replace(/^['\"]+|['\"]+$/g, "").trim();
+
+  // Be tolerant of accidental repeated "Bearer " prefixes.
+  while (value.toLowerCase().startsWith("bearer ")) {
+    value = value.slice(7).trim();
+  }
+
+  return value;
+}
+
+function getSecretVariants(raw) {
+  const normalized = normalizeSecretValue(raw);
+  if (!normalized) {
+    return [];
+  }
+
+  const variants = new Set([normalized]);
+
+  // Some dashboards/providers may include only the whsec part without version prefix.
+  if (normalized.includes(",")) {
+    const parts = normalized.split(",");
+    const trailing = String(parts[parts.length - 1] || "").trim();
+    if (trailing) {
+      variants.add(trailing);
+    }
+  }
+
+  return [...variants];
+}
+
 function resolveSecretFromRequest(req) {
-  const authHeader = String(getHeader(req, "authorization") || "").trim();
-  if (authHeader.toLowerCase().startsWith("bearer ")) {
-    return authHeader.slice(7).trim();
+  const authHeader = normalizeSecretValue(getHeader(req, "authorization"));
+  if (authHeader) {
+    return authHeader;
   }
 
   const candidateHeaders = [
@@ -27,13 +64,28 @@ function resolveSecretFromRequest(req) {
   ];
 
   for (const headerName of candidateHeaders) {
-    const value = String(getHeader(req, headerName) || "").trim();
+    const value = normalizeSecretValue(getHeader(req, headerName));
     if (value) {
       return value;
     }
   }
 
   return "";
+}
+
+function secretsMatch(expectedSecret, receivedSecret) {
+  const expectedVariants = getSecretVariants(expectedSecret);
+  const receivedVariants = getSecretVariants(receivedSecret);
+
+  for (const expected of expectedVariants) {
+    for (const received of receivedVariants) {
+      if (constantTimeEqual(expected, received)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 function constantTimeEqual(left, right) {
@@ -124,7 +176,7 @@ export async function handleSupabaseSendSmsHook(req, res) {
     }
 
     const receivedSecret = resolveSecretFromRequest(req);
-    if (!receivedSecret || !constantTimeEqual(receivedSecret, expectedSecret)) {
+    if (!receivedSecret || !secretsMatch(expectedSecret, receivedSecret)) {
       console.error("[SMS_HOOK] Secret validation failed.");
       return res.status(401).json({
         success: false,

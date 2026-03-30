@@ -24,6 +24,22 @@ console.log(
   "SUPABASE_SERVICE_ROLE_KEY:",
   process.env.SUPABASE_SERVICE_ROLE_KEY ? "✓ Set (hidden)" : "✗ Missing",
 );
+console.log(
+  "SUPABASE_SMS_HOOK_SECRET:",
+  process.env.SUPABASE_SMS_HOOK_SECRET ? "✓ Set (hidden)" : "✗ Missing",
+);
+console.log(
+  "SMSLENZ_USER_ID:",
+  process.env.SMSLENZ_USER_ID ? "✓ Set" : "✗ Missing",
+);
+console.log(
+  "SMSLENZ_API_KEY:",
+  process.env.SMSLENZ_API_KEY ? "✓ Set (hidden)" : "✗ Missing",
+);
+console.log(
+  "SMSLENZ_SENDER_ID:",
+  process.env.SMSLENZ_SENDER_ID ? "✓ Set" : "✗ Missing",
+);
 
 // Test Supabase connection
 (async () => {

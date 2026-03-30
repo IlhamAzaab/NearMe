@@ -132,6 +132,14 @@ function mapSupabasePhoneAuthError(error, fallbackMessage) {
     return "SMS hook timeout/failure detected. Check backend deploy status, SUPABASE_SMS_HOOK_SECRET, and SMSLENZ env values on Render.";
   }
 
+  if (message.includes("hook requires authorization token")) {
+    return "Supabase Send SMS Hook auth token is missing. In Supabase Auth -> Hooks -> Send SMS, set Authorization token to the same value as SUPABASE_SMS_HOOK_SECRET.";
+  }
+
+  if (message.includes("invalid hook secret") || message.includes("unauthorized")) {
+    return "Send SMS Hook secret mismatch. Ensure Supabase hook token and backend SUPABASE_SMS_HOOK_SECRET are exactly the same value.";
+  }
+
   return error?.message || fallbackMessage;
 }
 
