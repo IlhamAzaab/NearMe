@@ -99,12 +99,20 @@ function resolvePhoneAndMessage(payload) {
   return { phone, message };
 }
 
+function shouldSendAsync() {
+  const raw = String(process.env.SUPABASE_SMS_HOOK_ASYNC || "true").trim().toLowerCase();
+  return raw !== "false";
+}
+
 export async function handleSupabaseSendSmsHook(req, res) {
   const expectedSecret = String(process.env.SUPABASE_SMS_HOOK_SECRET || "").trim();
 
   try {
-    console.log("[SMS_HOOK] Incoming headers:\n", safeJson(req.headers));
-    console.log("[SMS_HOOK] Incoming body:\n", safeJson(req.body));
+    console.log("[SMS_HOOK] Incoming request", {
+      method: req.method,
+      path: req.path,
+      contentType: req.headers?.["content-type"] || null,
+    });
 
     if (!expectedSecret) {
       console.error("[SMS_HOOK] SUPABASE_SMS_HOOK_SECRET is not configured.");
@@ -126,8 +134,10 @@ export async function handleSupabaseSendSmsHook(req, res) {
     }
 
     const { phone, message } = resolvePhoneAndMessage(req.body || {});
-    console.log("[SMS_HOOK] Extracted phone:", phone || "<missing>");
-    console.log("[SMS_HOOK] Extracted message:", message || "<missing>");
+    console.log("[SMS_HOOK] Payload resolved", {
+      hasPhone: Boolean(phone),
+      messageLength: message ? message.length : 0,
+    });
 
     if (!phone || !message) {
       return res.status(400).json({
@@ -137,8 +147,39 @@ export async function handleSupabaseSendSmsHook(req, res) {
       });
     }
 
+    if (shouldSendAsync()) {
+      // Supabase expects the hook to respond within 5 seconds.
+      // Send SMS in the background to avoid provider/network latency causing OTP failures.
+      res.status(200).json({
+        success: true,
+        message: "SMS accepted for delivery",
+        provider: "smslenz",
+        queued: true,
+      });
+
+      setImmediate(async () => {
+        try {
+          const smsResponse = await sendSmsViaSmsLenz({ phone, message });
+          console.log("[SMS_HOOK] Async SMSLenz response", {
+            status: smsResponse?.status || null,
+          });
+        } catch (error) {
+          console.error("[SMS_HOOK] Async send failed", {
+            message: error?.message,
+            code: error?.code,
+            providerResponse: error?.providerResponse || null,
+          });
+        }
+      });
+
+      return;
+    }
+
     const smsResponse = await sendSmsViaSmsLenz({ phone, message });
-    console.log("[SMS_HOOK] SMSLenz response:\n", safeJson(smsResponse));
+    console.log("[SMS_HOOK] SMSLenz response", {
+      status: smsResponse?.status || null,
+      data: safeJson(smsResponse?.data || null),
+    });
 
     return res.status(200).json({
       success: true,

@@ -2,6 +2,14 @@ import axios from "axios";
 
 const SMSLENZ_ENDPOINT = "https://smslenz.lk/api/send-sms";
 
+function getProviderTimeoutMs() {
+  const parsed = Number.parseInt(process.env.SMSLENZ_TIMEOUT_MS || "3500", 10);
+  if (!Number.isFinite(parsed) || parsed < 1000) {
+    return 3500;
+  }
+  return parsed;
+}
+
 function getRequiredEnv(name) {
   const value = String(process.env[name] || "").trim();
   if (!value) {
@@ -29,7 +37,7 @@ export async function sendSmsViaSmsLenz({ phone, message }) {
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
       },
-      timeout: 15000,
+      timeout: getProviderTimeoutMs(),
       validateStatus: () => true,
     });
 

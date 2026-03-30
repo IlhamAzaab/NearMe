@@ -128,6 +128,10 @@ function mapSupabasePhoneAuthError(error, fallbackMessage) {
     return "Invalid phone number format. Use Sri Lankan format like 0771234567.";
   }
 
+  if (message.includes("failed to reach hook") || message.includes("unexpected status code returned from hook")) {
+    return "SMS hook timeout/failure detected. Check backend deploy status, SUPABASE_SMS_HOOK_SECRET, and SMSLENZ env values on Render.";
+  }
+
   return error?.message || fallbackMessage;
 }
 
