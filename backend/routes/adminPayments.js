@@ -55,10 +55,7 @@ const getPdfFirstPageImageUrl = (url, publicId, version) => {
     imageUrl = imageUrl.replace("/raw/upload/", "/image/upload/");
   }
   if (imageUrl.includes("/upload/")) {
-    imageUrl = imageUrl.replace(
-      "/upload/",
-      "/upload/f_jpg,pg_1,q_auto/",
-    );
+    imageUrl = imageUrl.replace("/upload/", "/upload/f_jpg,pg_1,q_auto/");
   }
 
   // Keep PDF source extension for Cloudinary page extraction.
@@ -421,7 +418,9 @@ router.get(
 
       if (error) throw error;
 
-      const normalizedPayments = (payments || []).map(normalizeAdminPaymentProof);
+      const normalizedPayments = (payments || []).map(
+        normalizeAdminPaymentProof,
+      );
       return res.json({ success: true, payments: normalizedPayments });
     } catch (error) {
       console.error("[ADMIN-PAYMENTS] History error:", error.message);

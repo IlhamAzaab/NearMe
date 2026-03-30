@@ -5,6 +5,21 @@ import ManagerPageLayout from "../../../components/ManagerPageLayout";
 import { ManagerPageSkeleton } from "../../../components/ManagerSkeleton";
 import { API_URL } from "../../../config";
 
+const parseStoredLocalDate = (dateStr) => {
+  if (!dateStr) return null;
+
+  const matched = String(dateStr).match(
+    /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})/,
+  );
+
+  if (matched) {
+    return new Date(`${matched[1]}T${matched[2]}`);
+  }
+
+  const fallback = new Date(dateStr);
+  return Number.isNaN(fallback.getTime()) ? null : fallback;
+};
+
 export default function ProcessAdminPayment() {
   const navigate = useNavigate();
   const { restaurantId } = useParams();
@@ -52,10 +67,7 @@ export default function ProcessAdminPayment() {
       imageUrl = imageUrl.replace("/raw/upload/", "/image/upload/");
     }
     if (imageUrl.includes("/upload/")) {
-      imageUrl = imageUrl.replace(
-        "/upload/",
-        "/upload/f_jpg,pg_1,q_auto/",
-      );
+      imageUrl = imageUrl.replace("/upload/", "/upload/f_jpg,pg_1,q_auto/");
     }
     if (!/\.pdf(\?|$)/i.test(imageUrl)) {
       imageUrl = `${imageUrl}.pdf`;
@@ -75,6 +87,25 @@ export default function ProcessAdminPayment() {
 
   const closeReceiptViewer = () => {
     setReceiptViewer({ open: false, url: "", type: "image" });
+  };
+
+  const formatSriLankaDateTime = (dateStr) => {
+    const localDate = parseStoredLocalDate(dateStr);
+    if (!localDate) return "-";
+
+    return localDate.toLocaleString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    });
+  };
+
+  const formatTransferId = (id) => {
+    if (!id) return "-";
+    return String(id).substring(0, 12).toUpperCase();
   };
 
   const fetchRestaurant = useCallback(async () => {
@@ -460,7 +491,8 @@ export default function ProcessAdminPayment() {
                 className="block w-full text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer"
               />
               <p className="text-xs text-gray-500 mt-2">
-                Upload image (JPEG, PNG, WebP) or PDF. Max size: 5MB (PDF is stored as first-page image)
+                Upload image (JPEG, PNG, WebP) or PDF. Max size: 5MB (PDF is
+                stored as first-page image)
               </p>
 
               {/* File Preview */}
@@ -546,7 +578,10 @@ export default function ProcessAdminPayment() {
                             Rs.{parseFloat(payment.amount).toFixed(2)}
                           </p>
                           <p className="text-xs text-gray-500 mt-1">
-                            {new Date(payment.created_at).toLocaleString()}
+                            {formatSriLankaDateTime(payment.created_at)}
+                          </p>
+                          <p className="text-[11px] text-gray-700 mt-1 font-mono font-semibold">
+                            Transfer ID: {formatTransferId(payment.id)}
                           </p>
                           {payment.note && (
                             <p className="text-sm text-gray-600 mt-2">
@@ -597,9 +632,7 @@ export default function ProcessAdminPayment() {
           onClick={closeReceiptViewer}
         >
           <div
-            className={`bg-white rounded-2xl overflow-hidden shadow-2xl ${
-              "w-auto max-w-[92vw] max-h-[88vh]"
-            }`}
+            className={`bg-white rounded-2xl overflow-hidden shadow-2xl ${"w-auto max-w-[92vw] max-h-[88vh]"}`}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">

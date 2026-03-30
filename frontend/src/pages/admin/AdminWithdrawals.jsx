@@ -4,6 +4,21 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { API_URL } from "../../config";
 import AdminLayout from "../../components/AdminLayout";
 
+const parseStoredLocalDate = (dateStr) => {
+  if (!dateStr) return null;
+
+  const matched = String(dateStr).match(
+    /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})/,
+  );
+
+  if (matched) {
+    return new Date(`${matched[1]}T${matched[2]}`);
+  }
+
+  const fallback = new Date(dateStr);
+  return Number.isNaN(fallback.getTime()) ? null : fallback;
+};
+
 export default function AdminWithdrawals() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -14,6 +29,7 @@ export default function AdminWithdrawals() {
     url: "",
     type: "image",
   });
+  const [receiptZoom, setReceiptZoom] = useState(1);
   const token = localStorage.getItem("token");
   const role = localStorage.getItem("role");
 
@@ -98,8 +114,10 @@ export default function AdminWithdrawals() {
   };
 
   const formatDate = (dateStr) => {
-    if (!dateStr) return "-";
-    return new Date(dateStr).toLocaleDateString("en-US", {
+    const localDate = parseStoredLocalDate(dateStr);
+    if (!localDate) return "-";
+
+    return localDate.toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
       year: "numeric",
@@ -107,8 +125,10 @@ export default function AdminWithdrawals() {
   };
 
   const formatTime = (dateStr) => {
-    if (!dateStr) return "-";
-    return new Date(dateStr).toLocaleTimeString("en-US", {
+    const localDate = parseStoredLocalDate(dateStr);
+    if (!localDate) return "-";
+
+    return localDate.toLocaleTimeString("en-US", {
       hour: "2-digit",
       minute: "2-digit",
       hour12: true,
@@ -117,6 +137,7 @@ export default function AdminWithdrawals() {
 
   const openReceiptViewer = (url, type) => {
     if (!url) return;
+    setReceiptZoom(1);
     setReceiptViewer({
       open: true,
       url,
@@ -125,7 +146,16 @@ export default function AdminWithdrawals() {
   };
 
   const closeReceiptViewer = () => {
+    setReceiptZoom(1);
     setReceiptViewer({ open: false, url: "", type: "image" });
+  };
+
+  const zoomInReceipt = () => {
+    setReceiptZoom((z) => Math.min(4, Number((z + 0.25).toFixed(2))));
+  };
+
+  const zoomOutReceipt = () => {
+    setReceiptZoom((z) => Math.max(1, Number((z - 0.25).toFixed(2))));
   };
 
   const getPdfViewerUrl = (url) =>
@@ -382,6 +412,10 @@ export default function AdminWithdrawals() {
                         {formatDate(payment.created_at)} at{" "}
                         {formatTime(payment.created_at)}
                       </p>
+                      <p className="text-[11px] text-gray-700 mt-1 font-mono font-semibold">
+                        Transfer ID:{" "}
+                        {payment.id?.substring(0, 12).toUpperCase()}
+                      </p>
                     </div>
                     <div className="flex items-center gap-1 text-gray-400">
                       <span className="text-[10px] font-medium">View</span>
@@ -605,26 +639,51 @@ export default function AdminWithdrawals() {
                 <p className="text-sm font-semibold text-gray-800">
                   Receipt Preview
                 </p>
-                <button
-                  type="button"
-                  onClick={closeReceiptViewer}
-                  className="p-1 text-gray-500 hover:text-gray-700"
-                  aria-label="Close receipt preview"
-                >
-                  <svg
-                    className="w-5 h-5"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
+                <div className="flex items-center gap-2">
+                  {receiptViewer.type !== "pdf" && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={zoomOutReceipt}
+                        className="w-7 h-7 rounded-full bg-gray-100 text-gray-600 text-sm font-bold"
+                        aria-label="Zoom out receipt"
+                      >
+                        -
+                      </button>
+                      <span className="text-[11px] font-semibold text-gray-600 w-11 text-center">
+                        {Math.round(receiptZoom * 100)}%
+                      </span>
+                      <button
+                        type="button"
+                        onClick={zoomInReceipt}
+                        className="w-7 h-7 rounded-full bg-gray-100 text-gray-600 text-sm font-bold"
+                        aria-label="Zoom in receipt"
+                      >
+                        +
+                      </button>
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    onClick={closeReceiptViewer}
+                    className="p-1 text-gray-500 hover:text-gray-700"
+                    aria-label="Close receipt preview"
                   >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg>
-                </button>
+                    <svg
+                      className="w-5 h-5"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M6 18L18 6M6 6l12 12"
+                      />
+                    </svg>
+                  </button>
+                </div>
               </div>
 
               <div
@@ -662,6 +721,10 @@ export default function AdminWithdrawals() {
                       src={receiptViewer.url}
                       alt="Receipt preview"
                       className="max-w-full max-h-[74vh] w-auto h-auto object-contain rounded-lg bg-white mx-auto"
+                      style={{
+                        transform: `scale(${receiptZoom})`,
+                        transformOrigin: "center",
+                      }}
                     />
                   </div>
                 )}

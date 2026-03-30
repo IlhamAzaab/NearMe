@@ -33,6 +33,7 @@ import {
 
 // ── State tracking ──────────────────────────────────────────────────────
 const sentUnassignedAlerts = new Set();
+const sentAdminOrderReminders = new Set();
 
 // Daily milestone tracking – keyed by date string "YYYY-MM-DD"
 let currentDay = "";
@@ -76,6 +77,7 @@ function checkDayReset() {
     managerEarningsMilestone = 0;
     driverMilestones.clear();
     restaurantMilestones.clear();
+    sentAdminOrderReminders.clear();
   }
 }
 
@@ -365,29 +367,37 @@ async function checkRestaurantMilestones() {
   try {
     const todayStart = getTodayStartUTC();
 
-    // Milestone must be based on today's order intake window (not rolling 24h
-    // and not previous-day orders that happened to update today).
-    const { data: rawOrders, error: ordersError } = await supabaseAdmin
-      .from("orders")
-      .select("id, restaurant_id, total_amount, placed_at, created_at")
-      .not("restaurant_id", "is", null)
-      .gte("created_at", todayStart);
+    // Count only today's deliveries that have reached picked_up or later.
+    const completionStatuses = [
+      "picked_up",
+      "on_the_way",
+      "at_customer",
+      "delivered",
+    ];
 
-    if (ordersError || !rawOrders || rawOrders.length === 0) return;
+    const { data: progressedDeliveries, error: deliveriesError } =
+      await supabaseAdmin
+        .from("deliveries")
+        .select(
+          `
+          id, order_id,
+          orders!inner(id, restaurant_id, total_amount)
+        `,
+        )
+        .in("status", completionStatuses)
+        .gte("created_at", todayStart);
 
-    const todayOrders = rawOrders.filter((order) => {
-      const ts = order.placed_at || order.created_at;
-      if (!ts) return false;
-      const parsed = new Date(ts);
-      if (Number.isNaN(parsed.getTime())) return false;
-      return parsed.toISOString() >= todayStart;
-    });
-
-    if (todayOrders.length === 0) return;
+    if (
+      deliveriesError ||
+      !progressedDeliveries ||
+      progressedDeliveries.length === 0
+    )
+      return;
 
     // Group by restaurant
     const restaurantData = {};
-    for (const order of todayOrders) {
+    for (const delivery of progressedDeliveries) {
+      const order = delivery.orders;
       if (!order.restaurant_id) continue;
       if (!restaurantData[order.restaurant_id]) {
         restaurantData[order.restaurant_id] = { count: 0, revenue: 0 };
@@ -454,9 +464,6 @@ async function checkRestaurantMilestones() {
 async function checkAdminOrderReminders() {
   try {
     const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-    const thirtyMinutesAgo = new Date(
-      Date.now() - 30 * 60 * 1000,
-    ).toISOString();
 
     // Only orders still waiting for restaurant decision.
     const { data: stalePlaced, error: staleErr } = await supabaseAdmin
@@ -470,8 +477,7 @@ async function checkAdminOrderReminders() {
       `,
       )
       .eq("status", "placed")
-      .lte("created_at", tenMinutesAgo)
-      .gt("created_at", thirtyMinutesAgo);
+      .lte("created_at", tenMinutesAgo);
 
     if (staleErr || !stalePlaced || stalePlaced.length === 0) return;
 
@@ -530,6 +536,9 @@ async function checkAdminOrderReminders() {
           return `${item.quantity || 1}x ${item.food_name || "Item"}${size}`;
         })
         .join(", ");
+      const shortItemsSummary = itemsSummary
+        ? itemsSummary.split(", ").slice(0, 2).join(", ")
+        : "Order items";
 
       const itemsDetails = orderItems.map((item) => ({
         food_name: item.food_name || "Item",
@@ -543,17 +552,37 @@ async function checkAdminOrderReminders() {
 
       const adminIds = adminsByRestaurant[order.restaurant_id] || [];
       for (const adminId of adminIds) {
+        const reminderKey = `${adminId}:${order.id}`;
+
+        // In-process guard: if we already sent this reminder, never send again.
+        if (sentAdminOrderReminders.has(reminderKey)) continue;
+
         // Enforce one-time reminder per order per admin.
-        const { data: existingReminder } = await supabaseAdmin
+        const { data: existingReminderRows, error: existingReminderError } =
+          await supabaseAdmin
           .from("notifications")
           .select("id")
           .eq("recipient_id", adminId)
           .eq("recipient_role", "admin")
           .eq("type", "order_reminder_10min")
           .eq("order_id", order.id)
-          .maybeSingle();
+          .limit(1);
 
-        if (existingReminder?.id) continue;
+        if (existingReminderError) {
+          console.error(
+            "[NotifChecker] Reminder dedupe lookup error:",
+            existingReminderError.message,
+          );
+          // Fail-safe: do not send if dedupe check cannot be trusted.
+          continue;
+        }
+
+        if ((existingReminderRows || []).length > 0) {
+          sentAdminOrderReminders.add(reminderKey);
+          continue;
+        }
+
+        sentAdminOrderReminders.add(reminderKey);
 
         notifyAdmin(adminId, "order:new_order", {
           type: "order_reminder",
@@ -574,7 +603,7 @@ async function checkAdminOrderReminders() {
 
         await sendPushNotification(adminId, {
           title: "⏰ Order Waiting Alert",
-          body: `Order #${order.order_number || order.id?.slice(-6)} has been waiting ${waitingMinutes} minutes. Accept or reject now.`,
+          body: `Order #${order.order_number || order.id?.slice(-6)} waiting ${waitingMinutes} mins: ${shortItemsSummary}`,
           sound: "alarm",
           channelId: "urgent_orders",
           sticky: true,
@@ -591,7 +620,9 @@ async function checkAdminOrderReminders() {
           },
         });
 
-        await supabaseAdmin.from("notifications").insert({
+        const { error: insertReminderError } = await supabaseAdmin
+          .from("notifications")
+          .insert({
           recipient_id: adminId,
           recipient_role: "admin",
           type: "order_reminder_10min",
@@ -605,6 +636,13 @@ async function checkAdminOrderReminders() {
             source: "auto_reminder_10min",
           },
         });
+
+        if (insertReminderError) {
+          console.error(
+            "[NotifChecker] Reminder insert log error:",
+            insertReminderError.message,
+          );
+        }
       }
     }
   } catch (err) {
