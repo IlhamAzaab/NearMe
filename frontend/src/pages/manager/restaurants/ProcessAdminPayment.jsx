@@ -41,26 +41,41 @@ export default function ProcessAdminPayment() {
     type: "image",
   });
 
-  const isPdfProof = (payment) => {
-    const url = payment?.proof_url || "";
-    return payment?.proof_type === "pdf" || /\.pdf(\?|$)/i.test(url);
+  const getReceiptImageUrl = (proofUrl, proofType) => {
+    if (!proofUrl) return "";
+
+    const isPdfProof = proofType === "pdf" || /\.pdf(\?|$)/i.test(proofUrl);
+    if (!isPdfProof) return proofUrl;
+
+    let imageUrl = proofUrl;
+    if (imageUrl.includes("/raw/upload/")) {
+      imageUrl = imageUrl.replace("/raw/upload/", "/image/upload/");
+    }
+    if (imageUrl.includes("/upload/")) {
+      imageUrl = imageUrl.replace(
+        "/upload/",
+        "/upload/f_jpg,pg_1,q_auto/",
+      );
+    }
+    if (!/\.pdf(\?|$)/i.test(imageUrl)) {
+      imageUrl = `${imageUrl}.pdf`;
+    }
+
+    return imageUrl;
   };
 
   const openReceiptViewer = (payment) => {
     if (!payment?.proof_url) return;
     setReceiptViewer({
       open: true,
-      url: payment.proof_url,
-      type: isPdfProof(payment) ? "pdf" : "image",
+      url: getReceiptImageUrl(payment.proof_url, payment.proof_type),
+      type: "image",
     });
   };
 
   const closeReceiptViewer = () => {
     setReceiptViewer({ open: false, url: "", type: "image" });
   };
-
-  const getPdfViewerUrl = (url) =>
-    `https://mozilla.github.io/pdf.js/web/viewer.html?file=${encodeURIComponent(url)}`;
 
   const fetchRestaurant = useCallback(async () => {
     try {
@@ -583,9 +598,7 @@ export default function ProcessAdminPayment() {
         >
           <div
             className={`bg-white rounded-2xl overflow-hidden shadow-2xl ${
-              receiptViewer.type === "pdf"
-                ? "w-full max-w-3xl h-[88vh] flex flex-col"
-                : "w-auto max-w-[92vw] max-h-[88vh]"
+              "w-auto max-w-[92vw] max-h-[88vh]"
             }`}
             onClick={(e) => e.stopPropagation()}
           >
@@ -615,44 +628,14 @@ export default function ProcessAdminPayment() {
               </button>
             </div>
 
-            <div
-              className={`bg-gray-100 ${
-                receiptViewer.type === "pdf"
-                  ? "flex-1 min-h-0 flex flex-col"
-                  : ""
-              }`}
-            >
-              {receiptViewer.type === "pdf" ? (
-                <>
-                  <iframe
-                    title="PDF receipt preview"
-                    src={getPdfViewerUrl(receiptViewer.url)}
-                    className="w-full flex-1 border-0 min-h-0"
-                    loading="lazy"
-                  />
-                  <div className="px-3 py-2 bg-white border-t border-gray-200 flex items-center justify-between">
-                    <span className="text-[11px] text-gray-500">
-                      If preview fails on this device, open the original file.
-                    </span>
-                    <a
-                      href={receiptViewer.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[11px] font-semibold text-blue-600"
-                    >
-                      Open file
-                    </a>
-                  </div>
-                </>
-              ) : (
-                <div className="overflow-auto p-3">
-                  <img
-                    src={receiptViewer.url}
-                    alt="Receipt preview"
-                    className="max-w-full max-h-[74vh] w-auto h-auto object-contain rounded-lg bg-white mx-auto"
-                  />
-                </div>
-              )}
+            <div className="bg-gray-100">
+              <div className="overflow-auto p-3">
+                <img
+                  src={receiptViewer.url}
+                  alt="Receipt preview"
+                  className="max-w-full max-h-[74vh] w-auto h-auto object-contain rounded-lg bg-white mx-auto"
+                />
+              </div>
             </div>
           </div>
         </div>

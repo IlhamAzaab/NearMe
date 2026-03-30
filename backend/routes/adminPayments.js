@@ -38,13 +38,13 @@ const upload = multer({
   },
 });
 
-const getPdfFirstPageImageUrl = (url, publicId) => {
+const getPdfFirstPageImageUrl = (url, publicId, version) => {
   if (publicId) {
-    return cloudinary.url(publicId, {
+    return cloudinary.url(`${publicId}.pdf`, {
       resource_type: "image",
-      format: "jpg",
-      page: 1,
       secure: true,
+      version,
+      transformation: [{ fetch_format: "jpg", page: 1, quality: "auto" }],
     });
   }
 
@@ -55,10 +55,18 @@ const getPdfFirstPageImageUrl = (url, publicId) => {
     imageUrl = imageUrl.replace("/raw/upload/", "/image/upload/");
   }
   if (imageUrl.includes("/upload/")) {
-    imageUrl = imageUrl.replace("/upload/", "/upload/pg_1/");
+    imageUrl = imageUrl.replace(
+      "/upload/",
+      "/upload/f_jpg,pg_1,q_auto/",
+    );
   }
 
-  return imageUrl.replace(/\.pdf(\?|$)/i, ".jpg$1");
+  // Keep PDF source extension for Cloudinary page extraction.
+  if (!/\.pdf(\?|$)/i.test(imageUrl)) {
+    imageUrl = `${imageUrl}.pdf`;
+  }
+
+  return imageUrl;
 };
 
 const normalizeAdminPaymentProof = (payment) => {
@@ -499,7 +507,7 @@ router.post(
       }
 
       // Upload proof to Cloudinary.
-      // If receipt is a PDF, store only the first page as an image URL.
+      // For PDFs, upload as image resource and store first-page image URL.
       let proofUrl;
       let proofType;
       const isPdf = file.mimetype === "application/pdf";
@@ -513,7 +521,7 @@ router.post(
           const uploadResult = await cloudinary.uploader.upload(dataURI, {
             folder: `nearme/admin-payments/${restaurantId}`,
             public_id: `payment_${Date.now()}`,
-            resource_type: "raw",
+            resource_type: "image",
             overwrite: true,
             access_mode: "public",
           });
@@ -521,6 +529,7 @@ router.post(
           proofUrl = getPdfFirstPageImageUrl(
             uploadResult.secure_url,
             uploadResult.public_id,
+            uploadResult.version,
           );
         } else {
           const uploadResult = await cloudinary.uploader.upload(dataURI, {
