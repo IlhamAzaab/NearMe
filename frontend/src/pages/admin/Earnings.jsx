@@ -39,6 +39,23 @@ export default function Earnings() {
     },
   });
 
+  const { data: payouts = [] } = useQuery({
+    queryKey: ["admin", "payouts", token],
+    enabled: !!token,
+    staleTime: 20 * 1000,
+    refetchOnMount: "always",
+    refetchInterval: 30 * 1000,
+    refetchIntervalInBackground: true,
+    queryFn: async () => {
+      const res = await fetch(`${API_URL}/admin/payouts?limit=5`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.message || "Failed to fetch payouts");
+      return data.payouts || [];
+    },
+  });
+
   const { data: restaurant = cachedRestaurant || null } = useQuery({
     queryKey: ["admin", "restaurant", token],
     enabled: !!token,
@@ -95,14 +112,6 @@ export default function Earnings() {
   const pct = earnings?.percentageChange || 0;
   const isUp = pct >= 0;
   const showComparison = comparisonLabel && pct !== 0;
-  const dayByDayRows = Array.isArray(earnings?.dayByDayAnalysis)
-    ? [...earnings.dayByDayAnalysis].reverse()
-    : [];
-
-  const formatDateWithDay = (dateStr, day) => {
-    const safeDay = day || "-";
-    return `${formatDate(dateStr)}, ${safeDay}`;
-  };
 
   // Generate chart path from data
   const generateChartPath = () => {
@@ -149,6 +158,55 @@ export default function Earnings() {
     return (
       <AdminLayout loading={loading}>
         <div className="max-w-4xl mx-auto space-y-6">
+          {/* Header skeleton */}
+          <div className="flex items-center gap-4 animate-pulse">
+            <div className="w-12 h-12 bg-gray-200 rounded-full" />
+            <div className="space-y-2">
+              <div className="h-3 w-32 bg-gray-200 rounded" />
+              <div className="h-5 w-40 bg-gray-200 rounded" />
+            </div>
+          </div>
+          {/* Revenue card skeleton */}
+          <div className="bg-green-100 rounded-2xl p-6 animate-pulse">
+            <div className="h-3 w-28 bg-green-200 rounded mb-3" />
+            <div className="h-10 w-48 bg-green-200 rounded mb-2" />
+            <div className="h-3 w-36 bg-green-200 rounded mb-4" />
+            <div className="flex gap-2">
+              {[...Array(5)].map((_, i) => (
+                <div key={i} className="h-8 w-16 bg-green-200 rounded-lg" />
+              ))}
+            </div>
+          </div>
+          {/* Metric grid skeleton */}
+          <div className="grid grid-cols-2 gap-4 animate-pulse">
+            <div className="bg-white rounded-xl p-5 border border-gray-200">
+              <div className="h-3 w-20 bg-gray-200 rounded mb-2" />
+              <div className="h-7 w-28 bg-gray-200 rounded" />
+            </div>
+            <div className="bg-white rounded-xl p-5 border border-gray-200">
+              <div className="h-3 w-20 bg-gray-200 rounded mb-2" />
+              <div className="h-7 w-28 bg-gray-200 rounded" />
+            </div>
+          </div>
+          {/* Chart skeleton */}
+          <div className="bg-white rounded-2xl p-6 border border-gray-100 animate-pulse">
+            <div className="h-4 w-24 bg-gray-200 rounded mb-2" />
+            <div className="h-8 w-36 bg-gray-200 rounded mb-6" />
+            <div className="h-45 bg-gray-100 rounded-lg" />
+          </div>
+          {/* Orders skeleton */}
+          <div className="space-y-3 animate-pulse">
+            {[...Array(3)].map((_, i) => (
+              <div
+                key={i}
+                className="flex items-center justify-between p-4 bg-white rounded-xl border border-gray-100"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 bg-gray-200 rounded-lg" />
+                  <div className="space-y-2">
+                    <div className="h-4 w-28 bg-gray-200 rounded" />
+                    <div className="h-3 w-20 bg-gray-200 rounded" />
+                  </div>
                 </div>
                 <div className="h-5 w-16 bg-gray-200 rounded" />
               </div>
@@ -376,6 +434,68 @@ export default function Earnings() {
           )}
         </div>
 
+        {/* Payout History */}
+        <div>
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-bold text-gray-800">Recent Orders</h2>
+            <button
+              onClick={() => (window.location.href = "/admin/orders")}
+              className="text-green-600 text-sm font-semibold hover:text-green-700"
+            >
+              View All
+            </button>
+          </div>
+
+          <div className="space-y-3">
+            {payouts.length === 0 ? (
+              <div className="bg-white rounded-xl p-8 border border-gray-100 text-center">
+                <p className="text-gray-400">No completed orders yet</p>
+              </div>
+            ) : (
+              payouts.map((payout) => (
+                <div
+                  key={payout.id}
+                  className="flex items-center justify-between p-4 bg-white rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-lg bg-green-50 flex items-center justify-center">
+                      <svg
+                        className="w-5 h-5 text-green-600"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                        />
+                      </svg>
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-gray-800">
+                        Order #{payout.order_number || payout.id.slice(0, 8)}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {formatDate(payout.date)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-bold text-gray-900">
+                      {formatCurrency(payout.amount)}
+                    </p>
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-green-50 text-green-700 ring-1 ring-inset ring-green-600/20">
+                      Completed
+                    </span>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
         {/* Summary Stats */}
         <div className="bg-linear-to-r from-gray-800 to-gray-900 rounded-2xl p-6 text-white">
           <h3 className="text-lg font-bold mb-4">Quick Stats</h3>
@@ -398,48 +518,6 @@ export default function Earnings() {
                   : "Rs. 0"}
               </p>
             </div>
-          </div>
-        </div>
-
-        {/* Day-by-Day Analysis */}
-        <div>
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-bold text-gray-800">
-              Day by Day Analysis
-            </h2>
-          </div>
-
-          <div className="space-y-2">
-            {dayByDayRows.length > 0 ? (
-              <>
-                <div className="grid grid-cols-2 gap-3 px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50">
-                  <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500">
-                    Date, Day
-                  </p>
-                  <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500 text-right">
-                    Sales
-                  </p>
-                </div>
-
-                {dayByDayRows.map((row) => (
-                  <div
-                    key={`${row.date}-${row.day}`}
-                    className="grid grid-cols-2 gap-3 items-center p-4 bg-white rounded-xl border border-gray-100 shadow-xs"
-                  >
-                    <p className="text-sm font-semibold text-gray-800">
-                      {formatDateWithDay(row.date, row.day)}
-                    </p>
-                    <p className="text-sm font-bold text-gray-900 text-right">
-                      {formatCurrency(row.sales)}
-                    </p>
-                  </div>
-                ))}
-              </>
-            ) : (
-              <div className="bg-white rounded-xl p-8 border border-gray-100 text-center">
-                <p className="text-gray-400">No daily earnings data available</p>
-              </div>
-            )}
           </div>
         </div>
       </div>

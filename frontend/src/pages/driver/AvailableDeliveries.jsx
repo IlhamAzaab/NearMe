@@ -1283,6 +1283,7 @@ function DeliveryCard({
             draggable={true}
             zoomControl={false}
             fitBounds={true}
+            fitBoundsOnce={true}
             paddingTopLeft={[40, 40]}
             paddingBottomRight={[40, 320]}
           />

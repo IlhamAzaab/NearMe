@@ -82,8 +82,10 @@ export function MapBoundsFitter({
   paddingTopLeft,
   paddingBottomRight,
   enabled = true,
+  fitOnce = false,
 }) {
   const map = useMap();
+  const hasFittedRef = useRef(false);
 
   useEffect(() => {
     if (!enabled) return;
@@ -126,6 +128,10 @@ export function MapBoundsFitter({
       const bounds = L.latLngBounds(allPoints);
 
       if (bounds.isValid()) {
+        if (fitOnce && hasFittedRef.current) {
+          return;
+        }
+
         const fitOptions = {
           maxZoom: 16,
           animate: false,
@@ -142,6 +148,10 @@ export function MapBoundsFitter({
         map.fitBounds(bounds, {
           ...fitOptions,
         });
+
+        if (fitOnce) {
+          hasFittedRef.current = true;
+        }
       }
     } catch (e) {
       console.warn("Error fitting bounds:", e);
@@ -154,6 +164,7 @@ export function MapBoundsFitter({
     paddingTopLeft,
     paddingBottomRight,
     enabled,
+    fitOnce,
   ]);
 
   return null;
@@ -206,6 +217,7 @@ export default function DraggableMap({
   draggable = true,
   zoomControl = false,
   fitBounds = true,
+  fitBoundsOnce = false,
   padding = [50, 50],
   paddingTopLeft,
   paddingBottomRight,
@@ -323,6 +335,7 @@ export default function DraggableMap({
           paddingTopLeft={paddingTopLeft}
           paddingBottomRight={paddingBottomRight}
           enabled={isMapReady}
+          fitOnce={fitBoundsOnce}
         />
       )}
 
