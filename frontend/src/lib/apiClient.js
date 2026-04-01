@@ -69,8 +69,13 @@ function isExplicitAuthFailureMessage(message = "") {
 
 async function shouldForceLogoutFor401(response) {
   try {
-    const body = await response.clone().json().catch(() => null);
-    const code = String(body?.code || "").trim().toLowerCase();
+    const body = await response
+      .clone()
+      .json()
+      .catch(() => null);
+    const code = String(body?.code || "")
+      .trim()
+      .toLowerCase();
     const message = String(body?.message || "");
     return (
       (code && EXPLICIT_AUTH_FAILURE_CODES.has(code)) ||
@@ -88,6 +93,14 @@ function emitAuthFailure() {
       detail: { reason: "invalid_or_expired_token" },
     }),
   );
+}
+
+function isCustomerOnboardingInProgress() {
+  if (typeof window === "undefined") return false;
+
+  const role = window.localStorage.getItem("role");
+  const profileCompleted = window.localStorage.getItem("profileCompleted");
+  return role === "customer" && profileCompleted === "false";
 }
 
 export function initializeApiAuthInterceptor() {
@@ -137,6 +150,12 @@ export function initializeApiAuthInterceptor() {
       return response;
     }
 
+    // During OTP -> complete-profile onboarding we intentionally allow
+    // temporary 401s from non-onboarding endpoints without killing session.
+    if (isCustomerOnboardingInProgress()) {
+      return response;
+    }
+
     await clearStoredAuthSession();
     setLatestAccessToken(null);
     emitAuthFailure();
@@ -165,6 +184,7 @@ export function resetRefreshFailureCount() {}
 export function getRefreshState() {
   return {
     isRefreshing: false,
-    isOnline: typeof navigator === "undefined" ? true : navigator.onLine !== false,
+    isOnline:
+      typeof navigator === "undefined" ? true : navigator.onLine !== false,
   };
 }

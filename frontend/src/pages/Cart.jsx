@@ -405,7 +405,7 @@ const Cart = () => {
 
             {/* Primary Action Button */}
             <button
-              onClick={() => navigate("/home")}
+              onClick={() => navigate("/")}
               className="px-8 py-3.5 bg-[#FF7A00] text-white font-semibold rounded-full hover:bg-orange-600 transition-all shadow-lg shadow-orange-200 flex items-center gap-2 mb-4"
             >
               <svg
@@ -426,7 +426,7 @@ const Cart = () => {
 
             {/* Secondary Action */}
             <button
-              onClick={() => navigate("/home")}
+              onClick={() => navigate("/")}
               className="text-[#FF7A00] font-medium hover:text-orange-600 transition-colors flex items-center gap-1"
             >
               <svg

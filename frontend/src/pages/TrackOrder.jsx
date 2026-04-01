@@ -840,7 +840,7 @@ export default function TrackOrder() {
               View All Orders
             </button>
             <button
-              onClick={() => navigate("/home")}
+              onClick={() => navigate("/")}
               className="px-5 py-2 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 transition"
             >
               Order Again

@@ -25,6 +25,21 @@ function isNetworkError(error) {
   );
 }
 
+function isTransientSessionError(error) {
+  if (isNetworkError(error)) {
+    return true;
+  }
+
+  const status = Number(error?.status);
+  if (!Number.isFinite(status)) {
+    return false;
+  }
+
+  return status === 408 || status === 425 || status === 429 || status >= 500;
+}
+
+let restoreSessionInFlight = null;
+
 function getStoredSessionUser() {
   const id = localStorage.getItem(AUTH_STORAGE_KEYS.userId);
   const role = localStorage.getItem(AUTH_STORAGE_KEYS.role);
@@ -135,7 +150,7 @@ export function getDashboardRouteByRole(role) {
   if (role === "driver") {
     return "/driver/dashboard";
   }
-  return "/home";
+  return "/";
 }
 
 export function getPostAuthRoute(user) {
@@ -163,6 +178,65 @@ function normalizeSupabaseUser(user) {
     phone: user.phone || null,
     profileCompleted: Boolean(metadata.profile_completed),
   };
+}
+
+function decodeJwtPayload(token) {
+  try {
+    const [, payload] = String(token || "").split(".");
+    if (!payload) return null;
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const decoded = atob(
+      normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "="),
+    );
+    return JSON.parse(decoded);
+  } catch {
+    return null;
+  }
+}
+
+function isSupabaseAccessToken(token) {
+  const payload = decodeJwtPayload(token);
+  const issuer = String(payload?.iss || "").toLowerCase();
+  return issuer.includes("/auth/v1");
+}
+
+async function exchangeSessionToken(token) {
+  if (!token) {
+    throw new Error("Missing session token");
+  }
+
+  const data = await authRequest("/auth/session/exchange", {
+    method: "POST",
+    token,
+    body: {},
+  });
+
+  if (!data?.token || !data?.user) {
+    throw new Error("Failed to establish authenticated app session");
+  }
+
+  return data;
+}
+
+async function ensureSessionExchangeAvailable() {
+  const response = await fetch(`${API_URL}/auth/session/exchange`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({}),
+  });
+
+  // 401/400 means route exists (token missing/invalid), which is expected.
+  if (response.status === 401 || response.status === 400) {
+    return;
+  }
+
+  if (response.status === 404) {
+    throw new Error(
+      "Auth session endpoint is unavailable (404). Restart backend from NearMe/backend before verifying OTP.",
+    );
+  }
 }
 
 function mapSupabasePhoneAuthError(error, fallbackMessage) {
@@ -246,6 +320,8 @@ export async function signupStart({ phone }) {
 }
 
 export async function verifyOtp({ phone, otp }) {
+  await ensureSessionExchangeAvailable();
+
   const normalizedPhone = normalizeSriLankaPhone(phone);
   if (!normalizedPhone) {
     throw new Error("Invalid phone number");
@@ -269,10 +345,11 @@ export async function verifyOtp({ phone, otp }) {
     );
   }
 
-  const user = normalizeSupabaseUser(data.user);
+  const exchanged = await exchangeSessionToken(data.session.access_token);
+  const user = exchanged.user;
 
   return {
-    token: data.session.access_token,
+    token: exchanged.token,
     user,
     nextStep:
       user.role === "customer" && !user.profileCompleted
@@ -321,25 +398,60 @@ async function loginCustomerWithSupabase({ identifier, password }) {
     throw new Error(error.message || "Invalid email or password");
   }
 
-  const token = data?.session?.access_token;
-  if (!token) {
+  const supabaseToken = data?.session?.access_token;
+  if (!supabaseToken) {
     throw new Error("Login failed. Missing session token.");
   }
 
-  let user = normalizeSupabaseUser(data.user);
-  try {
-    user = await getMe(token);
-  } catch {
-    // Keep Supabase user fallback when profile API is temporarily unavailable.
-  }
+  const exchanged = await exchangeSessionToken(supabaseToken);
+  const user = exchanged.user;
 
   return {
-    token,
+    token: exchanged.token,
     user,
     nextStep:
       user?.role === "customer" && !user?.profileCompleted
         ? "complete_profile"
         : "home",
+  };
+}
+
+async function loginCustomerWithPhone({ identifier, password }) {
+  const normalizedPhone = normalizeSriLankaPhone(identifier);
+  if (!normalizedPhone) {
+    throw new Error("Enter a valid Sri Lankan phone number");
+  }
+
+  const { data, error } = await supabaseClient.auth.signInWithPassword({
+    phone: normalizedPhone,
+    password,
+  });
+
+  if (error) {
+    throw new Error(error.message || "Invalid phone number or password");
+  }
+
+  const supabaseToken = data?.session?.access_token;
+  if (!supabaseToken) {
+    throw new Error("Login failed. Missing session token.");
+  }
+
+  const exchanged = await exchangeSessionToken(supabaseToken);
+  const user = exchanged.user;
+
+  if (user?.role && user.role !== "customer") {
+    throw new Error("Phone login is available only for customer accounts.");
+  }
+
+  const customerUser = {
+    ...(user || {}),
+    role: "customer",
+  };
+
+  return {
+    token: exchanged.token,
+    user: customerUser,
+    nextStep: !customerUser?.profileCompleted ? "complete_profile" : "home",
   };
 }
 
@@ -367,7 +479,7 @@ async function loginLegacyRole({ identifier, password }) {
   }
 
   return {
-    token: payload?.token,
+    token: payload?.token || payload?.access_token,
     user: {
       id: payload?.userId || null,
       role: payload?.role || null,
@@ -375,20 +487,41 @@ async function loginLegacyRole({ identifier, password }) {
       phone: null,
       profileCompleted: Boolean(payload?.profileCompleted),
     },
-    nextStep: payload?.profileCompleted ? "home" : "complete_profile",
+    nextStep:
+      payload?.role === "customer" && !payload?.profileCompleted
+        ? "complete_profile"
+        : "home",
   };
 }
 
-export async function login({ identifier, password, role = "customer" }) {
-  if (role === "customer") {
-    return loginCustomerWithSupabase({ identifier, password });
+export async function login({ identifier, password }) {
+  const trimmedIdentifier = String(identifier || "").trim();
+
+  if (isPhoneLikeIdentifier(trimmedIdentifier)) {
+    return loginCustomerWithPhone({ identifier: trimmedIdentifier, password });
   }
 
-  return loginLegacyRole({ identifier, password });
+  const normalizedEmail = trimmedIdentifier.toLowerCase();
+
+  if (!normalizedEmail.includes("@")) {
+    throw new Error("Enter a valid email or Sri Lankan phone number");
+  }
+
+  try {
+    return await loginCustomerWithSupabase({
+      identifier: normalizedEmail,
+      password,
+    });
+  } catch (customerError) {
+    // Non-customer roles still authenticate via legacy backend login route.
+    return loginLegacyRole({ identifier: normalizedEmail, password });
+  }
 }
 
 export async function completeProfile({
+  name,
   email,
+  city,
   address,
   password,
   latitude,
@@ -399,7 +532,9 @@ export async function completeProfile({
     method: "POST",
     token,
     body: {
+      name: String(name || "").trim(),
       email: email.trim().toLowerCase(),
+      city: String(city || "").trim(),
       address: address.trim(),
       password: String(password || ""),
       latitude,
@@ -433,60 +568,90 @@ export async function logout(token) {
 }
 
 export async function restoreSessionFromToken() {
-  const token = localStorage.getItem(AUTH_STORAGE_KEYS.token);
-
-  if (token) {
-    try {
-      const user = await getMe(token);
-      persistSession({ token, user });
-      return { restored: true, user };
-    } catch (error) {
-      if (isNetworkError(error)) {
-        const fallbackUser = getStoredSessionUser();
-        if (fallbackUser) {
-          return { restored: true, user: fallbackUser };
-        }
-      }
-
-      // Try Supabase persisted session fallback before clearing user state.
-    }
+  if (restoreSessionInFlight) {
+    return restoreSessionInFlight;
   }
 
-  try {
-    const { data, error } = await supabaseClient.auth.getSession();
-    const supabaseToken = data?.session?.access_token;
+  restoreSessionInFlight = (async () => {
+    const token = localStorage.getItem(AUTH_STORAGE_KEYS.token);
 
-    if (error || !supabaseToken) {
-      const fallbackUser = getStoredSessionUser();
-      if (fallbackUser && token) {
+    if (token) {
+      try {
+        const user = await getMe(token);
+
+        if (isSupabaseAccessToken(token)) {
+          try {
+            const exchanged = await exchangeSessionToken(token);
+            persistSession({ token: exchanged.token, user: exchanged.user });
+            return { restored: true, user: exchanged.user };
+          } catch {
+            // Keep temporary compatibility with existing stored tokens.
+          }
+        }
+
+        persistSession({ token, user });
+        return { restored: true, user };
+      } catch (error) {
+        if (isTransientSessionError(error)) {
+          const fallbackUser = getStoredSessionUser();
+          if (fallbackUser) {
+            return { restored: true, user: fallbackUser };
+          }
+        }
+
+        // Try Supabase persisted session fallback before clearing user state.
+      }
+    }
+
+    try {
+      const { data, error } = await supabaseClient.auth.getSession();
+      const supabaseToken = data?.session?.access_token;
+
+      if (error || !supabaseToken) {
+        const fallbackUser = getStoredSessionUser();
+        if (fallbackUser && token) {
+          return { restored: true, user: fallbackUser };
+        }
+
+        clearSession();
+        return { restored: false, user: null };
+      }
+
+      let user;
+      try {
+        const exchanged = await exchangeSessionToken(supabaseToken);
+        user = exchanged.user;
+        persistSession({ token: exchanged.token, user });
+        return { restored: true, user };
+      } catch (meError) {
+        if (!isTransientSessionError(meError)) {
+          throw meError;
+        }
+
+        const fallbackUser = getStoredSessionUser();
+        if (!fallbackUser) {
+          throw meError;
+        }
+
+        persistSession({ token: supabaseToken, user: fallbackUser });
         return { restored: true, user: fallbackUser };
+      }
+    } catch (error) {
+      if (isTransientSessionError(error)) {
+        const fallbackUser = getStoredSessionUser();
+        if (fallbackUser && token) {
+          return { restored: true, user: fallbackUser };
+        }
       }
 
       clearSession();
       return { restored: false, user: null };
     }
+  })();
 
-    let user;
-    try {
-      user = await getMe(supabaseToken);
-    } catch (meError) {
-      if (!isNetworkError(meError)) {
-        throw meError;
-      }
-
-      const fallbackUser = getStoredSessionUser();
-      if (!fallbackUser) {
-        throw meError;
-      }
-
-      persistSession({ token: supabaseToken, user: fallbackUser });
-      return { restored: true, user: fallbackUser };
-    }
-
-    persistSession({ token: supabaseToken, user });
-    return { restored: true, user };
-  } catch {
-    clearSession();
-    return { restored: false, user: null };
+  try {
+    return await restoreSessionInFlight;
+  } finally {
+    restoreSessionInFlight = null;
   }
 }

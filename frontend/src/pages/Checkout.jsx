@@ -405,7 +405,7 @@ const Checkout = () => {
     localStorage.removeItem("token");
     localStorage.removeItem("role");
     localStorage.removeItem("userEmail");
-    navigate("/home");
+    navigate("/");
   };
 
   const handleUseMyLocation = () => {
@@ -738,7 +738,7 @@ const Checkout = () => {
                 Track Order
               </button>
               <button
-                onClick={() => navigate("/home")}
+                onClick={() => navigate("/")}
                 className="w-full px-6 py-3.5 bg-gray-100 text-gray-700 font-semibold rounded-full hover:bg-gray-200 transition"
               >
                 Back to Home
@@ -1476,7 +1476,9 @@ const Checkout = () => {
             {launchPromoApplied && (
               <div className="flex justify-between text-emerald-700">
                 <span className="text-sm">Launch offer savings</span>
-                <span className="font-semibold">- {formatPrice(launchPromoSavings)}</span>
+                <span className="font-semibold">
+                  - {formatPrice(launchPromoSavings)}
+                </span>
               </div>
             )}
             <div className="flex justify-between">

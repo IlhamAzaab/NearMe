@@ -5,9 +5,7 @@ import {
   completeCustomerProfile,
   getCurrentUser,
 } from "../services/authService.js";
-import {
-  validateCompleteProfile,
-} from "../validators/authValidation.js";
+import { validateCompleteProfile } from "../validators/authValidation.js";
 
 const router = express.Router();
 
@@ -38,6 +36,21 @@ function getTokenFromHeader(req) {
     return null;
   }
   return auth.slice(7).trim();
+}
+
+function issueAppSessionToken(user) {
+  if (!process.env.JWT_SECRET) {
+    return null;
+  }
+
+  return jwt.sign(
+    {
+      id: user.id,
+      role: user.role || "customer",
+    },
+    process.env.JWT_SECRET,
+    { expiresIn: process.env.JWT_EXPIRES_IN || "7d" },
+  );
 }
 
 async function requireAuthUserId(req) {
@@ -90,24 +103,19 @@ router.post("/complete-profile", async (req, res) => {
     const payload = validateCompleteProfile(req.body || {});
     const updatedUser = await completeCustomerProfile({
       userId,
+      name: payload.name,
       email: payload.email,
       password: payload.password,
+      city: payload.city,
       address: payload.address,
       latitude: payload.latitude,
       longitude: payload.longitude,
     });
 
-    let sessionToken = null;
-    if (process.env.JWT_SECRET) {
-      sessionToken = jwt.sign(
-        {
-          id: userId,
-          role: updatedUser.role || "customer",
-        },
-        process.env.JWT_SECRET,
-        { expiresIn: process.env.JWT_EXPIRES_IN || "7d" },
-      );
-    }
+    const sessionToken = issueAppSessionToken({
+      id: userId,
+      role: updatedUser.role,
+    });
 
     return ok(res, {
       message: "Profile completed successfully",
@@ -115,6 +123,25 @@ router.post("/complete-profile", async (req, res) => {
       data: {
         ...updatedUser,
         token: sessionToken,
+      },
+    });
+  } catch (error) {
+    return fail(res, error);
+  }
+});
+
+router.post("/session/exchange", async (req, res) => {
+  try {
+    const userId = await requireAuthUserId(req);
+    const user = await getCurrentUser(userId);
+    const token = issueAppSessionToken({ id: userId, role: user.role });
+
+    return ok(res, {
+      message: "Session exchanged successfully",
+      code: "SESSION_EXCHANGED",
+      data: {
+        token,
+        user,
       },
     });
   } catch (error) {

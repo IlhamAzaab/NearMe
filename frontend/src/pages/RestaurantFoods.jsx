@@ -174,7 +174,7 @@ const RestaurantFoods = () => {
     setRole("");
     setUserEmail("");
     setUserName("");
-    navigate("/home");
+    navigate("/");
   };
 
   const formatPrice = (price) => {
@@ -327,7 +327,7 @@ const RestaurantFoods = () => {
             {/* Back Button & Logo */}
             <div className="flex items-center gap-3">
               <button
-                onClick={() => navigate("/home")}
+                onClick={() => navigate("/")}
                 className="p-2 hover:bg-gray-100 rounded-full transition-colors"
               >
                 <svg
@@ -418,7 +418,7 @@ const RestaurantFoods = () => {
             <p className="font-semibold text-lg mb-1">Something went wrong</p>
             <p className="text-sm text-red-600/80 mb-4">{error}</p>
             <button
-              onClick={() => navigate("/home")}
+              onClick={() => navigate("/")}
               className="px-6 py-2.5 bg-[#FF7A00] text-white font-semibold rounded-full hover:bg-orange-600 transition-all shadow-lg shadow-orange-200"
             >
               Back to Home

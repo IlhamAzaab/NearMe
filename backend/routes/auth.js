@@ -104,6 +104,62 @@ function issueAuthSession(req, payload, extra = {}) {
   };
 }
 
+function getBearerToken(req) {
+  const auth = String(req.headers.authorization || "").trim();
+  if (!auth.toLowerCase().startsWith("bearer ")) {
+    return null;
+  }
+  return auth.slice(7).trim();
+}
+
+async function resolveAuthUserId(req) {
+  const token = getBearerToken(req);
+  if (!token) {
+    return null;
+  }
+
+  try {
+    const decoded = verifyJwtWithRotation(token);
+    const userId = String(decoded?.id || decoded?.userId || "").trim();
+    if (userId) {
+      return userId;
+    }
+  } catch {
+    // Continue with Supabase token validation.
+  }
+
+  const { data, error } = await supabaseAdmin.auth.getUser(token);
+  if (error || !data?.user?.id) {
+    return null;
+  }
+
+  return data.user.id;
+}
+
+function normalizeSriLankaPhoneIdentifier(rawValue) {
+  const raw = String(rawValue || "").trim();
+  if (!raw) {
+    return null;
+  }
+
+  if (/^\+94\d{9}$/.test(raw)) {
+    return raw;
+  }
+
+  const digits = raw.replace(/\D/g, "");
+  if (/^94\d{9}$/.test(digits)) {
+    return `+${digits}`;
+  }
+  if (/^0\d{9}$/.test(digits)) {
+    return `+94${digits.slice(1)}`;
+  }
+  if (/^\d{9}$/.test(digits)) {
+    return `+94${digits}`;
+  }
+
+  return null;
+}
+
 function createEmailVerificationToken({ userId, email, nonce }) {
   return jwt.sign(
     {
@@ -410,6 +466,62 @@ async function sendWhatsAppOTP(phone, otp) {
     return false;
   }
 }
+
+router.post("/session/exchange", async (req, res) => {
+  try {
+    const userId = await resolveAuthUserId(req);
+    if (!userId) {
+      return auth401(res, "auth_token_invalid", "Invalid or expired token");
+    }
+
+    const { data: userRow, error: userError } = await supabaseAdmin
+      .from("users")
+      .select("id, role, email, phone")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (userError || !userRow) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    let profileCompleted = userRow.role !== "customer";
+    if (userRow.role === "customer") {
+      const { data: customerProfile } = await supabaseAdmin
+        .from("customers")
+        .select("id")
+        .eq("id", userId)
+        .maybeSingle();
+      profileCompleted = Boolean(customerProfile);
+    }
+
+    const session = issueAuthSession(
+      req,
+      { id: userRow.id, role: userRow.role },
+      {
+        userId: userRow.id,
+        role: userRow.role,
+      },
+    );
+
+    return res.json({
+      success: true,
+      message: "Session exchanged successfully",
+      data: {
+        token: session.token,
+        user: {
+          id: userRow.id,
+          role: userRow.role,
+          email: userRow.email || null,
+          phone: userRow.phone || null,
+          profileCompleted,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Session exchange error:", error);
+    return res.status(500).json({ message: "Request failed" });
+  }
+});
 
 /**
  * POST /auth/signup
@@ -1090,15 +1202,37 @@ router.get("/customer-profile-status", async (req, res) => {
  */
 router.post("/login", async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { password } = req.body;
+    const identifierRaw = String(
+      req.body?.identifier || req.body?.email || "",
+    ).trim();
+
+    if (!identifierRaw || !password) {
+      return res
+        .status(400)
+        .json({ message: "Email/phone and password are required" });
+    }
+
+    const loginByEmail = identifierRaw.includes("@");
+    const normalizedIdentifier = loginByEmail
+      ? identifierRaw.toLowerCase()
+      : normalizeSriLankaPhoneIdentifier(identifierRaw);
+
+    if (!normalizedIdentifier) {
+      return res.status(400).json({
+        message: "Identifier must be a valid email or Sri Lankan phone number",
+      });
+    }
+
+    const signInPayload = loginByEmail
+      ? { email: normalizedIdentifier, password }
+      : { phone: normalizedIdentifier, password };
 
     // Authenticate with Supabase — use the isolated auth client so the
     // user session does NOT leak into supabaseAdmin (which must stay
     // service_role for all subsequent DB queries).
-    const { data, error } = await supabaseAuthOnly.auth.signInWithPassword({
-      email,
-      password,
-    });
+    const { data, error } =
+      await supabaseAuthOnly.auth.signInWithPassword(signInPayload);
 
     if (error) {
       return auth401(res, "auth_invalid_credentials", error.message);
@@ -1107,7 +1241,7 @@ router.post("/login", async (req, res) => {
     const userId = data.user.id;
 
     // Check if email is verified for customers
-    if (!data.user.email_confirmed_at) {
+    if (loginByEmail && !data.user.email_confirmed_at) {
       // Check if user is a customer
       const { data: userData } = await supabaseAdmin
         .from("users")

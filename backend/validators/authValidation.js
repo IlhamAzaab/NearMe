@@ -1,5 +1,8 @@
 import { appError } from "../services/authService.js";
-import { isSriLankaPhone, normalizeSriLankaPhone } from "../services/otpService.js";
+import {
+  isSriLankaPhone,
+  normalizeSriLankaPhone,
+} from "../services/otpService.js";
 
 function ensureNonEmptyString(value, message, code) {
   if (typeof value !== "string" || !value.trim()) {
@@ -49,7 +52,11 @@ export function validateOtpVerification(body) {
     "Phone number is required",
     "PHONE_REQUIRED",
   );
-  const otp = ensureNonEmptyString(body?.otp, "OTP is required", "OTP_REQUIRED");
+  const otp = ensureNonEmptyString(
+    body?.otp,
+    "OTP is required",
+    "OTP_REQUIRED",
+  );
 
   const normalizedPhone = normalizeSriLankaPhone(rawPhone);
   if (!normalizedPhone) {
@@ -120,11 +127,25 @@ export function validateLogin(body) {
 }
 
 export function validateCompleteProfile(body) {
-  const email = ensureNonEmptyString(body?.email, "Email is required", "EMAIL_REQUIRED");
+  const name = ensureNonEmptyString(
+    body?.name,
+    "Name is required",
+    "NAME_REQUIRED",
+  );
+  const email = ensureNonEmptyString(
+    body?.email,
+    "Email is required",
+    "EMAIL_REQUIRED",
+  );
   const password = ensureNonEmptyString(
     body?.password,
     "Password is required",
     "PASSWORD_REQUIRED",
+  );
+  const city = ensureNonEmptyString(
+    body?.city,
+    "City is required",
+    "CITY_REQUIRED",
   );
   const address = ensureNonEmptyString(
     body?.address,
@@ -137,6 +158,22 @@ export function validateCompleteProfile(body) {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(email)) {
     throw appError(400, "Invalid email address", "INVALID_EMAIL");
+  }
+
+  if (name.length < 2 || name.length > 80) {
+    throw appError(
+      400,
+      "Name must be between 2 and 80 characters",
+      "INVALID_NAME_LENGTH",
+    );
+  }
+
+  if (city.length < 2 || city.length > 80) {
+    throw appError(
+      400,
+      "City must be between 2 and 80 characters",
+      "INVALID_CITY_LENGTH",
+    );
   }
 
   if (address.length < 5 || address.length > 255) {
@@ -164,8 +201,10 @@ export function validateCompleteProfile(body) {
   }
 
   return {
+    name,
     email,
     password,
+    city,
     address,
     latitude,
     longitude,

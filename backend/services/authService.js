@@ -15,10 +15,14 @@ import {
 import { sendOtpSms } from "./smslenzService.js";
 
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
-const BCRYPT_SALT_ROUNDS = Number.parseInt(process.env.BCRYPT_SALT_ROUNDS || "12", 10);
+const BCRYPT_SALT_ROUNDS = Number.parseInt(
+  process.env.BCRYPT_SALT_ROUNDS || "12",
+  10,
+);
 const CUSTOMER_AUTH_SELECT =
   "id, email, phone, password_hash, role, address, profile_completed, phone_verified, phone_otp_code_hash, phone_otp_expires_at, phone_otp_attempts, phone_otp_last_sent_at, phone_otp_verified_at";
-const LOGIN_SELECT = "id, email, phone, role, address, profile_completed, phone_verified, password_hash";
+const LOGIN_SELECT =
+  "id, email, phone, role, address, profile_completed, phone_verified, password_hash";
 
 function authLog(event, payload = {}) {
   console.log(`[Auth] ${event}`, payload);
@@ -62,7 +66,9 @@ function issueAccessToken(user) {
 }
 
 function pickBestPhoneMatch(users, candidates) {
-  const rank = new Map(candidates.map((value, index) => [value, candidates.length - index]));
+  const rank = new Map(
+    candidates.map((value, index) => [value, candidates.length - index]),
+  );
 
   return [...users].sort(
     (a, b) => (rank.get(b.phone) || 0) - (rank.get(a.phone) || 0),
@@ -77,7 +83,11 @@ async function canonicalizeUserPhone(userId, normalizedPhone) {
     .neq("phone", normalizedPhone);
 
   if (error) {
-    throw appError(500, "Failed to normalize stored phone", "PHONE_NORMALIZE_SAVE_FAILED");
+    throw appError(
+      500,
+      "Failed to normalize stored phone",
+      "PHONE_NORMALIZE_SAVE_FAILED",
+    );
   }
 }
 
@@ -88,7 +98,11 @@ async function findUserByPhone(phone, { role, selectFields, logTag }) {
   }
 
   const candidates = buildPhoneLookupCandidates(normalizedPhone);
-  let query = supabaseAdmin.from("users").select(selectFields).in("phone", candidates).limit(10);
+  let query = supabaseAdmin
+    .from("users")
+    .select(selectFields)
+    .in("phone", candidates)
+    .limit(10);
   if (role) {
     query = query.eq("role", role);
   }
@@ -103,7 +117,9 @@ async function findUserByPhone(phone, { role, selectFields, logTag }) {
     });
   }
 
-  const matchedUser = data?.length ? pickBestPhoneMatch(data, candidates) : null;
+  const matchedUser = data?.length
+    ? pickBestPhoneMatch(data, candidates)
+    : null;
   authLog(logTag || "phone_lookup", {
     normalizedPhone,
     candidates,
@@ -159,7 +175,8 @@ async function updateOtpForUser(userId, phone) {
   const smsResult = await sendOtpSms({ phone, otp });
   const smsDelivered = Boolean(smsResult?.delivered);
   const smsSkipped = Boolean(smsResult?.skipped);
-  const shouldExposeDevOtp = process.env.NODE_ENV !== "production" && smsSkipped;
+  const shouldExposeDevOtp =
+    process.env.NODE_ENV !== "production" && smsSkipped;
   authLog("sms_send_result", {
     userId,
     phone,
@@ -197,7 +214,11 @@ export async function startCustomerSignup({ phone, password }) {
 
   if (existingUser) {
     if (existingUser.phone_verified) {
-      throw appError(409, "Phone number is already registered", "DUPLICATE_PHONE");
+      throw appError(
+        409,
+        "Phone number is already registered",
+        "DUPLICATE_PHONE",
+      );
     }
 
     const { error: reuseError } = await supabaseAdmin
@@ -212,7 +233,11 @@ export async function startCustomerSignup({ phone, password }) {
       .eq("id", existingUser.id);
 
     if (reuseError) {
-      throw appError(500, "Failed to reuse pending signup record", "USER_REUSE_FAILED");
+      throw appError(
+        500,
+        "Failed to reuse pending signup record",
+        "USER_REUSE_FAILED",
+      );
     }
 
     authLog("user_insert_result", {
@@ -300,12 +325,20 @@ export async function verifyCustomerOtp({ phone, otp }) {
   }
 
   if (!user.phone_otp_code_hash || !user.phone_otp_expires_at) {
-    throw appError(400, "OTP not generated. Please request a new OTP.", "OTP_MISSING");
+    throw appError(
+      400,
+      "OTP not generated. Please request a new OTP.",
+      "OTP_MISSING",
+    );
   }
 
   const attempts = Number(user.phone_otp_attempts || 0);
   if (attempts >= OTP_MAX_ATTEMPTS) {
-    throw appError(429, "Maximum OTP attempts exceeded. Please resend OTP.", "OTP_LIMIT_EXCEEDED");
+    throw appError(
+      429,
+      "Maximum OTP attempts exceeded. Please resend OTP.",
+      "OTP_LIMIT_EXCEEDED",
+    );
   }
 
   if (new Date(user.phone_otp_expires_at).getTime() <= Date.now()) {
@@ -347,7 +380,9 @@ export async function verifyCustomerOtp({ phone, otp }) {
       phone_otp_attempts: 0,
     })
     .eq("id", user.id)
-    .select("id, email, phone, role, address, profile_completed, phone_verified")
+    .select(
+      "id, email, phone, role, address, profile_completed, phone_verified",
+    )
     .single();
 
   if (updateError || !updatedUser) {
@@ -489,14 +524,18 @@ export async function loginUser({ identifier, password }) {
 
 export async function completeCustomerProfile({
   userId,
+  name,
   email,
   password,
+  city,
   address,
   latitude,
   longitude,
 }) {
+  const normalizedName = String(name || "").trim();
   const normalizedEmail = email.toLowerCase().trim();
   const normalizedPassword = String(password || "");
+  const normalizedCity = String(city || "").trim();
   const normalizedAddress = address.trim();
   const normalizedLatitude = Number(latitude);
   const normalizedLongitude = Number(longitude);
@@ -506,25 +545,28 @@ export async function completeCustomerProfile({
       {
         id: userId,
         role: "customer",
-        address: normalizedAddress,
-        profile_completed: false,
         created_at: new Date().toISOString(),
       },
       { onConflict: "id" },
     );
 
     if (upsertError) {
-      throw appError(500, "Failed to initialize user record", "USER_INIT_FAILED", {
-        dbMessage: upsertError.message,
-        dbHint: upsertError.hint || null,
-        dbDetails: upsertError.details || null,
-        dbCode: upsertError.code || null,
-      });
+      throw appError(
+        500,
+        "Failed to initialize user record",
+        "USER_INIT_FAILED",
+        {
+          dbMessage: upsertError.message,
+          dbHint: upsertError.hint || null,
+          dbDetails: upsertError.details || null,
+          dbCode: upsertError.code || null,
+        },
+      );
     }
   }
 
   async function insertCustomerProfile() {
-    const generatedUsername = `user_${userId.slice(0, 8)}`;
+    const generatedUsername = normalizedName || `user_${userId.slice(0, 8)}`;
     return supabaseAdmin
       .from("customers")
       .insert({
@@ -532,13 +574,14 @@ export async function completeCustomerProfile({
         username: generatedUsername,
         email: normalizedEmail,
         phone: normalizedPhone,
+        city: normalizedCity,
         address: normalizedAddress,
         latitude: normalizedLatitude,
         longitude: normalizedLongitude,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
-      .select("id, username, email, phone, address, latitude, longitude")
+      .select("id, username, email, phone, city, address, latitude, longitude")
       .single();
   }
 
@@ -552,7 +595,11 @@ export async function completeCustomerProfile({
   const authUser = authUserData.user;
   const role = authUser.user_metadata?.role || "customer";
   if (role !== "customer") {
-    throw appError(403, "Only customer profile can be completed here", "FORBIDDEN_ROLE");
+    throw appError(
+      403,
+      "Only customer profile can be completed here",
+      "FORBIDDEN_ROLE",
+    );
   }
 
   if (!authUser.phone_confirmed_at) {
@@ -593,30 +640,34 @@ export async function completeCustomerProfile({
   }
 
   // Set email/password in auth.users first so customer can log in with email+password.
-  const { error: authCredsUpdateError } = await supabaseAdmin.auth.admin.updateUserById(
-    userId,
-    {
+  const { error: authCredsUpdateError } =
+    await supabaseAdmin.auth.admin.updateUserById(userId, {
       email: normalizedEmail,
       password: normalizedPassword,
       email_confirm: true,
-    },
-  );
+    });
 
   if (authCredsUpdateError) {
-    throw appError(500, "Failed to update auth credentials", "AUTH_CREDENTIALS_UPDATE_FAILED", {
-      providerMessage: authCredsUpdateError.message,
-      providerStatus: authCredsUpdateError.status || null,
-    });
+    throw appError(
+      500,
+      "Failed to update auth credentials",
+      "AUTH_CREDENTIALS_UPDATE_FAILED",
+      {
+        providerMessage: authCredsUpdateError.message,
+        providerStatus: authCredsUpdateError.status || null,
+      },
+    );
   }
 
   // Keep a compatibility row in public.users because customers.id has FK dependency.
   await ensureLegacyUserRow();
 
-  const { data: existingProfile, error: existingProfileError } = await supabaseAdmin
-    .from("customers")
-    .select("id, username")
-    .eq("id", userId)
-    .maybeSingle();
+  const { data: existingProfile, error: existingProfileError } =
+    await supabaseAdmin
+      .from("customers")
+      .select("id, username")
+      .eq("id", userId)
+      .maybeSingle();
 
   if (existingProfileError) {
     throw appError(500, "Failed to read customer profile", "DB_QUERY_FAILED", {
@@ -630,32 +681,43 @@ export async function completeCustomerProfile({
   let customerProfile;
 
   if (existingProfile) {
-    const { data: updatedProfile, error: updateProfileError } = await supabaseAdmin
-      .from("customers")
-      .update({
-        email: normalizedEmail,
-        address: normalizedAddress,
-        phone: normalizedPhone,
-        latitude: normalizedLatitude,
-        longitude: normalizedLongitude,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", userId)
-      .select("id, username, email, phone, address, latitude, longitude")
-      .single();
+    const { data: updatedProfile, error: updateProfileError } =
+      await supabaseAdmin
+        .from("customers")
+        .update({
+          username: normalizedName,
+          email: normalizedEmail,
+          city: normalizedCity,
+          address: normalizedAddress,
+          phone: normalizedPhone,
+          latitude: normalizedLatitude,
+          longitude: normalizedLongitude,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", userId)
+        .select(
+          "id, username, email, phone, city, address, latitude, longitude",
+        )
+        .single();
 
     if (updateProfileError || !updatedProfile) {
-      throw appError(500, "Failed to complete profile", "PROFILE_UPDATE_FAILED", {
-        dbMessage: updateProfileError?.message || null,
-        dbHint: updateProfileError?.hint || null,
-        dbDetails: updateProfileError?.details || null,
-        dbCode: updateProfileError?.code || null,
-      });
+      throw appError(
+        500,
+        "Failed to complete profile",
+        "PROFILE_UPDATE_FAILED",
+        {
+          dbMessage: updateProfileError?.message || null,
+          dbHint: updateProfileError?.hint || null,
+          dbDetails: updateProfileError?.details || null,
+          dbCode: updateProfileError?.code || null,
+        },
+      );
     }
 
     customerProfile = updatedProfile;
   } else {
-    let { data: insertedProfile, error: insertProfileError } = await insertCustomerProfile();
+    let { data: insertedProfile, error: insertProfileError } =
+      await insertCustomerProfile();
 
     // In some environments a stale/missing public.users row can still race; upsert and retry once.
     if (
@@ -669,12 +731,17 @@ export async function completeCustomerProfile({
     }
 
     if (insertProfileError || !insertedProfile) {
-      throw appError(500, "Failed to create customer profile", "PROFILE_CREATE_FAILED", {
-        dbMessage: insertProfileError?.message || null,
-        dbHint: insertProfileError?.hint || null,
-        dbDetails: insertProfileError?.details || null,
-        dbCode: insertProfileError?.code || null,
-      });
+      throw appError(
+        500,
+        "Failed to create customer profile",
+        "PROFILE_CREATE_FAILED",
+        {
+          dbMessage: insertProfileError?.message || null,
+          dbHint: insertProfileError?.hint || null,
+          dbDetails: insertProfileError?.details || null,
+          dbCode: insertProfileError?.code || null,
+        },
+      );
     }
 
     customerProfile = insertedProfile;
@@ -684,6 +751,8 @@ export async function completeCustomerProfile({
     ...(authUser.user_metadata || {}),
     role,
     email: normalizedEmail,
+    name: normalizedName,
+    city: normalizedCity,
     address: normalizedAddress,
     latitude: normalizedLatitude,
     longitude: normalizedLongitude,
@@ -696,10 +765,15 @@ export async function completeCustomerProfile({
     });
 
   if (updatedAuthError) {
-    throw appError(500, "Failed to update auth user metadata", "AUTH_USER_UPDATE_FAILED", {
-      providerMessage: updatedAuthError.message,
-      providerStatus: updatedAuthError.status || null,
-    });
+    throw appError(
+      500,
+      "Failed to update auth user metadata",
+      "AUTH_USER_UPDATE_FAILED",
+      {
+        providerMessage: updatedAuthError.message,
+        providerStatus: updatedAuthError.status || null,
+      },
+    );
   }
 
   const updatedAuthUser = updatedAuthData?.user || {
@@ -711,25 +785,37 @@ export async function completeCustomerProfile({
     .from("users")
     .update({
       role: "customer",
-      address: normalizedAddress,
+      email: normalizedEmail,
+      phone: normalizedPhone,
       profile_completed: true,
     })
     .eq("id", userId);
 
   if (legacyUpdateError) {
-    throw appError(500, "Failed to finalize user record", "USER_FINALIZE_FAILED", {
-      dbMessage: legacyUpdateError.message,
-      dbHint: legacyUpdateError.hint || null,
-      dbDetails: legacyUpdateError.details || null,
-      dbCode: legacyUpdateError.code || null,
-    });
+    throw appError(
+      500,
+      "Failed to finalize user record",
+      "USER_FINALIZE_FAILED",
+      {
+        dbMessage: legacyUpdateError.message,
+        dbHint: legacyUpdateError.hint || null,
+        dbDetails: legacyUpdateError.details || null,
+        dbCode: legacyUpdateError.code || null,
+      },
+    );
   }
 
   return {
     id: userId,
     role,
-    email: customerProfile.email || updatedAuthUser.email || mergedMetadata.email || null,
+    name: customerProfile.username || normalizedName || null,
+    email:
+      customerProfile.email ||
+      updatedAuthUser.email ||
+      mergedMetadata.email ||
+      null,
     phone: normalizedPhone,
+    city: customerProfile.city || normalizedCity || null,
     address: customerProfile.address || mergedMetadata.address || null,
     latitude: customerProfile.latitude ?? mergedMetadata.latitude ?? null,
     longitude: customerProfile.longitude ?? mergedMetadata.longitude ?? null,
@@ -741,15 +827,30 @@ export async function completeCustomerProfile({
 export async function getCurrentUser(userId) {
   const { data: authUserData, error: authUserError } =
     await supabaseAdmin.auth.admin.getUserById(userId);
+  const authUser = authUserError ? null : authUserData?.user || null;
 
-  if (authUserError || !authUserData?.user) {
+  const { data: userRow, error: userRowError } = await supabaseAdmin
+    .from("users")
+    .select("id, role, email, phone")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (userRowError) {
+    throw appError(500, "Failed to fetch user role", "DB_QUERY_FAILED", {
+      dbMessage: userRowError.message,
+      dbHint: userRowError.hint || null,
+      dbDetails: userRowError.details || null,
+      dbCode: userRowError.code || null,
+    });
+  }
+
+  if (!authUser && !userRow) {
     throw appError(404, "User not found", "USER_NOT_FOUND");
   }
 
-  const authUser = authUserData.user;
   const { data: customerProfile, error: customerError } = await supabaseAdmin
     .from("customers")
-    .select("id, email, phone, address, latitude, longitude")
+    .select("id, username, email, phone, city, address, latitude, longitude")
     .eq("id", userId)
     .maybeSingle();
 
@@ -762,21 +863,121 @@ export async function getCurrentUser(userId) {
     });
   }
 
-  const role = authUser.user_metadata?.role || "customer";
+  const role = userRow?.role || authUser?.user_metadata?.role || "customer";
+
+  let roleProfile = null;
+  if (role === "admin") {
+    const { data, error } = await supabaseAdmin
+      .from("admins")
+      .select("email, phone, profile_completed, admin_status, verified")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (error) {
+      throw appError(500, "Failed to fetch admin profile", "DB_QUERY_FAILED", {
+        dbMessage: error.message,
+        dbHint: error.hint || null,
+        dbDetails: error.details || null,
+        dbCode: error.code || null,
+      });
+    }
+
+    roleProfile = data;
+  } else if (role === "driver") {
+    const { data, error } = await supabaseAdmin
+      .from("drivers")
+      .select("email, phone, address, city, profile_completed, driver_status")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (error) {
+      throw appError(500, "Failed to fetch driver profile", "DB_QUERY_FAILED", {
+        dbMessage: error.message,
+        dbHint: error.hint || null,
+        dbDetails: error.details || null,
+        dbCode: error.code || null,
+      });
+    }
+
+    roleProfile = data;
+  } else if (role === "manager") {
+    const { data, error } = await supabaseAdmin
+      .from("managers")
+      .select("email, phone")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (error) {
+      throw appError(
+        500,
+        "Failed to fetch manager profile",
+        "DB_QUERY_FAILED",
+        {
+          dbMessage: error.message,
+          dbHint: error.hint || null,
+          dbDetails: error.details || null,
+          dbCode: error.code || null,
+        },
+      );
+    }
+
+    roleProfile = data;
+  }
+
+  const resolvedProfileCompleted =
+    role === "customer"
+      ? Boolean(authUser?.user_metadata?.profile_completed || customerProfile)
+      : typeof roleProfile?.profile_completed === "boolean"
+        ? roleProfile.profile_completed
+        : true;
+
+  const resolvedPhoneVerified =
+    role === "customer"
+      ? Boolean(
+          authUser?.phone_confirmed_at ||
+          authUser?.user_metadata?.phone_verified,
+        )
+      : true;
 
   return {
-    id: authUser.id,
+    id: authUser?.id || userRow?.id || userId,
     role,
+    name: customerProfile?.username || authUser?.user_metadata?.name || null,
     email:
-      customerProfile?.email || authUser.email || authUser.user_metadata?.email || null,
-    phone: normalizeSriLankaPhone(authUser.phone || customerProfile?.phone || "") || null,
-    address: customerProfile?.address || authUser.user_metadata?.address || null,
-    latitude: customerProfile?.latitude ?? authUser.user_metadata?.latitude ?? null,
-    longitude: customerProfile?.longitude ?? authUser.user_metadata?.longitude ?? null,
-    phoneVerified: Boolean(authUser.phone_confirmed_at),
-    profileCompleted: Boolean(
-      authUser.user_metadata?.profile_completed || customerProfile,
-    ),
+      roleProfile?.email ||
+      customerProfile?.email ||
+      userRow?.email ||
+      authUser?.email ||
+      authUser?.user_metadata?.email ||
+      null,
+    phone:
+      normalizeSriLankaPhone(
+        authUser?.phone ||
+          roleProfile?.phone ||
+          customerProfile?.phone ||
+          userRow?.phone ||
+          "",
+      ) || null,
+    address:
+      roleProfile?.address ||
+      customerProfile?.address ||
+      authUser?.user_metadata?.address ||
+      null,
+    city:
+      roleProfile?.city ||
+      customerProfile?.city ||
+      authUser?.user_metadata?.city ||
+      null,
+    latitude:
+      customerProfile?.latitude ?? authUser?.user_metadata?.latitude ?? null,
+    longitude:
+      customerProfile?.longitude ?? authUser?.user_metadata?.longitude ?? null,
+    phoneVerified: resolvedPhoneVerified,
+    profileCompleted: resolvedProfileCompleted,
+    adminStatus: roleProfile?.admin_status || null,
+    driverStatus: roleProfile?.driver_status || null,
+    verified:
+      typeof roleProfile?.verified === "boolean" ? roleProfile.verified : null,
   };
 }
 

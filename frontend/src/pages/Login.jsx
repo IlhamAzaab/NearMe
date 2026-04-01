@@ -8,12 +8,9 @@ import {
   persistSession,
 } from "../services/authService";
 
-const LOGIN_ROLE_OPTIONS = ["customer", "manager", "admin", "driver"];
-
 export default function Login() {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
-  const [selectedRole, setSelectedRole] = useState("customer");
   const [isLoading, setIsLoading] = useState(false);
   const [shake, setShake] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
@@ -34,15 +31,11 @@ export default function Login() {
     setIsLoading(true);
 
     try {
-      const data = await login({ identifier, password, role: selectedRole });
+      const data = await login({ identifier, password });
       const user = data?.user || null;
 
       if (!user || !data?.token) {
         throw new Error("Login failed. Missing session data.");
-      }
-
-      if (selectedRole !== user.role) {
-        throw new Error(`This account is a ${user.role}. Switch role option to continue.`);
       }
 
       persistSession({ token: data.token, user });
@@ -52,7 +45,9 @@ export default function Login() {
 
       setTimeout(() => {
         const destination =
-          data.nextStep === "complete_profile" ? "/auth/complete-profile" : getPostAuthRoute(user);
+          data.nextStep === "complete_profile"
+            ? "/auth/complete-profile"
+            : getPostAuthRoute(user);
         navigate(destination);
       }, 1800);
     } catch (error) {
@@ -145,26 +140,6 @@ export default function Login() {
 
           {/* Login Form */}
           <form className="space-y-5">
-            <div className="animate-fade-in animation-delay-200">
-              <p className="text-sm font-medium text-gray-700 mb-2">Login as</p>
-              <div className="grid grid-cols-2 gap-2">
-                {LOGIN_ROLE_OPTIONS.map((role) => (
-                  <button
-                    key={role}
-                    type="button"
-                    onClick={() => setSelectedRole(role)}
-                    className={`px-3 py-2 text-sm font-semibold rounded-lg border transition-all duration-200 ${
-                      selectedRole === role
-                        ? "border-red-400 bg-red-50 text-red-600"
-                        : "border-gray-200 text-gray-600 hover:border-red-200"
-                    }`}
-                  >
-                    {role.charAt(0).toUpperCase() + role.slice(1)}
-                  </button>
-                ))}
-              </div>
-            </div>
-
             {/* Email Input */}
             <div className="relative group">
               <label className="text-sm font-medium text-gray-700 mb-2 block animate-fade-in animation-delay-200">
@@ -282,27 +257,21 @@ export default function Login() {
 
             {/* Forgot Password & Sign Up */}
             <div className="mt-8 pt-6 border-t border-gray-200 space-y-3 text-center">
-              {selectedRole === "customer" ? (
-                <p className="text-gray-600 text-sm animate-fade-in animation-delay-500">
-                  Don't have an account?{" "}
-                  <button
-                    type="button"
-                    onClick={() => navigate("/signup")}
-                    className="font-semibold transition-colors duration-300 relative group"
-                    style={{ color: "#FF4B5C" }}
-                  >
-                    Sign up here
-                    <span
-                      className="absolute bottom-0 left-0 w-0 h-0.5 group-hover:w-full transition-all duration-300"
-                      style={{ background: "#FF6A00" }}
-                    ></span>
-                  </button>
-                </p>
-              ) : (
-                <p className="text-gray-500 text-sm animate-fade-in animation-delay-500">
-                  Signup is available only for customer accounts.
-                </p>
-              )}
+              <p className="text-gray-600 text-sm animate-fade-in animation-delay-500">
+                Don't have an account?{" "}
+                <button
+                  type="button"
+                  onClick={() => navigate("/signup")}
+                  className="font-semibold transition-colors duration-300 relative group"
+                  style={{ color: "#FF4B5C" }}
+                >
+                  Sign up here
+                  <span
+                    className="absolute bottom-0 left-0 w-0 h-0.5 group-hover:w-full transition-all duration-300"
+                    style={{ background: "#FF6A00" }}
+                  ></span>
+                </button>
+              </p>
               <button
                 type="button"
                 className="text-gray-500 hover:text-orange-500 text-sm transition-colors duration-300 w-full"

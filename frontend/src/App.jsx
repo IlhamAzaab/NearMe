@@ -139,17 +139,6 @@ function App() {
                         </ProtectedRoute>
                       }
                     />
-                    <Route
-                      path="/home"
-                      element={
-                        <ProtectedRoute
-                          allowedRole="customer"
-                          requireAuth={true}
-                        >
-                          <Home />
-                        </ProtectedRoute>
-                      }
-                    />
                     <Route path="/login" element={<Login />} />
                     <Route path="/signup" element={<Signup />} />
                     <Route

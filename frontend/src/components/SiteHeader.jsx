@@ -78,7 +78,7 @@ export default function SiteHeader({
     return () => clearInterval(interval);
   }, [isLoggedIn, role]);
 
-  const goHome = () => navigate("/home");
+  const goHome = () => navigate("/");
   const goLogin = () => navigate("/login");
 
   return (

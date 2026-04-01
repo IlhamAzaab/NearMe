@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import AnimatedAlert, { useAlert } from "../components/AnimatedAlert";
 import {
+  clearSession,
   getPostAuthRoute,
   persistSession,
   resendOtp,
@@ -33,6 +34,10 @@ export default function Signup() {
   });
   const [shake, setShake] = useState(false);
   const { alert, visible, showSuccess, showError } = useAlert();
+
+  useEffect(() => {
+    clearSession();
+  }, []);
 
   const handleChange = (e) => {
     setFormData((prev) => ({
@@ -75,7 +80,8 @@ export default function Signup() {
       const data = await signupStart({
         phone: formData.phone,
       });
-      const normalizedPhone = data.phone || normalizeSriLankaPhone(formData.phone);
+      const normalizedPhone =
+        data.phone || normalizeSriLankaPhone(formData.phone);
 
       setOtpContext({
         phone: normalizedPhone,
@@ -85,7 +91,9 @@ export default function Signup() {
       localStorage.setItem("pendingSignupPhone", normalizedPhone);
       setOtpStep(true);
       setLoading(false);
-      showSuccess(data.serverMessage || "Signup started. OTP sent to your phone.");
+      showSuccess(
+        data.serverMessage || "Signup started. OTP sent to your phone.",
+      );
     } catch (err) {
       console.error("Signup error:", err);
       showError(err.message || "Network error. Please try again.");
@@ -118,7 +126,9 @@ export default function Signup() {
       setOtpLoading(false);
       showSuccess("Phone number verified successfully");
       const destination =
-        data.nextStep === "complete_profile" ? "/auth/complete-profile" : getPostAuthRoute(user);
+        data.nextStep === "complete_profile"
+          ? "/auth/complete-profile"
+          : getPostAuthRoute(user);
       navigate(destination);
     } catch (err) {
       console.error("Verify OTP error:", err);
@@ -167,17 +177,22 @@ export default function Signup() {
             </p>
             {otpContext.expiresAt && (
               <p className="text-xs text-gray-400 mt-1">
-                Expires at: {new Date(otpContext.expiresAt).toLocaleTimeString()}
+                Expires at:{" "}
+                {new Date(otpContext.expiresAt).toLocaleTimeString()}
               </p>
             )}
             {otpContext.devOtp && (
-              <p className="text-xs text-emerald-600 mt-2">Dev OTP: {otpContext.devOtp}</p>
+              <p className="text-xs text-emerald-600 mt-2">
+                Dev OTP: {otpContext.devOtp}
+              </p>
             )}
           </div>
 
           <div className="space-y-4">
             <div className="relative group">
-              <label className="text-sm font-medium text-gray-700 mb-2 block">OTP Code</label>
+              <label className="text-sm font-medium text-gray-700 mb-2 block">
+                OTP Code
+              </label>
               <input
                 type="text"
                 maxLength={6}
@@ -256,12 +271,16 @@ export default function Signup() {
           <h1 className="text-4xl font-bold bg-gradient-to-r from-green-500 via-emerald-500 to-green-500 bg-clip-text text-transparent mb-2">
             Near Me
           </h1>
-          <p className="text-gray-500 text-sm">Create account and verify phone</p>
+          <p className="text-gray-500 text-sm">
+            Create account and verify phone
+          </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="relative group">
-            <label className="text-sm font-medium text-gray-700 mb-2 block">Phone Number</label>
+            <label className="text-sm font-medium text-gray-700 mb-2 block">
+              Phone Number
+            </label>
             <input
               type="tel"
               name="phone"
