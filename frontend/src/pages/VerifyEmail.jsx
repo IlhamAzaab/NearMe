@@ -46,6 +46,8 @@ function VerifyEmail() {
           </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }
+
+export default VerifyEmail;
