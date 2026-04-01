@@ -1,6 +1,6 @@
 import { API_URL } from "../config";
 import { isPhoneLikeIdentifier, normalizeSriLankaPhone } from "../utils/phone";
-import { supabaseClient } from "../supabaseClient";
+import { isRealtimeAvailable, supabaseClient } from "../supabaseClient";
 
 const AUTH_STORAGE_KEYS = {
   token: "token",
@@ -165,6 +165,10 @@ function mapSupabasePhoneAuthError(error, fallbackMessage) {
   const code = String(error?.code || "").toLowerCase();
   const message = String(error?.message || "").toLowerCase();
 
+  if (message.includes("invalid api key") || message.includes("invalid apikey")) {
+    return "Supabase API key is invalid in frontend environment. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY (or VITE_SUPABASE_PUBLISHABLE_KEY) in Vercel Project Settings -> Environment Variables, then redeploy.";
+  }
+
   if (code === "phone_provider_disabled" || message.includes("unsupported phone provider")) {
     return "Phone OTP is not enabled in Supabase. Enable Phone provider and configure Send SMS Hook in Supabase Authentication settings.";
   }
@@ -193,6 +197,12 @@ function mapSupabasePhoneAuthError(error, fallbackMessage) {
 }
 
 export async function signupStart({ phone }) {
+  if (!isRealtimeAvailable()) {
+    throw new Error(
+      "Supabase environment is missing. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY (or VITE_SUPABASE_PUBLISHABLE_KEY), then redeploy.",
+    );
+  }
+
   const normalizedPhone = normalizeSriLankaPhone(phone);
   if (!normalizedPhone) {
     throw new Error("Enter a valid Sri Lankan phone number (0771234567)");
