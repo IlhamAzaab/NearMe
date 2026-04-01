@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import BottomNavbar from "../components/BottomNavbar";
 import { API_URL } from "../config";
+import { logout } from "../services/authService";
 
 export default function CustomerProfile() {
   const navigate = useNavigate();
@@ -45,8 +46,9 @@ export default function CustomerProfile() {
     }
   };
 
-  const handleLogout = () => {
-    localStorage.clear();
+  const handleLogout = async () => {
+    const token = localStorage.getItem("token");
+    await logout(token);
     navigate("/login");
   };
 

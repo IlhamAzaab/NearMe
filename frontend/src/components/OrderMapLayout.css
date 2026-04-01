@@ -181,6 +181,211 @@
   }
 }
 
+/* ===== First-Person Bike Rider View ===== */
+.bike-rider-view {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 52%;
+  overflow: hidden;
+  background: linear-gradient(to bottom, #87CEEB 0%, #E0F6FF 100%);
+}
+
+/* Animated road moving toward rider */
+.road-animation {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 100%;
+  background: linear-gradient(to bottom, 
+    rgba(100, 100, 100, 0) 0%,
+    rgba(80, 80, 80, 0.3) 40%,
+    rgba(60, 60, 60, 0.6) 70%,
+    rgba(50, 50, 50, 0.9) 100%
+  );
+  perspective: 500px;
+  overflow: hidden;
+}
+
+.road-surface {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 200%;
+  height: 300%;
+  background: 
+    /* Center line */
+    repeating-linear-gradient(
+      180deg,
+      transparent 0px,
+      transparent 30px,
+      #FFD700 30px,
+      #FFD700 60px,
+      transparent 60px,
+      transparent 90px
+    ),
+    /* Road surface */
+    linear-gradient(to right,
+      rgba(255,255,255,0.1) 0%,
+      transparent 10%,
+      transparent 90%,
+      rgba(255,255,255,0.1) 100%
+    ),
+    #555;
+  animation: roadMove 2s linear infinite;
+  border-left: 3px solid #888;
+  border-right: 3px solid #888;
+}
+
+@keyframes roadMove {
+  0% { transform: translateX(-50%) translateY(0); }
+  100% { transform: translateX(-50%) translateY(90px); }
+}
+
+/* Bike handlebars - First person perspective */
+.bike-handlebars {
+  position: absolute;
+  bottom: 5%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 90%;
+  max-width: 500px;
+  z-index: 15;
+  animation: handlebarShake 0.3s ease-in-out infinite;
+}
+
+@keyframes handlebarShake {
+  0%, 100% { transform: translateX(-50%) translateY(0) rotate(0deg); }
+  50% { transform: translateX(-50%) translateY(-2px) rotate(0.5deg); }
+}
+
+.handlebar-left,
+.handlebar-right {
+  position: absolute;
+  bottom: 0;
+  width: 35%;
+  height: 120px;
+}
+
+.handlebar-left {
+  left: 0;
+  transform-origin: bottom right;
+}
+
+.handlebar-right {
+  right: 0;
+  transform-origin: bottom left;
+}
+
+/* Delivery box mounted on bike */
+.delivery-box-mount {
+  position: absolute;
+  bottom: 25%;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 12;
+  animation: boxBounce 0.5s ease-in-out infinite;
+}
+
+@keyframes boxBounce {
+  0%, 100% { transform: translateX(-50%) translateY(0); }
+  50% { transform: translateX(-50%) translateY(-3px); }
+}
+
+.delivery-box {
+  width: 100px;
+  height: 80px;
+  background: linear-gradient(135deg, #10b77f 0%, #0d9668 100%);
+  border-radius: 8px;
+  box-shadow: 
+    0 8px 24px rgba(16, 183, 127, 0.4),
+    inset 0 2px 4px rgba(255,255,255,0.3),
+    inset 0 -2px 4px rgba(0,0,0,0.2);
+  position: relative;
+  border: 3px solid #0d9668;
+}
+
+.delivery-box::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 60%;
+  height: 3px;
+  background: rgba(255,255,255,0.6);
+}
+
+.delivery-box::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 3px;
+  height: 60%;
+  background: rgba(255,255,255,0.6);
+}
+
+/* Food icon in delivery box */
+.delivery-box-icon {
+  position: absolute;
+  top: -12px;
+  right: -12px;
+  width: 32px;
+  height: 32px;
+  background: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+/* Speedometer effect */
+.speed-lines {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.speed-line {
+  position: absolute;
+  width: 2px;
+  height: 40px;
+  background: linear-gradient(to bottom, transparent, rgba(255,255,255,0.4), transparent);
+  animation: speedLineMove 1s linear infinite;
+}
+
+.speed-line:nth-child(1) { left: 10%; animation-delay: 0s; }
+.speed-line:nth-child(2) { left: 25%; animation-delay: 0.2s; }
+.speed-line:nth-child(3) { left: 40%; animation-delay: 0.4s; }
+.speed-line:nth-child(4) { left: 60%; animation-delay: 0.6s; }
+.speed-line:nth-child(5) { left: 75%; animation-delay: 0.8s; }
+.speed-line:nth-child(6) { left: 90%; animation-delay: 1s; }
+
+@keyframes speedLineMove {
+  0% { 
+    transform: translateY(-100%) scale(0.5);
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% { 
+    transform: translateY(400%) scale(2);
+    opacity: 0;
+  }
+}
+
 /* ===== Bottom Sheet Card ===== */
 .bottom-sheet-card {
   position: absolute;

@@ -1,4 +1,5 @@
 import express from "express";
+import bcrypt from "bcryptjs";
 import { supabaseAdmin } from "../supabaseAdmin.js";
 import { authenticate } from "../middleware/authenticate.js";
 import { generateTempPassword } from "../utils/password.js";
@@ -33,6 +34,10 @@ if (process.env.NODE_ENV !== "production") {
 }
 
 const router = express.Router();
+const BCRYPT_SALT_ROUNDS = Number.parseInt(
+  process.env.BCRYPT_SALT_ROUNDS || "12",
+  10,
+);
 
 /**
  * GET /manager/me
@@ -124,6 +129,7 @@ router.post("/add-admin", authenticate, async (req, res) => {
     }
 
     const userId = authData.user.id;
+    const tempPasswordHash = await bcrypt.hash(tempPassword, BCRYPT_SALT_ROUNDS);
     console.log(`Created auth user with ID: ${userId}`);
 
     // Helper to rollback auth/user if downstream fails
@@ -140,7 +146,14 @@ router.post("/add-admin", authenticate, async (req, res) => {
     // 2) Insert into users table
     const { error: userInsertError } = await supabaseAdmin
       .from("users")
-      .insert({ id: userId, role: "admin" });
+      .insert({
+        id: userId,
+        role: "admin",
+        email,
+        password_hash: tempPasswordHash,
+        phone_verified: true,
+        profile_completed: false,
+      });
 
     if (userInsertError) {
       console.error("users insert error", userInsertError);
@@ -260,6 +273,7 @@ router.post("/add-driver", authenticate, async (req, res) => {
     }
 
     const userId = authData.user.id;
+    const tempPasswordHash = await bcrypt.hash(tempPassword, BCRYPT_SALT_ROUNDS);
     console.log(`Created driver auth user with ID: ${userId}`);
 
     const cleanup = async () => {
@@ -275,7 +289,14 @@ router.post("/add-driver", authenticate, async (req, res) => {
     // Insert into users table
     const { error: userInsertError } = await supabaseAdmin
       .from("users")
-      .insert({ id: userId, role: "driver" });
+      .insert({
+        id: userId,
+        role: "driver",
+        email,
+        password_hash: tempPasswordHash,
+        phone_verified: true,
+        profile_completed: false,
+      });
 
     if (userInsertError) {
       console.error("driver users insert error", userInsertError);

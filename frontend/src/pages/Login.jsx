@@ -1,102 +1,65 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import foodBg from "../assets/food-bg.jpg";
 import mdImage from "../assets/md.jpg";
 import AnimatedAlert, { useAlert } from "../components/AnimatedAlert";
-import { API_URL } from "../config";
-import { persistAuthSession } from "../auth/tokenStorage";
+import {
+  getPostAuthRoute,
+  login,
+  persistSession,
+} from "../services/authService";
+
+const LOGIN_ROLE_OPTIONS = ["customer", "manager", "admin", "driver"];
 
 export default function Login() {
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
+  const [selectedRole, setSelectedRole] = useState("customer");
   const [isLoading, setIsLoading] = useState(false);
   const [shake, setShake] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const navigate = useNavigate();
   const { alert, visible, showError } = useAlert();
 
+  function triggerShake() {
+    setShake(true);
+    setTimeout(() => setShake(false), 500);
+  }
+
   async function handleLogin() {
-    if (!email || !password) {
-      setShake(true);
-      setTimeout(() => setShake(false), 500);
+    if (!identifier || !password) {
+      triggerShake();
       return;
     }
 
     setIsLoading(true);
 
     try {
-      const res = await fetch(`${API_URL}/auth/login`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
-      const data = await res.json();
+      const data = await login({ identifier, password, role: selectedRole });
+      const user = data?.user || null;
 
-      // Debug login response
-      if (res.ok) {
-        console.log("🔐 Login response:", {
-          token: data.token ? `${data.token.substring(0, 20)}...` : "NULL",
-          role: data.role,
-          profileCompleted: data.profileCompleted,
-          userId: data.userId,
-          userName: data.userName,
-        });
-      } else {
-        console.log("🔐 Login failed:", res.status, data.message);
+      if (!user || !data?.token) {
+        throw new Error("Login failed. Missing session data.");
       }
 
-      // Check if email verification is required (403 response)
-      if (res.status === 403) {
-        setIsLoading(false);
-        setShake(true);
-        setTimeout(() => setShake(false), 500);
-        showError(data.message || "Please verify your email before logging in");
-        return;
+      if (selectedRole !== user.role) {
+        throw new Error(`This account is a ${user.role}. Switch role option to continue.`);
       }
 
-      if (!res.ok) {
-        setIsLoading(false);
-        setShake(true);
-        setTimeout(() => setShake(false), 500);
-        showError(data.message || "Login failed");
-        return;
-      }
-
-      await persistAuthSession(data);
-
-      // Store email separately (not included in persistAuthSession)
-      localStorage.setItem("userEmail", email);
+      persistSession({ token: data.token, user });
 
       setIsLoading(false);
       setIsTransitioning(true);
 
       setTimeout(() => {
-        if (data.role === "customer" && !data.profileCompleted) {
-          const params = new URLSearchParams({ userId: data.userId });
-          if (data.access_token) params.set("access_token", data.access_token);
-          navigate(`/auth/complete-profile?${params.toString()}`);
-          return;
-        }
-
-        if (data.role === "customer") {
-          navigate("/");
-        } else if (data.role === "admin") {
-          navigate("/admin/dashboard");
-        } else if (data.role === "driver") {
-          navigate("/driver/dashboard");
-        } else if (data.role === "manager") {
-          navigate("/manager/dashboard");
-        } else {
-          navigate("/");
-        }
+        const destination =
+          data.nextStep === "complete_profile" ? "/auth/complete-profile" : getPostAuthRoute(user);
+        navigate(destination);
       }, 1800);
     } catch (error) {
       console.error("Login error:", error);
-      showError("Network error. Please try again.");
+      showError(error.message || "Network error. Please try again.");
       setIsLoading(false);
-      setShake(true);
-      setTimeout(() => setShake(false), 500);
+      triggerShake();
     }
   }
 
@@ -182,10 +145,30 @@ export default function Login() {
 
           {/* Login Form */}
           <form className="space-y-5">
+            <div className="animate-fade-in animation-delay-200">
+              <p className="text-sm font-medium text-gray-700 mb-2">Login as</p>
+              <div className="grid grid-cols-2 gap-2">
+                {LOGIN_ROLE_OPTIONS.map((role) => (
+                  <button
+                    key={role}
+                    type="button"
+                    onClick={() => setSelectedRole(role)}
+                    className={`px-3 py-2 text-sm font-semibold rounded-lg border transition-all duration-200 ${
+                      selectedRole === role
+                        ? "border-red-400 bg-red-50 text-red-600"
+                        : "border-gray-200 text-gray-600 hover:border-red-200"
+                    }`}
+                  >
+                    {role.charAt(0).toUpperCase() + role.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* Email Input */}
             <div className="relative group">
               <label className="text-sm font-medium text-gray-700 mb-2 block animate-fade-in animation-delay-200">
-                Email Address
+                Email or Phone
               </label>
               <div className="relative">
                 <svg
@@ -202,12 +185,12 @@ export default function Login() {
                   />
                 </svg>
                 <input
-                  type="email"
-                  placeholder="you@example.com"
+                  type="text"
+                  placeholder="you@example.com or 0771234567"
                   className="w-full pl-12 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-orange-400 focus:bg-white focus:ring-2 focus:ring-orange-100 text-gray-800 placeholder-gray-400 transition-all duration-300 animate-fade-in animation-delay-200"
-                  onChange={(e) => setEmail(e.target.value)}
-                  value={email}
-                  autoComplete="email"
+                  onChange={(e) => setIdentifier(e.target.value)}
+                  value={identifier}
+                  autoComplete="username"
                 />
               </div>
             </div>
@@ -299,21 +282,27 @@ export default function Login() {
 
             {/* Forgot Password & Sign Up */}
             <div className="mt-8 pt-6 border-t border-gray-200 space-y-3 text-center">
-              <p className="text-gray-600 text-sm animate-fade-in animation-delay-500">
-                Don't have an account?{" "}
-                <button
-                  type="button"
-                  onClick={() => navigate("/signup")}
-                  className="font-semibold transition-colors duration-300 relative group"
-                  style={{ color: "#FF4B5C" }}
-                >
-                  Sign up here
-                  <span
-                    className="absolute bottom-0 left-0 w-0 h-0.5 group-hover:w-full transition-all duration-300"
-                    style={{ background: "#FF6A00" }}
-                  ></span>
-                </button>
-              </p>
+              {selectedRole === "customer" ? (
+                <p className="text-gray-600 text-sm animate-fade-in animation-delay-500">
+                  Don't have an account?{" "}
+                  <button
+                    type="button"
+                    onClick={() => navigate("/signup")}
+                    className="font-semibold transition-colors duration-300 relative group"
+                    style={{ color: "#FF4B5C" }}
+                  >
+                    Sign up here
+                    <span
+                      className="absolute bottom-0 left-0 w-0 h-0.5 group-hover:w-full transition-all duration-300"
+                      style={{ background: "#FF6A00" }}
+                    ></span>
+                  </button>
+                </p>
+              ) : (
+                <p className="text-gray-500 text-sm animate-fade-in animation-delay-500">
+                  Signup is available only for customer accounts.
+                </p>
+              )}
               <button
                 type="button"
                 className="text-gray-500 hover:text-orange-500 text-sm transition-colors duration-300 w-full"

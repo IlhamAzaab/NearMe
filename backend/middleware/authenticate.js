@@ -11,7 +11,7 @@ getValidatedAuthConfig();
  * Middleware to authenticate JWT tokens
  * Validates Bearer token and attaches user payload to req.user
  */
-export function authenticate(req, res, next) {
+export async function authenticate(req, res, next) {
   const auth = req.headers.authorization || "";
 
   if (!auth.startsWith("Bearer ")) {

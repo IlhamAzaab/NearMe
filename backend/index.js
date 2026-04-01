@@ -27,6 +27,22 @@ console.log(
   "SUPABASE_SERVICE_ROLE_KEY:",
   process.env.SUPABASE_SERVICE_ROLE_KEY ? "✓ Set (hidden)" : "✗ Missing",
 );
+console.log(
+  "SUPABASE_SMS_HOOK_SECRET:",
+  process.env.SUPABASE_SMS_HOOK_SECRET ? "✓ Set (hidden)" : "✗ Missing",
+);
+console.log(
+  "SMSLENZ_USER_ID:",
+  process.env.SMSLENZ_USER_ID ? "✓ Set" : "✗ Missing",
+);
+console.log(
+  "SMSLENZ_API_KEY:",
+  process.env.SMSLENZ_API_KEY ? "✓ Set (hidden)" : "✗ Missing",
+);
+console.log(
+  "SMSLENZ_SENDER_ID:",
+  process.env.SMSLENZ_SENDER_ID ? "✓ Set" : "✗ Missing",
+);
 
 // Auth configuration
 console.log("\n📧 Auth email delivery: Supabase built-in");
@@ -107,8 +123,16 @@ import publicRoutes from "./routes/public.js";
 import pushNotificationRoutes from "./routes/pushNotification.js";
 import reportsRoutes from "./routes/reports.js";
 import restaurantOnboardingRoutes from "./routes/restaurantOnboarding.js";
+import authOtpRoutes from "./routes/authOtp.js";
+import smsHookRoutes from "./routes/smsHookRoutes.js";
 
 const app = express();
+
+function captureAuthHookRawBody(req, res, buffer) {
+  if (req.originalUrl === "/auth/send-sms-hook" && buffer?.length) {
+    req.rawBody = buffer.toString("utf8");
+  }
+}
 
 // --- CORS: only allow your own frontend origins ---
 const allowedOrigins = [
@@ -172,8 +196,14 @@ app.use((req, res, next) => {
 });
 
 // --- Body size limits (10MB for image uploads, not 50MB) ---
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ limit: "10mb", extended: true }));
+app.use(express.json({ limit: "10mb", verify: captureAuthHookRawBody }));
+app.use(
+  express.urlencoded({
+    limit: "10mb",
+    extended: true,
+    verify: captureAuthHookRawBody,
+  }),
+);
 
 // --- Global rate limiter: 500 requests per minute per IP ---
 // Increased from 200 to handle web + mobile + dev hot reloads on same IP
@@ -239,6 +269,8 @@ app.get("/health", (req, res) => {
 });
 
 // Routes
+app.use("/auth", smsHookRoutes);
+app.use("/auth", authLimiter, authOtpRoutes);
 app.use("/auth", authLimiter, authRoutes);
 app.use("/manager", managerRoutes);
 app.use("/admin", adminRoutes);
@@ -261,7 +293,17 @@ app.use("/push", pushNotificationRoutes);
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error("Unhandled error:", err);
-  res.status(500).json({ message: "Internal server error" });
+
+  // body-parser sends this for malformed JSON payloads
+  if (err?.type === "entity.parse.failed") {
+    return res.status(400).json({ message: "Invalid JSON payload" });
+  }
+
+  const statusCode = Number(err?.statusCode || err?.status || 500);
+  const safeMessage = statusCode >= 500 ? "Internal server error" : err?.message;
+  return res.status(statusCode).json({
+    message: safeMessage || "Request failed",
+  });
 });
 
 // Server
