@@ -32,7 +32,9 @@ function getStoredSessionUser() {
     return null;
   }
 
-  const profileCompletedRaw = localStorage.getItem(AUTH_STORAGE_KEYS.profileCompleted);
+  const profileCompletedRaw = localStorage.getItem(
+    AUTH_STORAGE_KEYS.profileCompleted,
+  );
   const parsedProfileCompleted =
     profileCompletedRaw === "true"
       ? true
@@ -117,7 +119,9 @@ export function persistSession({ token, user }) {
 }
 
 export function clearSession() {
-  Object.values(AUTH_STORAGE_KEYS).forEach((key) => localStorage.removeItem(key));
+  Object.values(AUTH_STORAGE_KEYS).forEach((key) =>
+    localStorage.removeItem(key),
+  );
   localStorage.removeItem("pendingSignupPhone");
 }
 
@@ -165,11 +169,17 @@ function mapSupabasePhoneAuthError(error, fallbackMessage) {
   const code = String(error?.code || "").toLowerCase();
   const message = String(error?.message || "").toLowerCase();
 
-  if (message.includes("invalid api key") || message.includes("invalid apikey")) {
+  if (
+    message.includes("invalid api key") ||
+    message.includes("invalid apikey")
+  ) {
     return "Supabase API key is invalid in frontend environment. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY (or VITE_SUPABASE_PUBLISHABLE_KEY) in Vercel Project Settings -> Environment Variables, then redeploy.";
   }
 
-  if (code === "phone_provider_disabled" || message.includes("unsupported phone provider")) {
+  if (
+    code === "phone_provider_disabled" ||
+    message.includes("unsupported phone provider")
+  ) {
     return "Phone OTP is not enabled in Supabase. Enable Phone provider and configure Send SMS Hook in Supabase Authentication settings.";
   }
 
@@ -177,7 +187,10 @@ function mapSupabasePhoneAuthError(error, fallbackMessage) {
     return "Invalid phone number format. Use Sri Lankan format like 0771234567.";
   }
 
-  if (message.includes("failed to reach hook") || message.includes("unexpected status code returned from hook")) {
+  if (
+    message.includes("failed to reach hook") ||
+    message.includes("unexpected status code returned from hook")
+  ) {
     return "SMS hook timeout/failure detected. Check backend deploy status, SUPABASE_SMS_HOOK_SECRET, and SMSLENZ env values on Render.";
   }
 
@@ -185,11 +198,18 @@ function mapSupabasePhoneAuthError(error, fallbackMessage) {
     return "Supabase Send SMS hook is not signed correctly. Regenerate the hook secret in Supabase Hooks and set the same full value (v1,whsec_...) in Render SUPABASE_SMS_HOOK_SECRET.";
   }
 
-  if (message.includes("invalid signature") || message.includes("signature") || message.includes("standard webhook")) {
+  if (
+    message.includes("invalid signature") ||
+    message.includes("signature") ||
+    message.includes("standard webhook")
+  ) {
     return "Supabase hook signature verification failed. Ensure backend uses raw body + Standard Webhooks verification and that Supabase/Render secrets match exactly.";
   }
 
-  if (message.includes("invalid hook secret") || message.includes("unauthorized")) {
+  if (
+    message.includes("invalid hook secret") ||
+    message.includes("unauthorized")
+  ) {
     return "Send SMS Hook secret mismatch. Use Supabase-generated full secret (v1,whsec_...) and set the exact same value in Render SUPABASE_SMS_HOOK_SECRET.";
   }
 
@@ -238,11 +258,15 @@ export async function verifyOtp({ phone, otp }) {
   });
 
   if (error) {
-    throw new Error(mapSupabasePhoneAuthError(error, "OTP verification failed"));
+    throw new Error(
+      mapSupabasePhoneAuthError(error, "OTP verification failed"),
+    );
   }
 
   if (!data?.session?.access_token || !data?.user) {
-    throw new Error("OTP verification succeeded but no active session was returned");
+    throw new Error(
+      "OTP verification succeeded but no active session was returned",
+    );
   }
 
   const user = normalizeSupabaseUser(data.user);
@@ -281,7 +305,9 @@ export async function resendOtp({ phone }) {
 }
 
 async function loginCustomerWithSupabase({ identifier, password }) {
-  const email = String(identifier || "").trim().toLowerCase();
+  const email = String(identifier || "")
+    .trim()
+    .toLowerCase();
   if (!email || !email.includes("@")) {
     throw new Error("Customer login requires email and password");
   }
@@ -361,7 +387,14 @@ export async function login({ identifier, password, role = "customer" }) {
   return loginLegacyRole({ identifier, password });
 }
 
-export async function completeProfile({ email, address, password, latitude, longitude, token }) {
+export async function completeProfile({
+  email,
+  address,
+  password,
+  latitude,
+  longitude,
+  token,
+}) {
   return authRequest("/auth/complete-profile", {
     method: "POST",
     token,

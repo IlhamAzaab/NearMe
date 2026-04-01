@@ -28,7 +28,8 @@ function VerifyEmail() {
             OTP Signup Is Active
           </h2>
           <p className="text-gray-600 mb-6">
-            Email-link verification is no longer used. Please sign up with phone OTP or login with your credentials.
+            Email-link verification is no longer used. Please sign up with phone
+            OTP or login with your credentials.
           </p>
           <div className="space-y-3">
             <button
