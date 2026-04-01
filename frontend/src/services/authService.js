@@ -8,7 +8,46 @@ const AUTH_STORAGE_KEYS = {
   userId: "userId",
   userEmail: "userEmail",
   userPhone: "userPhone",
+  profileCompleted: "profileCompleted",
 };
+
+function isNetworkError(error) {
+  if (!error) {
+    return false;
+  }
+
+  const message = String(error?.message || "").toLowerCase();
+  return (
+    error instanceof TypeError ||
+    message.includes("failed to fetch") ||
+    message.includes("network") ||
+    message.includes("err_connection_refused")
+  );
+}
+
+function getStoredSessionUser() {
+  const id = localStorage.getItem(AUTH_STORAGE_KEYS.userId);
+  const role = localStorage.getItem(AUTH_STORAGE_KEYS.role);
+  if (!id || !role) {
+    return null;
+  }
+
+  const profileCompletedRaw = localStorage.getItem(AUTH_STORAGE_KEYS.profileCompleted);
+  const parsedProfileCompleted =
+    profileCompletedRaw === "true"
+      ? true
+      : profileCompletedRaw === "false"
+        ? false
+        : role !== "customer";
+
+  return {
+    id,
+    role,
+    email: localStorage.getItem(AUTH_STORAGE_KEYS.userEmail) || null,
+    phone: localStorage.getItem(AUTH_STORAGE_KEYS.userPhone) || null,
+    profileCompleted: parsedProfileCompleted,
+  };
+}
 
 async function parseApiResponse(response, { includeMeta = false } = {}) {
   const payload = await response.json().catch(() => ({}));
@@ -68,6 +107,12 @@ export function persistSession({ token, user }) {
   }
   if (user?.phone) {
     localStorage.setItem(AUTH_STORAGE_KEYS.userPhone, user.phone);
+  }
+  if (typeof user?.profileCompleted === "boolean") {
+    localStorage.setItem(
+      AUTH_STORAGE_KEYS.profileCompleted,
+      String(user.profileCompleted),
+    );
   }
 }
 
@@ -225,30 +270,97 @@ export async function resendOtp({ phone }) {
   };
 }
 
-export async function login({ identifier, password }) {
+async function loginCustomerWithSupabase({ identifier, password }) {
+  const email = String(identifier || "").trim().toLowerCase();
+  if (!email || !email.includes("@")) {
+    throw new Error("Customer login requires email and password");
+  }
+
+  const { data, error } = await supabaseClient.auth.signInWithPassword({
+    email,
+    password,
+  });
+
+  if (error) {
+    throw new Error(error.message || "Invalid email or password");
+  }
+
+  const token = data?.session?.access_token;
+  if (!token) {
+    throw new Error("Login failed. Missing session token.");
+  }
+
+  let user = normalizeSupabaseUser(data.user);
+  try {
+    user = await getMe(token);
+  } catch {
+    // Keep Supabase user fallback when profile API is temporarily unavailable.
+  }
+
+  return {
+    token,
+    user,
+    nextStep:
+      user?.role === "customer" && !user?.profileCompleted
+        ? "complete_profile"
+        : "home",
+  };
+}
+
+async function loginLegacyRole({ identifier, password }) {
   const trimmedIdentifier = String(identifier || "").trim();
   const normalizedIdentifier = isPhoneLikeIdentifier(trimmedIdentifier)
     ? normalizeSriLankaPhone(trimmedIdentifier)
     : trimmedIdentifier.toLowerCase();
 
-  const data = await authRequest("/auth/login", {
+  const response = await fetch(`${API_URL}/auth/login`, {
     method: "POST",
-    body: {
-      identifier: normalizedIdentifier,
-      password,
+    headers: {
+      "Content-Type": "application/json",
     },
+    body: JSON.stringify({
+      identifier: normalizedIdentifier,
+      email: normalizedIdentifier,
+      password,
+    }),
   });
 
-  return data;
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload?.message || "Login failed");
+  }
+
+  return {
+    token: payload?.token,
+    user: {
+      id: payload?.userId || null,
+      role: payload?.role || null,
+      email: normalizedIdentifier.includes("@") ? normalizedIdentifier : null,
+      phone: null,
+      profileCompleted: Boolean(payload?.profileCompleted),
+    },
+    nextStep: payload?.profileCompleted ? "home" : "complete_profile",
+  };
 }
 
-export async function completeProfile({ email, address, token }) {
+export async function login({ identifier, password, role = "customer" }) {
+  if (role === "customer") {
+    return loginCustomerWithSupabase({ identifier, password });
+  }
+
+  return loginLegacyRole({ identifier, password });
+}
+
+export async function completeProfile({ email, address, password, latitude, longitude, token }) {
   return authRequest("/auth/complete-profile", {
     method: "POST",
     token,
     body: {
       email: email.trim().toLowerCase(),
       address: address.trim(),
+      password: String(password || ""),
+      latitude,
+      longitude,
     },
   });
 }
@@ -270,19 +382,65 @@ export async function logout(token) {
   } catch {
     // Logout is stateless; clear local session even if API is unavailable.
   } finally {
+    await supabaseClient.auth.signOut().catch(() => {
+      // Ignore Supabase sign-out failures and still clear local app session.
+    });
     clearSession();
   }
 }
 
 export async function restoreSessionFromToken() {
   const token = localStorage.getItem(AUTH_STORAGE_KEYS.token);
-  if (!token) {
-    return { restored: false, user: null };
+
+  if (token) {
+    try {
+      const user = await getMe(token);
+      persistSession({ token, user });
+      return { restored: true, user };
+    } catch (error) {
+      if (isNetworkError(error)) {
+        const fallbackUser = getStoredSessionUser();
+        if (fallbackUser) {
+          return { restored: true, user: fallbackUser };
+        }
+      }
+
+      // Try Supabase persisted session fallback before clearing user state.
+    }
   }
 
   try {
-    const user = await getMe(token);
-    persistSession({ token, user });
+    const { data, error } = await supabaseClient.auth.getSession();
+    const supabaseToken = data?.session?.access_token;
+
+    if (error || !supabaseToken) {
+      const fallbackUser = getStoredSessionUser();
+      if (fallbackUser && token) {
+        return { restored: true, user: fallbackUser };
+      }
+
+      clearSession();
+      return { restored: false, user: null };
+    }
+
+    let user;
+    try {
+      user = await getMe(supabaseToken);
+    } catch (meError) {
+      if (!isNetworkError(meError)) {
+        throw meError;
+      }
+
+      const fallbackUser = getStoredSessionUser();
+      if (!fallbackUser) {
+        throw meError;
+      }
+
+      persistSession({ token: supabaseToken, user: fallbackUser });
+      return { restored: true, user: fallbackUser };
+    }
+
+    persistSession({ token: supabaseToken, user });
     return { restored: true, user };
   } catch {
     clearSession();

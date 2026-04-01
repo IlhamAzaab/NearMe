@@ -34,7 +34,7 @@ export default function Login() {
     setIsLoading(true);
 
     try {
-      const data = await login({ identifier, password });
+      const data = await login({ identifier, password, role: selectedRole });
       const user = data?.user || null;
 
       if (!user || !data?.token) {

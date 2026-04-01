@@ -487,9 +487,60 @@ export async function loginUser({ identifier, password }) {
   };
 }
 
-export async function completeCustomerProfile({ userId, email, address }) {
+export async function completeCustomerProfile({
+  userId,
+  email,
+  password,
+  address,
+  latitude,
+  longitude,
+}) {
   const normalizedEmail = email.toLowerCase().trim();
+  const normalizedPassword = String(password || "");
   const normalizedAddress = address.trim();
+  const normalizedLatitude = Number(latitude);
+  const normalizedLongitude = Number(longitude);
+
+  async function ensureLegacyUserRow() {
+    const { error: upsertError } = await supabaseAdmin.from("users").upsert(
+      {
+        id: userId,
+        role: "customer",
+        address: normalizedAddress,
+        profile_completed: false,
+        created_at: new Date().toISOString(),
+      },
+      { onConflict: "id" },
+    );
+
+    if (upsertError) {
+      throw appError(500, "Failed to initialize user record", "USER_INIT_FAILED", {
+        dbMessage: upsertError.message,
+        dbHint: upsertError.hint || null,
+        dbDetails: upsertError.details || null,
+        dbCode: upsertError.code || null,
+      });
+    }
+  }
+
+  async function insertCustomerProfile() {
+    const generatedUsername = `user_${userId.slice(0, 8)}`;
+    return supabaseAdmin
+      .from("customers")
+      .insert({
+        id: userId,
+        username: generatedUsername,
+        email: normalizedEmail,
+        phone: normalizedPhone,
+        address: normalizedAddress,
+        latitude: normalizedLatitude,
+        longitude: normalizedLongitude,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .select("id, username, email, phone, address, latitude, longitude")
+      .single();
+  }
 
   const { data: authUserData, error: authUserError } =
     await supabaseAdmin.auth.admin.getUserById(userId);
@@ -541,6 +592,26 @@ export async function completeCustomerProfile({ userId, email, address }) {
     throw appError(409, "Email is already in use", "DUPLICATE_EMAIL");
   }
 
+  // Set email/password in auth.users first so customer can log in with email+password.
+  const { error: authCredsUpdateError } = await supabaseAdmin.auth.admin.updateUserById(
+    userId,
+    {
+      email: normalizedEmail,
+      password: normalizedPassword,
+      email_confirm: true,
+    },
+  );
+
+  if (authCredsUpdateError) {
+    throw appError(500, "Failed to update auth credentials", "AUTH_CREDENTIALS_UPDATE_FAILED", {
+      providerMessage: authCredsUpdateError.message,
+      providerStatus: authCredsUpdateError.status || null,
+    });
+  }
+
+  // Keep a compatibility row in public.users because customers.id has FK dependency.
+  await ensureLegacyUserRow();
+
   const { data: existingProfile, error: existingProfileError } = await supabaseAdmin
     .from("customers")
     .select("id, username")
@@ -565,10 +636,12 @@ export async function completeCustomerProfile({ userId, email, address }) {
         email: normalizedEmail,
         address: normalizedAddress,
         phone: normalizedPhone,
+        latitude: normalizedLatitude,
+        longitude: normalizedLongitude,
         updated_at: new Date().toISOString(),
       })
       .eq("id", userId)
-      .select("id, username, email, phone, address")
+      .select("id, username, email, phone, address, latitude, longitude")
       .single();
 
     if (updateProfileError || !updatedProfile) {
@@ -582,20 +655,18 @@ export async function completeCustomerProfile({ userId, email, address }) {
 
     customerProfile = updatedProfile;
   } else {
-    const generatedUsername = `user_${userId.slice(0, 8)}`;
-    const { data: insertedProfile, error: insertProfileError } = await supabaseAdmin
-      .from("customers")
-      .insert({
-        id: userId,
-        username: generatedUsername,
-        email: normalizedEmail,
-        phone: normalizedPhone,
-        address: normalizedAddress,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .select("id, username, email, phone, address")
-      .single();
+    let { data: insertedProfile, error: insertProfileError } = await insertCustomerProfile();
+
+    // In some environments a stale/missing public.users row can still race; upsert and retry once.
+    if (
+      insertProfileError?.code === "23503" &&
+      String(insertProfileError?.message || "").includes("customers_id_fkey")
+    ) {
+      await ensureLegacyUserRow();
+      const retry = await insertCustomerProfile();
+      insertedProfile = retry.data;
+      insertProfileError = retry.error;
+    }
 
     if (insertProfileError || !insertedProfile) {
       throw appError(500, "Failed to create customer profile", "PROFILE_CREATE_FAILED", {
@@ -614,6 +685,8 @@ export async function completeCustomerProfile({ userId, email, address }) {
     role,
     email: normalizedEmail,
     address: normalizedAddress,
+    latitude: normalizedLatitude,
+    longitude: normalizedLongitude,
     profile_completed: true,
   };
 
@@ -634,12 +707,32 @@ export async function completeCustomerProfile({ userId, email, address }) {
     user_metadata: mergedMetadata,
   };
 
+  const { error: legacyUpdateError } = await supabaseAdmin
+    .from("users")
+    .update({
+      role: "customer",
+      address: normalizedAddress,
+      profile_completed: true,
+    })
+    .eq("id", userId);
+
+  if (legacyUpdateError) {
+    throw appError(500, "Failed to finalize user record", "USER_FINALIZE_FAILED", {
+      dbMessage: legacyUpdateError.message,
+      dbHint: legacyUpdateError.hint || null,
+      dbDetails: legacyUpdateError.details || null,
+      dbCode: legacyUpdateError.code || null,
+    });
+  }
+
   return {
     id: userId,
     role,
     email: customerProfile.email || updatedAuthUser.email || mergedMetadata.email || null,
     phone: normalizedPhone,
     address: customerProfile.address || mergedMetadata.address || null,
+    latitude: customerProfile.latitude ?? mergedMetadata.latitude ?? null,
+    longitude: customerProfile.longitude ?? mergedMetadata.longitude ?? null,
     phoneVerified: Boolean(updatedAuthUser.phone_confirmed_at),
     profileCompleted: true,
   };
@@ -656,7 +749,7 @@ export async function getCurrentUser(userId) {
   const authUser = authUserData.user;
   const { data: customerProfile, error: customerError } = await supabaseAdmin
     .from("customers")
-    .select("id, email, phone, address")
+    .select("id, email, phone, address, latitude, longitude")
     .eq("id", userId)
     .maybeSingle();
 
@@ -678,6 +771,8 @@ export async function getCurrentUser(userId) {
       customerProfile?.email || authUser.email || authUser.user_metadata?.email || null,
     phone: normalizeSriLankaPhone(authUser.phone || customerProfile?.phone || "") || null,
     address: customerProfile?.address || authUser.user_metadata?.address || null,
+    latitude: customerProfile?.latitude ?? authUser.user_metadata?.latitude ?? null,
+    longitude: customerProfile?.longitude ?? authUser.user_metadata?.longitude ?? null,
     phoneVerified: Boolean(authUser.phone_confirmed_at),
     profileCompleted: Boolean(
       authUser.user_metadata?.profile_completed || customerProfile,

@@ -121,11 +121,18 @@ export function validateLogin(body) {
 
 export function validateCompleteProfile(body) {
   const email = ensureNonEmptyString(body?.email, "Email is required", "EMAIL_REQUIRED");
+  const password = ensureNonEmptyString(
+    body?.password,
+    "Password is required",
+    "PASSWORD_REQUIRED",
+  );
   const address = ensureNonEmptyString(
     body?.address,
     "Address is required",
     "ADDRESS_REQUIRED",
   );
+  const latitude = Number(body?.latitude);
+  const longitude = Number(body?.longitude);
 
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(email)) {
@@ -140,8 +147,27 @@ export function validateCompleteProfile(body) {
     );
   }
 
+  if (password.length < 6 || password.length > 72) {
+    throw appError(
+      400,
+      "Password must be between 6 and 72 characters",
+      "INVALID_PASSWORD_LENGTH",
+    );
+  }
+
+  if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90) {
+    throw appError(400, "Valid latitude is required", "INVALID_LATITUDE");
+  }
+
+  if (!Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+    throw appError(400, "Valid longitude is required", "INVALID_LONGITUDE");
+  }
+
   return {
     email,
+    password,
     address,
+    latitude,
+    longitude,
   };
 }

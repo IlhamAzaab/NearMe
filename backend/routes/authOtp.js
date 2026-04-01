@@ -91,13 +91,31 @@ router.post("/complete-profile", async (req, res) => {
     const updatedUser = await completeCustomerProfile({
       userId,
       email: payload.email,
+      password: payload.password,
       address: payload.address,
+      latitude: payload.latitude,
+      longitude: payload.longitude,
     });
+
+    let sessionToken = null;
+    if (process.env.JWT_SECRET) {
+      sessionToken = jwt.sign(
+        {
+          id: userId,
+          role: updatedUser.role || "customer",
+        },
+        process.env.JWT_SECRET,
+        { expiresIn: process.env.JWT_EXPIRES_IN || "7d" },
+      );
+    }
 
     return ok(res, {
       message: "Profile completed successfully",
       code: "PROFILE_COMPLETED",
-      data: updatedUser,
+      data: {
+        ...updatedUser,
+        token: sessionToken,
+      },
     });
   } catch (error) {
     return fail(res, error);
