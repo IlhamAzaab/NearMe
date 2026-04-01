@@ -1,100 +1,50 @@
-import { useEffect, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
-import { persistAuthSession } from "../auth/tokenStorage";
-import { API_URL } from "../config";
+import { useNavigate } from "react-router-dom";
+import SiteHeader from "../components/SiteHeader";
 
-export default function VerifyEmail() {
+function VerifyEmail() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const [status, setStatus] = useState("verifying");
-  const [message, setMessage] = useState("Verifying your email...");
-
-  useEffect(() => {
-    const run = async () => {
-      const token = String(searchParams.get("token") || "").trim();
-      if (!token) {
-        setStatus("error");
-        setMessage("Invalid verification link.");
-        return;
-      }
-
-      try {
-        const response = await fetch(`${API_URL}/auth/verify-email`, {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token }),
-        });
-
-        const data = await response.json().catch(() => ({}));
-
-        if (!response.ok) {
-          setStatus("error");
-          setMessage(data?.message || "Verification failed. Please request a new email.");
-          return;
-        }
-
-        await persistAuthSession(data);
-        if (data?.email) {
-          localStorage.setItem("userEmail", data.email);
-        }
-
-        localStorage.setItem("nm_email_verified", String(Date.now()));
-        setStatus("success");
-        setMessage("Email verified. Signing you in...");
-
-        const nextUserId = data?.userId || localStorage.getItem("userId") || "";
-        const profileDone = !!data?.profileCompleted;
-
-        setTimeout(() => {
-          if (data?.role === "customer" && !profileDone) {
-            navigate(`/auth/complete-profile?userId=${encodeURIComponent(nextUserId)}`);
-            return;
-          }
-
-          if (data?.role === "customer") {
-            navigate("/");
-            return;
-          }
-
-          navigate("/login");
-        }, 800);
-      } catch (error) {
-        console.error("Verify email error:", error);
-        setStatus("error");
-        setMessage("Network error during verification.");
-      }
-    };
-
-    run();
-  }, [navigate, searchParams]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-green-50 px-4">
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-lg p-8 text-center">
-        <h1 className="text-2xl font-bold text-gray-900 mb-3">
-          {status === "verifying" ? "Verifying email" : status === "success" ? "Verified" : "Verification failed"}
-        </h1>
-        <p className="text-sm text-gray-600 mb-6">{message}</p>
-
-        {status === "error" ? (
+    <>
+      <SiteHeader />
+      <div className="min-h-screen bg-gradient-to-br from-orange-50 to-red-50 flex items-center justify-center px-4">
+        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center">
+          <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg
+              className="w-8 h-8 text-blue-600"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
+            </svg>
+          </div>
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">
+            OTP Signup Is Active
+          </h2>
+          <p className="text-gray-600 mb-6">
+            Email-link verification is no longer used. Please sign up with phone OTP or login with your credentials.
+          </p>
           <div className="space-y-3">
             <button
-              type="button"
               onClick={() => navigate("/signup")}
-              className="w-full py-3 rounded-xl bg-green-600 text-white font-semibold"
+              className="w-full bg-orange-500 text-white py-3 px-4 rounded-lg hover:bg-orange-600 transition-colors font-medium"
             >
-              Back to signup
+              Go to Signup
             </button>
             <button
-              type="button"
               onClick={() => navigate("/login")}
-              className="w-full py-3 rounded-xl bg-gray-100 text-gray-700 font-semibold"
+              className="w-full bg-white border border-gray-300 text-gray-700 py-3 px-4 rounded-lg hover:bg-gray-50 transition-colors font-medium"
             >
-              Go to login
+              Go to Login
             </button>
           </div>
-        ) : null}
+        </div>
       </div>
     </div>
   );

@@ -1,0 +1,36 @@
+name: Keep Render Service Awake
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      HEALTHCHECK_URL: ${{ vars.RENDER_HEALTHCHECK_URL }}
+      DEFAULT_URL: https://meezo-backend-d3gw.onrender.com/health
+    steps:
+      - name: Ping health endpoint
+        shell: bash
+        run: |
+          URL="${HEALTHCHECK_URL:-$DEFAULT_URL}"
+          echo "Pinging: $URL"
+
+          HTTP_CODE=$(curl -sS -o /tmp/health_response.txt -w "%{http_code}" \
+            --max-time 10 \
+            --connect-timeout 5 \
+            "$URL")
+
+          echo "HTTP status: $HTTP_CODE"
+          echo "Response:"
+          cat /tmp/health_response.txt
+
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 400 ]; then
+            echo "Health check failed"
+            exit 1
+          fi
+
+          echo "Health check passed"
