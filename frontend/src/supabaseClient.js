@@ -1,9 +1,27 @@
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey =
+const sanitizeEnvValue = (value) => {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  const trimmed = value.trim();
+  // Handle values pasted with surrounding quotes in cloud env dashboards.
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1).trim();
+  }
+
+  return trimmed;
+};
+
+const supabaseUrl = sanitizeEnvValue(import.meta.env.VITE_SUPABASE_URL);
+const supabaseAnonKey = sanitizeEnvValue(
   import.meta.env.VITE_SUPABASE_ANON_KEY ||
-  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+    import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+);
 
 if (!supabaseUrl || !supabaseAnonKey) {
   console.warn(
