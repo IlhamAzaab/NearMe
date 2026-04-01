@@ -9,7 +9,14 @@ const sanitizeEnvValue = (value) => {
     return value;
   }
 
-  const trimmed = value.trim();
+  let trimmed = value.trim();
+
+  // Handle values accidentally pasted like "VITE_SUPABASE_ANON_KEY=eyJ..."
+  const assignmentMatch = trimmed.match(/^([A-Z0-9_]+)=(.+)$/i);
+  if (assignmentMatch && assignmentMatch[2]) {
+    trimmed = assignmentMatch[2].trim();
+  }
+
   // Handle values pasted with surrounding quotes in cloud env dashboards.
   if (
     (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
@@ -44,10 +51,16 @@ const getProjectRefFromAnonKey = (key) => {
 
 const resolveSupabaseConfig = () => {
   const envUrl = sanitizeEnvValue(import.meta.env.VITE_SUPABASE_URL);
-  const envKey = sanitizeEnvValue(
-    import.meta.env.VITE_SUPABASE_ANON_KEY ||
-      import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+  const anonCandidate = sanitizeEnvValue(import.meta.env.VITE_SUPABASE_ANON_KEY);
+  const publishableCandidate = sanitizeEnvValue(
+    import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
   );
+
+  const keyCandidates = [anonCandidate, publishableCandidate].filter(Boolean);
+  const envKey =
+    keyCandidates.find((key) => Boolean(getProjectRefFromAnonKey(key))) ||
+    keyCandidates[0] ||
+    null;
 
   if (!envUrl || !envKey) {
     console.warn(
