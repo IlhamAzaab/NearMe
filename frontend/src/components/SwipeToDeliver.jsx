@@ -13,6 +13,7 @@ function SwipeToDeliver({
   const containerRef = useRef(null);
   const startX = useRef(0);
   const maxSwipe = useRef(0);
+  const hasTriggeredSwipe = useRef(false);
 
   useEffect(() => {
     if (containerRef.current) {
@@ -27,6 +28,7 @@ function SwipeToDeliver({
     setSwipePosition(0);
     setIsDragging(false);
     setIsCompleted(false);
+    hasTriggeredSwipe.current = false;
   }, [resetTrigger]);
 
   const handleStart = (clientX) => {
@@ -43,7 +45,8 @@ function SwipeToDeliver({
     setSwipePosition(newPosition);
 
     // Check if swiped far enough (80% of total distance)
-    if (newPosition >= maxSwipe.current * 0.8) {
+    if (newPosition >= maxSwipe.current * 0.8 && !hasTriggeredSwipe.current) {
+      hasTriggeredSwipe.current = true;
       setIsCompleted(true);
       setIsDragging(false);
       setSwipePosition(maxSwipe.current);

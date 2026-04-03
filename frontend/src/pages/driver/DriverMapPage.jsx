@@ -386,6 +386,96 @@ export default function DriverMapPage() {
     }
   }, [driverLocation]);
 
+  // If list endpoints return a target without route metadata, hydrate from map endpoint once.
+  useEffect(() => {
+    if (!currentTarget?.delivery_id || !driverLocation) return;
+
+    const hasRoute =
+      Array.isArray(currentTarget?.route_geometry?.coordinates) &&
+      currentTarget.route_geometry.coordinates.length > 1;
+    const hasDistance =
+      currentTarget?.distance_km != null ||
+      Number.isFinite(Number(currentTarget?.distance_meters));
+    const hasEta = Number.isFinite(Number(currentTarget?.estimated_time_minutes));
+
+    if (hasRoute && hasDistance && hasEta) return;
+
+    let isMounted = true;
+
+    const hydrateCurrentTarget = async () => {
+      try {
+        const token = localStorage.getItem("token");
+        const mapRes = await fetch(
+          `${API_URL}/driver/deliveries/${currentTarget.delivery_id}/map`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          },
+        );
+
+        if (!mapRes.ok || !isMounted) return;
+
+        const mapData = await mapRes.json();
+        const isPickupMode = mode === "pickup";
+        const activeRoute = isPickupMode
+          ? mapData?.routes?.driver_to_restaurant
+          : mapData?.routes?.driver_to_customer;
+
+        const distanceMeters = Number(activeRoute?.distance);
+        const durationSeconds = Number(activeRoute?.duration);
+        const hydratedTarget = {
+          ...currentTarget,
+          route_geometry:
+            Array.isArray(activeRoute?.coordinates) &&
+            activeRoute.coordinates.length > 1
+              ? { coordinates: activeRoute.coordinates }
+              : currentTarget.route_geometry || null,
+          distance_meters: Number.isFinite(distanceMeters)
+            ? distanceMeters
+            : currentTarget.distance_meters ?? null,
+          distance_km: Number.isFinite(distanceMeters)
+            ? (distanceMeters / 1000).toFixed(2)
+            : currentTarget.distance_km ?? null,
+          estimated_time_minutes: Number.isFinite(durationSeconds)
+            ? Math.ceil(durationSeconds / 60)
+            : currentTarget.estimated_time_minutes ?? null,
+        };
+
+        if (!isMounted) return;
+
+        setCurrentTarget(hydratedTarget);
+        if (mode === "pickup") {
+          setPickups((prev) =>
+            prev.map((p) =>
+              p.delivery_id === hydratedTarget.delivery_id ? hydratedTarget : p,
+            ),
+          );
+        } else {
+          setDeliveries((prev) =>
+            prev.map((d) =>
+              d.delivery_id === hydratedTarget.delivery_id ? hydratedTarget : d,
+            ),
+          );
+        }
+      } catch (mapErr) {
+        console.warn("[DRIVER MAP] Current target hydration failed:", mapErr?.message);
+      }
+    };
+
+    hydrateCurrentTarget();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [
+    currentTarget?.delivery_id,
+    currentTarget?.route_geometry,
+    currentTarget?.distance_km,
+    currentTarget?.distance_meters,
+    currentTarget?.estimated_time_minutes,
+    driverLocation,
+    mode,
+  ]);
+
   // NO periodic polling — data is refreshed only on driver movement or explicit actions
 
   const startLocationTracking = () => {
@@ -729,8 +819,38 @@ export default function DriverMapPage() {
     }
   };
 
+  const updateDeliveryStatus = async ({
+    token,
+    deliveryId: targetDeliveryId,
+    status,
+    includeLocation = true,
+  }) => {
+    const payload = { status };
+
+    if (includeLocation && driverLocation) {
+      payload.latitude = driverLocation.latitude;
+      payload.longitude = driverLocation.longitude;
+    }
+
+    const res = await fetch(`${API_URL}/driver/deliveries/${targetDeliveryId}/status`, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data?.message || `Failed to update status to ${status}`);
+    }
+
+    return data;
+  };
+
   const handlePickedUp = async () => {
-    if (!currentTarget) return;
+    if (!currentTarget || updating) return;
 
     // Show overlay IMMEDIATELY on swipe
     setOverlayActionType("pickup");
@@ -740,67 +860,48 @@ export default function DriverMapPage() {
 
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(
-        `${API_URL}/driver/deliveries/${currentTarget.delivery_id}/status`,
-        {
-          method: "PATCH",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            status: "picked_up",
-            latitude: driverLocation.latitude,
-            longitude: driverLocation.longitude,
-          }),
-        },
+      const data = await updateDeliveryStatus({
+        token,
+        deliveryId: currentTarget.delivery_id,
+        status: "picked_up",
+      });
+
+      const updatedPickups = pickups.filter(
+        (p) => p.delivery_id !== currentTarget.delivery_id,
       );
+      setPickups(updatedPickups);
 
-      if (res.ok) {
-        const data = await res.json();
-
-        // Show success overlay
-        setOverlayStatus("success");
-        overlayCallbackRef.current = async () => {
-          const updatedPickups = pickups.filter(
-            (p) => p.delivery_id !== currentTarget.delivery_id,
-          );
-          setPickups(updatedPickups);
-
-          // Handle auto-promoted delivery if backend promoted one
-          let updatedDeliveries = deliveries;
-          if (data.promotedDelivery) {
-            const promotedIndex = updatedDeliveries.findIndex(
-              (d) => d.delivery_id === data.promotedDelivery.id,
-            );
-            if (promotedIndex !== -1) {
-              updatedDeliveries = [...updatedDeliveries];
-              updatedDeliveries[promotedIndex].status = "on_the_way";
-              setDeliveries(updatedDeliveries);
-            }
-          }
-
-          if (updatedPickups.length > 0) {
-            setCurrentTarget(updatedPickups[0]);
-          } else if (updatedDeliveries.length > 0) {
-            // No more pickups, switch to delivery mode with the first delivery
-            setMode("delivery");
-            setCurrentTarget(updatedDeliveries[0]);
-          } else {
-            // Fallback: refresh data from backend
-            await fetchPickupsAndDeliveries();
-          }
-          setUpdating(false);
-        };
-      } else {
-        const data = await res.json();
-        setOverlayErrorMsg(data.message || "Failed to update status");
-        setOverlayStatus("error");
-        overlayCallbackRef.current = () => setUpdating(false);
+      // Handle auto-promoted delivery if backend promoted one
+      let updatedDeliveries = deliveries;
+      if (data.promotedDelivery) {
+        const promotedIndex = updatedDeliveries.findIndex(
+          (d) => d.delivery_id === data.promotedDelivery.id,
+        );
+        if (promotedIndex !== -1) {
+          updatedDeliveries = [...updatedDeliveries];
+          updatedDeliveries[promotedIndex].status = "on_the_way";
+          setDeliveries(updatedDeliveries);
+        }
       }
+
+      // Show success overlay
+      setOverlayStatus("success");
+      overlayCallbackRef.current = async () => {
+        if (updatedPickups.length > 0) {
+          setCurrentTarget(updatedPickups[0]);
+        } else if (updatedDeliveries.length > 0) {
+          // No more pickups, switch to delivery mode with the first delivery
+          setMode("delivery");
+          setCurrentTarget(updatedDeliveries[0]);
+        } else {
+          // Fallback: refresh data from backend
+          await fetchPickupsAndDeliveries();
+        }
+        setUpdating(false);
+      };
     } catch (e) {
       console.error("Update error:", e);
-      setOverlayErrorMsg("Failed to update status");
+      setOverlayErrorMsg(e?.message || "Failed to update status");
       setOverlayStatus("error");
       overlayCallbackRef.current = () => setUpdating(false);
     }
@@ -814,7 +915,7 @@ export default function DriverMapPage() {
   };
 
   const handleDelivered = async () => {
-    if (!currentTarget) return;
+    if (!currentTarget || updating) return;
 
     // Show overlay IMMEDIATELY on swipe
     setOverlayActionType("deliver");
@@ -824,59 +925,34 @@ export default function DriverMapPage() {
 
     try {
       const token = localStorage.getItem("token");
+      const statusOrder = [
+        "accepted",
+        "picked_up",
+        "on_the_way",
+        "at_customer",
+        "delivered",
+      ];
 
-      // First update to on_the_way if not already
-      if (currentTarget.status === "picked_up") {
-        await fetch(
-          `${API_URL}/driver/deliveries/${currentTarget.delivery_id}/status`,
-          {
-            method: "PATCH",
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ status: "on_the_way" }),
-          },
-        );
+      let currentStatus = currentTarget.status;
+      const currentIndex = statusOrder.indexOf(currentStatus);
+      const deliveredIndex = statusOrder.indexOf("delivered");
+      const transitions =
+        currentIndex >= 0
+          ? statusOrder.slice(currentIndex + 1, deliveredIndex + 1)
+          : ["delivered"];
+
+      let data = null;
+      for (const nextStatus of transitions) {
+        data = await updateDeliveryStatus({
+          token,
+          deliveryId: currentTarget.delivery_id,
+          status: nextStatus,
+          includeLocation: nextStatus === "delivered",
+        });
+        currentStatus = data?.delivery?.status || nextStatus;
       }
 
-      // Then to at_customer if not already
-      if (
-        currentTarget.status === "picked_up" ||
-        currentTarget.status === "on_the_way"
-      ) {
-        await fetch(
-          `${API_URL}/driver/deliveries/${currentTarget.delivery_id}/status`,
-          {
-            method: "PATCH",
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ status: "at_customer" }),
-          },
-        );
-      }
-
-      // Finally mark as delivered
-      const res = await fetch(
-        `${API_URL}/driver/deliveries/${currentTarget.delivery_id}/status`,
-        {
-          method: "PATCH",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            status: "delivered",
-            latitude: driverLocation.latitude,
-            longitude: driverLocation.longitude,
-          }),
-        },
-      );
-
-      if (res.ok) {
-        const data = await res.json();
+      if (data) {
         const updatedDeliveries = deliveries.filter(
           (d) => d.delivery_id !== currentTarget.delivery_id,
         );
@@ -903,15 +979,10 @@ export default function DriverMapPage() {
           }
           setUpdating(false);
         };
-      } else {
-        const data = await res.json();
-        setOverlayErrorMsg(data.message || "Failed to update status");
-        setOverlayStatus("error");
-        overlayCallbackRef.current = () => setUpdating(false);
       }
     } catch (e) {
       console.error("Delivery error:", e);
-      setOverlayErrorMsg("Failed to mark as delivered");
+      setOverlayErrorMsg(e?.message || "Failed to mark as delivered");
       setOverlayStatus("error");
       overlayCallbackRef.current = () => setUpdating(false);
     }

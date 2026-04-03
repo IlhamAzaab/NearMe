@@ -2156,6 +2156,18 @@ router.patch(
         return res.status(404).json({ message: "Delivery not found" });
       }
 
+      // Idempotent success: duplicate updates can happen on touch/mouse gesture retries.
+      if (currentDelivery.status === status) {
+        return res.json({
+          message: "Status already up to date",
+          delivery: {
+            id: deliveryId,
+            status: currentDelivery.status,
+          },
+          promotedDelivery: null,
+        });
+      }
+
       // Validate state transitions
       const validTransitions = {
         accepted: ["picked_up"],
