@@ -278,23 +278,27 @@ export async function sendAdminApprovalNotification(
   try {
     const notification = isApproved
       ? {
-          title: "🎉 Restaurant Approved!",
-          body: `Congratulations! ${restaurantName} has been approved. You can now start receiving orders.`,
+          title: "Restaurant Approval Confirmed",
+          body: `${restaurantName} has been approved by the Meezo operations team. You can now start receiving orders.`,
+          channelId: "approvals",
           data: {
             type: "restaurant_approval",
             restaurantName,
             approved: "true",
             screen: "Login",
+            channelId: "approvals",
           },
         }
       : {
-          title: "❌ Restaurant Not Approved",
-          body: `${restaurantName} was not approved. Please check your email for details.`,
+          title: "Restaurant Verification Update",
+          body: `${restaurantName} was not approved. Please review the feedback and update your onboarding details.`,
+          channelId: "approvals",
           data: {
             type: "restaurant_rejection",
             restaurantName,
             approved: "false",
             screen: "Login",
+            channelId: "approvals",
           },
         };
 
@@ -319,7 +323,7 @@ export async function sendDriverApprovalNotification(
   try {
     const notification = isApproved
       ? {
-          title: "🎉 Application Approved!",
+          title: "Application Approved",
           body: `Congratulations ${driverName}! Your driver application has been approved. You can now start accepting deliveries.`,
           data: {
             type: "driver_approval",
@@ -330,7 +334,7 @@ export async function sendDriverApprovalNotification(
           },
         }
       : {
-          title: "❌ Application Not Approved",
+          title: "Application Not Approved",
           body: `Sorry ${driverName}, your driver application was not approved. Please check your email for details.`,
           data: {
             type: "driver_rejection",
@@ -362,7 +366,7 @@ export async function sendDepositApprovalNotification(driverId, depositInfo) {
 
     const notification = isApproved
       ? {
-          title: "✅ Deposit Approved!",
+          title: "Deposit Approved",
           body: `Your deposit of Rs.${displayAmount.toLocaleString()} has been approved and credited to your account.${reviewNote ? ` Note: ${reviewNote}` : ""}`,
           data: {
             type: "deposit_approved",
@@ -375,7 +379,7 @@ export async function sendDepositApprovalNotification(driverId, depositInfo) {
           channelId: "deposits",
         }
       : {
-          title: "❌ Deposit Rejected",
+          title: "Deposit Rejected",
           body: `Your deposit of Rs.${amount.toLocaleString()} was rejected.${reviewNote ? ` Reason: ${reviewNote}` : " Please contact support for details."}`,
           data: {
             type: "deposit_rejected",
@@ -495,7 +499,7 @@ export async function sendNewOrderNotification(
       : "New order";
 
     const notification = {
-      title: "🔔 New Order Received!",
+      title: "New Order Received",
       body: `Order #${orderInfo.orderNumber} · Rs. ${Number(orderInfo.restaurantAmount ?? orderInfo.totalAmount).toFixed(2)} · ${itemsText}`,
       sound: "default",
       channelId: "urgent_orders",
@@ -551,25 +555,25 @@ export async function sendOrderStatusNotification(customerId, orderInfo) {
 
     const statusConfig = {
       accepted: {
-        title: "✅ Order Accepted!",
+        title: "Order Accepted",
         body: `Your order #${orderInfo.orderNumber} has been accepted and is being prepared.`,
       },
       preparing: {
-        title: "👨‍🍳 Order Being Prepared",
+        title: "Order Being Prepared",
         body: `Your order #${orderInfo.orderNumber} is being prepared right now!`,
       },
       ready: {
-        title: "🍽️ Order Ready!",
+        title: "Order Ready",
         body: `Your order #${orderInfo.orderNumber} is ready and waiting for pickup!`,
       },
       rejected: {
-        title: "❌ Order Rejected",
+        title: "Order Rejected",
         body:
           customRejectedBody ||
           `Sorry, your order #${orderInfo.orderNumber} was rejected by the restaurant.`,
       },
       cancelled: {
-        title: "🚫 Order Cancelled",
+        title: "Order Cancelled",
         body: `Your order #${orderInfo.orderNumber} has been cancelled.`,
       },
     };
@@ -608,12 +612,12 @@ export async function sendNewDeliveryNotificationToDrivers(deliveryInfo) {
     const tipAmount = parseFloat(deliveryInfo.tipAmount || 0);
     let body = `Order #${deliveryInfo.orderNumber} from ${deliveryInfo.restaurantName}`;
     if (tipAmount > 0) {
-      body += `\n💰 Tip included: Rs. ${tipAmount.toFixed(0)}`;
+      body += `\nTip included: Rs. ${tipAmount.toFixed(0)}`;
     }
     body += `\nCheck available deliveries for earnings details.`;
 
     return await sendBroadcastNotification("driver", {
-      title: "🚗 New Delivery Available!",
+      title: "New Delivery Available",
       body,
       sound: "default",
       channelId: "urgent_orders",
@@ -642,7 +646,7 @@ export async function sendNewDeliveryNotificationToDrivers(deliveryInfo) {
 export async function sendDriverAssignedNotification(customerId, info) {
   try {
     return await sendPushNotification(customerId, {
-      title: "🚗 Driver Assigned!",
+      title: "Driver Assigned",
       body: `${info.driverName} has accepted your order #${info.orderNumber} and is heading to the restaurant.`,
       data: {
         type: "driver_assigned",
@@ -667,20 +671,20 @@ export async function sendDeliveryStatusNotification(customerId, info) {
   try {
     const statusConfig = {
       picked_up: {
-        title: "📦 Order Picked Up!",
+        title: "Order Picked Up",
         body: `${info.driverName || "Your driver"} has picked up your order #${info.orderNumber} from the restaurant.`,
       },
       on_the_way: {
-        title: "🏍️ Driver On The Way!",
+        title: "Driver On The Way",
         body: `${info.driverName || "Your driver"} is on the way with your order #${info.orderNumber}!`,
       },
       at_customer: {
-        title: "📍 Driver Has Arrived!",
+        title: "Driver Has Arrived",
         body: `${info.driverName || "Your driver"} has arrived with your order #${info.orderNumber}. Please collect your food!`,
       },
       delivered: {
-        title: "✅ Order Delivered!",
-        body: `Your order #${info.orderNumber} has been delivered. Enjoy your meal! 🎉`,
+        title: "Order Delivered",
+        body: `Your order #${info.orderNumber} has been delivered. Enjoy your meal.`,
       },
     };
 
@@ -732,7 +736,7 @@ export async function sendDeliveryStatusToAdmin(restaurantId, info) {
 
     for (const admin of admins) {
       await sendPushNotification(admin.id, {
-        title: "📋 Delivery Update",
+        title: "Delivery Update",
         body: msg,
         data: {
           type: "delivery_status_update",
@@ -765,15 +769,15 @@ export async function sendTipDeliveryNotificationToDrivers(deliveryInfo) {
 
     let body = `Order #${deliveryInfo.orderNumber} from ${deliveryInfo.restaurantName}`;
     if (bonusAmount > 0) {
-      body += `\n🎁 Bonus: Rs. ${bonusAmount.toFixed(0)}`;
+      body += `\nBonus: Rs. ${bonusAmount.toFixed(0)}`;
     }
     if (tipAmount > 0) {
-      body += `\n💰 Tip: Rs. ${tipAmount.toFixed(0)}`;
+      body += `\nTip: Rs. ${tipAmount.toFixed(0)}`;
     }
     body += `\nCheck available deliveries for full earnings breakdown.`;
 
     return await sendBroadcastNotification("driver", {
-      title: "💰 Tipped Delivery Available!",
+      title: "Tipped Delivery Available",
       body,
       sound: "default",
       channelId: "urgent_orders",
@@ -805,7 +809,7 @@ export async function sendDriverPaymentNotification(driverId, paymentInfo) {
   try {
     console.log("💵 sendDriverPaymentNotification to driver:", driverId);
     return await sendPushNotification(driverId, {
-      title: "💵 Payment Received!",
+      title: "Payment Received",
       body: `You received a payment of Rs. ${Number(paymentInfo.amount).toFixed(2)}${paymentInfo.note ? ` — ${paymentInfo.note}` : ""}`,
       sound: "default",
       channelId: "payments",
@@ -831,7 +835,7 @@ export async function sendUnassignedDeliveryAlertToManagers(deliveryInfo) {
   try {
     console.log("🚨 sendUnassignedDeliveryAlertToManagers:", deliveryInfo);
     return await sendBroadcastNotification("manager", {
-      title: "🚨 ALERT: Unassigned Delivery!",
+      title: "Critical Alert: Unassigned Delivery",
       body: `Order #${deliveryInfo.orderNumber} from ${deliveryInfo.restaurantName} has no driver for ${deliveryInfo.waitingMinutes} minutes!`,
       sound: "default",
       channelId: "alerts",
@@ -877,7 +881,7 @@ export async function sendMilestoneNotification(
     };
 
     return await sendPushNotification(userId, {
-      title: `🏆 Milestone: ${milestoneInfo.milestone} Completed!`,
+      title: `Milestone Achieved: ${milestoneInfo.milestone}`,
       body:
         milestoneInfo.message ||
         `Amazing! You've completed ${milestoneInfo.milestone} orders today!`,

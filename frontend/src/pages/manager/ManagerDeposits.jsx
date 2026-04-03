@@ -506,7 +506,9 @@ export default function ManagerDeposits() {
                       {deposit.driver?.full_name || "Driver"}
                     </p>
                     <p className="text-[#618980] text-xs font-medium">
-                      {deposit.driver?.phone || "No phone"}
+                      {deposit.driver?.phone ||
+                        deposit.driver?.email ||
+                        "No contact"}
                     </p>
                     <p className="text-[#618980] text-xs">
                       {formatDateTime(deposit.created_at)}

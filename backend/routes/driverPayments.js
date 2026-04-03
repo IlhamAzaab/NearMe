@@ -143,7 +143,7 @@ router.get("/drivers", authenticate, managerOnly, async (req, res) => {
     const { data: drivers, error: driversErr } = await supabaseAdmin
       .from("drivers")
       .select(
-        "id, full_name, user_name, phone, profile_photo_url, driver_type, driver_status",
+        "id, full_name, phone, profile_photo_url, driver_type, driver_status",
       )
       .eq("driver_status", "active")
       .order("full_name");
@@ -211,7 +211,6 @@ router.get("/drivers", authenticate, managerOnly, async (req, res) => {
       return {
         id: driver.id,
         full_name: driver.full_name,
-        user_name: driver.user_name,
         phone: driver.phone,
         profile_photo_url: driver.profile_photo_url,
         driver_type: driver.driver_type,
@@ -247,7 +246,7 @@ router.get("/driver/:driverId", authenticate, managerOnly, async (req, res) => {
     const { data: driver, error: driverErr } = await supabaseAdmin
       .from("drivers")
       .select(
-        "id, full_name, user_name, phone, profile_photo_url, driver_type, driver_status",
+        "id, full_name, phone, profile_photo_url, driver_type, driver_status",
       )
       .eq("id", driverId)
       .single();

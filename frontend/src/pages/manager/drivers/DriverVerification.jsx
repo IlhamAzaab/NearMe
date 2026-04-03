@@ -26,6 +26,9 @@ export default function DriverVerification() {
   };
   const [rejectReason, setRejectReason] = useState("");
   const [showRejectModal, setShowRejectModal] = useState(false);
+  const [showDocumentModal, setShowDocumentModal] = useState(false);
+  const [documentZoom, setDocumentZoom] = useState(1);
+  const [activeDocument, setActiveDocument] = useState(null);
 
   useEffect(() => {
     fetchPendingDrivers();
@@ -55,12 +58,9 @@ export default function DriverVerification() {
     setDetailsLoading(true);
     setError(null);
     try {
-      const res = await fetch(
-        `${API_URL}/manager/driver-details/${driverId}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
-      );
+      const res = await fetch(`${API_URL}/manager/driver-details/${driverId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const data = await res.json();
       if (res.ok) {
         setDriverDetails(data);
@@ -127,6 +127,26 @@ export default function DriverVerification() {
     navigate("/login");
   };
 
+  const openDocumentPreview = (doc) => {
+    setActiveDocument(doc);
+    setDocumentZoom(1);
+    setShowDocumentModal(true);
+  };
+
+  const closeDocumentPreview = () => {
+    setShowDocumentModal(false);
+    setActiveDocument(null);
+    setDocumentZoom(1);
+  };
+
+  const handleDocumentWheelZoom = (event) => {
+    event.preventDefault();
+    setDocumentZoom((prev) => {
+      const next = prev + (event.deltaY < 0 ? 0.1 : -0.1);
+      return Math.max(0.5, Math.min(3, Number(next.toFixed(2))));
+    });
+  };
+
   if (loading) {
     return (
       <ManagerPageLayout title="Driver Verification">
@@ -139,18 +159,17 @@ export default function DriverVerification() {
     <ManagerPageLayout title="Driver Verification">
       <main className="p-4 sm:px-6">
         <AnimatedAlert alert={alertState} visible={alertVisible} />
-        <div className="mb-6">
-          <h1 className="text-3xl font-bold text-gray-800">
-            Driver Verification
-          </h1>
-          <p className="text-gray-600 mt-2">
-            Review and approve pending driver applications
+        <div className="mb-6 rounded-2xl bg-linear-to-r from-[#1d4ed8] to-[#0f766e] p-6 text-white shadow-lg">
+          <h1 className="text-3xl font-bold">Driver Verification</h1>
+          <p className="text-blue-50 mt-2 text-sm">
+            Review driver identities, documents, and eligibility before
+            activation.
           </p>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Pending Drivers List */}
-          <div className="lg:col-span-1 bg-white rounded-xl shadow p-6">
+          <div className="lg:col-span-1 bg-white rounded-2xl border border-[#dbe6e3] shadow-sm p-6">
             <h2 className="text-xl font-bold text-gray-800 mb-4">
               Pending Applications ({pendingDrivers.length})
             </h2>
@@ -165,10 +184,10 @@ export default function DriverVerification() {
                   <div
                     key={driver.id}
                     onClick={() => fetchDriverDetails(driver.id)}
-                    className={`p-4 border rounded-lg cursor-pointer transition ${
+                    className={`p-4 border rounded-xl cursor-pointer transition ${
                       selectedDriver === driver.id
-                        ? "border-indigo-600 bg-indigo-50"
-                        : "border-gray-200 hover:border-indigo-300"
+                        ? "border-emerald-600 bg-emerald-50"
+                        : "border-gray-200 hover:border-emerald-300"
                     }`}
                   >
                     <p className="font-semibold text-gray-800">
@@ -189,7 +208,7 @@ export default function DriverVerification() {
           </div>
 
           {/* Driver Details Panel */}
-          <div className="lg:col-span-2 bg-white rounded-xl shadow p-6">
+          <div className="lg:col-span-2 bg-white rounded-2xl border border-[#dbe6e3] shadow-sm p-6">
             {!selectedDriver ? (
               <div className="text-center py-12 text-gray-500">
                 <p className="text-lg">Select a driver to view details</p>
@@ -323,10 +342,20 @@ export default function DriverVerification() {
                       <div>
                         <p className="text-gray-500">License Expiry</p>
                         <p className="font-medium">
-                          {driverDetails.vehicleLicense.license_expiry_date
+                          {driverDetails.vehicleLicense
+                            .vehicle_license_expiry ||
+                          driverDetails.vehicleLicense.license_expiry_date ||
+                          driverDetails.vehicleLicense.license_expiry ||
+                          driverDetails.vehicleLicense
+                            .vehicle_license_expiry_date
                             ? new Date(
                                 driverDetails.vehicleLicense
-                                  .license_expiry_date,
+                                  .vehicle_license_expiry ||
+                                  driverDetails.vehicleLicense
+                                    .license_expiry_date ||
+                                  driverDetails.vehicleLicense.license_expiry ||
+                                  driverDetails.vehicleLicense
+                                    .vehicle_license_expiry_date,
                               ).toLocaleDateString()
                             : "N/A"}
                         </p>
@@ -346,14 +375,13 @@ export default function DriverVerification() {
                         <p className="text-sm font-medium text-gray-700 mb-2">
                           {doc.document_type.replace(/_/g, " ").toUpperCase()}
                         </p>
-                        <a
-                          href={doc.document_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                        <button
+                          type="button"
+                          onClick={() => openDocumentPreview(doc)}
                           className="text-xs text-indigo-600 hover:underline"
                         >
                           View Document →
-                        </a>
+                        </button>
                         {doc.verified && (
                           <p className="text-xs text-green-600 mt-1">
                             ✓ Verified
@@ -470,6 +498,82 @@ export default function DriverVerification() {
               >
                 {verifyLoading ? "Rejecting..." : "Confirm Reject"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDocumentModal && activeDocument && (
+        <div
+          className="fixed inset-0 bg-black/70 flex items-center justify-center z-60 p-4"
+          onClick={closeDocumentPreview}
+        >
+          <div
+            className="bg-white rounded-2xl w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-4 border-b">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">
+                  Document Preview
+                </h3>
+                <p className="text-sm text-gray-500">
+                  {(activeDocument.document_type || "document")
+                    .replace(/_/g, " ")
+                    .toUpperCase()}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setDocumentZoom((z) =>
+                      Math.max(0.5, Number((z - 0.1).toFixed(2))),
+                    )
+                  }
+                  className="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100"
+                >
+                  -
+                </button>
+                <span className="text-sm font-semibold text-gray-700 min-w-14 text-center">
+                  {Math.round(documentZoom * 100)}%
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setDocumentZoom((z) =>
+                      Math.min(3, Number((z + 0.1).toFixed(2))),
+                    )
+                  }
+                  className="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100"
+                >
+                  +
+                </button>
+                <button
+                  type="button"
+                  onClick={closeDocumentPreview}
+                  className="ml-1 px-3 py-1.5 rounded-lg bg-red-600 text-white hover:bg-red-700"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+
+            <div
+              className="flex-1 overflow-auto bg-gray-900/5 p-4"
+              onWheel={handleDocumentWheelZoom}
+            >
+              <div className="w-full h-full flex items-center justify-center">
+                <img
+                  src={activeDocument.document_url}
+                  alt={activeDocument.document_type || "Driver document"}
+                  className="max-w-full max-h-full object-contain transition-transform duration-150"
+                  style={{
+                    transform: `scale(${documentZoom})`,
+                    transformOrigin: "center center",
+                  }}
+                />
+              </div>
             </div>
           </div>
         </div>

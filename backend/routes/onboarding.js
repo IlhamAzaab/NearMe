@@ -3,6 +3,8 @@ import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
 import { supabaseAdmin } from "../supabaseAdmin.js";
 import { authenticate } from "../middleware/authenticate.js";
+import { normalizeSriLankaPhone } from "../services/otpService.js";
+import { getAuthPhoneOwnership } from "../utils/authPhone.js";
 
 const router = express.Router();
 
@@ -133,6 +135,7 @@ router.post("/step-1", authenticate, async (req, res) => {
       city,
       workingTime,
     } = req.body;
+    const normalizedPhone = normalizeSriLankaPhone(phoneNumber);
 
     // Validation
     if (
@@ -150,6 +153,22 @@ router.post("/step-1", authenticate, async (req, res) => {
       });
     }
 
+    if (!normalizedPhone) {
+      return res
+        .status(400)
+        .json({ message: "Invalid Sri Lankan phone number format" });
+    }
+
+    const phoneOwnership = await getAuthPhoneOwnership(
+      supabaseAdmin,
+      normalizedPhone,
+    );
+    if (phoneOwnership.ownerUserId && phoneOwnership.ownerUserId !== driverId) {
+      return res
+        .status(409)
+        .json({ message: "Phone number already registered" });
+    }
+
     // Check if NIC already exists for another driver
     const { data: existingDriver } = await supabaseAdmin
       .from("drivers")
@@ -164,13 +183,38 @@ router.post("/step-1", authenticate, async (req, res) => {
       });
     }
 
+    // Persist driver phone in Supabase auth.users (global phone uniqueness source).
+    const { error: authPhoneError } =
+      await supabaseAdmin.auth.admin.updateUserById(driverId, {
+        phone: phoneOwnership.normalizedPhone || normalizedPhone,
+        phone_confirm: true,
+      });
+
+    if (authPhoneError) {
+      const authPhoneMessage = String(
+        authPhoneError?.message || "",
+      ).toLowerCase();
+      if (
+        authPhoneError?.status === 422 ||
+        authPhoneError?.code === "phone_exists" ||
+        authPhoneMessage.includes("phone")
+      ) {
+        return res
+          .status(409)
+          .json({ message: "Phone number already registered" });
+      }
+
+      console.error("Driver auth phone update error:", authPhoneError);
+      return res.status(500).json({ message: "Failed to update phone number" });
+    }
+
     // Update driver
     const { error } = await supabaseAdmin
       .from("drivers")
       .update({
         full_name: fullName,
         nic_number: nicNumber,
-        phone: phoneNumber,
+        phone: phoneOwnership.normalizedPhone || normalizedPhone,
         date_of_birth: dateOfBirth,
         address,
         city,
@@ -185,6 +229,11 @@ router.post("/step-1", authenticate, async (req, res) => {
         .status(500)
         .json({ message: "Failed to update personal information" });
     }
+
+    await supabaseAdmin
+      .from("users")
+      .update({ phone: phoneOwnership.normalizedPhone || normalizedPhone })
+      .eq("id", driverId);
 
     return res.json({
       message: "Personal information saved successfully",

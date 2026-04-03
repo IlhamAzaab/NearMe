@@ -2,74 +2,9 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 import { API_URL } from "../../config";
-
-// Step Progress Component with animation
-const StepProgress = ({ currentStep, totalSteps = 5 }) => {
-  const steps = [
-    { num: 1, label: "Personal" },
-    { num: 2, label: "Vehicle" },
-    { num: 3, label: "Documents" },
-    { num: 4, label: "Bank" },
-    { num: 5, label: "Contract" },
-  ];
-
-  return (
-    <div className="w-full mb-8">
-      {/* Step segments */}
-      <div className="flex gap-2 mb-3">
-        {steps.map((step) => (
-          <div key={step.num} className="flex-1 relative">
-            <div
-              className={`h-2 rounded-full overflow-hidden ${
-                step.num === currentStep
-                  ? "bg-gray-200"
-                  : step.num < currentStep
-                    ? "bg-[#1db95b]"
-                    : "bg-gray-200"
-              }`}
-            >
-              {step.num === currentStep && (
-                <div
-                  className="h-full bg-[#1db95b] rounded-full"
-                  style={{
-                    animation: "progressFill 2s ease-in-out infinite",
-                  }}
-                />
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Step labels */}
-      <div className="flex justify-between">
-        {steps.map((step) => (
-          <div
-            key={step.num}
-            className={`text-xs font-medium ${
-              step.num === currentStep
-                ? "text-[#1db95b]"
-                : step.num < currentStep
-                  ? "text-[#1db95b]"
-                  : "text-gray-400"
-            }`}
-          >
-            {step.label}
-          </div>
-        ))}
-      </div>
-
-      {/* CSS Animation */}
-      <style>{`
-        @keyframes progressFill {
-          0% { width: 0%; opacity: 0.6; }
-          50% { width: 100%; opacity: 1; }
-          100% { width: 0%; opacity: 0.6; }
-        }
-      `}</style>
-    </div>
-  );
-};
+import OnboardingStepProgress from "../../components/driver/OnboardingStepProgress";
+import FloatingField from "../../components/driver/FloatingField";
+import meezoLogo from "../../assets/NearMeLogoArtboard5.svg";
 
 export default function OnboardingStep1() {
   const navigate = useNavigate();
@@ -120,13 +55,46 @@ export default function OnboardingStep1() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError(null);
+
+    try {
+      const availabilityRes = await fetch(
+        `${API_URL}/auth/check-availability`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ phone: formData.phoneNumber }),
+        },
+      );
+      const availabilityData = await availabilityRes.json().catch(() => ({}));
+
+      if (!availabilityRes.ok) {
+        setError(
+          availabilityData?.message ||
+            "Unable to verify phone availability. Please try again.",
+        );
+        return;
+      }
+
+      if (availabilityData?.phoneAvailable === false) {
+        setError(
+          availabilityData?.message || "Phone number already registered",
+        );
+        return;
+      }
+    } catch (_err) {
+      setError("Unable to verify phone availability. Please try again.");
+      return;
+    }
+
     await submitMutation.mutateAsync(formData);
   };
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-start relative font-display">
       {/* Gradient background - Green at top fading to light at bottom */}
-      <div className="absolute inset-0 bg-gradient-to-b from-[#1db95b] via-[#34d399] via-40% to-[#f0fdf4]"></div>
+      <div className="absolute inset-0 bg-linear-to-b from-[#1db95b] via-[#34d399] via-40% to-[#f0fdf4]"></div>
 
       {/* Subtle pattern overlay */}
       <div
@@ -138,11 +106,19 @@ export default function OnboardingStep1() {
       ></div>
 
       {/* Main content */}
-      <div className="relative w-full max-w-[540px] px-4 py-8 z-10">
+      <div className="relative w-full max-w-135 px-4 py-8 z-10">
+        <div className="flex justify-center mb-5">
+          <img
+            src={meezoLogo}
+            alt="Meezo logo"
+            className="w-40 sm:w-60 h-auto object-contain"
+          />
+        </div>
+
         {/* White card */}
         <div className="bg-white rounded-3xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.15)] p-8">
           {/* Step Progress */}
-          <StepProgress currentStep={1} />
+          <OnboardingStepProgress currentStep={1} />
 
           {/* Header */}
           <div className="flex items-center gap-3 mb-6">
@@ -155,181 +131,107 @@ export default function OnboardingStep1() {
               <h1 className="text-xl font-bold text-gray-900">
                 Personal Information
               </h1>
-              <p className="text-gray-500 text-sm">Step 1 of 5</p>
             </div>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Full Name */}
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Full Name *
-              </label>
-              <div className="relative">
-                <input
-                  name="fullName"
-                  className="w-full h-12 pl-11 pr-4 border border-gray-200 rounded-xl bg-gray-50 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#1db95b] focus:ring-2 focus:ring-[#1db95b]/20 focus:bg-white transition-all duration-200"
-                  placeholder="Enter your full name as per NIC"
-                  value={formData.fullName}
-                  onChange={handleChange}
-                  required
-                />
-                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#1db95b]">
-                  <span className="material-symbols-outlined text-xl">
-                    badge
-                  </span>
-                </div>
-              </div>
+              <FloatingField
+                as="input"
+                label="Full Name"
+                name="fullName"
+                placeholder="Enter your full name"
+                value={formData.fullName}
+                onChange={handleChange}
+                required
+              />
             </div>
 
             {/* NIC Number */}
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                NIC Number *
-              </label>
-              <div className="relative">
-                <input
-                  name="nicNumber"
-                  className="w-full h-12 pl-11 pr-4 border border-gray-200 rounded-xl bg-gray-50 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#1db95b] focus:ring-2 focus:ring-[#1db95b]/20 focus:bg-white transition-all duration-200"
-                  placeholder="e.g., 123456789V or 199812345678"
-                  value={formData.nicNumber}
-                  onChange={handleChange}
-                  required
-                />
-                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#1db95b]">
-                  <span className="material-symbols-outlined text-xl">
-                    id_card
-                  </span>
-                </div>
-              </div>
-              <p className="text-xs text-gray-500 mt-1 ml-1">
-                Enter your 10-digit old NIC or 12-digit new NIC
-              </p>
+              <FloatingField
+                as="input"
+                label="NIC Number"
+                name="nicNumber"
+                placeholder="Eg; 123456789V or 199812345678"
+                value={formData.nicNumber}
+                onChange={handleChange}
+                required
+              />
             </div>
 
             {/* Mobile Number */}
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Mobile Number *
-              </label>
-              <div className="relative">
-                <input
-                  name="phoneNumber"
-                  type="tel"
-                  className="w-full h-12 pl-11 pr-4 border border-gray-200 rounded-xl bg-gray-50 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#1db95b] focus:ring-2 focus:ring-[#1db95b]/20 focus:bg-white transition-all duration-200"
-                  placeholder="e.g., 0771234567 or +94771234567"
-                  value={formData.phoneNumber}
-                  onChange={handleChange}
-                  required
-                />
-                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#1db95b]">
-                  <span className="material-symbols-outlined text-xl">
-                    phone
-                  </span>
-                </div>
-              </div>
-              <p className="text-xs text-gray-500 mt-1 ml-1">
-                Enter your mobile number in Sri Lankan format
-              </p>
+              <FloatingField
+                as="input"
+                label="Phone Number"
+                name="phoneNumber"
+                type="tel"
+                placeholder="Enter your phone number"
+                value={formData.phoneNumber}
+                onChange={handleChange}
+                required
+              />
             </div>
 
             {/* Date of Birth */}
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Date of Birth *
-              </label>
-              <div className="relative">
-                <input
-                  name="dateOfBirth"
-                  type="date"
-                  className="w-full h-12 pl-11 pr-4 border border-gray-200 rounded-xl bg-gray-50 text-gray-900 focus:outline-none focus:border-[#1db95b] focus:ring-2 focus:ring-[#1db95b]/20 focus:bg-white transition-all duration-200"
-                  value={formData.dateOfBirth}
-                  onChange={handleChange}
-                  max={new Date().toISOString().split("T")[0]}
-                  required
-                />
-                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#1db95b]">
-                  <span className="material-symbols-outlined text-xl">
-                    cake
-                  </span>
-                </div>
-              </div>
+              <FloatingField
+                as="input"
+                label="Date of Birth"
+                name="dateOfBirth"
+                type="date"
+                value={formData.dateOfBirth}
+                onChange={handleChange}
+                max={new Date().toISOString().split("T")[0]}
+                required
+              />
             </div>
 
             {/* Address */}
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Address (as per NIC) *
-              </label>
-              <div className="relative">
-                <textarea
-                  name="address"
-                  className="w-full pl-11 pr-4 py-3 border border-gray-200 rounded-xl bg-gray-50 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#1db95b] focus:ring-2 focus:ring-[#1db95b]/20 focus:bg-white transition-all duration-200"
-                  placeholder="Enter your full address"
-                  rows="2"
-                  value={formData.address}
-                  onChange={handleChange}
-                  required
-                />
-                <div className="absolute left-4 top-4 text-[#1db95b]">
-                  <span className="material-symbols-outlined text-xl">
-                    home
-                  </span>
-                </div>
-              </div>
+              <FloatingField
+                as="textarea"
+                label="Address (as per NIC)"
+                name="address"
+                placeholder="Enter your full address"
+                rows="2"
+                value={formData.address}
+                onChange={handleChange}
+                required
+              />
             </div>
 
             {/* City */}
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                City *
-              </label>
-              <div className="relative">
-                <input
-                  name="city"
-                  className="w-full h-12 pl-11 pr-4 border border-gray-200 rounded-xl bg-gray-50 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#1db95b] focus:ring-2 focus:ring-[#1db95b]/20 focus:bg-white transition-all duration-200"
-                  placeholder="e.g., Colombo, Kandy, Galle"
-                  value={formData.city}
-                  onChange={handleChange}
-                  required
-                />
-                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#1db95b]">
-                  <span className="material-symbols-outlined text-xl">
-                    location_city
-                  </span>
-                </div>
-              </div>
+              <FloatingField
+                as="input"
+                label="City"
+                name="city"
+                placeholder="Eg; Kinniya,kuttikarachi"
+                value={formData.city}
+                onChange={handleChange}
+                required
+              />
             </div>
 
             {/* Working Time */}
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Preferred Working Time *
-              </label>
-              <div className="relative">
-                <select
-                  name="workingTime"
-                  className="w-full h-12 pl-11 pr-4 border border-gray-200 rounded-xl bg-gray-50 text-gray-900 focus:outline-none focus:border-[#1db95b] focus:ring-2 focus:ring-[#1db95b]/20 focus:bg-white transition-all duration-200 appearance-none"
-                  value={formData.workingTime}
-                  onChange={handleChange}
-                  required
-                >
-                  <option value="">Select working time</option>
-                  <option value="full_time">Full Time (Flexible)</option>
-                  <option value="morning">Day</option>
-                  <option value="night">Night</option>
-                </select>
-                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#1db95b]">
-                  <span className="material-symbols-outlined text-xl">
-                    schedule
-                  </span>
-                </div>
-                <div className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
-                  <span className="material-symbols-outlined text-xl">
-                    expand_more
-                  </span>
-                </div>
-              </div>
+              <FloatingField
+                as="select"
+                label="Preferred Working Time"
+                name="workingTime"
+                value={formData.workingTime}
+                onChange={handleChange}
+                required
+                options={[
+                  { value: "", label: "Select working time" },
+                  { value: "full_time", label: "Full Time (Flexible)" },
+                  { value: "morning", label: "Day" },
+                  { value: "night", label: "Night" },
+                ]}
+              />
             </div>
 
             {/* Error message */}
@@ -359,7 +261,7 @@ export default function OnboardingStep1() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full h-14 bg-[#1db95b] text-white font-bold rounded-xl hover:bg-[#18a34a] active:scale-[0.98] transition-all shadow-lg shadow-[#1db95b]/30 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-6"
+              className="w-full h-14 bg-[#1db95b] text-white font-bold rounded-full hover:bg-[#18a34a] active:scale-[0.98] transition-all shadow-lg shadow-[#1db95b]/30 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-6"
             >
               {loading ? (
                 <>

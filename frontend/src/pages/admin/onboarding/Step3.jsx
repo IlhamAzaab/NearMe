@@ -5,13 +5,14 @@ import { API_URL } from "../../../config";
 
 const SRI_LANKAN_BANKS = [
   "Bank of Ceylon",
-  "Commercial Bank of Ceylon",
+  "People's Bank",
+  "Hatton National Bank",
   "Sampath Bank",
+  "Commercial Bank of Ceylon",
   "DFCC Bank",
   "Seylan Bank",
   "Nations Trust Bank",
   "Pan Asia Bank",
-  "Hatton National Bank",
   "Indian Bank",
   "Sri Lanka Savings Bank",
   "Axis Bank",
@@ -22,7 +23,6 @@ const SRI_LANKAN_BANKS = [
   "Amana Bank",
   "Warehouse Finance Company",
   "ACME Capital",
-  "People's Bank",
   "Cooperative Rural Bank",
 ];
 
@@ -124,7 +124,18 @@ export default function AdminOnboardingStep3() {
   };
   const [searchTerm, setSearchTerm] = useState("");
   const [showDropdown, setShowDropdown] = useState(false);
+  const [focusedField, setFocusedField] = useState("");
   const [filteredBanks, setFilteredBanks] = useState(SRI_LANKAN_BANKS);
+  const isBankFieldActive =
+    showDropdown || Boolean(searchTerm) || Boolean(form.bankName);
+  const isAccountHolderFieldActive =
+    focusedField === "accountHolderName" || Boolean(form.accountHolderName);
+  const isBranchFieldActive = focusedField === "branch" || Boolean(form.branch);
+  const isAccountNumberFieldActive =
+    focusedField === "accountNumber" || Boolean(form.accountNumber);
+  const isAccountNumberConfirmFieldActive =
+    focusedField === "accountNumberConfirm" ||
+    Boolean(form.accountNumberConfirm);
 
   // Filter banks based on search term
   useEffect(() => {
@@ -161,22 +172,19 @@ export default function AdminOnboardingStep3() {
 
     setLoading(true);
     try {
-      const res = await fetch(
-        `${API_URL}/restaurant-onboarding/step-3`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            accountHolderName: form.accountHolderName,
-            bankName: form.bankName,
-            branch: form.branch,
-            accountNumber: form.accountNumber,
-          }),
+      const res = await fetch(`${API_URL}/restaurant-onboarding/step-3`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
-      );
+        body: JSON.stringify({
+          accountHolderName: form.accountHolderName,
+          bankName: form.bankName,
+          branch: form.branch,
+          accountNumber: form.accountNumber,
+        }),
+      });
       const data = await res.json();
       if (!res.ok) {
         setError(data?.message || "Failed to save bank details");
@@ -200,7 +208,7 @@ export default function AdminOnboardingStep3() {
         <div className="absolute top-1/4 left-1/4 w-96 h-96 rounded-full bg-gradient-to-r from-green-400/30 to-green-500/30 floating animate-pulse-slow"></div>
         <div className="absolute bottom-1/4 right-1/4 w-72 h-72 rounded-full bg-gradient-to-r from-green-300/25 to-green-400/25 floating animate-pulse-slower"></div>
         <div className="absolute top-1/3 right-1/3 w-48 h-48 rounded-full bg-gradient-to-r from-green-200/20 to-green-300/20 floating animate-pulse-slow"></div>
-        <div className="absolute top-1/2 left-1/2 w-40 h-40 rounded-full bg-gradient-to-r from-lime-300/25 to-green-300/25 animate-ping-slow"></div>
+        <div className="absolute top-1/2 left-1/2 w-40 h-40 rounded-full bg-gradient-to-r from-green-300/25 to-green-300/25 animate-ping-slow"></div>
 
         {/* Vertical animated bars */}
         <div className="absolute inset-0">
@@ -223,7 +231,7 @@ export default function AdminOnboardingStep3() {
           {[...Array(5)].map((_, i) => (
             <div
               key={i}
-              className="absolute h-px bg-gradient-to-r from-transparent via-lime-400/20 to-transparent animate-slide-diagonal"
+              className="absolute h-px bg-gradient-to-r from-transparent via-green-400/20 to-transparent animate-slide-diagonal"
               style={{
                 top: `${i * 20}%`,
                 width: "200%",
@@ -264,11 +272,11 @@ export default function AdminOnboardingStep3() {
                 <path d="M8.1 13.34l2.83-2.83L3.91 3.5c-1.56 1.56-1.56 4.09 0 5.66l4.19 4.18zm6.78-1.81c1.53.71 3.68.21 5.27-1.38 1.91-1.91 2.28-4.65.81-6.12-1.46-1.46-4.2-1.1-6.12.81-1.59 1.59-2.09 3.74-1.38 5.27L3.7 19.87l1.41 1.41L12 14.41l6.88 6.88 1.41-1.41L13.41 13l1.47-1.47z" />
               </svg>
             </div>
-            <div className="absolute -top-2 -right-2 w-4 h-4 bg-lime-500 rounded-full animate-ping"></div>
+            <div className="absolute -top-2 -right-2 w-4 h-4 bg-green-500 rounded-full animate-ping"></div>
           </div>
         </div>
 
-        <h1 className="text-3xl font-bold text-center mb-2 bg-gradient-to-r from-lime-600 to-green-600 bg-clip-text text-transparent">
+        <h1 className="text-3xl font-bold text-center mb-2 bg-gradient-to-r from-green-600 to-green-600 bg-clip-text text-transparent">
           Bank Details
         </h1>
         <p className="text-center text-gray-600 mb-6">
@@ -283,28 +291,40 @@ export default function AdminOnboardingStep3() {
           onSubmit={handleSubmit}
         >
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Account Holder Name
-            </label>
+            {isAccountHolderFieldActive && (
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Account Holder Name
+              </label>
+            )}
             <div className="relative">
               <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-green-800 via-green-400 to-green-800 animate-border-rotation p-[3px]">
                 <div className="h-full w-full bg-white rounded-xl"></div>
               </div>
               <input
                 className="relative w-full px-4 py-3 bg-transparent rounded-xl focus:outline-none z-10"
-                placeholder="Enter account holder name"
+                placeholder={
+                  isAccountHolderFieldActive ? "" : "Account Holder Name"
+                }
                 value={form.accountHolderName}
                 onChange={(e) =>
                   updateField("accountHolderName", e.target.value)
+                }
+                onFocus={() => setFocusedField("accountHolderName")}
+                onBlur={() =>
+                  setFocusedField((prev) =>
+                    prev === "accountHolderName" ? "" : prev,
+                  )
                 }
                 required
               />
             </div>
           </div>
           <div className="bank-dropdown-container">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Bank Name
-            </label>
+            {isBankFieldActive && (
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Bank Name
+              </label>
+            )}
             <div className="relative">
               <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-green-800 via-green-400 to-green-800 animate-border-rotation p-[3px]">
                 <div className="h-full w-full bg-white rounded-xl"></div>
@@ -313,7 +333,11 @@ export default function AdminOnboardingStep3() {
                 <input
                   type="text"
                   className="relative w-full px-4 py-3 pr-10 bg-transparent rounded-xl focus:outline-none z-10 cursor-pointer text-gray-700 font-medium"
-                  placeholder="Search or select your bank..."
+                  placeholder={
+                    isBankFieldActive
+                      ? "Search or select your bank..."
+                      : "Bank Name"
+                  }
                   value={form.bankName || searchTerm}
                   onChange={(e) => {
                     setSearchTerm(e.target.value);
@@ -354,7 +378,7 @@ export default function AdminOnboardingStep3() {
                     filteredBanks.map((bank) => (
                       <div
                         key={bank}
-                        className="px-4 py-3 hover:bg-gradient-to-r hover:from-green-50 hover:to-lime-50 cursor-pointer transition-all border-b border-gray-100 last:border-b-0 flex items-center gap-3 group"
+                        className="px-4 py-3 hover:bg-gradient-to-r hover:from-green-50 hover:to-green-50 cursor-pointer transition-all border-b border-gray-100 last:border-b-0 flex items-center gap-3 group"
                         onClick={() => {
                           updateField("bankName", bank);
                           setSearchTerm("");
@@ -402,52 +426,78 @@ export default function AdminOnboardingStep3() {
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Branch Name
-            </label>
+            {isBranchFieldActive && (
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Branch
+              </label>
+            )}
             <div className="relative">
               <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-green-800 via-green-400 to-green-800 animate-border-rotation p-[3px]">
                 <div className="h-full w-full bg-white rounded-xl"></div>
               </div>
               <input
                 className="relative w-full px-4 py-3 bg-transparent rounded-xl focus:outline-none z-10"
-                placeholder="Enter branch name"
+                placeholder={isBranchFieldActive ? "" : "Branch"}
                 value={form.branch}
                 onChange={(e) => updateField("branch", e.target.value)}
+                onFocus={() => setFocusedField("branch")}
+                onBlur={() =>
+                  setFocusedField((prev) => (prev === "branch" ? "" : prev))
+                }
               />
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Account Number
-            </label>
+            {isAccountNumberFieldActive && (
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Account Number
+              </label>
+            )}
             <div className="relative">
               <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-green-800 via-green-400 to-green-800 animate-border-rotation p-[3px]">
                 <div className="h-full w-full bg-white rounded-xl"></div>
               </div>
               <input
                 className="relative w-full px-4 py-3 bg-transparent rounded-xl focus:outline-none z-10"
-                placeholder="Enter account number"
+                placeholder={isAccountNumberFieldActive ? "" : "Account Number"}
                 value={form.accountNumber}
                 onChange={(e) => updateField("accountNumber", e.target.value)}
+                onFocus={() => setFocusedField("accountNumber")}
+                onBlur={() =>
+                  setFocusedField((prev) =>
+                    prev === "accountNumber" ? "" : prev,
+                  )
+                }
                 required
               />
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Confirm Account Number
-            </label>
+            {isAccountNumberConfirmFieldActive && (
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Confirm Account Number
+              </label>
+            )}
             <div className="relative">
               <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-green-800 via-green-400 to-green-800 animate-border-rotation p-[3px]">
                 <div className="h-full w-full bg-white rounded-xl"></div>
               </div>
               <input
                 className="relative w-full px-4 py-3 bg-transparent rounded-xl focus:outline-none z-10"
-                placeholder="Re-enter account number"
+                placeholder={
+                  isAccountNumberConfirmFieldActive
+                    ? "Re-enter account number"
+                    : "Confirm Account Number"
+                }
                 value={form.accountNumberConfirm}
                 onChange={(e) =>
                   updateField("accountNumberConfirm", e.target.value)
+                }
+                onFocus={() => setFocusedField("accountNumberConfirm")}
+                onBlur={() =>
+                  setFocusedField((prev) =>
+                    prev === "accountNumberConfirm" ? "" : prev,
+                  )
                 }
                 required
               />
@@ -459,14 +509,14 @@ export default function AdminOnboardingStep3() {
           <div className="md:col-span-2 flex justify-end gap-3 mt-4">
             <button
               type="button"
-              className="px-6 py-3 bg-gray-200 text-gray-800 rounded-xl hover:bg-gray-300 transition-all shadow-md hover:shadow-lg"
+              className="px-6 py-3 bg-gray-200 text-gray-800 rounded-full hover:bg-gray-300 transition-all shadow-md hover:shadow-lg"
               onClick={() => navigate("/admin/restaurant/onboarding/step-2")}
             >
               Back
             </button>
             <button
               type="submit"
-              className="px-6 py-3 bg-gradient-to-r from-lime-500 to-green-500 text-white rounded-xl hover:from-lime-600 hover:to-green-600 transition-all shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              className="px-6 py-3 bg-gradient-to-r from-green-500 to-green-500 text-white rounded-full hover:from-green-600 hover:to-green-600 transition-all shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               disabled={loading}
             >
               {loading && (

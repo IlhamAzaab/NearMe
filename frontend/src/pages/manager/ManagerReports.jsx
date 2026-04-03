@@ -156,8 +156,8 @@ export default function ManagerReports() {
             },
             {
               icon: "people",
-              title: "Customer Reports",
-              desc: "Understand customer behavior and order patterns",
+              title: "Customer Management",
+              desc: "Manage customer accounts, filters, suspension, and removals",
               color: "bg-red-100 text-red-600",
               path: "/manager/reports/customers",
             },

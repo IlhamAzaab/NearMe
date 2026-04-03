@@ -2,12 +2,12 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { API_URL } from "../../config";
+import nearMeLogo from "../../assets/NearMeLogoArtboard5.svg";
 
 export default function DriverProfile() {
   const navigate = useNavigate();
   const [saving, setSaving] = useState(false);
   const [profile, setProfile] = useState(null);
-  const [userName, setUserName] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -74,16 +74,6 @@ export default function DriverProfile() {
     setError(null);
     setMessage(null);
 
-    if (!userName.trim()) {
-      setError("Username is required");
-      return;
-    }
-
-    if (userName.length < 3) {
-      setError("Username must be at least 3 characters");
-      return;
-    }
-
     if (!newPassword) {
       setError("Password is required");
       return;
@@ -110,7 +100,6 @@ export default function DriverProfile() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          userName: userName.trim(),
           newPassword,
         }),
       });
@@ -188,10 +177,12 @@ export default function DriverProfile() {
           {/* Profile Header Card */}
           <div className="bg-white rounded-3xl shadow-lg p-6">
             <div className="flex items-center gap-4">
-              <div className="h-20 w-20 rounded-full bg-gradient-to-br from-[#1db95b] to-[#16a34a] flex items-center justify-center shadow-lg">
-                <span className="material-symbols-outlined text-white text-[42px]">
-                  person
-                </span>
+              <div className="h-200 w-200 rounded-3xl flex items-center justify-center p-1">
+                <img
+                  src={nearMeLogo}
+                  alt="NearMe logo"
+                  className="h-full w-full object-contain"
+                />
               </div>
               <div className="flex-1">
                 <h2 className="text-xl font-bold text-gray-900">
@@ -202,7 +193,7 @@ export default function DriverProfile() {
                     alternate_email
                   </span>
                   <p className="text-gray-600 text-sm">
-                    @{profile?.user_name || "username"}
+                    {profile?.full_name || "Driver"}
                   </p>
                 </div>
               </div>
@@ -374,10 +365,12 @@ export default function DriverProfile() {
       <div className="relative w-full max-w-[480px] px-4 py-8 z-10">
         {/* Logo/Icon */}
         <div className="flex flex-col items-center mb-6">
-          <div className="h-16 w-16 bg-white rounded-full shadow-lg shadow-[#1db95b]/20 flex items-center justify-center mb-4">
-            <span className="material-symbols-outlined text-[#1db95b] text-[32px]">
-              person_add
-            </span>
+          <div className="h-70 w-200 flex items-center justify-center">
+            <img
+              src={nearMeLogo}
+              alt="NearMe logo"
+              className="h-full w-full object-contain"
+            />
           </div>
         </div>
 
@@ -386,10 +379,10 @@ export default function DriverProfile() {
           {/* Header */}
           <div className="text-center mb-8">
             <h1 className="text-2xl font-bold text-gray-900 mb-2">
-              Complete Your Profile
+              Set your password
             </h1>
             <p className="text-gray-500 text-sm">
-              Choose a username and set your password to continue
+              Complete this to continue
             </p>
           </div>
 
@@ -397,37 +390,16 @@ export default function DriverProfile() {
             {/* Email (read-only) */}
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-2 ml-1">
-                Email (read-only)
+                Email (You can use this to log in)
               </label>
               <div className="relative">
                 <input
-                  className="w-full h-14 pl-12 pr-4 border border-gray-200 rounded-xl bg-gray-50 text-gray-500 cursor-not-allowed"
+                  className="w-full h-14 pl-12 pr-4 border border-gray-200 rounded-xl bg-gray-50 text-gray-900 cursor-not-allowed"
                   value={profile?.email || ""}
                   disabled
                 />
                 <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#1db95b]">
                   <span className="material-symbols-outlined">mail</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Username */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2 ml-1">
-                Username *
-              </label>
-              <div className="relative">
-                <input
-                  type="text"
-                  className="w-full h-14 pl-12 pr-4 border border-gray-200 rounded-xl bg-gray-50 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#1db95b] focus:ring-2 focus:ring-[#1db95b]/20 focus:bg-white transition-all duration-200"
-                  placeholder="Choose a unique username"
-                  value={userName}
-                  onChange={(e) => setUserName(e.target.value)}
-                  required
-                  minLength={3}
-                />
-                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#1db95b]">
-                  <span className="material-symbols-outlined">person</span>
                 </div>
               </div>
             </div>
@@ -508,19 +480,6 @@ export default function DriverProfile() {
                 <span>{message}</span>
               </div>
             )}
-
-            {/* Warning note */}
-            <div className="p-4 bg-[#dcfce7] border border-[#86efac] rounded-xl">
-              <div className="flex items-start gap-2">
-                <span className="material-symbols-outlined text-[#16a34a] text-lg mt-0.5">
-                  info
-                </span>
-                <p className="text-sm text-[#166534]">
-                  <strong>Note:</strong> Username and password cannot be changed
-                  later. Your onboarding details will be collected next.
-                </p>
-              </div>
-            </div>
 
             {/* Submit button */}
             <button

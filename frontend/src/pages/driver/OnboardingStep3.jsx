@@ -2,74 +2,8 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 import { API_URL } from "../../config";
-
-// Step Progress Component with animation
-const StepProgress = ({ currentStep, totalSteps = 5 }) => {
-  const steps = [
-    { num: 1, label: "Personal" },
-    { num: 2, label: "Vehicle" },
-    { num: 3, label: "Documents" },
-    { num: 4, label: "Bank" },
-    { num: 5, label: "Contract" },
-  ];
-
-  return (
-    <div className="w-full mb-8">
-      {/* Step segments */}
-      <div className="flex gap-2 mb-3">
-        {steps.map((step) => (
-          <div key={step.num} className="flex-1 relative">
-            <div
-              className={`h-2 rounded-full overflow-hidden ${
-                step.num === currentStep
-                  ? "bg-gray-200"
-                  : step.num < currentStep
-                    ? "bg-[#1db95b]"
-                    : "bg-gray-200"
-              }`}
-            >
-              {step.num === currentStep && (
-                <div
-                  className="h-full bg-[#1db95b] rounded-full"
-                  style={{
-                    animation: "progressFill 2s ease-in-out infinite",
-                  }}
-                />
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Step labels */}
-      <div className="flex justify-between">
-        {steps.map((step) => (
-          <div
-            key={step.num}
-            className={`text-xs font-medium ${
-              step.num === currentStep
-                ? "text-[#1db95b]"
-                : step.num < currentStep
-                  ? "text-[#1db95b]"
-                  : "text-gray-400"
-            }`}
-          >
-            {step.label}
-          </div>
-        ))}
-      </div>
-
-      {/* CSS Animation */}
-      <style>{`
-        @keyframes progressFill {
-          0% { width: 0%; opacity: 0.6; }
-          50% { width: 100%; opacity: 1; }
-          100% { width: 0%; opacity: 0.6; }
-        }
-      `}</style>
-    </div>
-  );
-};
+import OnboardingStepProgress from "../../components/driver/OnboardingStepProgress";
+import meezoLogo from "../../assets/NearMeLogoArtboard5.svg";
 
 export default function OnboardingStep3() {
   const navigate = useNavigate();
@@ -89,7 +23,7 @@ export default function OnboardingStep3() {
     license_front: { label: "Driving License Front", icon: "id_card" },
     license_back: { label: "Driving License Back", icon: "id_card" },
     insurance: { label: "Insurance Certificate", icon: "verified_user" },
-    revenue_license: { label: "Revenue License", icon: "receipt_long" },
+    revenue_license: { label: "Vehicle Annual License", icon: "receipt_long" },
   };
 
   const handleFileChange = (docType, e) => {
@@ -203,7 +137,7 @@ export default function OnboardingStep3() {
   return (
     <div className="min-h-screen flex flex-col items-center justify-start relative font-display">
       {/* Gradient background */}
-      <div className="absolute inset-0 bg-gradient-to-b from-[#1db95b] via-[#34d399] via-40% to-[#f0fdf4]"></div>
+      <div className="absolute inset-0 bg-linear-to-b from-[#1db95b] via-[#34d399] via-40% to-[#f0fdf4]"></div>
 
       {/* Subtle pattern overlay */}
       <div
@@ -215,11 +149,19 @@ export default function OnboardingStep3() {
       ></div>
 
       {/* Main content */}
-      <div className="relative w-full max-w-[540px] px-4 py-8 z-10">
+      <div className="relative w-full max-w-135 px-4 py-8 z-10">
+        <div className="flex justify-center mb-5">
+          <img
+            src={meezoLogo}
+            alt="Meezo logo"
+            className="w-50 sm:w-40 h-auto object-contain"
+          />
+        </div>
+
         {/* White card */}
         <div className="bg-white rounded-3xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.15)] p-8">
           {/* Step Progress */}
-          <StepProgress currentStep={3} />
+          <OnboardingStepProgress currentStep={3} />
 
           {/* Header */}
           <div className="flex items-center gap-3 mb-6">
@@ -232,7 +174,6 @@ export default function OnboardingStep3() {
               <h1 className="text-xl font-bold text-gray-900">
                 Upload Documents
               </h1>
-              <p className="text-gray-500 text-sm">Step 3 of 5</p>
             </div>
           </div>
 
@@ -274,7 +215,7 @@ export default function OnboardingStep3() {
                     )}
                   </div>
                   <label
-                    className={`px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-all ${
+                    className={`px-4 py-2 rounded-full text-sm font-medium cursor-pointer transition-all ${
                       documents[docType]
                         ? "bg-gray-100 text-gray-600 hover:bg-gray-200"
                         : "bg-[#1db95b] text-white hover:bg-[#18a34a]"
@@ -329,7 +270,7 @@ export default function OnboardingStep3() {
               <button
                 type="button"
                 onClick={handleBack}
-                className="flex-1 h-14 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+                className="flex-1 h-14 bg-gray-100 text-gray-700 font-bold rounded-full hover:bg-gray-200 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
               >
                 <span className="material-symbols-outlined">arrow_back</span>
                 <span>Back</span>
@@ -337,7 +278,7 @@ export default function OnboardingStep3() {
               <button
                 type="submit"
                 disabled={loading || !allDocsUploaded}
-                className="flex-1 h-14 bg-[#1db95b] text-white font-bold rounded-xl hover:bg-[#18a34a] active:scale-[0.98] transition-all shadow-lg shadow-[#1db95b]/30 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                className="flex-1 h-14 bg-[#1db95b] text-white font-bold rounded-full hover:bg-[#18a34a] active:scale-[0.98] transition-all shadow-lg shadow-[#1db95b]/30 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {loading ? (
                   <>

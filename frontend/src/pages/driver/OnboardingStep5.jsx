@@ -2,186 +2,100 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 import { API_URL } from "../../config";
-
-// Step Progress Component with animation
-const StepProgress = ({ currentStep, totalSteps = 5 }) => {
-  const steps = [
-    { num: 1, label: "Personal" },
-    { num: 2, label: "Vehicle" },
-    { num: 3, label: "Documents" },
-    { num: 4, label: "Bank" },
-    { num: 5, label: "Contract" },
-  ];
-
-  return (
-    <div className="w-full mb-8">
-      {/* Step segments */}
-      <div className="flex gap-2 mb-3">
-        {steps.map((step) => (
-          <div key={step.num} className="flex-1 relative">
-            <div
-              className={`h-2 rounded-full overflow-hidden ${
-                step.num === currentStep
-                  ? "bg-gray-200"
-                  : step.num < currentStep
-                    ? "bg-[#1db95b]"
-                    : "bg-gray-200"
-              }`}
-            >
-              {step.num === currentStep && (
-                <div
-                  className="h-full bg-[#1db95b] rounded-full"
-                  style={{
-                    animation: "progressFill 2s ease-in-out infinite",
-                  }}
-                />
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Step labels */}
-      <div className="flex justify-between">
-        {steps.map((step) => (
-          <div
-            key={step.num}
-            className={`text-xs font-medium ${
-              step.num === currentStep
-                ? "text-[#1db95b]"
-                : step.num < currentStep
-                  ? "text-[#1db95b]"
-                  : "text-gray-400"
-            }`}
-          >
-            {step.label}
-          </div>
-        ))}
-      </div>
-
-      {/* CSS Animation */}
-      <style>{`
-        @keyframes progressFill {
-          0% { width: 0%; opacity: 0.6; }
-          50% { width: 100%; opacity: 1; }
-          100% { width: 0%; opacity: 0.6; }
-        }
-      `}</style>
-    </div>
-  );
-};
+import OnboardingStepProgress from "../../components/driver/OnboardingStepProgress";
+import meezoLogo from "../../assets/NearMeLogoArtboard5.svg";
 
 export default function OnboardingStep5() {
   const navigate = useNavigate();
   const [error, setError] = useState(null);
   const [contractAccepted, setContractAccepted] = useState(false);
-  const [confirmRead, setConfirmRead] = useState(false);
 
   const contractVersion = "1.0.0";
 
   const contractHtml = `
-    <h2>Driver Partnership Agreement</h2>
+    <h2>Meezo Delivery Partner Terms and Conditions</h2>
     <p><strong>Version ${contractVersion}</strong> - Effective Date: ${new Date().toLocaleDateString()}</p>
-    
-    <h3>1. Introduction</h3>
-    <p>This Driver Partnership Agreement ("Agreement") is entered into between NearMe Platform ("Company") and you ("Driver"). By accepting this agreement, you agree to provide transportation services through the NearMe platform.</p>
-    
-    <h3>2. Driver Requirements</h3>
+
+    <h3>1. Service Scope</h3>
+    <p>This agreement is between Meezo Platform ("Manager") and you ("Delivery Partner"). Meezo is a food delivery service platform. By accepting these terms, you agree to provide food pickup and delivery services through Meezo.</p>
+
+    <h3>2. Pickup Distance and Earnings (Partner to Restaurant)</h3>
     <ul>
-      <li>Must be at least 21 years of age</li>
-      <li>Possess a valid Sri Lankan driving license</li>
-      <li>Maintain valid vehicle insurance and revenue license</li>
-      <li>Vehicle must pass safety and quality standards</li>
-      <li>Must pass background verification checks</li>
+      <li>You will receive upto LKR 30 for travel from your location to the restaurant, up to 1 km.</li>
+      <li>If this pickup distance exceeds 1 km, no additional pickup earning is paid for the excess distance.</li>
+      <li>You can accept such orders if you want.</li>
     </ul>
-    
-    <h3>3. Driver Responsibilities</h3>
+
+    <h3>3. Delivery Distance Earnings (Restaurant to Customer)</h3>
     <ul>
-      <li>Provide safe, courteous, and professional transportation services</li>
-      <li>Maintain vehicle in good working condition</li>
-      <li>Comply with all traffic laws and regulations</li>
-      <li>Keep all documents valid and up to date</li>
-      <li>Accept ride requests within reasonable timeframes</li>
-      <li>Treat passengers with respect and professionalism</li>
-      <li>Report any incidents or accidents immediately</li>
+      <li>You will receive full earnings based on total delivery distance from restaurant to customer.</li>
+      <li>Meezo pays LKR 35-50 per km depending on operating conditions; default base rate is LKR 40 per km.</li>
     </ul>
-    
-    <h3>4. Payment Terms</h3>
+
+    <h3>4. Multi-Order Trip Bonuses</h3>
     <ul>
-      <li>Company will collect payment from passengers on behalf of Driver</li>
-      <li>Driver will receive weekly payment transfers to registered bank account</li>
-      <li>Platform commission: 15% of total fare</li>
-      <li>Driver receives 85% of total fare after commission</li>
-      <li>Payment processing time: 2-3 business days</li>
-      <li>Minimum payout threshold: LKR 1,000</li>
+      <li>Meezo will pay a bonus for you when accepting additional deliveries in the same trip.</li>
+      <li>Second accepted delivery bonus: LKR 10-20.</li>
+      <li>Third and more accepted deliveries bonus: LKR 15-30 each.</li>
+      <li>You can accept up to 5 active deliveries in one trip.</li>
     </ul>
-    
-    <h3>5. Insurance and Liability</h3>
+
+    <h3>5. Active Delivery Commitment</h3>
     <ul>
-      <li>Driver must maintain comprehensive vehicle insurance</li>
-      <li>Driver is responsible for any damages or injuries during service</li>
-      <li>Company is not liable for accidents during transportation</li>
-      <li>Driver must report all incidents within 24 hours</li>
+      <li>Once you start delivering food to customers, you must complete all active deliveries in that trip.</li>
+      <li>New order notifications are sent after all active deliveries are completed.</li>
     </ul>
-    
-    <h3>6. Data and Privacy</h3>
+
+    <h3>6. Order Collection and Responsibility</h3>
     <ul>
-      <li>Company will collect and store Driver's personal and vehicle information</li>
-      <li>Data will be used for verification, payment, and service improvement</li>
-      <li>Driver information will not be shared with third parties without consent</li>
-      <li>Passenger data must be kept confidential</li>
+      <li>At the restaurant, request each order using the order number shown in the app.</li>
+      <li>You must verify all listed food items are packed correctly before pickup.</li>
+      <li>After pickup, you are responsible for the order and associated cash-handling obligations.</li>
     </ul>
-    
-    <h3>7. Account Suspension and Termination</h3>
+
+    <h3>7. Cash on Delivery and Settlement Rules</h3>
     <ul>
-      <li>Company may suspend account for policy violations</li>
-      <li>Repeated customer complaints may lead to deactivation</li>
-      <li>Either party may terminate with 7 days notice</li>
-      <li>Fraudulent activity results in immediate termination</li>
-      <li>Outstanding payments will be settled within 30 days of termination</li>
+      <li>All payments are handled as Cash on Delivery (COD).</li>
+      <li>You must collect the exact payable amount from the customer as shown in the delivery page .</li>
+      <li>You must settle the full collected amount to Meezo daily, either by bank transfer or direct payment to a manager.</li>
+      <li>Daily settlement must be completed before 12:00 AM (midnight).</li>
     </ul>
-    
-    <h3>8. Quality Standards</h3>
+
+    <h3>8. Tips and Priority Orders</h3>
     <ul>
-      <li>Maintain minimum 4.0 star rating</li>
-      <li>Accept at least 80% of ride requests</li>
-      <li>Complete rides without cancellations</li>
-      <li>Vehicle must be clean and presentable</li>
-      <li>Driver must dress professionally</li>
+      <li>Platform tip amounts may be added to delivery details based on order conditions.</li>
+      <li>If a tip appears in the delivery details, the order should be treated as priority.</li>
+      <li>You may also receive additional direct tips from customers.</li>
+      <li>Platform tip range is LKR 20-200, including weight-based allocations where applicable.</li>
     </ul>
-    
-    <h3>9. Code of Conduct</h3>
+
+    <h3>9. Fair Earnings for Extra Active Deliveries</h3>
     <ul>
-      <li>No discrimination based on race, religion, gender, or disability</li>
-      <li>No harassment or inappropriate behavior</li>
-      <li>No unauthorized use of passenger information</li>
-      <li>No driving under influence of alcohol or drugs</li>
-      <li>No smoking in vehicle during service</li>
+      <li>For extra active deliveries in the same trip, base delivery earnings will pay based on the additional travel-time factors to maintain fairness.</li>
     </ul>
-    
-    <h3>10. Dispute Resolution</h3>
+
+    <h3>10. Restaurant Queue Priority</h3>
     <ul>
-      <li>Any disputes will first be resolved through mediation</li>
-      <li>Unresolved disputes will be handled under Sri Lankan law</li>
-      <li>Jurisdiction: Courts of Colombo, Sri Lanka</li>
+      <li>Delivery partners are assigned a dedicated service queue and are not required to wait in the regular customer queue.</li>
     </ul>
-    
-    <h3>11. Updates to Agreement</h3>
-    <p>Company reserves the right to update this agreement. Drivers will be notified of changes 30 days in advance. Continued use of the platform constitutes acceptance of updated terms.</p>
-    
-    <h3>12. Contact Information</h3>
-    <p>For questions or concerns about this agreement:<br/>
-    Email: support@nearme.lk<br/>
-    Phone: +94 11 234 5678<br/>
-    Address: 123 Main Street, Colombo 00100, Sri Lanka</p>
+
+    <h3>11. Compliance and Conduct</h3>
+    <ul>
+      <li>You must follow applicable traffic, safety, and platform rules while delivering.</li>
+      <li>Repeated violations, settlement delays, misconduct, or fraudulent behavior may result in account suspension or termination.</li>
+    </ul>
+
+    <h3>12. Updates to Terms</h3>
+    <p>Meezo may update these terms when required for operations, legal compliance, or safety. Continued use of the platform after updates constitutes acceptance of revised terms.</p>
+
+    <h3>13. Acceptance</h3>
+    <p>By selecting the acceptance option below, you confirm that you have read, understood, and accepted these Meezo Delivery Partner Terms and Conditions.</p>
   `;
 
   const submitMutation = useMutation({
-    mutationFn: async ({ contractAcceptedValue, confirmReadValue }) => {
-      if (!contractAcceptedValue || !confirmReadValue) {
-        throw new Error(
-          "You must accept the contract and confirm you have read all terms",
-        );
+    mutationFn: async ({ contractAcceptedValue }) => {
+      if (!contractAcceptedValue) {
+        throw new Error("Please read and accept the terms and conditions");
       }
 
       const token = localStorage.getItem("token");
@@ -229,7 +143,6 @@ export default function OnboardingStep5() {
     setError(null);
     await submitMutation.mutateAsync({
       contractAcceptedValue: contractAccepted,
-      confirmReadValue: confirmRead,
     });
   };
 
@@ -240,7 +153,7 @@ export default function OnboardingStep5() {
   return (
     <div className="min-h-screen flex flex-col items-center justify-start relative font-display">
       {/* Gradient background */}
-      <div className="absolute inset-0 bg-gradient-to-b from-[#1db95b] via-[#34d399] via-40% to-[#f0fdf4]"></div>
+      <div className="absolute inset-0 bg-linear-to-b from-[#1db95b] via-[#34d399] via-40% to-[#f0fdf4]"></div>
 
       {/* Subtle pattern overlay */}
       <div
@@ -252,11 +165,19 @@ export default function OnboardingStep5() {
       ></div>
 
       {/* Main content */}
-      <div className="relative w-full max-w-[600px] px-4 py-8 z-10">
+      <div className="relative w-full max-w-150 px-4 py-8 z-10">
+        <div className="flex justify-center mb-5">
+          <img
+            src={meezoLogo}
+            alt="Meezo logo"
+            className="w-50 sm:w-40 h-auto object-contain"
+          />
+        </div>
+
         {/* White card */}
         <div className="bg-white rounded-3xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.15)] p-8">
           {/* Step Progress */}
-          <StepProgress currentStep={5} />
+          <OnboardingStepProgress currentStep={5} />
 
           {/* Header */}
           <div className="flex items-center gap-3 mb-6">
@@ -267,9 +188,8 @@ export default function OnboardingStep5() {
             </div>
             <div>
               <h1 className="text-xl font-bold text-gray-900">
-                Partnership Agreement
+                Delivery Partner Contract
               </h1>
-              <p className="text-gray-500 text-sm">Step 5 of 5 - Final Step</p>
             </div>
           </div>
 
@@ -291,23 +211,6 @@ export default function OnboardingStep5() {
               <div className="flex items-start">
                 <input
                   type="checkbox"
-                  id="confirmRead"
-                  checked={confirmRead}
-                  onChange={(e) => setConfirmRead(e.target.checked)}
-                  className="mt-1 mr-3 h-5 w-5 text-[#1db95b] focus:ring-[#1db95b] border-gray-300 rounded cursor-pointer accent-[#1db95b]"
-                />
-                <label
-                  htmlFor="confirmRead"
-                  className="text-sm text-[#854d0e] cursor-pointer"
-                >
-                  I confirm that I have read and understood all terms and
-                  conditions of this Driver Partnership Agreement
-                </label>
-              </div>
-
-              <div className="flex items-start">
-                <input
-                  type="checkbox"
                   id="contractAccepted"
                   checked={contractAccepted}
                   onChange={(e) => setContractAccepted(e.target.checked)}
@@ -317,8 +220,8 @@ export default function OnboardingStep5() {
                   htmlFor="contractAccepted"
                   className="text-sm text-[#854d0e] cursor-pointer"
                 >
-                  I accept and agree to be bound by the terms of this agreement.
-                  I understand that this is a legally binding contract.
+                  I have read, understood, and accept Meezo Delivery Partner
+                  Terms and Conditions.
                 </label>
               </div>
             </div>
@@ -343,9 +246,6 @@ export default function OnboardingStep5() {
                 <li>
                   Your acceptance will be recorded with timestamp and IP address
                 </li>
-                <li>
-                  This is a legally binding agreement under Sri Lankan law
-                </li>
                 <li>Contract version: {contractVersion}</li>
               </ul>
             </div>
@@ -355,15 +255,15 @@ export default function OnboardingStep5() {
               <button
                 type="button"
                 onClick={handleBack}
-                className="flex-1 h-14 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+                className="flex-1 h-14 bg-gray-100 text-gray-700 font-bold rounded-full hover:bg-gray-200 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
               >
                 <span className="material-symbols-outlined">arrow_back</span>
                 <span>Back</span>
               </button>
               <button
                 type="submit"
-                disabled={loading || !contractAccepted || !confirmRead}
-                className="flex-1 h-14 bg-[#1db95b] text-white font-bold rounded-xl hover:bg-[#18a34a] active:scale-[0.98] transition-all shadow-lg shadow-[#1db95b]/30 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                disabled={loading || !contractAccepted}
+                className="flex-1 h-14 bg-[#1db95b] text-white font-bold rounded-full hover:bg-[#18a34a] active:scale-[0.98] transition-all shadow-lg shadow-[#1db95b]/30 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {loading ? (
                   <>
@@ -393,7 +293,7 @@ export default function OnboardingStep5() {
                     <span className="material-symbols-outlined">
                       check_circle
                     </span>
-                    <span>Complete Onboarding</span>
+                    <span>Complete </span>
                   </>
                 )}
               </button>

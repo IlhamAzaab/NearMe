@@ -640,6 +640,12 @@ export default function AvailableDeliveries() {
         // Go straight to map page after accept (no Active Deliveries page hop).
         navigate(buildDriverActiveMapPath(deliveryId));
       } else {
+        if (data?.driver_status === "suspended") {
+          window.alert(
+            data.message ||
+              "Deposit the collected money to the Meezo platform before accepting new deliveries.",
+          );
+        }
         showToast(data.message || "Failed to accept delivery", "error");
       }
     } catch (e) {

@@ -3,6 +3,7 @@ import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
 import { supabaseAdmin } from "../supabaseAdmin.js";
 import { authenticate } from "../middleware/authenticate.js";
+import { getAuthPhoneOwnership } from "../utils/authPhone.js";
 
 const router = express.Router();
 
@@ -20,7 +21,13 @@ const upload = multer({
     fileSize: 15 * 1024 * 1024, // 15MB limit for iOS images
   },
   fileFilter: (req, file, cb) => {
-    const allowedTypes = ["image/jpeg", "image/jpg", "image/png", "image/heic", "image/heif"];
+    const allowedTypes = [
+      "image/jpeg",
+      "image/jpg",
+      "image/png",
+      "image/heic",
+      "image/heif",
+    ];
     if (allowedTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
@@ -32,9 +39,10 @@ const upload = multer({
 // Multer error handler middleware
 const handleMulterError = (err, req, res, next) => {
   if (err instanceof multer.MulterError) {
-    if (err.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({ 
-        message: "File too large. Maximum size is 15MB. Please compress your image or use a smaller file." 
+    if (err.code === "LIMIT_FILE_SIZE") {
+      return res.status(400).json({
+        message:
+          "File too large. Maximum size is 15MB. Please compress your image or use a smaller file.",
       });
     }
     return res.status(400).json({ message: err.message });
@@ -59,7 +67,7 @@ router.get("/status", authenticate, async (req, res) => {
     const { data: adminData, error: adminError } = await supabaseAdmin
       .from("admins")
       .select(
-        "id, onboarding_step, onboarding_completed, admin_status, force_password_change, restaurant_id"
+        "id, onboarding_step, onboarding_completed, admin_status, force_password_change, restaurant_id",
       )
       .eq("id", adminId)
       .single();
@@ -145,7 +153,7 @@ router.post(
         .status(500)
         .json({ message: "Server error", error: e.message });
     }
-  }
+  },
 );
 
 /**
@@ -165,7 +173,6 @@ router.post("/step-1", authenticate, async (req, res) => {
       dateOfBirth,
       phone,
       homeAddress,
-      profilePhotoUrl,
       nicFrontUrl,
       nicBackUrl,
     } = req.body;
@@ -176,14 +183,50 @@ router.post("/step-1", authenticate, async (req, res) => {
       !dateOfBirth ||
       !phone ||
       !homeAddress ||
-      !profilePhotoUrl ||
       !nicFrontUrl ||
       !nicBackUrl
     ) {
       return res.status(400).json({
         message:
-          "All fields are required: fullName, nicNumber, dateOfBirth, phone, homeAddress, profilePhotoUrl, nicFrontUrl, nicBackUrl",
+          "All fields are required: fullName, nicNumber, dateOfBirth, phone, homeAddress, nicFrontUrl, nicBackUrl",
       });
+    }
+
+    const phoneOwnership = await getAuthPhoneOwnership(supabaseAdmin, phone);
+    if (!phoneOwnership.normalizedPhone) {
+      return res
+        .status(400)
+        .json({ message: "Invalid Sri Lankan phone number format" });
+    }
+
+    if (phoneOwnership.ownerUserId && phoneOwnership.ownerUserId !== adminId) {
+      return res
+        .status(409)
+        .json({ message: "Phone number already registered" });
+    }
+
+    const { error: authPhoneError } =
+      await supabaseAdmin.auth.admin.updateUserById(adminId, {
+        phone: phoneOwnership.normalizedPhone,
+        phone_confirm: true,
+      });
+
+    if (authPhoneError) {
+      const authPhoneMessage = String(
+        authPhoneError?.message || "",
+      ).toLowerCase();
+      if (
+        authPhoneError?.status === 422 ||
+        authPhoneError?.code === "phone_exists" ||
+        authPhoneMessage.includes("phone")
+      ) {
+        return res
+          .status(409)
+          .json({ message: "Phone number already registered" });
+      }
+
+      console.error("Admin auth phone update error:", authPhoneError);
+      return res.status(500).json({ message: "Failed to update phone number" });
     }
 
     const { error: updateError } = await supabaseAdmin
@@ -192,9 +235,8 @@ router.post("/step-1", authenticate, async (req, res) => {
         full_name: fullName,
         nic_number: nicNumber,
         date_of_birth: dateOfBirth,
-        phone,
+        phone: phoneOwnership.normalizedPhone,
         home_address: homeAddress,
-        profile_photo_url: profilePhotoUrl,
         nic_front: nicFrontUrl,
         nic_back: nicBackUrl,
         onboarding_step: 2,
@@ -208,6 +250,11 @@ router.post("/step-1", authenticate, async (req, res) => {
         .status(500)
         .json({ message: "Failed to save personal information" });
     }
+
+    await supabaseAdmin
+      .from("users")
+      .update({ phone: phoneOwnership.normalizedPhone })
+      .eq("id", adminId);
 
     return res.json({
       message: "Personal information saved successfully",
@@ -253,12 +300,6 @@ router.post("/step-2", authenticate, async (req, res) => {
     if (!openingTime || !closeTime) {
       return res.status(400).json({
         message: "Opening time and closing time are required",
-      });
-    }
-
-    if (!coverImageUrl) {
-      return res.status(400).json({
-        message: "Cover image is required",
       });
     }
 
@@ -403,7 +444,7 @@ router.post("/step-3", authenticate, async (req, res) => {
           branch,
           account_number: accountNumber,
         },
-        { onConflict: "admin_id,account_number" }
+        { onConflict: "admin_id,account_number" },
       );
 
     if (bankError) {

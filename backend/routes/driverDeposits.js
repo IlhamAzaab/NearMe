@@ -55,6 +55,36 @@ function getSriLankaTimeBoundaries(dateType = "today") {
   };
 }
 
+async function getDriverDetailsMap(driverIds = []) {
+  const uniqueDriverIds = [...new Set((driverIds || []).filter(Boolean))];
+  if (uniqueDriverIds.length === 0) return {};
+
+  const [driversResult, usersResult] = await Promise.all([
+    supabaseAdmin
+      .from("drivers")
+      .select("id, full_name, phone, email")
+      .in("id", uniqueDriverIds),
+    supabaseAdmin.from("users").select("id, phone").in("id", uniqueDriverIds),
+  ]);
+
+  const usersPhoneMap = {};
+  (usersResult.data || []).forEach((u) => {
+    usersPhoneMap[u.id] = u.phone || null;
+  });
+
+  const driverMap = {};
+  (driversResult.data || []).forEach((d) => {
+    driverMap[d.id] = {
+      id: d.id,
+      full_name: d.full_name || "Unknown Driver",
+      phone: d.phone || usersPhoneMap[d.id] || null,
+      email: d.email || null,
+    };
+  });
+
+  return driverMap;
+}
+
 // Configure Cloudinary
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -422,15 +452,7 @@ router.get("/manager/pending", authenticate, managerOnly, async (req, res) => {
     let balanceMap = {};
 
     if (driverIds.length > 0) {
-      // Fetch driver details from drivers table
-      const { data: drivers } = await supabaseAdmin
-        .from("drivers")
-        .select("id, full_name, phone, email, user_name")
-        .in("id", driverIds);
-
-      (drivers || []).forEach((d) => {
-        driverMap[d.id] = d;
-      });
+      driverMap = await getDriverDetailsMap(driverIds);
 
       // Fetch driver balances
       const { data: balances } = await supabaseAdmin
@@ -647,14 +669,7 @@ router.get("/manager/all", authenticate, managerOnly, async (req, res) => {
     let driverMap = {};
 
     if (driverIds.length > 0) {
-      const { data: drivers } = await supabaseAdmin
-        .from("drivers")
-        .select("id, full_name, phone, email, user_name")
-        .in("id", driverIds);
-
-      (drivers || []).forEach((d) => {
-        driverMap[d.id] = d;
-      });
+      driverMap = await getDriverDetailsMap(driverIds);
     }
 
     const depositsWithDrivers = deposits.map((d) => ({
@@ -701,14 +716,7 @@ router.get("/manager/drivers", authenticate, managerOnly, async (req, res) => {
     let driverMap = {};
 
     if (driverIds.length > 0) {
-      const { data: drivers } = await supabaseAdmin
-        .from("drivers")
-        .select("id, full_name, phone, email, user_name")
-        .in("id", driverIds);
-
-      (drivers || []).forEach((d) => {
-        driverMap[d.id] = d;
-      });
+      driverMap = await getDriverDetailsMap(driverIds);
     }
 
     const balancesWithDrivers = balances.map((b) => ({
@@ -939,15 +947,7 @@ router.get(
 
       // 2. Get driver details for all balances
       const driverIds = balances.map((b) => b.driver_id);
-      const { data: drivers } = await supabaseAdmin
-        .from("drivers")
-        .select("id, full_name, phone, email, user_name")
-        .in("id", driverIds);
-
-      const driverMap = {};
-      (drivers || []).forEach((d) => {
-        driverMap[d.id] = d;
-      });
+      const driverMap = await getDriverDetailsMap(driverIds);
 
       // 3. Get today's collections per driver (strictly by delivered_at)
       const { data: periodDeliveries } = await supabaseAdmin
@@ -1016,7 +1016,6 @@ router.get(
             full_name: driver?.full_name || "Unknown Driver",
             phone: driver?.phone || null,
             email: driver?.email || null,
-            user_name: driver?.user_name || null,
             total_collected_today: collectedToday,
             total_paid_today: paidToday,
             pending_balance: pendingBalance, // Real-time from driver_balances
@@ -1096,11 +1095,8 @@ router.get(
       }
 
       // Get driver details
-      const { data: driver } = await supabaseAdmin
-        .from("drivers")
-        .select("id, full_name, phone, email, user_name")
-        .eq("id", deposit.driver_id)
-        .single();
+      const driverMap = await getDriverDetailsMap([deposit.driver_id]);
+      const driver = driverMap[deposit.driver_id] || null;
 
       // Get driver's current pending balance
       const { data: balance } = await supabaseAdmin

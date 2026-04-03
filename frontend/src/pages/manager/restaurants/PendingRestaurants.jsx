@@ -43,12 +43,9 @@ export default function PendingRestaurants() {
   useEffect(() => {
     const fetchRestaurants = async () => {
       try {
-        const res = await fetch(
-          `${API_URL}/manager/pending-restaurants`,
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          },
-        );
+        const res = await fetch(`${API_URL}/manager/pending-restaurants`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
         const data = await res.json();
         if (res.ok) {
           setRestaurants(data.restaurants || []);
@@ -184,17 +181,23 @@ export default function PendingRestaurants() {
     <ManagerPageLayout title="Pending Restaurants">
       <div className="p-4">
         <AnimatedAlert alert={alertState} visible={alertVisible} />
-        <div className="min-h-screen bg-gray-50 py-10 px-4">
+        <div className="min-h-screen bg-[#f3f7f6] py-6 px-1">
           <div className="max-w-7xl mx-auto">
-            <h1 className="text-3xl font-bold text-gray-800 mb-8">
-              Pending Restaurant Approvals
-            </h1>
+            <div className="rounded-2xl bg-linear-to-r from-[#065f46] to-[#0f766e] text-white p-6 mb-6 shadow-lg">
+              <h1 className="text-3xl font-bold">
+                Pending Restaurant Approvals
+              </h1>
+              <p className="text-sm text-emerald-100 mt-2">
+                Verify owner identity, business details, and KYC documents
+                before activating restaurants.
+              </p>
+            </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Restaurants List */}
               <div className="lg:col-span-1">
-                <div className="bg-white rounded-lg shadow">
-                  <div className="p-4 border-b">
+                <div className="bg-white rounded-2xl shadow-sm border border-[#dbe6e3] overflow-hidden">
+                  <div className="p-4 border-b border-[#edf4f1] bg-[#f7fcfa]">
                     <h2 className="font-semibold text-gray-800">
                       Pending ({restaurants.length})
                     </h2>
@@ -212,10 +215,10 @@ export default function PendingRestaurants() {
                       restaurants.map((restaurant) => (
                         <div
                           key={restaurant.id}
-                          className={`p-4 border-b cursor-pointer transition ${
+                          className={`p-4 border-b border-[#edf4f1] cursor-pointer transition ${
                             selectedRestaurant === restaurant.id
-                              ? "bg-indigo-50 border-l-4 border-l-indigo-600"
-                              : "hover:bg-gray-50"
+                              ? "bg-emerald-50 border-l-4 border-l-emerald-600"
+                              : "hover:bg-[#f8fbfa]"
                           }`}
                           onClick={() => handleSelectRestaurant(restaurant.id)}
                         >

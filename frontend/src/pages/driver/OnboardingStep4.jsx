@@ -2,74 +2,9 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 import { API_URL } from "../../config";
-
-// Step Progress Component with animation
-const StepProgress = ({ currentStep, totalSteps = 5 }) => {
-  const steps = [
-    { num: 1, label: "Personal" },
-    { num: 2, label: "Vehicle" },
-    { num: 3, label: "Documents" },
-    { num: 4, label: "Bank" },
-    { num: 5, label: "Contract" },
-  ];
-
-  return (
-    <div className="w-full mb-8">
-      {/* Step segments */}
-      <div className="flex gap-2 mb-3">
-        {steps.map((step) => (
-          <div key={step.num} className="flex-1 relative">
-            <div
-              className={`h-2 rounded-full overflow-hidden ${
-                step.num === currentStep
-                  ? "bg-gray-200"
-                  : step.num < currentStep
-                    ? "bg-[#1db95b]"
-                    : "bg-gray-200"
-              }`}
-            >
-              {step.num === currentStep && (
-                <div
-                  className="h-full bg-[#1db95b] rounded-full"
-                  style={{
-                    animation: "progressFill 2s ease-in-out infinite",
-                  }}
-                />
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Step labels */}
-      <div className="flex justify-between">
-        {steps.map((step) => (
-          <div
-            key={step.num}
-            className={`text-xs font-medium ${
-              step.num === currentStep
-                ? "text-[#1db95b]"
-                : step.num < currentStep
-                  ? "text-[#1db95b]"
-                  : "text-gray-400"
-            }`}
-          >
-            {step.label}
-          </div>
-        ))}
-      </div>
-
-      {/* CSS Animation */}
-      <style>{`
-        @keyframes progressFill {
-          0% { width: 0%; opacity: 0.6; }
-          50% { width: 100%; opacity: 1; }
-          100% { width: 0%; opacity: 0.6; }
-        }
-      `}</style>
-    </div>
-  );
-};
+import OnboardingStepProgress from "../../components/driver/OnboardingStepProgress";
+import FloatingField from "../../components/driver/FloatingField";
+import meezoLogo from "../../assets/NearMeLogoArtboard5.svg";
 
 export default function OnboardingStep4() {
   const navigate = useNavigate();
@@ -154,7 +89,7 @@ export default function OnboardingStep4() {
   return (
     <div className="min-h-screen flex flex-col items-center justify-start relative font-display">
       {/* Gradient background */}
-      <div className="absolute inset-0 bg-gradient-to-b from-[#1db95b] via-[#34d399] via-40% to-[#f0fdf4]"></div>
+      <div className="absolute inset-0 bg-linear-to-b from-[#1db95b] via-[#34d399] via-40% to-[#f0fdf4]"></div>
 
       {/* Subtle pattern overlay */}
       <div
@@ -166,11 +101,19 @@ export default function OnboardingStep4() {
       ></div>
 
       {/* Main content */}
-      <div className="relative w-full max-w-[540px] px-4 py-8 z-10">
+      <div className="relative w-full max-w-135 px-4 py-8 z-10">
+        <div className="flex justify-center mb-5">
+          <img
+            src={meezoLogo}
+            alt="Meezo logo"
+            className="w-50 sm:w-40 h-auto object-contain"
+          />
+        </div>
+
         {/* White card */}
         <div className="bg-white rounded-3xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.15)] p-8">
           {/* Step Progress */}
-          <StepProgress currentStep={4} />
+          <OnboardingStepProgress currentStep={4} />
 
           {/* Header */}
           <div className="flex items-center gap-3 mb-6">
@@ -188,24 +131,15 @@ export default function OnboardingStep4() {
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Account Holder Name */}
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Account Holder Name *
-              </label>
-              <div className="relative">
-                <input
-                  name="accountHolderName"
-                  className="w-full h-12 pl-11 pr-4 border border-gray-200 rounded-xl bg-gray-50 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#1db95b] focus:ring-2 focus:ring-[#1db95b]/20 focus:bg-white transition-all duration-200"
-                  placeholder="Name as per bank account"
-                  value={formData.accountHolderName}
-                  onChange={handleChange}
-                  required
-                />
-                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#1db95b]">
-                  <span className="material-symbols-outlined text-xl">
-                    person
-                  </span>
-                </div>
-              </div>
+              <FloatingField
+                as="input"
+                label="Account Holder Name"
+                name="accountHolderName"
+                placeholder="Accoount holder Name"
+                value={formData.accountHolderName}
+                onChange={handleChange}
+                required
+              />
               <p className="text-xs text-gray-500 mt-1 ml-1">
                 Enter the name exactly as it appears on your bank account
               </p>
@@ -213,101 +147,62 @@ export default function OnboardingStep4() {
 
             {/* Bank Name */}
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Bank Name *
-              </label>
-              <div className="relative">
-                <select
-                  name="bankName"
-                  className="w-full h-12 pl-11 pr-10 border border-gray-200 rounded-xl bg-gray-50 text-gray-900 focus:outline-none focus:border-[#1db95b] focus:ring-2 focus:ring-[#1db95b]/20 focus:bg-white transition-all duration-200 appearance-none"
-                  value={formData.bankName}
-                  onChange={handleChange}
-                  required
-                >
-                  <option value="">Select your bank</option>
-                  {sriLankanBanks.map((bank) => (
-                    <option key={bank} value={bank}>
-                      {bank}
-                    </option>
-                  ))}
-                </select>
-                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#1db95b]">
-                  <span className="material-symbols-outlined text-xl">
-                    account_balance
-                  </span>
-                </div>
-                <div className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
-                  <span className="material-symbols-outlined text-xl">
-                    expand_more
-                  </span>
-                </div>
-              </div>
+              <FloatingField
+                as="select"
+                label="Bank Name"
+                name="bankName"
+                value={formData.bankName}
+                onChange={handleChange}
+                required
+                options={[
+                  { value: "", label: "Select your bank" },
+                  ...sriLankanBanks.map((bank) => ({
+                    value: bank,
+                    label: bank,
+                  })),
+                ]}
+              />
             </div>
 
             {/* Branch Name */}
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Branch Name *
-              </label>
-              <div className="relative">
-                <input
-                  name="branch"
-                  className="w-full h-12 pl-11 pr-4 border border-gray-200 rounded-xl bg-gray-50 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#1db95b] focus:ring-2 focus:ring-[#1db95b]/20 focus:bg-white transition-all duration-200"
-                  placeholder="e.g., Colombo Fort, Kandy City"
-                  value={formData.branch}
-                  onChange={handleChange}
-                  required
-                />
-                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#1db95b]">
-                  <span className="material-symbols-outlined text-xl">
-                    location_on
-                  </span>
-                </div>
-              </div>
+              <FloatingField
+                as="input"
+                label="Branch Name"
+                name="branch"
+                placeholder="Branch"
+                value={formData.branch}
+                onChange={handleChange}
+                required
+              />
             </div>
 
             {/* Account Number */}
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Account Number *
-              </label>
-              <div className="relative">
-                <input
-                  name="accountNumber"
-                  type="text"
-                  className="w-full h-12 pl-11 pr-4 border border-gray-200 rounded-xl bg-gray-50 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#1db95b] focus:ring-2 focus:ring-[#1db95b]/20 focus:bg-white transition-all duration-200"
-                  placeholder="Enter your account number"
-                  value={formData.accountNumber}
-                  onChange={handleChange}
-                  required
-                />
-                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#1db95b]">
-                  <span className="material-symbols-outlined text-xl">pin</span>
-                </div>
-              </div>
+              <FloatingField
+                as="input"
+                label="Account Number"
+                name="accountNumber"
+                type="text"
+                placeholder="Enter your account number"
+                value={formData.accountNumber}
+                onChange={handleChange}
+                required
+              />
             </div>
 
             {/* Confirm Account Number */}
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Confirm Account Number *
-              </label>
-              <div className="relative">
-                <input
-                  name="confirmAccountNumber"
-                  type="text"
-                  className="w-full h-12 pl-11 pr-4 border border-gray-200 rounded-xl bg-gray-50 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#1db95b] focus:ring-2 focus:ring-[#1db95b]/20 focus:bg-white transition-all duration-200"
-                  placeholder="Re-enter your account number"
-                  value={formData.confirmAccountNumber}
-                  onChange={handleChange}
-                  required
-                />
-                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#1db95b]">
-                  <span className="material-symbols-outlined text-xl">
-                    verified
-                  </span>
-                </div>
-              </div>
+              <FloatingField
+                as="input"
+                label="Confirm Account Number"
+                name="confirmAccountNumber"
+                type="text"
+                placeholder="Re-enter your account number"
+                value={formData.confirmAccountNumber}
+                onChange={handleChange}
+                required
+              />
             </div>
 
             {/* Error message */}
@@ -329,8 +224,11 @@ export default function OnboardingStep4() {
                 Payment Information
               </p>
               <ul className="text-sm text-[#166534] space-y-1 ml-6 list-disc">
-                <li>Weekly earnings will be transferred to this account</li>
-                <li>Processing time: 2-3 business days</li>
+                <li>
+                  Daily earnings will be transferred to this account before 2.00
+                  a.m
+                </li>
+                <li>Minimum earnings should be 500 for transfer to happen</li>
                 <li>Ensure account details are accurate to avoid delays</li>
               </ul>
             </div>
@@ -353,7 +251,7 @@ export default function OnboardingStep4() {
               <button
                 type="button"
                 onClick={handleBack}
-                className="flex-1 h-14 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+                className="flex-1 h-14 bg-gray-100 text-gray-700 font-bold rounded-full hover:bg-gray-200 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
               >
                 <span className="material-symbols-outlined">arrow_back</span>
                 <span>Back</span>
@@ -361,7 +259,7 @@ export default function OnboardingStep4() {
               <button
                 type="submit"
                 disabled={loading}
-                className="flex-1 h-14 bg-[#1db95b] text-white font-bold rounded-xl hover:bg-[#18a34a] active:scale-[0.98] transition-all shadow-lg shadow-[#1db95b]/30 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                className="flex-1 h-14 bg-[#1db95b] text-white font-bold rounded-full hover:bg-[#18a34a] active:scale-[0.98] transition-all shadow-lg shadow-[#1db95b]/30 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {loading ? (
                   <>

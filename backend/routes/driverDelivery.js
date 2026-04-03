@@ -292,6 +292,9 @@ const driverOnly = (req, res, next) => {
   next();
 };
 
+const SUSPENDED_DEPOSIT_MESSAGE =
+  "Deposit the collected money to the Meezo platform before accepting new deliveries.";
+
 // ============================================================================
 // GET /driver/deliveries/pending - Get all pending deliveries
 // Shows deliveries with delivery_status = 'pending'
@@ -338,9 +341,13 @@ router.get(
 
       // Only show deliveries if driver_status is 'active'
       if (driverData.driver_status !== "active") {
+        const suspended =
+          String(driverData.driver_status || "").toLowerCase() === "suspended";
         return res.json({
           deliveries: [],
-          message: "You must be online (active) to see available deliveries",
+          message: suspended
+            ? SUSPENDED_DEPOSIT_MESSAGE
+            : "You must be online (active) to see available deliveries",
           driver_status: driverData.driver_status,
           working_time: driverData.working_time || "full_time",
         });
@@ -603,13 +610,19 @@ router.post(
       }
 
       if (driverData.driver_status !== "active") {
+        const suspended =
+          String(driverData.driver_status || "").toLowerCase() === "suspended";
         console.log(
           `[ACCEPT DELIVERY]   ⚠️  Driver is not active (status: ${driverData.driver_status})`,
         );
         return res.status(403).json({
-          message: "You must be online (active) to accept deliveries",
+          message: suspended
+            ? SUSPENDED_DEPOSIT_MESSAGE
+            : "You must be online (active) to accept deliveries",
           driver_status: driverData.driver_status,
-          hint: "Go online from the dashboard to accept deliveries",
+          hint: suspended
+            ? "Settle the pending collected amount and ask manager to reactivate your account."
+            : "Go online from the dashboard to accept deliveries",
         });
       }
 
@@ -3236,6 +3249,37 @@ router.get(
     const { driver_latitude, driver_longitude } = req.query;
     const lat = driver_latitude ? parseFloat(driver_latitude) : null;
     const lng = driver_longitude ? parseFloat(driver_longitude) : null;
+
+    // Check driver status first: suspended/rejected/pending drivers should not receive new requests.
+    const { data: driverData, error: driverError } = await supabaseAdmin
+      .from("drivers")
+      .select("driver_status, working_time")
+      .eq("id", driverId)
+      .single();
+
+    if (driverError || !driverData) {
+      return res.status(404).json({
+        message: "Driver not found",
+      });
+    }
+
+    if (driverData.driver_status !== "active") {
+      const suspended =
+        String(driverData.driver_status || "").toLowerCase() === "suspended";
+      return res.json({
+        available_deliveries: [],
+        total_available: 0,
+        current_route: {
+          total_stops: 0,
+          active_deliveries: 0,
+        },
+        message: suspended
+          ? SUSPENDED_DEPOSIT_MESSAGE
+          : "You must be online (active) to see available deliveries",
+        driver_status: driverData.driver_status,
+        working_time: driverData.working_time || "full_time",
+      });
+    }
 
     // Check response cache first
     const cached = availableDeliveriesCache.get(driverId);

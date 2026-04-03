@@ -195,7 +195,6 @@ export default function AccountProfile() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          username: profile?.username || "",
           newPassword: pwData.newPassword,
         }),
       });

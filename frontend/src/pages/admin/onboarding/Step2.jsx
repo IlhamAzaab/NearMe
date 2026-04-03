@@ -12,6 +12,8 @@ import L from "leaflet";
 import AnimatedAlert, { useAlert } from "../../../components/AnimatedAlert";
 import { API_URL } from "../../../config";
 
+const KINNIYA_BUHARI_JUNCTION_COORDS = [8.5017, 81.186];
+
 // Fix Leaflet default marker icon issue
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -128,7 +130,7 @@ export default function AdminOnboardingStep2() {
     closeTime: "",
   });
   const [position, setPosition] = useState(null); // [lat, lng]
-  const [mapCenter, setMapCenter] = useState([8.8731, 81.7718]); // For centering map
+  const [mapCenter, setMapCenter] = useState(KINNIYA_BUHARI_JUNCTION_COORDS); // For centering map
   const [files, setFiles] = useState({
     logo: null,
     coverImage: null,
@@ -143,10 +145,10 @@ export default function AdminOnboardingStep2() {
   };
   const [locating, setLocating] = useState(false);
 
-  // Set default position (Sri Lanka center)
+  // Set default position to Kinniya Buhari Junction.
   useEffect(() => {
     if (!position) {
-      setPosition([7.8731, 80.7718]); // Sri Lanka center
+      setPosition(KINNIYA_BUHARI_JUNCTION_COORDS);
     }
   }, []);
 
@@ -191,7 +193,15 @@ export default function AdminOnboardingStep2() {
         return;
       }
       // Validate file type (including HEIC for iOS)
-      if (!["image/jpeg", "image/jpg", "image/png", "image/heic", "image/heif"].includes(file.type)) {
+      if (
+        ![
+          "image/jpeg",
+          "image/jpg",
+          "image/png",
+          "image/heic",
+          "image/heif",
+        ].includes(file.type)
+      ) {
         setError(`${fieldKey} must be JPG, PNG, or HEIC`);
         return;
       }
@@ -252,18 +262,11 @@ export default function AdminOnboardingStep2() {
       return;
     }
 
-    // Check if cover image is selected
-    if (!files.coverImage) {
-      setError("Cover image is required");
-      return;
-    }
-
     setLoading(true);
 
     try {
-      // Upload images to Cloudinary (logo is optional)
+      // Upload images to Cloudinary (both logo and cover are optional at onboarding).
       const uploadPromises = [];
-      let logoUrl = null;
 
       if (files.logo) {
         uploadPromises.push(
@@ -278,37 +281,39 @@ export default function AdminOnboardingStep2() {
         uploadPromises.push(Promise.resolve(null));
       }
 
-      uploadPromises.push(
-        (async () => {
-          setUploading((prev) => ({ ...prev, coverImage: true }));
-          const url = await uploadToCloudinary(files.coverImage, "cover_image");
-          setUploading((prev) => ({ ...prev, coverImage: false }));
-          return url;
-        })(),
-      );
+      if (files.coverImage) {
+        uploadPromises.push(
+          (async () => {
+            setUploading((prev) => ({ ...prev, coverImage: true }));
+            const url = await uploadToCloudinary(
+              files.coverImage,
+              "cover_image",
+            );
+            setUploading((prev) => ({ ...prev, coverImage: false }));
+            return url;
+          })(),
+        );
+      } else {
+        uploadPromises.push(Promise.resolve(null));
+      }
 
-      const [uploadedLogoUrl, coverImageUrl] =
-        await Promise.all(uploadPromises);
-      logoUrl = uploadedLogoUrl;
+      const [logoUrl, coverImageUrl] = await Promise.all(uploadPromises);
 
       // Submit to backend with URLs and position coordinates
-      const res = await fetch(
-        `${API_URL}/restaurant-onboarding/step-2`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            ...form,
-            latitude: position[0].toString(),
-            longitude: position[1].toString(),
-            logoUrl,
-            coverImageUrl,
-          }),
+      const res = await fetch(`${API_URL}/restaurant-onboarding/step-2`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
-      );
+        body: JSON.stringify({
+          ...form,
+          latitude: position[0].toString(),
+          longitude: position[1].toString(),
+          logoUrl,
+          coverImageUrl,
+        }),
+      });
 
       const data = await res.json();
       if (!res.ok) {
@@ -318,7 +323,7 @@ export default function AdminOnboardingStep2() {
       navigate("/admin/restaurant/onboarding/step-3");
     } catch (err) {
       console.error("Step2 submit error", err);
-      setError("Failed to upload images. Please try again.");
+      setError("Failed to save restaurant details. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -333,7 +338,7 @@ export default function AdminOnboardingStep2() {
         <div className="absolute top-1/4 left-1/4 w-96 h-96 rounded-full bg-gradient-to-r from-green-400/30 to-green-500/30 floating animate-pulse-slow"></div>
         <div className="absolute bottom-1/4 right-1/4 w-72 h-72 rounded-full bg-gradient-to-r from-green-300/25 to-green-400/25 floating animate-pulse-slower"></div>
         <div className="absolute top-1/3 right-1/3 w-48 h-48 rounded-full bg-gradient-to-r from-green-200/20 to-green-300/20 floating animate-pulse-slow"></div>
-        <div className="absolute top-1/2 left-1/2 w-40 h-40 rounded-full bg-gradient-to-r from-lime-300/25 to-green-300/25 animate-ping-slow"></div>
+        <div className="absolute top-1/2 left-1/2 w-40 h-40 rounded-full bg-gradient-to-r from-green-300/25 to-green-300/25 animate-ping-slow"></div>
 
         {/* Vertical animated bars */}
         <div className="absolute inset-0">
@@ -356,7 +361,7 @@ export default function AdminOnboardingStep2() {
           {[...Array(5)].map((_, i) => (
             <div
               key={i}
-              className="absolute h-px bg-gradient-to-r from-transparent via-lime-400/20 to-transparent animate-slide-diagonal"
+              className="absolute h-px bg-gradient-to-r from-transparent via-green-400/20 to-transparent animate-slide-diagonal"
               style={{
                 top: `${i * 20}%`,
                 width: "200%",
@@ -397,11 +402,11 @@ export default function AdminOnboardingStep2() {
                 <path d="M8.1 13.34l2.83-2.83L3.91 3.5c-1.56 1.56-1.56 4.09 0 5.66l4.19 4.18zm6.78-1.81c1.53.71 3.68.21 5.27-1.38 1.91-1.91 2.28-4.65.81-6.12-1.46-1.46-4.2-1.1-6.12.81-1.59 1.59-2.09 3.74-1.38 5.27L3.7 19.87l1.41 1.41L12 14.41l6.88 6.88 1.41-1.41L13.41 13l1.47-1.47z" />
               </svg>
             </div>
-            <div className="absolute -top-2 -right-2 w-4 h-4 bg-lime-500 rounded-full animate-ping"></div>
+            <div className="absolute -top-2 -right-2 w-4 h-4 bg-green-500 rounded-full animate-ping"></div>
           </div>
         </div>
 
-        <h1 className="text-3xl font-bold text-center mb-2 bg-gradient-to-r from-lime-600 to-green-600 bg-clip-text text-transparent">
+        <h1 className="text-3xl font-bold text-center mb-2 bg-gradient-to-r from-green-600 to-green-600 bg-clip-text text-transparent">
           Restaurant Details
         </h1>
         <p className="text-center text-gray-600 mb-6">
@@ -461,7 +466,7 @@ export default function AdminOnboardingStep2() {
               </div>
               <input
                 className="relative w-full px-4 py-3 bg-transparent rounded-xl focus:outline-none z-10"
-                placeholder="Enter complete address"
+                placeholder="restauant address"
                 value={form.address}
                 onChange={(e) => updateField("address", e.target.value)}
                 required
@@ -478,7 +483,7 @@ export default function AdminOnboardingStep2() {
               </div>
               <input
                 className="relative w-full px-4 py-3 bg-transparent rounded-xl focus:outline-none z-10"
-                placeholder="Enter city"
+                placeholder="Eg; kinniya or kakkamunai"
                 value={form.city}
                 onChange={(e) => updateField("city", e.target.value)}
                 required
@@ -495,7 +500,7 @@ export default function AdminOnboardingStep2() {
               </div>
               <input
                 className="relative w-full px-4 py-3 bg-transparent rounded-xl focus:outline-none z-10"
-                placeholder="Enter postal code"
+                placeholder="Eg; 31100"
                 value={form.postalCode}
                 onChange={(e) => updateField("postalCode", e.target.value)}
                 required
@@ -505,12 +510,12 @@ export default function AdminOnboardingStep2() {
 
           {/* Map for Location Selection */}
           <div className="md:col-span-2 space-y-3">
-            <label className="block text-sm font-medium text-gray-700">
-              Restaurant Location
+            <label className="block text-m font-medium text-gray-900">
+              Pin Your Restaurant Location
             </label>
             <div className="relative">
               <MapContainer
-                center={position || [7.8731, 80.7718]}
+                center={position || KINNIYA_BUHARI_JUNCTION_COORDS}
                 zoom={13}
                 style={{ height: "400px", width: "100%", borderRadius: "8px" }}
               >
@@ -527,13 +532,10 @@ export default function AdminOnboardingStep2() {
               type="button"
               onClick={handleUseMyLocation}
               disabled={locating}
-              className="w-full bg-gradient-to-r from-lime-500 to-green-500 text-white py-2 px-4 rounded-xl hover:from-lime-600 hover:to-green-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg hover:shadow-xl"
+              className="w-full bg-gradient-to-r from-green-500 to-green-500 text-white py-2 px-4 rounded-full hover:from-green-600 hover:to-green-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg hover:shadow-xl"
             >
-              {locating ? "Getting location..." : "Find My Location"}
+              {locating ? "Getting location..." : "Current Location"}
             </button>
-            <p className="text-xs text-gray-500">
-              Click on the map to pin location or use your current location
-            </p>
           </div>
 
           <div>
@@ -741,23 +743,22 @@ export default function AdminOnboardingStep2() {
             <input
               type="file"
               accept="image/jpeg,image/jpg,image/png,image/heic,image/heif"
-              className="w-full border-2 border-gray-200 rounded-xl p-3 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-gradient-to-r file:from-lime-50 file:to-green-50 file:text-lime-700 hover:file:bg-lime-100 file:cursor-pointer cursor-pointer transition-all"
+              className="w-full border-2 border-gray-200 rounded-xl p-3 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-gradient-to-r file:from-green-50 file:to-green-50 file:text-green-700 hover:file:bg-green-100 file:cursor-pointer cursor-pointer transition-all"
               onChange={(e) => handleFileChange("logo", e)}
             />
           </div>
 
-          {/* Cover Image Upload (Required) */}
+          {/* Cover Image Upload (Optional) */}
           <div className="md:col-span-2">
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Cover Image <span className="text-red-600">*</span>
+              Cover Image (Optional)
             </label>
             <div className="flex items-center gap-3">
               <input
                 type="file"
                 accept="image/jpeg,image/jpg,image/png,image/heic,image/heif"
-                className="flex-1 border-2 border-gray-200 rounded-xl p-3 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-gradient-to-r file:from-lime-50 file:to-green-50 file:text-lime-700 hover:file:bg-lime-100 file:cursor-pointer cursor-pointer transition-all"
+                className="flex-1 border-2 border-gray-200 rounded-xl p-3 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-gradient-to-r file:from-green-50 file:to-green-50 file:text-green-700 hover:file:bg-green-100 file:cursor-pointer cursor-pointer transition-all"
                 onChange={(e) => handleFileChange("coverImage", e)}
-                required
               />
               {files.coverImage && (
                 <div className="text-green-600 font-semibold">✓</div>
@@ -766,7 +767,9 @@ export default function AdminOnboardingStep2() {
                 <div className="text-blue-600 font-semibold">⟳</div>
               )}
             </div>
-            <p className="text-xs text-gray-500 mt-1">JPG, PNG or HEIC, max 15MB</p>
+            <p className="text-xs text-gray-500 mt-1">
+              JPG, PNG or HEIC, max 15MB
+            </p>
           </div>
 
           {/* Error Display */}
@@ -774,14 +777,14 @@ export default function AdminOnboardingStep2() {
           <div className="md:col-span-2 flex justify-end gap-3 mt-4">
             <button
               type="button"
-              className="px-6 py-3 bg-gray-200 text-gray-800 rounded-xl hover:bg-gray-300 transition-all shadow-md hover:shadow-lg"
+              className="px-6 py-3 bg-gray-200 text-gray-800 rounded-full hover:bg-gray-300 transition-all shadow-md hover:shadow-lg"
               onClick={() => navigate("/admin/restaurant/onboarding/step-1")}
             >
               Back
             </button>
             <button
               type="submit"
-              className="px-6 py-3 bg-gradient-to-r from-lime-500 to-green-500 text-white rounded-xl hover:from-lime-600 hover:to-green-600 transition-all shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              className="px-6 py-3 bg-gradient-to-r from-green-500 to-green-500 text-white rounded-full hover:from-green-600 hover:to-green-600 transition-all shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               disabled={loading}
             >
               {loading && (

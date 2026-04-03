@@ -550,7 +550,8 @@ async function checkAdminOrderReminders() {
           Number(item.admin_unit_price || item.unit_price || 0),
       }));
 
-      const adminIds = adminsByRestaurant[order.restaurant_id] || [];
+      const adminIds = adminsByRestaura
+      nt[order.restaurant_id] || [];
       for (const adminId of adminIds) {
         const reminderKey = `${adminId}:${order.id}`;
 

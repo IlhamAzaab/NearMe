@@ -21,7 +21,6 @@ export default function AdminProfile() {
   };
   const [forcePasswordChange, setForcePasswordChange] = useState(false);
   const [formData, setFormData] = useState({
-    username: "",
     newPassword: "",
     confirmPassword: "",
   });
@@ -86,12 +85,6 @@ export default function AdminProfile() {
     setError(null);
     setSuccess(false);
 
-    // Validation
-    if (!formData.username.trim()) {
-      setError("Username is required");
-      return;
-    }
-
     if (formData.newPassword.length < 6) {
       setError("Password must be at least 6 characters long");
       return;
@@ -112,7 +105,6 @@ export default function AdminProfile() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          username: formData.username,
           newPassword: formData.newPassword,
         }),
       });
@@ -201,21 +193,32 @@ export default function AdminProfile() {
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Username
+              Verified Email
             </label>
-            <div className="relative">
+            <div className="relative flex items-center">
               <div className="absolute inset-0 rounded-lg bg-gradient-to-r from-green-800 via-green-400 to-green-800 animate-border-rotation p-[3px]">
-                <div className="h-full w-full bg-white rounded-lg"></div>
+                <div className="h-full w-full bg-gray-50 rounded-lg"></div>
               </div>
               <input
-                type="text"
-                name="username"
+                type="email"
                 className="relative w-full px-4 py-3 bg-transparent rounded-lg focus:outline-none z-10"
-                placeholder="Choose a username"
-                value={formData.username}
-                onChange={handleChange}
-                required
+                value={adminData?.email || ""}
+                readOnly
               />
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 z-20 inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-1 text-xs font-semibold text-green-700">
+                <svg
+                  className="w-3.5 h-3.5"
+                  fill="currentColor"
+                  viewBox="0 0 20 20"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+                Verified
+              </div>
             </div>
           </div>
 

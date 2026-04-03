@@ -1,5 +1,4 @@
 import express from "express";
-import bcrypt from "bcryptjs";
 import { supabaseAdmin } from "../supabaseAdmin.js";
 import { authenticate } from "../middleware/authenticate.js";
 import { generateTempPassword } from "../utils/password.js";
@@ -34,10 +33,6 @@ if (process.env.NODE_ENV !== "production") {
 }
 
 const router = express.Router();
-const BCRYPT_SALT_ROUNDS = Number.parseInt(
-  process.env.BCRYPT_SALT_ROUNDS || "12",
-  10,
-);
 
 /**
  * GET /manager/me
@@ -82,8 +77,6 @@ router.post("/add-admin", authenticate, async (req, res) => {
       return res.status(400).json({ message: "email is required" });
     }
 
-    // Generate username from email (everything before @)
-    const username = email.split("@")[0];
     const tempPassword = generateTempPassword();
     const loginUrl =
       process.env.MANAGER_LOGIN_URL || "http://localhost:5173/login";
@@ -129,7 +122,6 @@ router.post("/add-admin", authenticate, async (req, res) => {
     }
 
     const userId = authData.user.id;
-    const tempPasswordHash = await bcrypt.hash(tempPassword, BCRYPT_SALT_ROUNDS);
     console.log(`Created auth user with ID: ${userId}`);
 
     // Helper to rollback auth/user if downstream fails
@@ -150,8 +142,6 @@ router.post("/add-admin", authenticate, async (req, res) => {
         id: userId,
         role: "admin",
         email,
-        password_hash: tempPasswordHash,
-        phone_verified: true,
         profile_completed: false,
       });
 
@@ -225,14 +215,12 @@ router.post("/add-driver", authenticate, async (req, res) => {
       return res.status(400).json({ message: "email is required" });
     }
 
-    const username = email.split("@")[0];
     const tempPassword = generateTempPassword();
     const loginUrl =
       process.env.MANAGER_LOGIN_URL || "http://localhost:5173/login";
 
     console.log("================ DRIVER CREATION ================");
     console.log(`Email: ${email}`);
-    console.log(`Username: ${username}`);
     console.log("================================================");
 
     // Clean up orphaned driver records
@@ -273,7 +261,6 @@ router.post("/add-driver", authenticate, async (req, res) => {
     }
 
     const userId = authData.user.id;
-    const tempPasswordHash = await bcrypt.hash(tempPassword, BCRYPT_SALT_ROUNDS);
     console.log(`Created driver auth user with ID: ${userId}`);
 
     const cleanup = async () => {
@@ -293,8 +280,6 @@ router.post("/add-driver", authenticate, async (req, res) => {
         id: userId,
         role: "driver",
         email,
-        password_hash: tempPasswordHash,
-        phone_verified: true,
         profile_completed: false,
       });
 
@@ -511,7 +496,7 @@ router.patch("/drivers/:driverId/status", authenticate, async (req, res) => {
     }
 
     const { driverId } = req.params;
-    const { status, reason } = req.body || {};
+    const { status } = req.body || {};
     const allowedStatuses = ["active", "suspended", "rejected", "pending"];
 
     if (!status || !allowedStatuses.includes(status)) {
@@ -533,14 +518,11 @@ router.patch("/drivers/:driverId/status", authenticate, async (req, res) => {
       return res.status(404).json({ message: "Driver not found" });
     }
 
-    const oldStatus = driver.driver_status;
-
     const { error: updateError } = await supabaseAdmin
       .from("drivers")
       .update({
         driver_status: status,
         updated_at: new Date().toISOString(),
-        rejection_reason: status === "rejected" ? reason || null : null,
       })
       .eq("id", driverId);
 
@@ -1027,7 +1009,7 @@ router.get(
       const { data: admin } = await supabaseAdmin
         .from("admins")
         .select(
-          "id, email, full_name, phone, home_address, profile_photo_url, nic_front, nic_back",
+          "id, email, full_name, phone, home_address, nic_number, date_of_birth, profile_photo_url, nic_front, nic_back",
         )
         .eq("id", restaurant.admin_id)
         .maybeSingle();
@@ -1109,6 +1091,39 @@ router.post(
         })
         .eq("id", restaurant.admin_id);
 
+      const { data: adminIdentity } = await supabaseAdmin
+        .from("admins")
+        .select("id, user_id")
+        .eq("id", restaurant.admin_id)
+        .maybeSingle();
+
+      // Keep auth-facing profile state in sync once manager approves onboarding.
+      if (action === "approve") {
+        const userIdsToUpdate = Array.from(
+          new Set(
+            [
+              restaurant.admin_id,
+              adminIdentity?.user_id,
+              adminIdentity?.id,
+            ].filter(Boolean),
+          ),
+        );
+
+        if (userIdsToUpdate.length) {
+          const { error: userProfileError } = await supabaseAdmin
+            .from("users")
+            .update({ profile_completed: true })
+            .in("id", userIdsToUpdate);
+
+          if (userProfileError) {
+            console.error(
+              "Users profile_completed sync error (non-fatal):",
+              userProfileError,
+            );
+          }
+        }
+      }
+
       // If approving, update bank account verification status
       if (action === "approve") {
         await supabaseAdmin
@@ -1137,33 +1152,72 @@ router.post(
         console.log("Status log insert skipped (table may not exist)");
       }
 
-      // Send push notification to admin's mobile device
+      // Get restaurant name once for both push and realtime notifications.
+      const { data: restaurantDetails } = await supabaseAdmin
+        .from("restaurants")
+        .select("restaurant_name")
+        .eq("id", restaurantId)
+        .single();
+
+      const restaurantName =
+        restaurantDetails?.restaurant_name || "Your Restaurant";
+      const isApproved = action === "approve";
+
+      // Resolve both auth user ID and admin profile user_id so push targets remain valid
+      // across deployments where admins table PK can differ from auth.users id.
+      const notifyAdminTargets = Array.from(
+        new Set(
+          [
+            restaurant.admin_id,
+            adminIdentity?.user_id,
+            adminIdentity?.id,
+          ].filter(Boolean),
+        ),
+      );
+
+      // Send push notification to admin's mobile device.
       try {
-        // Get restaurant name for notification
-        const { data: restaurantDetails } = await supabaseAdmin
-          .from("restaurants")
-          .select("restaurant_name")
-          .eq("id", restaurantId)
-          .single();
-
-        const restaurantName =
-          restaurantDetails?.restaurant_name || "Your Restaurant";
-        const isApproved = action === "approve";
-
-        await sendAdminApprovalNotification(
-          restaurant.admin_id,
-          restaurantName,
-          isApproved,
-        );
+        for (const adminTargetId of notifyAdminTargets) {
+          await sendAdminApprovalNotification(
+            adminTargetId,
+            restaurantName,
+            isApproved,
+          );
+        }
         console.log(
-          `📱 Push notification sent to admin ${restaurant.admin_id} (${isApproved ? "approved" : "rejected"})`,
+          `[NOTIFY] Push notification sent to admin target(s): ${notifyAdminTargets.join(", ")} (${isApproved ? "approved" : "rejected"})`,
         );
       } catch (pushError) {
         console.error(
           "Push notification error (non-fatal):",
           pushError.message,
         );
-        // Don't fail the request if push notification fails
+      }
+
+      // Send realtime website notification to admin dashboard.
+      try {
+        const realtimeTitle = isApproved
+          ? "Restaurant Approval Confirmed"
+          : "Restaurant Verification Update";
+        const realtimeMessage = isApproved
+          ? `${restaurantName} has been approved by the Meezo operations team. You can now start receiving orders.`
+          : `${restaurantName} was not approved. Please review the feedback and update your onboarding details.`;
+
+        for (const adminTargetId of notifyAdminTargets) {
+          notifyAdmin(adminTargetId, "admin:restaurant_verification", {
+            type: isApproved ? "restaurant_approval" : "restaurant_rejection",
+            title: realtimeTitle,
+            message: realtimeMessage,
+            restaurant_id: restaurantId,
+            restaurant_name: restaurantName,
+            status: newStatus,
+          });
+        }
+      } catch (socketError) {
+        console.error(
+          "Realtime admin notification error (non-fatal):",
+          socketError.message,
+        );
       }
 
       return res.json({

@@ -2,74 +2,9 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 import { API_URL } from "../../config";
-
-// Step Progress Component with animation
-const StepProgress = ({ currentStep, totalSteps = 5 }) => {
-  const steps = [
-    { num: 1, label: "Personal" },
-    { num: 2, label: "Vehicle" },
-    { num: 3, label: "Documents" },
-    { num: 4, label: "Bank" },
-    { num: 5, label: "Contract" },
-  ];
-
-  return (
-    <div className="w-full mb-8">
-      {/* Step segments */}
-      <div className="flex gap-2 mb-3">
-        {steps.map((step) => (
-          <div key={step.num} className="flex-1 relative">
-            <div
-              className={`h-2 rounded-full overflow-hidden ${
-                step.num === currentStep
-                  ? "bg-gray-200"
-                  : step.num < currentStep
-                    ? "bg-[#1db95b]"
-                    : "bg-gray-200"
-              }`}
-            >
-              {step.num === currentStep && (
-                <div
-                  className="h-full bg-[#1db95b] rounded-full"
-                  style={{
-                    animation: "progressFill 2s ease-in-out infinite",
-                  }}
-                />
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Step labels */}
-      <div className="flex justify-between">
-        {steps.map((step) => (
-          <div
-            key={step.num}
-            className={`text-xs font-medium ${
-              step.num === currentStep
-                ? "text-[#1db95b]"
-                : step.num < currentStep
-                  ? "text-[#1db95b]"
-                  : "text-gray-400"
-            }`}
-          >
-            {step.label}
-          </div>
-        ))}
-      </div>
-
-      {/* CSS Animation */}
-      <style>{`
-        @keyframes progressFill {
-          0% { width: 0%; opacity: 0.6; }
-          50% { width: 100%; opacity: 1; }
-          100% { width: 0%; opacity: 0.6; }
-        }
-      `}</style>
-    </div>
-  );
-};
+import OnboardingStepProgress from "../../components/driver/OnboardingStepProgress";
+import FloatingField from "../../components/driver/FloatingField";
+import meezoLogo from "../../assets/NearMeLogoArtboard5.svg";
 
 export default function OnboardingStep2() {
   const navigate = useNavigate();
@@ -85,7 +20,10 @@ export default function OnboardingStep2() {
   });
 
   const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
+    const normalizedValue =
+      name === "vehicleNumber" ? value.toUpperCase() : value;
+    setFormData({ ...formData, [name]: normalizedValue });
   };
 
   const submitMutation = useMutation({
@@ -130,7 +68,7 @@ export default function OnboardingStep2() {
   return (
     <div className="min-h-screen flex flex-col items-center justify-start relative font-display">
       {/* Gradient background */}
-      <div className="absolute inset-0 bg-gradient-to-b from-[#1db95b] via-[#34d399] via-40% to-[#f0fdf4]"></div>
+      <div className="absolute inset-0 bg-linear-to-b from-[#1db95b] via-[#34d399] via-40% to-[#f0fdf4]"></div>
 
       {/* Subtle pattern overlay */}
       <div
@@ -142,24 +80,31 @@ export default function OnboardingStep2() {
       ></div>
 
       {/* Main content */}
-      <div className="relative w-full max-w-[540px] px-4 py-8 z-10">
+      <div className="relative w-full max-w-135 px-4 py-8 z-10">
+        <div className="flex justify-center mb-5">
+          <img
+            src={meezoLogo}
+            alt="Meezo logo"
+            className="w-50 sm:w-40 h-auto object-contain"
+          />
+        </div>
+
         {/* White card */}
         <div className="bg-white rounded-3xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.15)] p-8">
           {/* Step Progress */}
-          <StepProgress currentStep={2} />
+          <OnboardingStepProgress currentStep={2} />
 
           {/* Header */}
           <div className="flex items-center gap-3 mb-6">
             <div className="h-12 w-12 bg-[#dcfce7] rounded-xl flex items-center justify-center">
               <span className="material-symbols-outlined text-[#1db95b] text-2xl">
-                directions_car
+                two_wheeler
               </span>
             </div>
             <div>
               <h1 className="text-xl font-bold text-gray-900">
                 Vehicle & License
               </h1>
-              <p className="text-gray-500 text-sm">Step 2 of 5</p>
             </div>
           </div>
 
@@ -175,123 +120,73 @@ export default function OnboardingStep2() {
 
               {/* Vehicle Registration Number */}
               <div className="mb-4">
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Vehicle Registration Number *
-                </label>
-                <div className="relative">
-                  <input
-                    name="vehicleNumber"
-                    className="w-full h-12 pl-11 pr-4 border border-gray-200 rounded-xl bg-gray-50 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#1db95b] focus:ring-2 focus:ring-[#1db95b]/20 focus:bg-white transition-all duration-200 uppercase"
-                    placeholder="e.g., CAB-1234 or ABC-5678"
-                    value={formData.vehicleNumber}
-                    onChange={handleChange}
-                    required
-                  />
-                  <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#1db95b]">
-                    <span className="material-symbols-outlined text-xl">
-                      pin
-                    </span>
-                  </div>
-                </div>
+                <FloatingField
+                  as="input"
+                  label="Vehicle Registration Number"
+                  name="vehicleNumber"
+                  className="uppercase"
+                  placeholder="Eg; BEO-5678"
+                  value={formData.vehicleNumber}
+                  onChange={handleChange}
+                  required
+                />
               </div>
 
               {/* Vehicle Type */}
               <div className="mb-4">
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Vehicle Type *
-                </label>
-                <div className="relative">
-                  <select
-                    name="vehicleType"
-                    className="w-full h-12 pl-11 pr-10 border border-gray-200 rounded-xl bg-gray-50 text-gray-900 focus:outline-none focus:border-[#1db95b] focus:ring-2 focus:ring-[#1db95b]/20 focus:bg-white transition-all duration-200 appearance-none"
-                    value={formData.vehicleType}
-                    onChange={handleChange}
-                    required
-                  >
-                    <option value="">Select vehicle type</option>
-                    <option value="bike">Bike/Motorcycle</option>
-                    <option value="auto">Three-Wheeler/Tuk-Tuk</option>
-                    <option value="car">Car</option>
-                    <option value="van">Van/Mini Truck</option>
-                  </select>
-                  <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#1db95b]">
-                    <span className="material-symbols-outlined text-xl">
-                      category
-                    </span>
-                  </div>
-                  <div className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
-                    <span className="material-symbols-outlined text-xl">
-                      expand_more
-                    </span>
-                  </div>
-                </div>
+                <FloatingField
+                  as="select"
+                  label="Vehicle Type"
+                  name="vehicleType"
+                  value={formData.vehicleType}
+                  onChange={handleChange}
+                  required
+                  options={[
+                    { value: "", label: "Select vehicle type" },
+                    { value: "bike", label: "Bike" },
+                    { value: "auto", label: "Auto" },
+                  ]}
+                />
               </div>
 
               {/* Vehicle Model */}
               <div className="mb-4">
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Vehicle Model *
-                </label>
-                <div className="relative">
-                  <input
-                    name="vehicleModel"
-                    className="w-full h-12 pl-11 pr-4 border border-gray-200 rounded-xl bg-gray-50 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#1db95b] focus:ring-2 focus:ring-[#1db95b]/20 focus:bg-white transition-all duration-200"
-                    placeholder="e.g., Honda Civic, Bajaj RE"
-                    value={formData.vehicleModel}
-                    onChange={handleChange}
-                    required
-                  />
-                  <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#1db95b]">
-                    <span className="material-symbols-outlined text-xl">
-                      directions_car
-                    </span>
-                  </div>
-                </div>
+                <FloatingField
+                  as="input"
+                  label="Vehicle Model"
+                  name="vehicleModel"
+                  placeholder="Eg; Pulsur 150 or Hero Honda"
+                  value={formData.vehicleModel}
+                  onChange={handleChange}
+                  required
+                />
               </div>
 
               {/* Date fields grid */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Insurance Expiry *
-                  </label>
-                  <div className="relative">
-                    <input
-                      name="insuranceExpiry"
-                      type="date"
-                      className="w-full h-12 pl-11 pr-3 border border-gray-200 rounded-xl bg-gray-50 text-gray-900 focus:outline-none focus:border-[#1db95b] focus:ring-2 focus:ring-[#1db95b]/20 focus:bg-white transition-all duration-200"
-                      value={formData.insuranceExpiry}
-                      onChange={handleChange}
-                      min={new Date().toISOString().split("T")[0]}
-                      required
-                    />
-                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#1db95b]">
-                      <span className="material-symbols-outlined text-xl">
-                        verified_user
-                      </span>
-                    </div>
-                  </div>
+                  <FloatingField
+                    as="input"
+                    label="Insurance Expiry"
+                    name="insuranceExpiry"
+                    type="date"
+                    value={formData.insuranceExpiry}
+                    onChange={handleChange}
+                    min={new Date().toISOString().split("T")[0]}
+                    required
+                  />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    License Expiry *
-                  </label>
-                  <div className="relative">
-                    <input
-                      name="vehicleLicenseExpiry"
-                      type="date"
-                      className="w-full h-12 pl-11 pr-3 border border-gray-200 rounded-xl bg-gray-50 text-gray-900 focus:outline-none focus:border-[#1db95b] focus:ring-2 focus:ring-[#1db95b]/20 focus:bg-white transition-all duration-200"
-                      value={formData.vehicleLicenseExpiry}
-                      onChange={handleChange}
-                      min={new Date().toISOString().split("T")[0]}
-                      required
-                    />
-                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#1db95b]">
-                      <span className="material-symbols-outlined text-xl">
-                        event
-                      </span>
-                    </div>
-                  </div>
+                  <FloatingField
+                    as="input"
+                    label="Vehicle-License Expiry"
+                    name="vehicleLicenseExpiry"
+                    type="date"
+                    value={formData.vehicleLicenseExpiry}
+                    onChange={handleChange}
+                    min={new Date().toISOString().split("T")[0]}
+                    required
+                  />
                 </div>
               </div>
             </div>
@@ -307,47 +202,30 @@ export default function OnboardingStep2() {
 
               {/* License Number */}
               <div className="mb-4">
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Driving License Number *
-                </label>
-                <div className="relative">
-                  <input
-                    name="drivingLicenseNumber"
-                    className="w-full h-12 pl-11 pr-4 border border-gray-200 rounded-xl bg-gray-50 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#1db95b] focus:ring-2 focus:ring-[#1db95b]/20 focus:bg-white transition-all duration-200 uppercase"
-                    placeholder="e.g., B1234567"
-                    value={formData.drivingLicenseNumber}
-                    onChange={handleChange}
-                    required
-                  />
-                  <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#1db95b]">
-                    <span className="material-symbols-outlined text-xl">
-                      id_card
-                    </span>
-                  </div>
-                </div>
+                <FloatingField
+                  as="input"
+                  label="Driving License Number"
+                  name="drivingLicenseNumber"
+                  className="uppercase"
+                  placeholder="Eg; B1234567"
+                  value={formData.drivingLicenseNumber}
+                  onChange={handleChange}
+                  required
+                />
               </div>
 
               {/* License Expiry */}
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  License Expiry Date *
-                </label>
-                <div className="relative">
-                  <input
-                    name="licenseExpiryDate"
-                    type="date"
-                    className="w-full h-12 pl-11 pr-4 border border-gray-200 rounded-xl bg-gray-50 text-gray-900 focus:outline-none focus:border-[#1db95b] focus:ring-2 focus:ring-[#1db95b]/20 focus:bg-white transition-all duration-200"
-                    value={formData.licenseExpiryDate}
-                    onChange={handleChange}
-                    min={new Date().toISOString().split("T")[0]}
-                    required
-                  />
-                  <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#1db95b]">
-                    <span className="material-symbols-outlined text-xl">
-                      calendar_month
-                    </span>
-                  </div>
-                </div>
+                <FloatingField
+                  as="input"
+                  label="Driving-License Expiry"
+                  name="licenseExpiryDate"
+                  type="date"
+                  value={formData.licenseExpiryDate}
+                  onChange={handleChange}
+                  min={new Date().toISOString().split("T")[0]}
+                  required
+                />
               </div>
             </div>
 
@@ -379,7 +257,7 @@ export default function OnboardingStep2() {
               <button
                 type="button"
                 onClick={handleBack}
-                className="flex-1 h-14 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+                className="flex-1 h-14 bg-gray-100 text-gray-700 font-bold rounded-full hover:bg-gray-200 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
               >
                 <span className="material-symbols-outlined">arrow_back</span>
                 <span>Back</span>
@@ -387,7 +265,7 @@ export default function OnboardingStep2() {
               <button
                 type="submit"
                 disabled={loading}
-                className="flex-1 h-14 bg-[#1db95b] text-white font-bold rounded-xl hover:bg-[#18a34a] active:scale-[0.98] transition-all shadow-lg shadow-[#1db95b]/30 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                className="flex-1 h-14 bg-[#1db95b] text-white font-bold rounded-full hover:bg-[#18a34a] active:scale-[0.98] transition-all shadow-lg shadow-[#1db95b]/30 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {loading ? (
                   <>

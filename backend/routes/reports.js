@@ -47,6 +47,62 @@ function formatDateKey(dateStr, groupBy) {
   return d.toISOString().split("T")[0];
 }
 
+async function fetchCustomersForManagement() {
+  const preferredColumns =
+    "id, username, email, phone, city, address, created_at, status, suspended_at";
+  const fallbackColumns =
+    "id, username, email, phone, city, address, created_at";
+
+  let { data, error } = await supabaseAdmin
+    .from("customers")
+    .select(preferredColumns)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    const fallback = await supabaseAdmin
+      .from("customers")
+      .select(fallbackColumns)
+      .order("created_at", { ascending: false });
+    data = fallback.data;
+    error = fallback.error;
+  }
+
+  if (error) {
+    throw error;
+  }
+
+  return data || [];
+}
+
+async function safeDeleteByFilter(table, column, value) {
+  try {
+    let query = supabaseAdmin.from(table).delete();
+    if (Array.isArray(value)) {
+      if (!value.length) {
+        return;
+      }
+      query = query.in(column, value);
+    } else {
+      query = query.eq(column, value);
+    }
+    const { error } = await query;
+    if (error) {
+      const msg = String(error.message || "").toLowerCase();
+      const ignorable =
+        msg.includes("does not exist") ||
+        msg.includes("column") ||
+        error.code === "42P01" ||
+        error.code === "42703" ||
+        error.code === "PGRST204";
+      if (!ignorable) {
+        console.warn(`Delete failed for ${table}.${column}:`, error.message);
+      }
+    }
+  } catch (e) {
+    console.warn(`Delete failed for ${table}.${column}:`, e.message);
+  }
+}
+
 /**
  * GET /manager/reports/sales
  * Sales analytics with trend data
@@ -869,6 +925,306 @@ router.get("/customers", authenticate, async (req, res) => {
     });
   } catch (e) {
     console.error("/manager/reports/customers error:", e);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
+/**
+ * GET /manager/reports/customers/management
+ * Customer management list with filters, sorting, and operational stats
+ */
+router.get("/customers/management", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "manager") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const {
+      search = "",
+      orderFilter = "all",
+      sortBy = "recent",
+      sortOrder = "desc",
+      page = "1",
+      limit = "20",
+    } = req.query;
+
+    const pageNum = Math.max(1, Number.parseInt(page, 10) || 1);
+    const limitNum = Math.min(
+      100,
+      Math.max(1, Number.parseInt(limit, 10) || 20),
+    );
+
+    const [customers, ordersResult] = await Promise.all([
+      fetchCustomersForManagement(),
+      supabaseAdmin
+        .from("orders")
+        .select("id, customer_id, total_amount, placed_at, status")
+        .order("placed_at", { ascending: false }),
+    ]);
+
+    if (ordersResult.error) {
+      console.error(
+        "Customer management orders fetch error:",
+        ordersResult.error,
+      );
+      return res
+        .status(500)
+        .json({ message: "Failed to load customer orders" });
+    }
+
+    const orderStats = new Map();
+    for (const order of ordersResult.data || []) {
+      if (!order.customer_id) continue;
+      const prev = orderStats.get(order.customer_id) || {
+        order_count: 0,
+        total_spent: 0,
+        last_order_at: null,
+      };
+      prev.order_count += 1;
+      prev.total_spent += Number.parseFloat(order.total_amount || 0);
+      if (
+        !prev.last_order_at ||
+        new Date(order.placed_at) > new Date(prev.last_order_at)
+      ) {
+        prev.last_order_at = order.placed_at;
+      }
+      orderStats.set(order.customer_id, prev);
+    }
+
+    const enriched = (customers || []).map((customer) => {
+      const stats = orderStats.get(customer.id) || {
+        order_count: 0,
+        total_spent: 0,
+        last_order_at: null,
+      };
+      const status =
+        customer.status || (customer.suspended_at ? "suspended" : "active");
+
+      return {
+        ...customer,
+        status,
+        order_count: stats.order_count,
+        total_spent: Number.parseFloat(stats.total_spent.toFixed(2)),
+        last_order_at: stats.last_order_at,
+      };
+    });
+
+    const summary = {
+      total_customers: enriched.length,
+      with_orders: enriched.filter((c) => c.order_count > 0).length,
+      without_orders: enriched.filter((c) => c.order_count === 0).length,
+      suspended_customers: enriched.filter((c) => c.status === "suspended")
+        .length,
+      total_order_value: Number.parseFloat(
+        enriched
+          .reduce((sum, c) => sum + Number.parseFloat(c.total_spent || 0), 0)
+          .toFixed(2),
+      ),
+    };
+
+    let filtered = [...enriched];
+
+    const normalizedSearch = String(search || "")
+      .trim()
+      .toLowerCase();
+    if (normalizedSearch) {
+      filtered = filtered.filter((c) =>
+        [c.username, c.email, c.phone, c.city, c.address]
+          .filter(Boolean)
+          .some((value) =>
+            String(value).toLowerCase().includes(normalizedSearch),
+          ),
+      );
+    }
+
+    if (orderFilter === "with_orders") {
+      filtered = filtered.filter((c) => c.order_count > 0);
+    } else if (orderFilter === "without_orders") {
+      filtered = filtered.filter((c) => c.order_count === 0);
+    }
+
+    const orderDirection = String(sortOrder).toLowerCase() === "asc" ? 1 : -1;
+    filtered.sort((a, b) => {
+      if (sortBy === "orders") {
+        return (a.order_count - b.order_count) * orderDirection;
+      }
+      if (sortBy === "spend") {
+        return (a.total_spent - b.total_spent) * orderDirection;
+      }
+      if (sortBy === "last_order") {
+        const aTime = a.last_order_at ? new Date(a.last_order_at).getTime() : 0;
+        const bTime = b.last_order_at ? new Date(b.last_order_at).getTime() : 0;
+        return (aTime - bTime) * orderDirection;
+      }
+      if (sortBy === "name") {
+        return (
+          String(a.username || "").localeCompare(String(b.username || "")) *
+          orderDirection
+        );
+      }
+
+      const aCreated = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const bCreated = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return (aCreated - bCreated) * orderDirection;
+    });
+
+    const totalFiltered = filtered.length;
+    const offset = (pageNum - 1) * limitNum;
+    const customersPage = filtered.slice(offset, offset + limitNum);
+
+    return res.json({
+      summary,
+      customers: customersPage,
+      filters: {
+        search,
+        orderFilter,
+        sortBy,
+        sortOrder,
+      },
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total: totalFiltered,
+        totalPages: Math.max(1, Math.ceil(totalFiltered / limitNum)),
+      },
+    });
+  } catch (e) {
+    console.error("/manager/reports/customers/management error:", e);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
+/**
+ * PATCH /manager/reports/customers/:customerId/suspend
+ * Suspend or unsuspend a customer account
+ */
+router.patch(
+  "/customers/:customerId/suspend",
+  authenticate,
+  async (req, res) => {
+    try {
+      if (req.user.role !== "manager") {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
+      const { customerId } = req.params;
+      const { suspended = true, reason = "" } = req.body || {};
+
+      const banDuration = suspended ? "876000h" : "none";
+      const { error: authUpdateError } =
+        await supabaseAdmin.auth.admin.updateUserById(customerId, {
+          ban_duration: banDuration,
+        });
+
+      if (authUpdateError) {
+        console.error("Customer suspend auth update error:", authUpdateError);
+        return res
+          .status(500)
+          .json({ message: "Failed to update auth account" });
+      }
+
+      // Best-effort profile status update if these columns exist.
+      await supabaseAdmin
+        .from("customers")
+        .update({
+          status: suspended ? "suspended" : "active",
+          suspended_at: suspended ? new Date().toISOString() : null,
+          suspension_reason: suspended ? reason || null : null,
+        })
+        .eq("id", customerId);
+
+      return res.json({
+        message: suspended
+          ? "Customer suspended successfully"
+          : "Customer unsuspended successfully",
+        customerId,
+        suspended: Boolean(suspended),
+      });
+    } catch (e) {
+      console.error("/manager/reports/customers/:customerId/suspend error:", e);
+      return res.status(500).json({ message: "Server error" });
+    }
+  },
+);
+
+/**
+ * DELETE /manager/reports/customers/:customerId
+ * Hard delete customer and related data
+ */
+router.delete("/customers/:customerId", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "manager") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const { customerId } = req.params;
+
+    const { data: customer, error: customerError } = await supabaseAdmin
+      .from("customers")
+      .select("id, username, email")
+      .eq("id", customerId)
+      .maybeSingle();
+
+    if (customerError || !customer) {
+      return res.status(404).json({ message: "Customer not found" });
+    }
+
+    const { data: orders } = await supabaseAdmin
+      .from("orders")
+      .select("id")
+      .eq("customer_id", customerId);
+
+    const orderIds = (orders || []).map((o) => o.id).filter(Boolean);
+
+    const { data: carts } = await supabaseAdmin
+      .from("carts")
+      .select("id")
+      .eq("customer_id", customerId);
+
+    const cartIds = (carts || []).map((c) => c.id).filter(Boolean);
+
+    if (orderIds.length) {
+      await safeDeleteByFilter("order_items", "order_id", orderIds);
+      await safeDeleteByFilter("order_status_history", "order_id", orderIds);
+      await safeDeleteByFilter("payment_transactions", "order_id", orderIds);
+      await safeDeleteByFilter("delivery_tracking", "order_id", orderIds);
+      await safeDeleteByFilter("deliveries", "order_id", orderIds);
+    }
+
+    if (cartIds.length) {
+      await safeDeleteByFilter("cart_items", "cart_id", cartIds);
+    }
+
+    await safeDeleteByFilter("carts", "customer_id", customerId);
+    await safeDeleteByFilter("orders", "customer_id", customerId);
+    await safeDeleteByFilter("push_notification_tokens", "user_id", customerId);
+    await safeDeleteByFilter("notification_log", "user_id", customerId);
+
+    const { error: customerDeleteError } = await supabaseAdmin
+      .from("customers")
+      .delete()
+      .eq("id", customerId);
+
+    if (customerDeleteError) {
+      console.error("Customer delete error:", customerDeleteError);
+      return res
+        .status(500)
+        .json({ message: "Failed to delete customer profile" });
+    }
+
+    await supabaseAdmin.from("users").delete().eq("id", customerId);
+    await supabaseAdmin.auth.admin.deleteUser(customerId);
+
+    return res.json({
+      message: "Customer permanently removed",
+      removed_customer: {
+        id: customer.id,
+        username: customer.username,
+        email: customer.email,
+      },
+    });
+  } catch (e) {
+    console.error("/manager/reports/customers/:customerId DELETE error:", e);
     return res.status(500).json({ message: "Server error" });
   }
 });

@@ -35,6 +35,48 @@ export default function ProcessDriverPayment() {
   };
   const [history, setHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [proofViewer, setProofViewer] = useState({
+    open: false,
+    url: null,
+    type: null,
+    payment: null,
+  });
+
+  const isRawPdfUrl = (payment) => {
+    if (!payment?.proof_url) return false;
+    const isPdf = payment.proof_type === "pdf";
+    return isPdf && payment.proof_url.includes("/raw/upload/");
+  };
+
+  const getPreviewUrl = (payment) => {
+    if (!payment?.proof_url) return "";
+
+    const isPdf =
+      payment.proof_type === "pdf" || payment.proof_url?.includes(".pdf");
+
+    if (isPdf && payment.proof_url.includes("/raw/upload/")) {
+      return "";
+    }
+
+    if (isPdf && payment.proof_url.includes("cloudinary.com")) {
+      let url = payment.proof_url;
+      url = url.replace("/upload/", "/upload/pg_1/");
+
+      if (url.includes(".pdf")) {
+        url = url.replace(".pdf", ".jpg");
+      } else if (!url.match(/\.(jpg|jpeg|png|gif|webp)$/i)) {
+        url = `${url}.jpg`;
+      }
+
+      return url;
+    }
+
+    return payment.proof_url;
+  };
+
+  const openProofInNewTab = (url) => {
+    window.open(url, "_blank");
+  };
 
   const fetchDriver = useCallback(async () => {
     try {
@@ -550,17 +592,25 @@ export default function ProcessDriverPayment() {
                           </div>
                         </div>
                         {payment.proof_url && (
-                          <a
-                            href={payment.proof_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setProofViewer({
+                                open: true,
+                                url: payment.proof_url,
+                                type:
+                                  payment.proof_type === "pdf"
+                                    ? "pdf"
+                                    : "image",
+                                payment,
+                              });
+                            }}
                             className="p-2 text-[#618980] hover:text-[#13ecb9]"
-                            onClick={(e) => e.stopPropagation()}
                           >
                             <span className="material-symbols-outlined text-lg">
                               receipt
                             </span>
-                          </a>
+                          </button>
                         )}
                       </div>
                       {payment.note && (
@@ -574,6 +624,157 @@ export default function ProcessDriverPayment() {
               </div>
             )}
           </div>
+
+          {proofViewer.open && (
+            <div className="fixed inset-0 z-200 bg-black/95 flex flex-col">
+              <div className="flex items-center justify-between px-4 py-3 bg-black/80 backdrop-blur-sm">
+                <button
+                  onClick={() =>
+                    setProofViewer({
+                      open: false,
+                      url: null,
+                      type: null,
+                      payment: null,
+                    })
+                  }
+                  className="flex items-center gap-2 text-white/80 hover:text-white active:scale-95 transition-all"
+                >
+                  <svg
+                    className="w-6 h-6"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M15 19l-7-7 7-7"
+                    />
+                  </svg>
+                  <span className="text-sm font-medium">Back</span>
+                </button>
+                <span className="text-white/60 text-xs font-medium uppercase tracking-wider">
+                  {proofViewer.type === "pdf" ? "PDF Receipt" : "Receipt Image"}
+                </span>
+                {proofViewer.type === "pdf" && (
+                  <button
+                    onClick={() => openProofInNewTab(proofViewer.url)}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 active:scale-95 transition-all"
+                  >
+                    <svg
+                      className="w-4 h-4 text-white"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                      />
+                    </svg>
+                    <span className="text-xs font-medium text-white">
+                      Open PDF
+                    </span>
+                  </button>
+                )}
+                {proofViewer.type === "image" && (
+                  <button
+                    onClick={() =>
+                      setProofViewer({
+                        open: false,
+                        url: null,
+                        type: null,
+                        payment: null,
+                      })
+                    }
+                    className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20 active:scale-90 transition-all"
+                  >
+                    <svg
+                      className="w-5 h-5 text-white"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M6 18L18 6M6 6l12 12"
+                      />
+                    </svg>
+                  </button>
+                )}
+              </div>
+
+              <div className="flex-1 overflow-auto flex items-center justify-center p-4">
+                {proofViewer.payment && isRawPdfUrl(proofViewer.payment) ? (
+                  <div className="flex flex-col items-center justify-center gap-6 text-center p-8">
+                    <div className="w-24 h-24 rounded-2xl bg-red-500/10 flex items-center justify-center">
+                      <svg
+                        className="w-12 h-12 text-red-400"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"
+                        />
+                      </svg>
+                    </div>
+                    <div>
+                      <p className="text-white text-lg font-semibold mb-2">
+                        PDF Receipt
+                      </p>
+                      <p className="text-white/50 text-sm">
+                        Preview not available for this PDF.
+                      </p>
+                      <p className="text-white/40 text-xs mt-1">
+                        Tap below to open in browser.
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => openProofInNewTab(proofViewer.url)}
+                      className="flex items-center gap-2 px-6 py-3 rounded-xl bg-[#13ecb9] text-[#111816] font-semibold active:scale-95 transition-all"
+                    >
+                      <svg
+                        className="w-5 h-5"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                        />
+                      </svg>
+                      Open PDF
+                    </button>
+                  </div>
+                ) : proofViewer.payment &&
+                  getPreviewUrl(proofViewer.payment) ? (
+                  <img
+                    src={getPreviewUrl(proofViewer.payment)}
+                    alt="Transfer receipt full size"
+                    className="max-w-full max-h-full object-contain rounded-lg"
+                  />
+                ) : (
+                  <img
+                    src={proofViewer.url}
+                    alt="Transfer receipt full size"
+                    className="max-w-full max-h-full object-contain rounded-lg"
+                  />
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </ManagerPageLayout>

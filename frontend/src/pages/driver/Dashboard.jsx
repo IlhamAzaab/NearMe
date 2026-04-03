@@ -321,6 +321,25 @@ export default function DriverDashboard() {
   const driverLocationRef = useRef(null); // Ref to avoid infinite loop in fetchDashboardData
   const autoOnlineInFlightRef = useRef(false);
 
+  const { data: withdrawalsSummary } = useQuery({
+    queryKey: ["driver", "withdrawals", "summary", userId],
+    enabled: !!token && role === "driver",
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
+    queryFn: async () => {
+      const res = await fetch(`${API_URL}/driver/withdrawals/my/summary`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.summary) {
+        throw new Error(data?.message || "Failed to load withdrawals summary");
+      }
+      return data.summary;
+    },
+  });
+
+  const balanceToReceive = Number(withdrawalsSummary?.remaining_balance || 0);
+
   const forceOnlineIfWithinWorkingHours = useCallback(async () => {
     if (!withinWorkingHours || isOnline || autoOnlineInFlightRef.current)
       return;
@@ -772,6 +791,12 @@ export default function DriverDashboard() {
         navigate(buildDriverActiveMapPath(deliveryId));
       } else {
         const data = await res.json();
+        if (data?.driver_status === "suspended") {
+          window.alert(
+            data.message ||
+              "Deposit the collected money to the Meezo platform before accepting new deliveries.",
+          );
+        }
         showError(data.message || "Failed to accept delivery");
       }
     } catch (error) {
@@ -955,7 +980,7 @@ export default function DriverDashboard() {
               </div>
               <div className="flex-1 ml-3 text-left">
                 <h2 className="text-slate-900 text-[17px] font-bold leading-tight tracking-tight">
-                  {driverProfile?.user_name || "Driver"}
+                  {driverProfile?.full_name || "Driver"}
                 </h2>
                 <p className="text-slate-500 text-xs">
                   {WORKING_TIME_LABELS[driverProfile?.working_time] || ""}
@@ -1069,6 +1094,15 @@ export default function DriverDashboard() {
                   {stats.todayDeliveries}
                 </p>
               </div>
+            </div>
+
+            <div className="mt-3 rounded-xl p-5 bg-white border border-slate-100 shadow-sm">
+              <p className="text-slate-400 text-[11px] font-bold uppercase tracking-wider">
+                Balance to Receive
+              </p>
+              <p className="text-[#f97316] tracking-tight text-2xl font-bold leading-tight mt-2">
+                Rs. {balanceToReceive.toFixed(2)}
+              </p>
             </div>
           </div>
 

@@ -302,20 +302,25 @@ export async function signupStart({ phone }) {
     throw new Error("Enter a valid Sri Lankan phone number (0771234567)");
   }
 
-  const { error } = await supabaseClient.auth.signInWithOtp({
-    phone: normalizedPhone,
-    options: {
-      channel: "sms",
+  const otpResponse = await fetch(`${API_URL}/auth/phone/request-otp`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
     },
+    body: JSON.stringify({ phone: normalizedPhone }),
   });
 
-  if (error) {
-    throw new Error(mapSupabasePhoneAuthError(error, "Failed to send OTP"));
+  const otpPayload = await otpResponse.json().catch(() => ({}));
+
+  if (!otpResponse.ok) {
+    throw new Error(
+      otpPayload?.message || "Unable to send OTP. Please try again.",
+    );
   }
 
   return {
     phone: normalizedPhone,
-    serverMessage: "OTP sent successfully",
+    serverMessage: otpPayload?.message || "OTP sent successfully",
   };
 }
 
@@ -364,20 +369,23 @@ export async function resendOtp({ phone }) {
     throw new Error("Invalid phone number");
   }
 
-  const { error } = await supabaseClient.auth.signInWithOtp({
-    phone: normalizedPhone,
-    options: {
-      channel: "sms",
+  const response = await fetch(`${API_URL}/auth/phone/request-otp`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
     },
+    body: JSON.stringify({ phone: normalizedPhone }),
   });
 
-  if (error) {
-    throw new Error(mapSupabasePhoneAuthError(error, "Failed to resend OTP"));
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(payload?.message || "Failed to resend OTP");
   }
 
   return {
     phone: normalizedPhone,
-    serverMessage: "OTP resent successfully",
+    serverMessage: payload?.message || "OTP resent successfully",
   };
 }
 

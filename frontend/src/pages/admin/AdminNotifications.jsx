@@ -196,6 +196,49 @@ export default function AdminNotifications() {
           color: "text-red-600",
           label: "Rejected",
         };
+      case "restaurant_approval":
+      case "admin_approval":
+        return {
+          icon: (
+            <svg
+              className="w-5 h-5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
+            </svg>
+          ),
+          bg: "bg-emerald-100",
+          color: "text-emerald-600",
+          label: "Approval",
+        };
+      case "restaurant_rejection":
+        return {
+          icon: (
+            <svg
+              className="w-5 h-5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
+            </svg>
+          ),
+          bg: "bg-rose-100",
+          color: "text-rose-600",
+          label: "Verification",
+        };
       default:
         return {
           icon: (

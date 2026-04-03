@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { API_URL } from "../config";
+import meezoLogo from "../assets/MeezoLogo.svg";
 
 const ManagerHeader = ({ userEmail, userName }) => {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -56,11 +57,13 @@ const ManagerHeader = ({ userEmail, userName }) => {
         {/* Main header container */}
         <div className="flex items-center justify-between gap-2">
           {/* Logo Section - Left */}
-          <div className="flex-shrink-0">
-            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-blue-600 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-lg sm:text-xl">
-                NM
-              </span>
+          <div className="shrink-0">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-white border border-gray-200 rounded-lg flex items-center justify-center p-1.5 shadow-sm">
+              <img
+                src={meezoLogo}
+                alt="Meezo"
+                className="w-full h-full object-contain"
+              />
             </div>
           </div>
 
@@ -125,7 +128,7 @@ const ManagerHeader = ({ userEmail, userName }) => {
                 className="flex items-center gap-2 p-2 hover:bg-gray-100 rounded-lg transition-colors"
               >
                 {/* User Avatar */}
-                <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-full flex items-center justify-center text-white font-semibold text-sm">
+                <div className="w-8 h-8 sm:w-10 sm:h-10 bg-linear-to-br from-indigo-500 to-indigo-600 rounded-full flex items-center justify-center text-white font-semibold text-sm">
                   {managerInfo?.username?.charAt(0)?.toUpperCase() ||
                     userName?.charAt(0)?.toUpperCase() ||
                     "U"}
@@ -133,7 +136,7 @@ const ManagerHeader = ({ userEmail, userName }) => {
 
                 {/* Username and role next to avatar */}
                 <div className="flex flex-col items-start">
-                  <span className="text-sm font-semibold text-gray-800 truncate max-w-[100px] sm:max-w-[140px]">
+                  <span className="text-sm font-semibold text-gray-800 truncate max-w-25 sm:max-w-35">
                     {managerInfo?.username}
                   </span>
                   <span className="text-xs text-gray-600 truncate">
@@ -170,7 +173,7 @@ const ManagerHeader = ({ userEmail, userName }) => {
                     <p className="text-sm font-semibold text-gray-800 mt-1 truncate">
                       {managerInfo?.username || userName || "Manager"}
                     </p>
-                    <p className="text-xs text-gray-600 mt-1 break-words">
+                    <p className="text-xs text-gray-600 mt-1 wrap-break-word">
                       {managerInfo?.email || userEmail || "user@example.com"}
                     </p>
                   </div>

@@ -8,6 +8,8 @@ import {
   getValidatedAuthConfig,
   verifyJwtWithRotation,
 } from "../utils/authConfig.js";
+import { sendPushNotification } from "../utils/pushNotificationService.js";
+import { notifyManager } from "../utils/socketManager.js";
 
 if (process.env.NODE_ENV !== "production") {
   dotenv.config({ path: "../.env" });
@@ -104,6 +106,97 @@ function issueAuthSession(req, payload, extra = {}) {
   };
 }
 
+async function maybeSendManagerSignupMilestone() {
+  try {
+    const { count: verifiedCount, error: countError } = await supabaseAdmin
+      .from("customers")
+      .select("id", { count: "exact", head: true })
+      .eq("phone_verified", true);
+
+    if (countError) {
+      console.error("Milestone count error:", countError);
+      return;
+    }
+
+    const count = verifiedCount || 0;
+    if (count === 0 || count % 50 !== 0) {
+      return;
+    }
+
+    const milestoneTitle = `Customer Growth Milestone: ${count} Verified Signups`;
+
+    const { data: existingMilestone } = await supabaseAdmin
+      .from("scheduled_notifications")
+      .select("id")
+      .eq("role", "manager")
+      .eq("title", milestoneTitle)
+      .maybeSingle();
+
+    if (existingMilestone) {
+      return;
+    }
+
+    const { data: managers, error: managerError } = await supabaseAdmin
+      .from("managers")
+      .select("user_id, username");
+
+    if (managerError) {
+      console.error("Manager fetch error for milestone:", managerError);
+      return;
+    }
+
+    const managerRows = managers || [];
+    if (!managerRows.length) {
+      return;
+    }
+
+    const notification = {
+      title: milestoneTitle,
+      body: `Great momentum: ${count} customers have completed signup and reached the app home experience.`,
+      data: {
+        type: "customer_signup_milestone",
+        milestone: String(count),
+        channelId: "milestones",
+        screen: "ManagerDashboard",
+      },
+    };
+
+    await Promise.all(
+      managerRows
+        .map((manager) => manager.user_id)
+        .filter(Boolean)
+        .map(async (managerUserId) => {
+          try {
+            await sendPushNotification(managerUserId, notification);
+            notifyManager(managerUserId, "manager:customer_signup_milestone", {
+              title: notification.title,
+              message: notification.body,
+              milestone: count,
+            });
+          } catch (notifyErr) {
+            console.error(
+              `Milestone notify failed for manager ${managerUserId}:`,
+              notifyErr,
+            );
+          }
+        }),
+    );
+
+    await supabaseAdmin.from("scheduled_notifications").insert({
+      role: "manager",
+      title: notification.title,
+      body: notification.body,
+      data: notification.data,
+      scheduled_at: new Date().toISOString(),
+      created_by: managerRows[0]?.user_id || null,
+      status: "sent",
+      sent_at: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error("maybeSendManagerSignupMilestone error:", err);
+  }
+}
+
 function getBearerToken(req) {
   const auth = String(req.headers.authorization || "").trim();
   if (!auth.toLowerCase().startsWith("bearer ")) {
@@ -158,6 +251,87 @@ function normalizeSriLankaPhoneIdentifier(rawValue) {
   }
 
   return null;
+}
+
+function buildPhoneCandidates(rawValue) {
+  const normalized = normalizeSriLankaPhoneIdentifier(rawValue);
+  if (!normalized) {
+    return [];
+  }
+
+  const withoutPlus = normalized.slice(1);
+  const localFormat = `0${normalized.slice(3)}`;
+  return Array.from(new Set([normalized, withoutPlus, localFormat]));
+}
+
+async function isPhoneRegisteredInAuthUsers(phone) {
+  const candidates = buildPhoneCandidates(phone);
+  if (!candidates.length) {
+    return {
+      registered: false,
+      normalizedPhone: null,
+      candidates,
+    };
+  }
+
+  const normalizedPhone = candidates[0];
+
+  // Prefer RPC if available for direct auth.users lookup.
+  try {
+    const { data, error } = await supabaseAdmin.rpc("is_phone_registered", {
+      input_phone: normalizedPhone,
+    });
+
+    if (!error) {
+      return {
+        registered: Boolean(data),
+        normalizedPhone,
+        candidates,
+      };
+    }
+  } catch {
+    // Fallback to listUsers scan when RPC is not configured.
+  }
+
+  // Fallback path: list auth users and match normalized candidates.
+  let page = 1;
+  const perPage = 1000;
+  while (true) {
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers({
+      page,
+      perPage,
+    });
+
+    if (error) {
+      throw error;
+    }
+
+    const users = data?.users || [];
+    const found = users.some((user) => {
+      const userPhone = String(user?.phone || "").trim();
+      return userPhone && candidates.includes(userPhone);
+    });
+
+    if (found) {
+      return {
+        registered: true,
+        normalizedPhone,
+        candidates,
+      };
+    }
+
+    if (users.length < perPage) {
+      break;
+    }
+
+    page += 1;
+  }
+
+  return {
+    registered: false,
+    normalizedPhone,
+    candidates,
+  };
 }
 
 function createEmailVerificationToken({ userId, email, nonce }) {
@@ -778,55 +952,18 @@ router.post("/check-availability", async (req, res) => {
       }
     }
 
-    // Check phone
+    // Check phone in auth.users only (single source of truth)
     if (phone) {
-      // Check in users table
-      const { data: userPhone } = await supabaseAdmin
-        .from("users")
-        .select("role")
-        .eq("phone", phone)
-        .maybeSingle();
-
-      if (userPhone) {
-        result.phoneAvailable = false;
-        result.message = `Phone number already registered as ${userPhone.role}`;
-        return res.json(result);
+      const phoneState = await isPhoneRegisteredInAuthUsers(phone);
+      if (!phoneState.normalizedPhone) {
+        return res.status(400).json({
+          emailAvailable: result.emailAvailable,
+          phoneAvailable: false,
+          message: "Invalid Sri Lankan phone number format",
+        });
       }
 
-      // Check in admins
-      const { data: adminPhone } = await supabaseAdmin
-        .from("admins")
-        .select("user_id")
-        .eq("phone", phone)
-        .maybeSingle();
-
-      if (adminPhone) {
-        result.phoneAvailable = false;
-        result.message = "Phone number already registered as admin";
-        return res.json(result);
-      }
-
-      // Check in drivers
-      const { data: driverPhone } = await supabaseAdmin
-        .from("drivers")
-        .select("id")
-        .eq("phone", phone)
-        .maybeSingle();
-
-      if (driverPhone) {
-        result.phoneAvailable = false;
-        result.message = "Phone number already registered as driver";
-        return res.json(result);
-      }
-
-      // Check in customers
-      const { data: customerPhone } = await supabaseAdmin
-        .from("customers")
-        .select("id")
-        .eq("phone", phone)
-        .maybeSingle();
-
-      if (customerPhone) {
+      if (phoneState.registered) {
         result.phoneAvailable = false;
         result.message = "Phone number already registered";
         return res.json(result);
@@ -839,6 +976,50 @@ router.post("/check-availability", async (req, res) => {
     res.status(500).json({
       message: "Server error checking availability",
     });
+  }
+});
+
+/**
+ * POST /auth/phone/request-otp
+ * Backend-only phone signup guard + OTP trigger.
+ */
+router.post("/phone/request-otp", async (req, res) => {
+  try {
+    const normalizedPhone = normalizeSriLankaPhoneIdentifier(req.body?.phone);
+    if (!normalizedPhone) {
+      return res
+        .status(400)
+        .json({ message: "Invalid Sri Lankan phone number format" });
+    }
+
+    const phoneState = await isPhoneRegisteredInAuthUsers(normalizedPhone);
+    if (phoneState.registered) {
+      return res.status(409).json({
+        message: "Phone number already registered",
+      });
+    }
+
+    const { error } = await supabaseAnonClient.auth.signInWithOtp({
+      phone: normalizedPhone,
+      options: {
+        channel: "sms",
+      },
+    });
+
+    if (error) {
+      console.error("request phone otp error:", error);
+      return res.status(400).json({
+        message: error.message || "Failed to send OTP",
+      });
+    }
+
+    return res.json({
+      message: "OTP sent successfully",
+      phone: normalizedPhone,
+    });
+  } catch (error) {
+    console.error("request phone otp unexpected error:", error);
+    return res.status(500).json({ message: "Failed to send OTP" });
   }
 });
 
@@ -1789,6 +1970,9 @@ router.post("/verify-otp", async (req, res) => {
         phone_verified: true,
       })
       .eq("id", userId);
+
+    // Trigger manager milestone notifications for every 50 verified signups.
+    await maybeSendManagerSignupMilestone();
 
     // Get user role from users table
     const { data: user } = await supabaseAdmin

@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import ManagerBottomNav from "./ManagerBottomNav";
+import meezoLogo from "../assets/MeezoLogo.svg";
 
 // Sidebar link items for each section
 const driverSidebarLinks = [
@@ -283,8 +284,12 @@ export default function ManagerPageLayout({
                 <span className="material-symbols-outlined">menu</span>
               </button>
             )}
-            <div className="w-9 h-9 bg-gradient-to-br from-[#13ecb9] to-[#0fa883] rounded-lg flex items-center justify-center shadow-sm">
-              <span className="text-white font-bold text-sm">NM</span>
+            <div className="w-9 h-9 bg-white rounded-lg flex items-center justify-center shadow-sm border border-[#dbe6e3] p-1">
+              <img
+                src={meezoLogo}
+                alt="Meezo"
+                className="w-full h-full object-contain"
+              />
             </div>
           </div>
 
@@ -333,7 +338,7 @@ export default function ManagerPageLayout({
       <div className="flex flex-1 overflow-hidden">
         {/* Desktop Sidebar */}
         {hasSidebar && (
-          <aside className="hidden lg:block w-56 flex-shrink-0 bg-white border-r border-[#dbe6e3] overflow-y-auto">
+          <aside className="hidden lg:block w-56 shrink-0 bg-white border-r border-[#dbe6e3] overflow-y-auto">
             <SidebarContent config={sidebarConfig} />
           </aside>
         )}

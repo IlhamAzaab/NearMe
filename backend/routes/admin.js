@@ -8,6 +8,7 @@ import {
   getSriLankaDateKey,
   shiftSriLankaDateString,
 } from "../utils/sriLankaTime.js";
+import { normalizeSriLankaPhone } from "../services/otpService.js";
 
 const router = express.Router();
 
@@ -231,6 +232,7 @@ router.put("/update-profile", authenticate, async (req, res) => {
 
     const adminId = req.user.id;
     const { username, phone, newPassword } = req.body || {};
+    const normalizedPhone = normalizeSriLankaPhone(phone);
 
     // Check if profile already completed
     const { data: currentProfile, error: fetchError } = await supabaseAdmin
@@ -256,6 +258,37 @@ router.put("/update-profile", authenticate, async (req, res) => {
         .json({ message: "username, phone, and newPassword are required" });
     }
 
+    if (!normalizedPhone) {
+      return res
+        .status(400)
+        .json({ message: "Invalid Sri Lankan phone number format" });
+    }
+
+    // Store phone in Supabase auth.users so global uniqueness is enforced centrally.
+    const { error: authPhoneError } =
+      await supabaseAdmin.auth.admin.updateUserById(adminId, {
+        phone: normalizedPhone,
+        phone_confirm: true,
+      });
+
+    if (authPhoneError) {
+      const authPhoneMessage = String(
+        authPhoneError?.message || "",
+      ).toLowerCase();
+      if (
+        authPhoneError?.status === 422 ||
+        authPhoneError?.code === "phone_exists" ||
+        authPhoneMessage.includes("phone")
+      ) {
+        return res
+          .status(409)
+          .json({ message: "Phone number already registered" });
+      }
+
+      console.error("Auth phone update error:", authPhoneError);
+      return res.status(500).json({ message: "Failed to update phone number" });
+    }
+
     // Update password in Supabase Auth
     const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(
       adminId,
@@ -271,7 +304,7 @@ router.put("/update-profile", authenticate, async (req, res) => {
     const { error: updateError } = await supabaseAdmin
       .from("admins")
       .update({
-        phone,
+        phone: normalizedPhone,
         force_password_change: false,
         profile_completed: true,
       })
@@ -281,6 +314,11 @@ router.put("/update-profile", authenticate, async (req, res) => {
       console.error("Profile update error:", updateError);
       return res.status(500).json({ message: "Failed to update profile" });
     }
+
+    await supabaseAdmin
+      .from("users")
+      .update({ phone: normalizedPhone })
+      .eq("id", adminId);
 
     return res.json({
       message: "Profile updated successfully. No further changes allowed.",
@@ -762,12 +800,7 @@ router.put("/change-password", authenticate, async (req, res) => {
     }
 
     const adminId = req.user.id;
-    const { username, newPassword } = req.body;
-
-    // Validation
-    if (!username) {
-      return res.status(400).json({ message: "Username is required" });
-    }
+    const { newPassword } = req.body;
 
     if (!newPassword || newPassword.length < 6) {
       return res.status(400).json({

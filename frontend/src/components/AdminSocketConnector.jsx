@@ -139,11 +139,13 @@ export default function AdminSocketConnector() {
     socket.on("order:new_order", invalidateAdminQueries);
     socket.on("admin:order_milestone", invalidateAdminQueries);
     socket.on("admin:payment_received", invalidateAdminQueries);
+    socket.on("admin:restaurant_verification", invalidateAdminQueries);
 
     return () => {
       socket.off("order:new_order", invalidateAdminQueries);
       socket.off("admin:order_milestone", invalidateAdminQueries);
       socket.off("admin:payment_received", invalidateAdminQueries);
+      socket.off("admin:restaurant_verification", invalidateAdminQueries);
     };
   }, [queryClient, socket]);
 

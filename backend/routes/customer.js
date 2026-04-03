@@ -1,7 +1,10 @@
 import express from "express";
 import { authenticate } from "../middleware/authenticate.js";
 import { supabaseAdmin } from "../supabaseAdmin.js";
-import { getSystemConfig, getLaunchPromoConfig } from "../utils/systemConfig.js";
+import {
+  getSystemConfig,
+  getLaunchPromoConfig,
+} from "../utils/systemConfig.js";
 
 const router = express.Router();
 
@@ -85,7 +88,9 @@ router.post("/launch-promotion/acknowledge", authenticate, async (req, res) => {
 
     if (error || !data) {
       console.error("Launch promo acknowledge error:", error);
-      return res.status(500).json({ message: "Failed to acknowledge promotion" });
+      return res
+        .status(500)
+        .json({ message: "Failed to acknowledge promotion" });
     }
 
     return res.json({
@@ -275,7 +280,7 @@ router.get("/me", authenticate, async (req, res) => {
     const { data: customer, error } = await supabaseAdmin
       .from("customers")
       .select(
-        "id, username, email, phone, address, city, nic_number, latitude, longitude, created_at",
+        "id, username, email, phone, address, city, latitude, longitude, created_at",
       )
       .eq("id", customerId)
       .single();

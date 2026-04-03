@@ -23,7 +23,7 @@ router.get("/me", authenticate, async (req, res) => {
     const { data, error } = await supabaseAdmin
       .from("drivers")
       .select(
-        "id, full_name, user_name, email, phone, nic_number, driver_status, driver_type, city, address, working_time, force_password_change, profile_completed, onboarding_completed, onboarding_step",
+        "id, full_name, email, phone, nic_number, driver_status, driver_type, city, address, working_time, force_password_change, profile_completed, onboarding_completed, onboarding_step",
       )
       .eq("id", userId)
       .maybeSingle();
@@ -70,7 +70,7 @@ router.put("/update-profile", authenticate, async (req, res) => {
     }
 
     const userId = req.user.id;
-    const { userName, newPassword } = req.body || {};
+    const { newPassword } = req.body || {};
 
     const { data: currentProfile, error: fetchError } = await supabaseAdmin
       .from("drivers")
@@ -86,12 +86,6 @@ router.put("/update-profile", authenticate, async (req, res) => {
       return res.status(400).json({
         message: "Profile already completed. No further changes allowed.",
       });
-    }
-
-    if (!userName || userName.trim().length < 3) {
-      return res
-        .status(400)
-        .json({ message: "userName is required (min 3 characters)" });
     }
 
     if (!newPassword) {
@@ -111,9 +105,9 @@ router.put("/update-profile", authenticate, async (req, res) => {
     const { data: updatedData, error: updateError } = await supabaseAdmin
       .from("drivers")
       .update({
-        user_name: userName.trim(),
         force_password_change: false,
         driver_status: "pending",
+        profile_completed: true,
       })
       .eq("id", userId)
       .select();
@@ -198,7 +192,7 @@ router.get("/profile", authenticate, async (req, res) => {
     const { data, error } = await supabaseAdmin
       .from("drivers")
       .select(
-        "id, full_name, user_name, email, phone, nic_number, driver_status, driver_type, city, address, profile_photo_url, working_time, manual_status_override, force_password_change, profile_completed, onboarding_completed, onboarding_step",
+        "id, full_name, email, phone, nic_number, driver_status, driver_type, city, address, profile_photo_url, working_time, manual_status_override, force_password_change, profile_completed, onboarding_completed, onboarding_step",
       )
       .eq("id", userId)
       .maybeSingle();
@@ -426,8 +420,48 @@ router.patch("/status", authenticate, async (req, res) => {
       return res.status(404).json({ message: "Driver not found" });
     }
 
+    if (driverData.driver_status === "suspended") {
+      return res.status(403).json({
+        message:
+          "Deposit the collected money to the Meezo platform before accepting new deliveries.",
+        driver_status: "suspended",
+        hint: "Please contact your manager after settling your pending amount.",
+      });
+    }
+
+    if (driverData.driver_status === "rejected") {
+      return res.status(403).json({
+        message: "Your driver account is rejected. Contact your manager.",
+        driver_status: "rejected",
+      });
+    }
+
+    if (driverData.driver_status === "pending") {
+      return res.status(403).json({
+        message: "Your account is still under verification.",
+        driver_status: "pending",
+      });
+    }
+
     // Default working_time to full_time if not set
     const workingTime = driverData.working_time || "full_time";
+
+    // Suspension lock: only manager can reactivate suspended/rejected/pending drivers.
+    if (
+      status === "active" &&
+      ["suspended", "rejected", "pending"].includes(
+        String(driverData.driver_status || "").toLowerCase(),
+      )
+    ) {
+      const isSuspended =
+        String(driverData.driver_status || "").toLowerCase() === "suspended";
+      return res.status(403).json({
+        message: isSuspended
+          ? "Deposit the collected money to the Meezo platform before accepting new deliveries."
+          : "Your account is not active. Please contact your manager to reactivate your account.",
+        driver_status: driverData.driver_status,
+      });
+    }
 
     // Check if driver is trying to go active
     if (status === "active") {

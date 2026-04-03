@@ -62,7 +62,6 @@ function StepProgress({ currentStep, totalSteps }) {
 export default function AdminOnboardingStep1() {
   const navigate = useNavigate();
   const token = localStorage.getItem("token");
-  const [userEmail, setUserEmail] = useState("");
 
   // Form state
   const [form, setForm] = useState({
@@ -71,7 +70,6 @@ export default function AdminOnboardingStep1() {
     dateOfBirth: "",
     mobileNumber: "",
     homeAddress: "",
-    profilePhotoUrl: "",
     nicFrontUrl: "",
     nicBackUrl: "",
   });
@@ -85,43 +83,19 @@ export default function AdminOnboardingStep1() {
     if (msg) showError(msg);
   };
   const [uploading, setUploading] = useState({
-    profilePhoto: false,
     nicFront: false,
     nicBack: false,
   });
-
-  // Fetch user email on mount
-  useEffect(() => {
-    const fetchUserData = async () => {
-      try {
-        const res = await fetch(`${API_URL}/auth/user`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setUserEmail(data.email || "");
-        }
-      } catch (err) {
-        console.error("Failed to fetch user data:", err);
-      }
-    };
-    fetchUserData();
-  }, [token]);
 
   // Fetch saved data from backend (if exists)
   useEffect(() => {
     const fetchSavedData = async () => {
       try {
-        const res = await fetch(
-          `${API_URL}/restaurant-onboarding/step-1`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
+        const res = await fetch(`${API_URL}/restaurant-onboarding/step-1`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
           },
-        );
+        });
         if (res.ok) {
           const data = await res.json();
           if (data) {
@@ -131,7 +105,6 @@ export default function AdminOnboardingStep1() {
               dateOfBirth: data.dateOfBirth || "",
               mobileNumber: data.phone || "",
               homeAddress: data.homeAddress || "",
-              profilePhotoUrl: data.profilePhotoUrl || "",
               nicFrontUrl: data.nicFrontUrl || "",
               nicBackUrl: data.nicBackUrl || "",
             });
@@ -175,16 +148,13 @@ export default function AdminOnboardingStep1() {
       formData.append("file", file);
       formData.append("imageType", imageType);
 
-      const res = await fetch(
-        `${API_URL}/restaurant-onboarding/upload-image`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-          body: formData,
+      const res = await fetch(`${API_URL}/restaurant-onboarding/upload-image`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
         },
-      );
+        body: formData,
+      });
 
       const data = await res.json();
 
@@ -195,7 +165,6 @@ export default function AdminOnboardingStep1() {
 
       // Update form with the uploaded image URL
       const fieldMap = {
-        profilePhoto: "profilePhotoUrl",
         nicFront: "nicFrontUrl",
         nicBack: "nicBackUrl",
       };
@@ -252,10 +221,6 @@ export default function AdminOnboardingStep1() {
       newErrors.homeAddress = "Address must be at least 10 characters";
     }
 
-    if (!form.profilePhotoUrl) {
-      newErrors.profilePhotoUrl = "Profile photo is required";
-    }
-
     if (!form.nicFrontUrl) {
       newErrors.nicFrontUrl = "NIC front image is required";
     }
@@ -277,29 +242,57 @@ export default function AdminOnboardingStep1() {
       return;
     }
 
-    setLoading(true);
-
     try {
-      const res = await fetch(
-        `${API_URL}/restaurant-onboarding/step-1`,
+      const availabilityRes = await fetch(
+        `${API_URL}/auth/check-availability`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({
-            fullName: form.fullName,
-            nicNumber: form.nicNumber,
-            dateOfBirth: form.dateOfBirth,
-            phone: form.mobileNumber,
-            homeAddress: form.homeAddress,
-            profilePhotoUrl: form.profilePhotoUrl,
-            nicFrontUrl: form.nicFrontUrl,
-            nicBackUrl: form.nicBackUrl,
-          }),
+          body: JSON.stringify({ phone: form.mobileNumber }),
         },
       );
+      const availabilityData = await availabilityRes.json().catch(() => ({}));
+
+      if (!availabilityRes.ok) {
+        setError(
+          availabilityData?.message ||
+            "Unable to verify phone availability. Please try again.",
+        );
+        return;
+      }
+
+      if (availabilityData?.phoneAvailable === false) {
+        setError(
+          availabilityData?.message || "Phone number already registered",
+        );
+        return;
+      }
+    } catch (_err) {
+      setError("Unable to verify phone availability. Please try again.");
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const res = await fetch(`${API_URL}/restaurant-onboarding/step-1`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          fullName: form.fullName,
+          nicNumber: form.nicNumber,
+          dateOfBirth: form.dateOfBirth,
+          phone: form.mobileNumber,
+          homeAddress: form.homeAddress,
+          nicFrontUrl: form.nicFrontUrl,
+          nicBackUrl: form.nicBackUrl,
+        }),
+      });
 
       const data = await res.json();
       if (!res.ok) {
@@ -324,7 +317,7 @@ export default function AdminOnboardingStep1() {
         <div className="absolute top-1/4 left-1/4 w-96 h-96 rounded-full bg-gradient-to-r from-green-400/30 to-green-500/30 floating animate-pulse-slow"></div>
         <div className="absolute bottom-1/4 right-1/4 w-72 h-72 rounded-full bg-gradient-to-r from-green-300/25 to-green-400/25 floating animate-pulse-slower"></div>
         <div className="absolute top-1/3 right-1/3 w-48 h-48 rounded-full bg-gradient-to-r from-green-200/20 to-green-300/20 floating animate-pulse-slow"></div>
-        <div className="absolute top-1/2 left-1/2 w-40 h-40 rounded-full bg-gradient-to-r from-lime-300/25 to-green-300/25 animate-ping-slow"></div>
+        <div className="absolute top-1/2 left-1/2 w-40 h-40 rounded-full bg-gradient-to-r from-green-300/25 to-green-300/25 animate-ping-slow"></div>
 
         {/* Vertical animated bars */}
         <div className="absolute inset-0">
@@ -347,7 +340,7 @@ export default function AdminOnboardingStep1() {
           {[...Array(5)].map((_, i) => (
             <div
               key={i}
-              className="absolute h-px bg-gradient-to-r from-transparent via-lime-400/20 to-transparent animate-slide-diagonal"
+              className="absolute h-px bg-gradient-to-r from-transparent via-green-400/20 to-transparent animate-slide-diagonal"
               style={{
                 top: `${i * 20}%`,
                 width: "200%",
@@ -397,35 +390,6 @@ export default function AdminOnboardingStep1() {
             <p className="text-sm text-gray-600 mt-1">
               Basic details about you as the restaurant admin
             </p>
-          </div>
-
-          {/* Verified Email (Read-only) */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Verified Email
-            </label>
-            <div className="relative">
-              <input
-                type="email"
-                value={userEmail}
-                readOnly
-                className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg bg-gray-50 text-gray-700 cursor-not-allowed focus:outline-none"
-              />
-              <div className="absolute right-3 top-1/2 transform -translate-y-1/2 flex items-center gap-1 text-green-600">
-                <svg
-                  className="w-5 h-5"
-                  fill="currentColor"
-                  viewBox="0 0 20 20"
-                >
-                  <path
-                    fillRule="evenodd"
-                    d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-                <span className="text-sm font-medium">Verified</span>
-              </div>
-            </div>
           </div>
 
           {/* Full Name */}
@@ -608,52 +572,6 @@ export default function AdminOnboardingStep1() {
             )}
           </div>
 
-          {/* Profile Photo Upload */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Profile Photo
-            </label>
-            <div className="relative">
-              <div className="absolute inset-0 rounded-lg bg-gradient-to-r from-green-800 via-green-400 to-green-800 animate-border-rotation p-[3px]">
-                <div className="h-full w-full bg-white rounded-lg"></div>
-              </div>
-              <div className="relative flex items-center gap-3 px-4 py-3 bg-transparent rounded-lg z-10">
-                <input
-                  type="file"
-                  accept="image/jpeg,image/jpg,image/png"
-                  onChange={(e) =>
-                    handleFileUpload("profilePhoto", e.target.files[0])
-                  }
-                  className="flex-1 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 text-green-700 hover:file:bg-green-100 file:cursor-pointer cursor-pointer"
-                  required
-                />
-                {form.profilePhotoUrl && !uploading.profilePhoto && (
-                  <span className="text-green-600 font-semibold">✓</span>
-                )}
-                {uploading.profilePhoto && (
-                  <div className="w-5 h-5 border-2 border-green-600 border-t-transparent rounded-full animate-spin"></div>
-                )}
-              </div>
-            </div>
-            {errors.profilePhotoUrl && (
-              <p className="mt-1 text-sm text-red-600 flex items-center gap-1">
-                <svg
-                  className="w-4 h-4"
-                  fill="currentColor"
-                  viewBox="0 0 20 20"
-                >
-                  <path
-                    fillRule="evenodd"
-                    d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-                {errors.profilePhotoUrl}
-              </p>
-            )}
-            <p className="mt-1 text-xs text-gray-500">Max 5MB</p>
-          </div>
-
           {/* NIC Front Upload */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -751,7 +669,7 @@ export default function AdminOnboardingStep1() {
             <button
               type="submit"
               disabled={loading}
-              className={`px-6 py-3 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg font-semibold shadow-lg hover:shadow-xl transition-all duration-200 flex items-center gap-2 ${
+              className={`px-6 py-3 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-full font-semibold shadow-lg hover:shadow-xl transition-all duration-200 flex items-center gap-2 ${
                 loading
                   ? "opacity-70 cursor-not-allowed"
                   : "hover:from-green-600 hover:to-green-700 active:scale-95"
