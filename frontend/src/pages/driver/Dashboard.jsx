@@ -20,15 +20,19 @@ import React, {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
+import DriverLayout from "../../components/DriverLayout";
+import { API_URL } from "../../config";
 import { useDriverDeliveryNotifications } from "../../context/DriverDeliveryNotificationContext";
 import {
   buildDriverActiveMapPath,
   cacheDriverActiveDeliveryId,
   resolveDriverActiveMapPath,
 } from "../../utils/driverActiveDelivery";
-import { MapContainer, TileLayer, Marker, Polyline } from "react-leaflet";
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
+import {
+  getAvailableDeliveriesQueryKey,
+  getAvailableDeliveriesSnapshot,
+  setAvailableDeliveriesSnapshot,
+} from "../../utils/availableDeliveriesCache";
 
 // Material Symbols CSS
 const MaterialSymbolsCSS = () => (
@@ -45,189 +49,8 @@ const WORKING_TIME_LABELS = {
   night: "Night Shift (6PM - 6AM)",
 };
 
-// Fix Leaflet default marker icons
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl:
-    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png",
-  iconUrl:
-    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
-  shadowUrl:
-    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
-});
-
-// Custom SVG icons for Leaflet
-const createSvgIcon = (svgPath, size = 24) => {
-  return L.divIcon({
-    className: "custom-svg-marker",
-    html: `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="#1a1a1a" style="filter: drop-shadow(0 2px 3px rgba(0,0,0,0.25));">${svgPath}</svg>`,
-    iconSize: [size, size],
-    iconAnchor: [size / 2, size],
-    popupAnchor: [0, -size],
-  });
-};
-
-// Restaurant icon (store/home)
-const restaurantIcon = createSvgIcon(
-  '<path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/>',
-  20,
-);
-
-// Customer icon (location pin)
-const customerIcon = createSvgIcon(
-  '<path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>',
-  20,
-);
-
-// Tile URL for maps
-const TILE_URL = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
-
-// Decode polyline from OSRM
-const decodePolyline = (encoded) => {
-  if (!encoded) return [];
-  const poly = [];
-  let index = 0,
-    len = encoded.length;
-  let lat = 0,
-    lng = 0;
-
-  while (index < len) {
-    let b,
-      shift = 0,
-      result = 0;
-    do {
-      b = encoded.charCodeAt(index++) - 63;
-      result |= (b & 0x1f) << shift;
-      shift += 5;
-    } while (b >= 0x20);
-    const dlat = result & 1 ? ~(result >> 1) : result >> 1;
-    lat += dlat;
-
-    shift = 0;
-    result = 0;
-    do {
-      b = encoded.charCodeAt(index++) - 63;
-      result |= (b & 0x1f) << shift;
-      shift += 5;
-    } while (b >= 0x20);
-    const dlng = result & 1 ? ~(result >> 1) : result >> 1;
-    lng += dlng;
-
-    poly.push([lat / 1e5, lng / 1e5]);
-  }
-
-  return poly;
-};
-
-// Mini Map Component for delivery preview
-function MiniDeliveryMap({ delivery }) {
-  const restaurant = delivery.restaurant;
-  // Customer location is in delivery.delivery (not delivery.customer)
-  const customerLocation = delivery.delivery || delivery.customer;
-  const driverToRestaurantRoute = delivery.driver_to_restaurant_route;
-  const restaurantToCustomerRoute = delivery.restaurant_to_customer_route;
-
-  // Decode polylines if available
-  const driverToRestaurantPath = useMemo(() => {
-    if (driverToRestaurantRoute?.encoded_polyline) {
-      return decodePolyline(driverToRestaurantRoute.encoded_polyline);
-    }
-    if (driverToRestaurantRoute?.coordinates) {
-      return driverToRestaurantRoute.coordinates.map((c) => [c[1], c[0]]);
-    }
-    return [];
-  }, [driverToRestaurantRoute]);
-
-  const restaurantToCustomerPath = useMemo(() => {
-    if (restaurantToCustomerRoute?.encoded_polyline) {
-      return decodePolyline(restaurantToCustomerRoute.encoded_polyline);
-    }
-    if (restaurantToCustomerRoute?.coordinates) {
-      return restaurantToCustomerRoute.coordinates.map((c) => [c[1], c[0]]);
-    }
-    return [];
-  }, [restaurantToCustomerRoute]);
-
-  // Calculate center and bounds
-  const center = useMemo(() => {
-    if (restaurant?.latitude && restaurant?.longitude) {
-      return [restaurant.latitude, restaurant.longitude];
-    }
-    return [8.5017, 81.2377]; // Default
-  }, [restaurant]);
-
-  // Check if we have route data
-  const hasRouteData =
-    driverToRestaurantPath.length > 0 || restaurantToCustomerPath.length > 0;
-  const hasMarkers =
-    restaurant?.latitude &&
-    restaurant?.longitude &&
-    customerLocation?.latitude &&
-    customerLocation?.longitude;
-
-  if (!hasMarkers) {
-    return (
-      <div className="w-24 h-24 bg-slate-100 rounded-xl flex items-center justify-center">
-        <span className="material-symbols-outlined text-2xl text-slate-300">
-          map
-        </span>
-      </div>
-    );
-  }
-
-  return (
-    <div className="w-24 h-24 rounded-xl overflow-hidden border border-slate-200">
-      <MapContainer
-        center={center}
-        zoom={13}
-        style={{ width: "100%", height: "100%" }}
-        zoomControl={false}
-        attributionControl={false}
-        dragging={false}
-        scrollWheelZoom={false}
-        doubleClickZoom={false}
-        touchZoom={false}
-      >
-        <TileLayer url={TILE_URL} />
-
-        {/* Restaurant Marker */}
-        <Marker
-          position={[restaurant.latitude, restaurant.longitude]}
-          icon={restaurantIcon}
-        />
-
-        {/* Customer Marker */}
-        <Marker
-          position={[customerLocation.latitude, customerLocation.longitude]}
-          icon={customerIcon}
-        />
-
-        {/* Route Lines (route geometry only) */}
-        {hasRouteData && (
-          <>
-            {driverToRestaurantPath.length > 0 && (
-              <Polyline
-                positions={driverToRestaurantPath}
-                pathOptions={{ color: "#22c55e", weight: 3, opacity: 0.9 }}
-              />
-            )}
-            {restaurantToCustomerPath.length > 0 && (
-              <Polyline
-                positions={restaurantToCustomerPath}
-                pathOptions={{ color: "#1a1a1a", weight: 3, opacity: 0.7 }}
-              />
-            )}
-          </>
-        )}
-      </MapContainer>
-    </div>
-  );
-}
-
-import DriverLayout from "../../components/DriverLayout";
-import { API_URL } from "../../config";
-
 const DRIVER_DASHBOARD_CACHE_TTL_MS = 2 * 60 * 1000;
+const DEFAULT_LOCATION = { latitude: 8.5017, longitude: 81.2377 };
 
 const getDriverDashboardCacheKey = () => {
   const userId = localStorage.getItem("userId") || "default";
@@ -267,6 +90,8 @@ export default function DriverDashboard() {
   const token = localStorage.getItem("token");
   const role = localStorage.getItem("role");
   const cachedDashboard = readDriverDashboardCache();
+  const nearbySnapshot = getAvailableDeliveriesSnapshot(queryClient, userId);
+  const nearbyRequestsQueryKey = getAvailableDeliveriesQueryKey(userId);
   const [isOnline, setIsOnline] = useState(
     () => cachedDashboard?.isOnline ?? false,
   );
@@ -288,7 +113,7 @@ export default function DriverDashboard() {
     () => cachedDashboard?.recentDeliveries || [],
   );
   const [availableDeliveries, setAvailableDeliveries] = useState(
-    () => cachedDashboard?.availableDeliveries || [],
+    () => nearbySnapshot?.deliveries || cachedDashboard?.availableDeliveries || [],
   );
   const [activeDeliveries, setActiveDeliveries] = useState(
     () => cachedDashboard?.activeDeliveries || [],
@@ -297,7 +122,9 @@ export default function DriverDashboard() {
   const [driverProfile, setDriverProfile] = useState(
     () => cachedDashboard?.driverProfile || null,
   );
-  const [driverLocation, setDriverLocation] = useState(null);
+  const [driverLocation, setDriverLocation] = useState(
+    () => nearbySnapshot?.driverLocation || null,
+  );
   const [acceptingOrder, setAcceptingOrder] = useState(null);
   const [withinWorkingHours, setWithinWorkingHours] = useState(
     () => cachedDashboard?.withinWorkingHours ?? true,
@@ -318,8 +145,24 @@ export default function DriverDashboard() {
   const { setDriverOnline } = useDriverDeliveryNotifications();
 
   const workingHoursCheckRef = useRef(null);
-  const driverLocationRef = useRef(null); // Ref to avoid infinite loop in fetchDashboardData
   const autoOnlineInFlightRef = useRef(false);
+
+  const { data: nearbyRequestsSnapshot } = useQuery({
+    queryKey: nearbyRequestsQueryKey,
+    enabled: !!token && role === "driver",
+    staleTime: 60 * 1000,
+    queryFn: async () => getAvailableDeliveriesSnapshot(queryClient, userId),
+    initialData: nearbySnapshot || undefined,
+    refetchOnWindowFocus: false,
+  });
+
+  useEffect(() => {
+    if (!nearbyRequestsSnapshot) return;
+    setAvailableDeliveries(nearbyRequestsSnapshot.deliveries || []);
+    if (nearbyRequestsSnapshot.driverLocation) {
+      setDriverLocation(nearbyRequestsSnapshot.driverLocation);
+    }
+  }, [nearbyRequestsSnapshot]);
 
   const { data: withdrawalsSummary } = useQuery({
     queryKey: ["driver", "withdrawals", "summary", userId],
@@ -515,9 +358,6 @@ export default function DriverDashboard() {
   // FETCH DASHBOARD DATA
   // ============================================================================
 
-  // Default driver location (Kinniya, Sri Lanka)
-  const DEFAULT_LOCATION = { latitude: 8.5017, longitude: 81.2377 };
-
   const fetchDashboardData = useCallback(async () => {
     try {
       const token = localStorage.getItem("token");
@@ -526,8 +366,7 @@ export default function DriverDashboard() {
         return;
       }
 
-      // Get driver's current location (use ref to avoid infinite loop)
-      let currentLocation = driverLocationRef.current || DEFAULT_LOCATION;
+      let currentLocation = driverLocation || nearbySnapshot?.driverLocation || DEFAULT_LOCATION;
       if (navigator.geolocation) {
         try {
           const position = await new Promise((resolve, reject) => {
@@ -541,16 +380,14 @@ export default function DriverDashboard() {
             latitude: position.coords.latitude,
             longitude: position.coords.longitude,
           };
-          driverLocationRef.current = currentLocation;
           setDriverLocation(currentLocation);
-        } catch (geoError) {
-          console.log("Using default location:", geoError.message);
+        } catch {
+          // Keep fallback location to avoid blocking dashboard requests.
         }
       }
 
       // Use Promise.allSettled to fetch all data in parallel (reduces sequential latency)
       const headers = { Authorization: `Bearer ${token}` };
-
       const deliveriesUrl = `${API_URL}/driver/deliveries/available/v2?driver_latitude=${currentLocation.latitude}&driver_longitude=${currentLocation.longitude}`;
 
       const [
@@ -590,8 +427,8 @@ export default function DriverDashboard() {
       let nextStats = null;
       let nextMonthlyStats = null;
       let nextRecentDeliveries = null;
-      let nextAvailableDeliveries = null;
       let nextActiveDeliveries = null;
+      let nextAvailableDeliveries = null;
 
       if (statsRes.status === "fulfilled" && statsRes.value.ok) {
         const statsData = await statsRes.value.json();
@@ -619,16 +456,6 @@ export default function DriverDashboard() {
         setRecentDeliveries(nextRecentDeliveries);
       }
 
-      // Process available deliveries (fetched every poll, backend has 30s cache)
-      if (availableRes.status === "fulfilled" && availableRes.value.ok) {
-        const deliveriesData = await availableRes.value.json();
-        nextAvailableDeliveries =
-          deliveriesData.available_deliveries ||
-          deliveriesData.deliveries ||
-          [];
-        setAvailableDeliveries(nextAvailableDeliveries);
-      }
-
       // Process active deliveries
       if (
         activeDeliveriesRes.status === "fulfilled" &&
@@ -639,6 +466,23 @@ export default function DriverDashboard() {
         setActiveDeliveries(nextActiveDeliveries);
       }
 
+      if (availableRes.status === "fulfilled" && availableRes.value.ok) {
+        const deliveriesData = await availableRes.value.json();
+        nextAvailableDeliveries =
+          deliveriesData.available_deliveries || deliveriesData.deliveries || [];
+
+        setAvailableDeliveries(nextAvailableDeliveries);
+        setAvailableDeliveriesSnapshot(queryClient, userId, {
+          deliveries: nextAvailableDeliveries,
+          currentRoute: deliveriesData.current_route || {
+            total_stops: 0,
+            active_deliveries: 0,
+          },
+          driverLocation: deliveriesData.driver_location || currentLocation,
+          fetchedAt: Date.now(),
+        });
+      }
+
       const prev = readDriverDashboardCache() || {};
       writeDriverDashboardCache({
         ...prev,
@@ -646,7 +490,7 @@ export default function DriverDashboard() {
         monthlyStats: nextMonthlyStats || prev.monthlyStats,
         recentDeliveries: nextRecentDeliveries || prev.recentDeliveries,
         availableDeliveries:
-          nextAvailableDeliveries || prev.availableDeliveries,
+          nextAvailableDeliveries || prev.availableDeliveries || availableDeliveries,
         activeDeliveries: nextActiveDeliveries || prev.activeDeliveries,
       });
     } catch (error) {
@@ -654,7 +498,14 @@ export default function DriverDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [navigate]); // Removed driverLocation from deps - using driverLocationRef instead
+  }, [
+    availableDeliveries,
+    driverLocation,
+    navigate,
+    nearbySnapshot?.driverLocation,
+    queryClient,
+    userId,
+  ]);
 
   // Track if we're rate limited to back off
   const rateLimitedRef = useRef(false);
@@ -768,10 +619,31 @@ export default function DriverDashboard() {
     setAcceptingOrder(deliveryId);
     try {
       const token = localStorage.getItem("token");
+      let acceptLocation = driverLocation;
+
+      if (!acceptLocation && navigator.geolocation) {
+        try {
+          const position = await new Promise((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(resolve, reject, {
+              enableHighAccuracy: true,
+              timeout: 5000,
+              maximumAge: 30000,
+            });
+          });
+
+          acceptLocation = {
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+          };
+          setDriverLocation(acceptLocation);
+        } catch {
+          // Keep null payload fields if location isn't available yet.
+        }
+      }
 
       const body = {
-        driver_latitude: driverLocation?.latitude,
-        driver_longitude: driverLocation?.longitude,
+        driver_latitude: acceptLocation?.latitude,
+        driver_longitude: acceptLocation?.longitude,
       };
 
       const res = await fetch(
@@ -888,6 +760,82 @@ export default function DriverDashboard() {
       routeImpact.estimated_time_minutes || delivery.estimated_time_minutes || 0
     );
   };
+
+  const getPickupAddress = (delivery) => {
+    return (
+      delivery?.restaurant?.address ||
+      delivery?.orders?.restaurant_address ||
+      delivery?.restaurant_address ||
+      "Pickup address unavailable"
+    );
+  };
+
+  const getDropoffAddress = (delivery) => {
+    return (
+      delivery?.delivery?.address ||
+      delivery?.customer?.address ||
+      delivery?.orders?.delivery_address ||
+      delivery?.delivery_address ||
+      "Drop-off address unavailable"
+    );
+  };
+
+  const getDistanceAndTimeSummary = (delivery) => {
+    const routeImpact = delivery.route_impact || {};
+    const deliverySequence = Number(routeImpact.delivery_sequence || 1);
+    const isFirstDelivery =
+      routeImpact.is_first_delivery === true || deliverySequence <= 1;
+    const totalDistance = Number(
+      delivery.total_delivery_distance_km ||
+        routeImpact.total_distance_km ||
+        routeImpact.r1_distance_km ||
+        0,
+    );
+    const extraDistance = Number(routeImpact.extra_distance_km || 0);
+    const totalMinutes = Number(
+      routeImpact.estimated_time_minutes || delivery.estimated_time_minutes || 0,
+    );
+    const extraMinutes = Number(routeImpact.extra_time_minutes || 0);
+
+    return {
+      isFirstDelivery,
+      totalDistance: Number.isFinite(totalDistance) ? totalDistance : 0,
+      extraDistance: Number.isFinite(extraDistance) ? extraDistance : 0,
+      totalMinutes: Number.isFinite(totalMinutes) ? totalMinutes : 0,
+      extraMinutes: Number.isFinite(extraMinutes) ? extraMinutes : 0,
+    };
+  };
+
+  const getPickupRestaurantWithCity = (delivery) => {
+    const restaurantName =
+      delivery?.restaurant?.name ||
+      delivery?.orders?.restaurant_name ||
+      delivery?.restaurant_name ||
+      "Restaurant";
+    const city =
+      delivery?.restaurant?.city ||
+      delivery?.orders?.restaurant_city ||
+      delivery?.delivery?.city ||
+      delivery?.customer?.city ||
+      delivery?.orders?.delivery_city ||
+      null;
+
+    return city ? `${restaurantName} (${city})` : restaurantName;
+  };
+
+  const nearbyDeliveries = useMemo(() => {
+    const seen = new Set();
+    const unique = [];
+
+    for (const delivery of availableDeliveries || []) {
+      const id = delivery?.delivery_id;
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      unique.push(delivery);
+    }
+
+    return unique;
+  }, [availableDeliveries]);
 
   // ============================================================================
   // RENDER
@@ -1185,7 +1133,7 @@ export default function DriverDashboard() {
           {/* Nearby Requests Header */}
           <div className="flex items-center justify-between px-4 pt-6 pb-2">
             <h2 className="text-slate-900 text-[18px] font-bold leading-tight">
-              Nearby Requests ({availableDeliveries.length})
+              Nearby Requests ({nearbyDeliveries.length})
             </h2>
             <button
               onClick={() => navigate("/driver/deliveries")}
@@ -1229,19 +1177,41 @@ export default function DriverDashboard() {
                   Go online to receive delivery requests
                 </p>
               </div>
-            ) : availableDeliveries.length === 0 ? (
+            ) : nearbyDeliveries.length === 0 ? (
               <div className="px-4 py-12 text-center">
                 <span className="material-symbols-outlined text-6xl text-slate-300 mb-4">
                   inventory_2
                 </span>
-                <p className="text-slate-500 font-medium">No requests nearby</p>
+                <p className="text-slate-500 font-medium">No nearby requests</p>
                 <p className="text-slate-400 text-sm mt-1">
-                  New orders will appear here
+                  New requests will appear here automatically
                 </p>
+                <button
+                  onClick={() => navigate("/driver/deliveries")}
+                  className="mt-4 px-4 py-2 rounded-lg bg-[#22c55e] text-white text-sm font-semibold active:opacity-80"
+                >
+                  View Available Deliveries
+                </button>
               </div>
             ) : (
-              availableDeliveries.slice(0, 5).map((delivery, index) => {
+              nearbyDeliveries.slice(0, 5).map((delivery, index) => {
                 const routeDistanceKm = calculateDistance(delivery);
+                const breakdown = getEarningsBreakdown(delivery);
+                const tripSummary = getDistanceAndTimeSummary(delivery);
+                const earningChips = [
+                  breakdown.isFirst && breakdown.baseAmount > 0
+                    ? `Base Rs. ${breakdown.baseAmount.toFixed(0)}`
+                    : null,
+                  breakdown.extraEarnings > 0
+                    ? `Extra Rs. ${breakdown.extraEarnings.toFixed(0)}`
+                    : null,
+                  breakdown.bonusAmount > 0
+                    ? `Bonus Rs. ${breakdown.bonusAmount.toFixed(0)}`
+                    : null,
+                  breakdown.tipAmount > 0
+                    ? `Tip Rs. ${breakdown.tipAmount.toFixed(0)}`
+                    : null,
+                ].filter(Boolean);
 
                 return (
                   <div key={delivery.delivery_id} className="px-4">
@@ -1259,60 +1229,60 @@ export default function DriverDashboard() {
                                 Bulk Order
                               </span>
                             )}
-                            <p className="text-slate-400 text-[11px] font-bold leading-normal uppercase">
-                              {routeDistanceKm
-                                ? `${routeDistanceKm} km away`
-                                : "Route distance unavailable"}
-                            </p>
                           </div>
                           <p className="text-[#22c55e] text-2xl font-bold leading-tight">
                             Rs. {getDeliveryEarnings(delivery)}
                           </p>
-                          {/* Earnings Breakdown */}
-                          {(() => {
-                            const breakdown = getEarningsBreakdown(delivery);
-                            const hasExtras =
-                              breakdown.bonusAmount > 0 ||
-                              breakdown.tipAmount > 0;
-                            return hasExtras ? (
-                              <div className="flex flex-col gap-0.5">
-                                <p className="text-slate-500 text-xs">
-                                  {breakdown.isFirst ? "Base" : "Extra"}: Rs.{" "}
-                                  {breakdown.primaryEarning.toFixed(0)}
-                                </p>
-                                {breakdown.bonusAmount > 0 && (
-                                  <p className="text-orange-600 text-xs font-medium">
-                                    🎁 Bonus: Rs.{" "}
-                                    {breakdown.bonusAmount.toFixed(0)}
-                                  </p>
-                                )}
-                                {breakdown.tipAmount > 0 && (
-                                  <p className="text-yellow-700 text-xs font-medium">
-                                    💰 Tip: Rs. {breakdown.tipAmount.toFixed(0)}
-                                  </p>
-                                )}
-                              </div>
-                            ) : null;
-                          })()}
-                          <div className="flex items-center gap-1.5">
-                            <span className="material-symbols-outlined text-[18px] text-slate-400">
-                              store
-                            </span>
-                            <p className="text-slate-600 text-[15px] font-medium leading-normal">
-                              {delivery.restaurant?.name ||
-                                delivery.restaurant_name ||
-                                "Restaurant"}
-                            </p>
-                          </div>
-                          {getEstimatedTime(delivery) > 0 && (
-                            <p className="text-slate-400 text-xs mt-0.5">
-                              ~{getEstimatedTime(delivery)} mins
+                          {earningChips.length > 0 && (
+                            <p className="text-slate-500 text-xs">
+                              {earningChips.join(" • ")}
                             </p>
                           )}
+
+                          <div className="mt-2 space-y-1 text-xs">
+                            <p className="text-slate-500">
+                              <span className="font-semibold text-slate-700">Pickup:</span>{" "}
+                              {getPickupRestaurantWithCity(delivery)}
+                            </p>
+                            <p className="text-slate-500">
+                              <span className="font-semibold text-slate-700">Drop-off:</span>{" "}
+                              {getDropoffAddress(delivery)}
+                            </p>
+                          </div>
                         </div>
 
-                        {/* Map Preview with Routes */}
-                        <MiniDeliveryMap delivery={delivery} />
+                        <div className="shrink-0 text-right rounded-lg bg-slate-50 border border-slate-100 px-3 py-2 min-w-[92px]">
+                          <p className="text-[10px] uppercase tracking-wide text-slate-400 font-bold">
+                            {tripSummary.isFirstDelivery
+                              ? "Distance"
+                              : "Extra Distance"}
+                          </p>
+                          <p className="text-xs font-semibold text-slate-700 mt-1">
+                            {tripSummary.isFirstDelivery
+                              ? tripSummary.totalDistance > 0
+                                ? `${tripSummary.totalDistance.toFixed(1)} km`
+                                : routeDistanceKm
+                                  ? `${routeDistanceKm} km`
+                                  : "--"
+                              : tripSummary.extraDistance > 0
+                                ? `+${tripSummary.extraDistance.toFixed(1)} km`
+                                : "--"}
+                          </p>
+                          <p className="text-[10px] uppercase tracking-wide text-slate-400 font-bold mt-2">
+                            {tripSummary.isFirstDelivery ? "Time" : "Extra Time"}
+                          </p>
+                          <p className="text-xs font-semibold text-slate-700 mt-1">
+                            {tripSummary.isFirstDelivery
+                              ? tripSummary.totalMinutes > 0
+                                ? `${tripSummary.totalMinutes} min`
+                                : getEstimatedTime(delivery) > 0
+                                  ? `${getEstimatedTime(delivery)} min`
+                                  : "--"
+                              : tripSummary.extraMinutes > 0
+                                ? `+${tripSummary.extraMinutes.toFixed(0)} min`
+                                : "--"}
+                          </p>
+                        </div>
                       </div>
 
                       <button

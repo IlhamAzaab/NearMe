@@ -24,6 +24,11 @@ import {
   cacheDriverActiveDeliveryId,
   resolveDriverActiveMapPath,
 } from "../../utils/driverActiveDelivery";
+import {
+  getAvailableDeliveriesQueryKey,
+  getAvailableDeliveriesSnapshot,
+  setAvailableDeliveriesSnapshot,
+} from "../../utils/availableDeliveriesCache";
 
 // Fix Leaflet default marker icons (still needed for legacy)
 import L from "leaflet";
@@ -43,48 +48,13 @@ const DEFAULT_DRIVER_LOCATION = {
   longitude: 81.186,
 };
 
-// Cache key for localStorage
-const CACHE_KEY = "available_deliveries_cache";
-const CACHE_EXPIRY = 60000; // 1 minute cache
-
-// Load cached data
-const loadCachedData = () => {
-  try {
-    const cached = localStorage.getItem(CACHE_KEY);
-    if (cached) {
-      const { data, timestamp } = JSON.parse(cached);
-      if (Date.now() - timestamp < CACHE_EXPIRY) {
-        return data;
-      }
-    }
-  } catch (e) {
-    console.warn("Cache load error:", e);
-  }
-  return null;
-};
-
-// Save to cache
-const saveCacheData = (data) => {
-  try {
-    localStorage.setItem(
-      CACHE_KEY,
-      JSON.stringify({
-        data,
-        timestamp: Date.now(),
-      }),
-    );
-  } catch (e) {
-    console.warn("Cache save error:", e);
-  }
-};
-
 export default function AvailableDeliveries() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const token = localStorage.getItem("token");
   const role = localStorage.getItem("role");
   const userId = localStorage.getItem("userId") || "default";
-  const deliveriesQueryKey = ["driver", "available-deliveries", userId];
+  const deliveriesQueryKey = getAvailableDeliveriesQueryKey(userId);
 
   // Socket connection for real-time notifications
   const {
@@ -95,9 +65,8 @@ export default function AvailableDeliveries() {
   } = useSocket();
 
   // Initialize with cached data for instant display
-  const cachedData = loadCachedData();
-  const cachedQueryData = queryClient.getQueryData(deliveriesQueryKey);
-  const initialSnapshot = cachedQueryData || cachedData;
+  const initialSnapshot = getAvailableDeliveriesSnapshot(queryClient, userId);
+  const hasInitialSnapshot = !!initialSnapshot;
   const [deliveries, setDeliveries] = useState(
     initialSnapshot?.deliveries || [],
   );
@@ -170,11 +139,19 @@ export default function AvailableDeliveries() {
   // Keep state array stable for React-Leaflet; only sort visually at render time.
   const displayedDeliveries = useMemo(() => {
     const meta = deliveryMetaRef.current;
+    const deduped = [];
+    const seen = new Set();
+    for (const delivery of deliveries) {
+      if (!delivery?.delivery_id || seen.has(delivery.delivery_id)) continue;
+      seen.add(delivery.delivery_id);
+      deduped.push(delivery);
+    }
+
     const originalIndex = new Map(
-      deliveries.map((delivery, index) => [delivery.delivery_id, index]),
+      deduped.map((delivery, index) => [delivery.delivery_id, index]),
     );
 
-    return [...deliveries].sort((a, b) => {
+    return [...deduped].sort((a, b) => {
       const aDeclined = declinedIds.has(a.delivery_id);
       const bDeclined = declinedIds.has(b.delivery_id);
       if (aDeclined !== bDeclined) return aDeclined ? 1 : -1;
@@ -208,7 +185,7 @@ export default function AvailableDeliveries() {
     return incomingDeliveries;
   };
 
-  useQuery({
+  const { data: cachedQueryData } = useQuery({
     queryKey: deliveriesQueryKey,
     enabled: !!token && role === "driver",
     staleTime: 60 * 1000,
@@ -306,8 +283,6 @@ export default function AvailableDeliveries() {
   const lastFetchLocationRef = useRef(null);
   const lastLocationRef = useRef(null);
   const fetchPendingDeliveriesRef = useRef(null); // Ref to hold fetch function
-  const hasFetchedInitialRef = useRef(false);
-
   // Minimum distance (in meters) driver must move before triggering a data refresh
   const MOVEMENT_THRESHOLD_METERS = 100;
 
@@ -385,8 +360,10 @@ export default function AvailableDeliveries() {
     // Check if driver is in delivering mode first
     checkDeliveringMode();
 
-    // Get initial location and fetch deliveries
-    fetchDeliveriesWithCurrentLocation(false);
+    // Get initial location and fetch deliveries only when no warm cache exists.
+    if (!hasInitialSnapshot) {
+      fetchDeliveriesWithCurrentLocation(false);
+    }
 
     // Use watchPosition (event-driven, fires only on real device movement)
     if (navigator.geolocation) {
@@ -452,7 +429,7 @@ export default function AvailableDeliveries() {
         watchIdRef.current = null;
       }
     };
-  }, [navigate]);
+  }, [fetchDeliveriesWithCurrentLocation, hasInitialSnapshot, navigate]);
 
   const checkDeliveringMode = async () => {
     try {
@@ -572,8 +549,7 @@ export default function AvailableDeliveries() {
         driverLocation: newDriverLocation,
       };
 
-      saveCacheData(snapshot);
-      queryClient.setQueryData(deliveriesQueryKey, snapshot);
+      setAvailableDeliveriesSnapshot(queryClient, userId, snapshot);
 
       // Clear any previous errors on successful fetch
       setFetchError(null);
