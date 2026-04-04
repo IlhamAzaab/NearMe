@@ -174,6 +174,16 @@ export function SocketProvider({ children }) {
         console.log(`[Socket] ✅ Registered as driver:`, data);
       });
 
+      newSocket.on("driver:registration_error", (data) => {
+        console.warn(`[Socket] ❌ Driver registration rejected:`, data);
+        try {
+          newSocket.disconnect();
+        } catch {
+          // Ignore disconnect failures
+        }
+        setIsConnected(false);
+      });
+
       // 🚨 NEW DELIVERY ALERT - This fires INSTANTLY for ALL online drivers
       newSocket.on("delivery:new", (data) => {
         console.log(`[Socket] 🚨 NEW DELIVERY ALERT:`, data);
@@ -226,377 +236,388 @@ export function SocketProvider({ children }) {
   );
 
   // Initialize socket connection for customers
-  const connectAsCustomer = useCallback((customerId) => {
-    if (!customerId) {
-      console.warn("[Socket] No customerId provided");
-      return;
-    }
-
-    const auth = hasValidAuth("customer", customerId);
-    if (!auth.ok) return;
-
-    // Prevent duplicate connections
-    if (socketRef.current && socketRef.current.connected) {
-      console.log("[Socket] Already connected as customer");
-      return socketRef.current;
-    }
-
-    // Disconnect existing socket if any
-    if (socketRef.current) {
-      socketRef.current.disconnect();
-      socketRef.current = null;
-    }
-
-    console.log(`[Socket] Connecting as customer: ${customerId}`);
-    console.log("[Socket] Connecting with token:", auth.token);
-
-    // Get the current JWT token for authentication
-    const token = localStorage.getItem("token");
-
-    const newSocket = io(SOCKET_URL, {
-      transports: ["websocket", "polling"],
-      reconnection: true,
-      reconnectionAttempts: maxReconnectAttempts,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
-      timeout: 20000,
-      autoConnect: true,
-      forceNew: true, // Force a new connection
-      auth: {
-        token: auth.token || token || "",
-        customerId: customerId,
-      },
-    });
-
-    newSocket.on("connect", () => {
-      console.log(`[Socket] ✅ Customer connected: ${newSocket.id}`);
-      setIsConnected(true);
-      reconnectAttempts.current = 0;
-
-      // Register as customer
-      newSocket.emit("customer:register", customerId);
-    });
-
-    newSocket.on("customer:registered", (data) => {
-      console.log(`[Socket] ✅ Registered as customer:`, data);
-    });
-
-    // 📦 ORDER STATUS UPDATE - Real-time notifications for customers
-    newSocket.on("order:status_update", (data) => {
-      console.log(`[Socket] 📦 ORDER STATUS UPDATE:`, data);
-      console.log(`[Socket] ⏰ Received at: ${new Date().toISOString()}`);
-      console.log(`[Socket] 📋 Status: ${data.status}`);
-      console.log(`[Socket] 💬 Message: ${data.message}`);
-
-      // Play notification sound (single ring)
-      try {
-        const audio = new Audio("/notification-tone.wav");
-        audio.volume = 0.7;
-        audio.play().catch(() => {});
-      } catch {}
-
-      const notification = {
-        ...data,
-        id: Date.now(),
-        receivedAt: Date.now(),
-      };
-
-      // Set active notification (for banner display)
-      setCustomerNotification(notification);
-
-      // Add to notification queue
-      setCustomerNotifications((prev) => [notification, ...prev].slice(0, 20));
-
-      // Auto-clear the banner after 8 seconds
-      setTimeout(() => {
-        setCustomerNotification((curr) =>
-          curr?.id === notification.id ? null : curr,
-        );
-      }, 8000);
-    });
-
-    newSocket.on("disconnect", (reason) => {
-      console.log(`[Socket] ❌ Customer disconnected: ${reason}`);
-      setIsConnected(false);
-    });
-
-    newSocket.on("connect_error", (error) => {
-      console.error(`[Socket] Customer connection error:`, error.message);
-      reconnectAttempts.current += 1;
-
-      if (reconnectAttempts.current >= maxReconnectAttempts) {
-        console.error(`[Socket] Max reconnection attempts reached`);
+  const connectAsCustomer = useCallback(
+    (customerId) => {
+      if (!customerId) {
+        console.warn("[Socket] No customerId provided");
+        return;
       }
-    });
 
-    newSocket.on("pong", () => {
-      // Heartbeat response
-    });
+      const auth = hasValidAuth("customer", customerId);
+      if (!auth.ok) return;
 
-    socketRef.current = newSocket;
-    setSocket(newSocket);
+      // Prevent duplicate connections
+      if (socketRef.current && socketRef.current.connected) {
+        console.log("[Socket] Already connected as customer");
+        return socketRef.current;
+      }
 
-    return newSocket;
-  }, [hasValidAuth]);
+      // Disconnect existing socket if any
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
+
+      console.log(`[Socket] Connecting as customer: ${customerId}`);
+      console.log("[Socket] Connecting with token:", auth.token);
+
+      // Get the current JWT token for authentication
+      const token = localStorage.getItem("token");
+
+      const newSocket = io(SOCKET_URL, {
+        transports: ["websocket", "polling"],
+        reconnection: true,
+        reconnectionAttempts: maxReconnectAttempts,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+        timeout: 20000,
+        autoConnect: true,
+        forceNew: true, // Force a new connection
+        auth: {
+          token: auth.token || token || "",
+          customerId: customerId,
+        },
+      });
+
+      newSocket.on("connect", () => {
+        console.log(`[Socket] ✅ Customer connected: ${newSocket.id}`);
+        setIsConnected(true);
+        reconnectAttempts.current = 0;
+
+        // Register as customer
+        newSocket.emit("customer:register", customerId);
+      });
+
+      newSocket.on("customer:registered", (data) => {
+        console.log(`[Socket] ✅ Registered as customer:`, data);
+      });
+
+      // 📦 ORDER STATUS UPDATE - Real-time notifications for customers
+      newSocket.on("order:status_update", (data) => {
+        console.log(`[Socket] 📦 ORDER STATUS UPDATE:`, data);
+        console.log(`[Socket] ⏰ Received at: ${new Date().toISOString()}`);
+        console.log(`[Socket] 📋 Status: ${data.status}`);
+        console.log(`[Socket] 💬 Message: ${data.message}`);
+
+        // Play notification sound (single ring)
+        try {
+          const audio = new Audio("/notification-tone.wav");
+          audio.volume = 0.7;
+          audio.play().catch(() => {});
+        } catch {}
+
+        const notification = {
+          ...data,
+          id: Date.now(),
+          receivedAt: Date.now(),
+        };
+
+        // Set active notification (for banner display)
+        setCustomerNotification(notification);
+
+        // Add to notification queue
+        setCustomerNotifications((prev) =>
+          [notification, ...prev].slice(0, 20),
+        );
+
+        // Auto-clear the banner after 8 seconds
+        setTimeout(() => {
+          setCustomerNotification((curr) =>
+            curr?.id === notification.id ? null : curr,
+          );
+        }, 8000);
+      });
+
+      newSocket.on("disconnect", (reason) => {
+        console.log(`[Socket] ❌ Customer disconnected: ${reason}`);
+        setIsConnected(false);
+      });
+
+      newSocket.on("connect_error", (error) => {
+        console.error(`[Socket] Customer connection error:`, error.message);
+        reconnectAttempts.current += 1;
+
+        if (reconnectAttempts.current >= maxReconnectAttempts) {
+          console.error(`[Socket] Max reconnection attempts reached`);
+        }
+      });
+
+      newSocket.on("pong", () => {
+        // Heartbeat response
+      });
+
+      socketRef.current = newSocket;
+      setSocket(newSocket);
+
+      return newSocket;
+    },
+    [hasValidAuth],
+  );
 
   // Initialize socket connection for admins (restaurant)
-  const connectAsAdmin = useCallback((adminId) => {
-    if (!adminId) {
-      console.warn("[Socket] No adminId provided");
-      return;
-    }
-
-    const auth = hasValidAuth("admin", adminId);
-    if (!auth.ok) return;
-
-    // Prevent duplicate connections
-    if (socketRef.current && socketRef.current.connected) {
-      console.log("[Socket] Already connected as admin");
-      return socketRef.current;
-    }
-
-    // Disconnect existing socket if any
-    if (socketRef.current) {
-      socketRef.current.disconnect();
-      socketRef.current = null;
-    }
-
-    console.log(`[Socket] Connecting as admin: ${adminId}`);
-    console.log("[Socket] Connecting with token:", auth.token);
-
-    // Get the current JWT token for authentication
-    const token = localStorage.getItem("token");
-
-    const newSocket = io(SOCKET_URL, {
-      transports: ["websocket", "polling"],
-      reconnection: true,
-      reconnectionAttempts: maxReconnectAttempts,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
-      timeout: 20000,
-      autoConnect: true,
-      forceNew: true,
-      auth: {
-        token: auth.token || token || "",
-        adminId: adminId,
-      },
-    });
-
-    newSocket.on("connect", () => {
-      console.log(`[Socket] \u2705 Admin connected: ${newSocket.id}`);
-      setIsConnected(true);
-      reconnectAttempts.current = 0;
-
-      // Register as admin
-      newSocket.emit("admin:register", adminId);
-    });
-
-    newSocket.on("admin:registered", (data) => {
-      console.log(`[Socket] \u2705 Registered as admin:`, data);
-    });
-
-    // 🚨 NEW ORDER - Real-time notification for restaurant admins
-    newSocket.on("order:new_order", (data) => {
-      console.log(`[Socket] \ud83d\udea8 NEW ORDER FOR ADMIN:`, data);
-      console.log(`[Socket] \u23f0 Received at: ${new Date().toISOString()}`);
-
-      if (data?.type === "order_reminder" && data?.order_id) {
-        if (isReminderSnoozed(data.order_id)) {
-          console.log(
-            `[Socket] Reminder snoozed for order ${data.order_id}; skipping alert`,
-          );
-          return;
-        }
+  const connectAsAdmin = useCallback(
+    (adminId) => {
+      if (!adminId) {
+        console.warn("[Socket] No adminId provided");
+        return;
       }
 
-      // Play notification sound (single ring)
-      try {
-        const audio = new Audio("/notification-tone.wav");
-        audio.volume = 0.7;
-        audio.play().catch(() => {});
-      } catch {}
+      const auth = hasValidAuth("admin", adminId);
+      if (!auth.ok) return;
 
-      const notification = {
-        ...data,
-        id: Date.now(),
-        receivedAt: Date.now(),
-      };
+      // Prevent duplicate connections
+      if (socketRef.current && socketRef.current.connected) {
+        console.log("[Socket] Already connected as admin");
+        return socketRef.current;
+      }
 
-      // Add/update admin notifications queue (no auto-dismiss!)
-      // If the same order comes again (e.g., reminder), refresh and move to top.
-      setAdminNotifications((prev) => {
-        const existingIndex = prev.findIndex(
-          (n) => n.order_id === data.order_id && !n.isMilestone,
-        );
+      // Disconnect existing socket if any
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
 
-        if (existingIndex !== -1) {
-          const next = [...prev];
-          next.splice(existingIndex, 1);
-          return [notification, ...next];
+      console.log(`[Socket] Connecting as admin: ${adminId}`);
+      console.log("[Socket] Connecting with token:", auth.token);
+
+      // Get the current JWT token for authentication
+      const token = localStorage.getItem("token");
+
+      const newSocket = io(SOCKET_URL, {
+        transports: ["websocket", "polling"],
+        reconnection: true,
+        reconnectionAttempts: maxReconnectAttempts,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+        timeout: 20000,
+        autoConnect: true,
+        forceNew: true,
+        auth: {
+          token: auth.token || token || "",
+          adminId: adminId,
+        },
+      });
+
+      newSocket.on("connect", () => {
+        console.log(`[Socket] \u2705 Admin connected: ${newSocket.id}`);
+        setIsConnected(true);
+        reconnectAttempts.current = 0;
+
+        // Register as admin
+        newSocket.emit("admin:register", adminId);
+      });
+
+      newSocket.on("admin:registered", (data) => {
+        console.log(`[Socket] \u2705 Registered as admin:`, data);
+      });
+
+      // 🚨 NEW ORDER - Real-time notification for restaurant admins
+      newSocket.on("order:new_order", (data) => {
+        console.log(`[Socket] \ud83d\udea8 NEW ORDER FOR ADMIN:`, data);
+        console.log(`[Socket] \u23f0 Received at: ${new Date().toISOString()}`);
+
+        if (data?.type === "order_reminder" && data?.order_id) {
+          if (isReminderSnoozed(data.order_id)) {
+            console.log(
+              `[Socket] Reminder snoozed for order ${data.order_id}; skipping alert`,
+            );
+            return;
+          }
         }
 
-        return [notification, ...prev];
-      });
-    });
-
-    // 🎉 RESTAURANT DAILY ORDER MILESTONE (every 10 orders today)
-    newSocket.on("admin:order_milestone", (data) => {
-      console.log(`[Socket] 🎉 RESTAURANT ORDER MILESTONE:`, data);
-
-      // Play success sound
-      try {
-        const audio = new Audio("/success-alert.wav");
-        audio.volume = 0.6;
-        audio.play().catch(() => {});
-      } catch {}
-
-      // Browser notification
-      if (Notification.permission === "granted") {
+        // Play notification sound (single ring)
         try {
-          new Notification("🎉 Order Milestone!", {
-            body: data.message || `${data.milestone} orders completed today!`,
-            icon: "/icon-192.png",
-            tag: `admin-milestone-${data.milestone}`,
-          });
+          const audio = new Audio("/notification-tone.wav");
+          audio.volume = 0.7;
+          audio.play().catch(() => {});
         } catch {}
-      }
 
-      const milestoneNotif = {
-        ...data,
-        id: Date.now(),
-        order_id: `milestone-${Date.now()}`,
-        receivedAt: Date.now(),
-        isMilestone: true,
-      };
+        const notification = {
+          ...data,
+          id: Date.now(),
+          receivedAt: Date.now(),
+        };
 
-      setAdminNotifications((prev) => [milestoneNotif, ...prev]);
-    });
+        // Add/update admin notifications queue (no auto-dismiss!)
+        // If the same order comes again (e.g., reminder), refresh and move to top.
+        setAdminNotifications((prev) => {
+          const existingIndex = prev.findIndex(
+            (n) => n.order_id === data.order_id && !n.isMilestone,
+          );
 
-    // 💸 PAYMENT RECEIVED (manager -> admin)
-    newSocket.on("admin:payment_received", (data) => {
-      console.log(`[Socket] 💸 ADMIN PAYMENT RECEIVED:`, data);
+          if (existingIndex !== -1) {
+            const next = [...prev];
+            next.splice(existingIndex, 1);
+            return [notification, ...next];
+          }
 
-      try {
-        const audio = new Audio("/notification-tone.wav");
-        audio.volume = 0.7;
-        audio.play().catch(() => {});
-      } catch {}
-
-      const notification = {
-        ...data,
-        id: Date.now(),
-        order_id: `payment-${data.payment_id || Date.now()}`,
-        receivedAt: Date.now(),
-      };
-
-      setAdminNotifications((prev) => {
-        if (
-          data.payment_id &&
-          prev.some((n) => n.payment_id === data.payment_id)
-        ) {
-          return prev;
-        }
-        return [notification, ...prev];
+          return [notification, ...prev];
+        });
       });
-    });
 
-    newSocket.on("disconnect", (reason) => {
-      console.log(`[Socket] \u274c Admin disconnected: ${reason}`);
-      setIsConnected(false);
-    });
+      // 🎉 RESTAURANT DAILY ORDER MILESTONE (every 10 orders today)
+      newSocket.on("admin:order_milestone", (data) => {
+        console.log(`[Socket] 🎉 RESTAURANT ORDER MILESTONE:`, data);
 
-    newSocket.on("connect_error", (error) => {
-      console.error(`[Socket] Admin connection error:`, error.message);
-      reconnectAttempts.current += 1;
+        // Play success sound
+        try {
+          const audio = new Audio("/success-alert.wav");
+          audio.volume = 0.6;
+          audio.play().catch(() => {});
+        } catch {}
 
-      if (reconnectAttempts.current >= maxReconnectAttempts) {
-        console.error(`[Socket] Max reconnection attempts reached`);
-      }
-    });
+        // Browser notification
+        if (Notification.permission === "granted") {
+          try {
+            new Notification("🎉 Order Milestone!", {
+              body: data.message || `${data.milestone} orders completed today!`,
+              icon: "/icon-192.png",
+              tag: `admin-milestone-${data.milestone}`,
+            });
+          } catch {}
+        }
 
-    newSocket.on("pong", () => {
-      // Heartbeat response
-    });
+        const milestoneNotif = {
+          ...data,
+          id: Date.now(),
+          order_id: `milestone-${Date.now()}`,
+          receivedAt: Date.now(),
+          isMilestone: true,
+        };
 
-    socketRef.current = newSocket;
-    setSocket(newSocket);
+        setAdminNotifications((prev) => [milestoneNotif, ...prev]);
+      });
 
-    return newSocket;
-  }, [hasValidAuth]);
+      // 💸 PAYMENT RECEIVED (manager -> admin)
+      newSocket.on("admin:payment_received", (data) => {
+        console.log(`[Socket] 💸 ADMIN PAYMENT RECEIVED:`, data);
+
+        try {
+          const audio = new Audio("/notification-tone.wav");
+          audio.volume = 0.7;
+          audio.play().catch(() => {});
+        } catch {}
+
+        const notification = {
+          ...data,
+          id: Date.now(),
+          order_id: `payment-${data.payment_id || Date.now()}`,
+          receivedAt: Date.now(),
+        };
+
+        setAdminNotifications((prev) => {
+          if (
+            data.payment_id &&
+            prev.some((n) => n.payment_id === data.payment_id)
+          ) {
+            return prev;
+          }
+          return [notification, ...prev];
+        });
+      });
+
+      newSocket.on("disconnect", (reason) => {
+        console.log(`[Socket] \u274c Admin disconnected: ${reason}`);
+        setIsConnected(false);
+      });
+
+      newSocket.on("connect_error", (error) => {
+        console.error(`[Socket] Admin connection error:`, error.message);
+        reconnectAttempts.current += 1;
+
+        if (reconnectAttempts.current >= maxReconnectAttempts) {
+          console.error(`[Socket] Max reconnection attempts reached`);
+        }
+      });
+
+      newSocket.on("pong", () => {
+        // Heartbeat response
+      });
+
+      socketRef.current = newSocket;
+      setSocket(newSocket);
+
+      return newSocket;
+    },
+    [hasValidAuth],
+  );
 
   // Initialize socket connection for managers
-  const connectAsManager = useCallback((managerId) => {
-    if (!managerId) {
-      console.warn("[Socket] No managerId provided");
-      return;
-    }
-
-    const auth = hasValidAuth("manager", managerId);
-    if (!auth.ok) return;
-
-    // Prevent duplicate connections
-    if (socketRef.current && socketRef.current.connected) {
-      console.log("[Socket] Already connected as manager");
-      return socketRef.current;
-    }
-
-    // Disconnect existing socket if any
-    if (socketRef.current) {
-      socketRef.current.disconnect();
-      socketRef.current = null;
-    }
-
-    console.log(`[Socket] Connecting as manager: ${managerId}`);
-    console.log("[Socket] Connecting with token:", auth.token);
-
-    // Get the current JWT token for authentication
-    const token = localStorage.getItem("token");
-
-    const newSocket = io(SOCKET_URL, {
-      transports: ["websocket", "polling"],
-      reconnection: true,
-      reconnectionAttempts: maxReconnectAttempts,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
-      timeout: 20000,
-      autoConnect: true,
-      forceNew: true,
-      auth: {
-        token: auth.token || token || "",
-        managerId: managerId,
-      },
-    });
-
-    newSocket.on("connect", () => {
-      console.log(`[Socket] ✅ Manager connected: ${newSocket.id}`);
-      setIsConnected(true);
-      reconnectAttempts.current = 0;
-      newSocket.emit("manager:register", managerId);
-    });
-
-    newSocket.on("manager:registered", (data) => {
-      console.log(`[Socket] ✅ Registered as manager:`, data);
-    });
-
-    newSocket.on("disconnect", (reason) => {
-      console.log(`[Socket] ❌ Manager disconnected: ${reason}`);
-      setIsConnected(false);
-    });
-
-    newSocket.on("connect_error", (error) => {
-      console.error(`[Socket] Manager connection error:`, error.message);
-      reconnectAttempts.current += 1;
-      if (reconnectAttempts.current >= maxReconnectAttempts) {
-        console.error(`[Socket] Max reconnection attempts reached`);
+  const connectAsManager = useCallback(
+    (managerId) => {
+      if (!managerId) {
+        console.warn("[Socket] No managerId provided");
+        return;
       }
-    });
 
-    newSocket.on("pong", () => {});
+      const auth = hasValidAuth("manager", managerId);
+      if (!auth.ok) return;
 
-    socketRef.current = newSocket;
-    setSocket(newSocket);
-    return newSocket;
-  }, [hasValidAuth]);
+      // Prevent duplicate connections
+      if (socketRef.current && socketRef.current.connected) {
+        console.log("[Socket] Already connected as manager");
+        return socketRef.current;
+      }
+
+      // Disconnect existing socket if any
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
+
+      console.log(`[Socket] Connecting as manager: ${managerId}`);
+      console.log("[Socket] Connecting with token:", auth.token);
+
+      // Get the current JWT token for authentication
+      const token = localStorage.getItem("token");
+
+      const newSocket = io(SOCKET_URL, {
+        transports: ["websocket", "polling"],
+        reconnection: true,
+        reconnectionAttempts: maxReconnectAttempts,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+        timeout: 20000,
+        autoConnect: true,
+        forceNew: true,
+        auth: {
+          token: auth.token || token || "",
+          managerId: managerId,
+        },
+      });
+
+      newSocket.on("connect", () => {
+        console.log(`[Socket] ✅ Manager connected: ${newSocket.id}`);
+        setIsConnected(true);
+        reconnectAttempts.current = 0;
+        newSocket.emit("manager:register", managerId);
+      });
+
+      newSocket.on("manager:registered", (data) => {
+        console.log(`[Socket] ✅ Registered as manager:`, data);
+      });
+
+      newSocket.on("disconnect", (reason) => {
+        console.log(`[Socket] ❌ Manager disconnected: ${reason}`);
+        setIsConnected(false);
+      });
+
+      newSocket.on("connect_error", (error) => {
+        console.error(`[Socket] Manager connection error:`, error.message);
+        reconnectAttempts.current += 1;
+        if (reconnectAttempts.current >= maxReconnectAttempts) {
+          console.error(`[Socket] Max reconnection attempts reached`);
+        }
+      });
+
+      newSocket.on("pong", () => {});
+
+      socketRef.current = newSocket;
+      setSocket(newSocket);
+      return newSocket;
+    },
+    [hasValidAuth],
+  );
 
   // Disconnect socket
   const disconnect = useCallback(() => {

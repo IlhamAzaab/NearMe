@@ -232,7 +232,8 @@ export default function DriverMapPage() {
   const overlayCallbackRef = useRef(null);
   const [sheetExpanded, setSheetExpanded] = useState(false);
   const sheetTouchStartY = useRef(null);
-  const routePointCount = currentTarget?.route_geometry?.coordinates?.length || 0;
+  const routePointCount =
+    currentTarget?.route_geometry?.coordinates?.length || 0;
 
   const mapFitPadding = useMemo(() => {
     const viewportHeight =
@@ -396,7 +397,9 @@ export default function DriverMapPage() {
     const hasDistance =
       currentTarget?.distance_km != null ||
       Number.isFinite(Number(currentTarget?.distance_meters));
-    const hasEta = Number.isFinite(Number(currentTarget?.estimated_time_minutes));
+    const hasEta = Number.isFinite(
+      Number(currentTarget?.estimated_time_minutes),
+    );
 
     if (hasRoute && hasDistance && hasEta) return;
 
@@ -431,13 +434,13 @@ export default function DriverMapPage() {
               : currentTarget.route_geometry || null,
           distance_meters: Number.isFinite(distanceMeters)
             ? distanceMeters
-            : currentTarget.distance_meters ?? null,
+            : (currentTarget.distance_meters ?? null),
           distance_km: Number.isFinite(distanceMeters)
             ? (distanceMeters / 1000).toFixed(2)
-            : currentTarget.distance_km ?? null,
+            : (currentTarget.distance_km ?? null),
           estimated_time_minutes: Number.isFinite(durationSeconds)
             ? Math.ceil(durationSeconds / 60)
-            : currentTarget.estimated_time_minutes ?? null,
+            : (currentTarget.estimated_time_minutes ?? null),
         };
 
         if (!isMounted) return;
@@ -457,7 +460,10 @@ export default function DriverMapPage() {
           );
         }
       } catch (mapErr) {
-        console.warn("[DRIVER MAP] Current target hydration failed:", mapErr?.message);
+        console.warn(
+          "[DRIVER MAP] Current target hydration failed:",
+          mapErr?.message,
+        );
       }
     };
 
@@ -623,13 +629,13 @@ export default function DriverMapPage() {
                 : target.route_geometry || null,
             distance_meters: Number.isFinite(distanceMeters)
               ? distanceMeters
-              : target.distance_meters ?? null,
+              : (target.distance_meters ?? null),
             distance_km: Number.isFinite(distanceMeters)
               ? (distanceMeters / 1000).toFixed(2)
-              : target.distance_km ?? null,
+              : (target.distance_km ?? null),
             estimated_time_minutes: Number.isFinite(durationSeconds)
               ? Math.ceil(durationSeconds / 60)
-              : target.estimated_time_minutes ?? null,
+              : (target.estimated_time_minutes ?? null),
           };
         } catch (mapErr) {
           console.warn("[DRIVER MAP] Map hydration failed:", mapErr?.message);
@@ -802,7 +808,8 @@ export default function DriverMapPage() {
               estimated_time_minutes: null,
               route_geometry: null,
             };
-            const fallbackMode = first.status === "accepted" ? "pickup" : "delivery";
+            const fallbackMode =
+              first.status === "accepted" ? "pickup" : "delivery";
             const hydratedTarget = await hydrateTargetWithMapData(
               target,
               fallbackMode,
@@ -832,14 +839,17 @@ export default function DriverMapPage() {
       payload.longitude = driverLocation.longitude;
     }
 
-    const res = await fetch(`${API_URL}/driver/deliveries/${targetDeliveryId}/status`, {
-      method: "PATCH",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
+    const res = await fetch(
+      `${API_URL}/driver/deliveries/${targetDeliveryId}/status`,
+      {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
       },
-      body: JSON.stringify(payload),
-    });
+    );
 
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {

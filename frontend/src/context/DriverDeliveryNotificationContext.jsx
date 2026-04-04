@@ -19,6 +19,7 @@ import {
 } from "react";
 import { useSocket } from "./SocketContext";
 import { API_URL } from "../config";
+import { readAvailableDeliveriesCache } from "../utils/availableDeliveriesCache";
 
 const DriverDeliveryNotificationContext = createContext(null);
 
@@ -176,32 +177,116 @@ export function DriverDeliveryNotificationProvider({ children }) {
   }, [notifications.length]);
 
   // Add a new delivery notification
-  const addNotification = useCallback((deliveryData) => {
-    setNotifications((prev) => {
-      // Prevent duplicates
-      if (prev.some((n) => n.delivery_id === deliveryData.delivery_id)) {
-        // If it's a tip update, update the existing notification
-        if (deliveryData.type === "tip_update") {
-          return prev.map((n) =>
-            n.delivery_id === deliveryData.delivery_id
-              ? {
-                  ...n,
-                  tip_amount: deliveryData.tip_amount,
-                  type: "tip_update",
-                  updatedAt: Date.now(),
-                }
-              : n,
-          );
-        }
-        return prev;
-      }
-      // New notifications go on top (stack)
-      return [{ ...deliveryData, notifiedAt: Date.now() }, ...prev];
-    });
+  const enrichWithCachedAvailableDelivery = useCallback((deliveryData) => {
+    try {
+      const userId = localStorage.getItem("userId") || "default";
+      const snapshot = readAvailableDeliveriesCache(userId, 5 * 60 * 1000);
+      const available = snapshot?.deliveries || [];
+      const match = available.find(
+        (d) => String(d?.delivery_id) === String(deliveryData?.delivery_id),
+      );
 
-    // Request browser notification permission and show
-    showBrowserNotification(deliveryData);
+      if (!match) return deliveryData;
+
+      const routeImpact = match.route_impact || {};
+      const pricing = match.pricing || {};
+      const activeDeliveries = Number(
+        snapshot?.currentRoute?.active_deliveries || 0,
+      );
+      const hasRouteExtraSignals =
+        Number(routeImpact.extra_distance_km || 0) > 0 ||
+        Number(routeImpact.extra_time_minutes || 0) > 0 ||
+        Number(routeImpact.extra_earnings || 0) > 0 ||
+        Number(routeImpact.bonus_amount || 0) > 0;
+
+      const stackedByContext =
+        routeImpact.is_first_delivery === false ||
+        hasRouteExtraSignals ||
+        activeDeliveries > 0;
+
+      const inferredSequence =
+        Number(routeImpact.delivery_sequence || 0) ||
+        (stackedByContext
+          ? activeDeliveries + 1 || 2
+          : Number(deliveryData?.delivery_sequence || 0) || 1);
+
+      return {
+        ...deliveryData,
+        delivery_sequence: inferredSequence,
+        driver_earnings:
+          Number(deliveryData?.driver_earnings || 0) ||
+          Number(pricing.total_trip_earnings || 0) ||
+          Number(routeImpact.total_trip_earnings || 0),
+        total_trip_earnings:
+          Number(deliveryData?.total_trip_earnings || 0) ||
+          Number(pricing.total_trip_earnings || 0) ||
+          Number(routeImpact.total_trip_earnings || 0),
+        base_amount:
+          Number(deliveryData?.base_amount || 0) ||
+          Number(routeImpact.base_amount || 0) ||
+          Number(pricing.total_trip_earnings || 0),
+        extra_earnings:
+          Number(deliveryData?.extra_earnings || 0) ||
+          Number(routeImpact.extra_earnings || 0),
+        bonus_amount:
+          Number(deliveryData?.bonus_amount || 0) ||
+          Number(routeImpact.bonus_amount || 0),
+        tip_amount:
+          Number(deliveryData?.tip_amount || 0) ||
+          Number(pricing.tip_amount || 0),
+        total_distance_km:
+          Number(deliveryData?.total_distance_km || 0) ||
+          Number(match.total_delivery_distance_km || 0) ||
+          Number(routeImpact.r1_distance_km || 0),
+        distance_km:
+          Number(deliveryData?.distance_km || 0) ||
+          Number(match.total_delivery_distance_km || 0),
+        estimated_time:
+          Number(deliveryData?.estimated_time || 0) ||
+          Number(match.estimated_time_minutes || 0),
+        extra_distance_km:
+          Number(deliveryData?.extra_distance_km || 0) ||
+          Number(routeImpact.extra_distance_km || 0),
+        extra_time_minutes:
+          Number(deliveryData?.extra_time_minutes || 0) ||
+          Number(routeImpact.extra_time_minutes || 0),
+      };
+    } catch {
+      return deliveryData;
+    }
   }, []);
+
+  const addNotification = useCallback(
+    (deliveryData) => {
+      const enriched = enrichWithCachedAvailableDelivery(deliveryData);
+
+      setNotifications((prev) => {
+        // Prevent duplicates
+        if (prev.some((n) => n.delivery_id === enriched.delivery_id)) {
+          // If it's a tip update, update the existing notification
+          if (enriched.type === "tip_update") {
+            return prev.map((n) =>
+              n.delivery_id === enriched.delivery_id
+                ? {
+                    ...n,
+                    ...enriched,
+                    type: "tip_update",
+                    updatedAt: Date.now(),
+                  }
+                : n,
+            );
+          }
+          return prev;
+        }
+        // New notifications go on top (stack)
+        return [{ ...enriched, notifiedAt: Date.now() }, ...prev];
+      });
+
+      // Request browser notification permission and show
+      showBrowserNotification(enriched);
+    },
+    [enrichWithCachedAvailableDelivery],
+  );
 
   // Remove notification (decline) - stop sound immediately
   const declineDelivery = useCallback((deliveryId) => {
@@ -298,18 +383,46 @@ export function DriverDeliveryNotificationProvider({ children }) {
     if (!("Notification" in window)) return;
 
     const showNotif = () => {
-      const earnings =
-        deliveryData.type === "tip_update"
-          ? `Tip: Rs.${parseFloat(deliveryData.tip_amount || 0).toFixed(2)}`
-          : `Rs.${parseFloat(deliveryData.driver_earnings || deliveryData.total_trip_earnings || 0).toFixed(2)}`;
+      const isStacked =
+        Number(deliveryData.delivery_sequence || 1) > 1 ||
+        parseFloat(deliveryData.extra_distance_km || 0) > 0 ||
+        parseFloat(deliveryData.extra_time_minutes || 0) > 0 ||
+        parseFloat(deliveryData.extra_earnings || 0) > 0 ||
+        parseFloat(deliveryData.bonus_amount || 0) > 0;
+      const baseAmount = parseFloat(
+        deliveryData.base_amount ||
+          deliveryData.driver_earnings ||
+          deliveryData.total_trip_earnings ||
+          0,
+      );
+      const deliveryComponent = isStacked
+        ? parseFloat(deliveryData.extra_earnings || 0)
+        : baseAmount;
+      const bonusComponent = parseFloat(deliveryData.bonus_amount || 0);
+      const tipComponent = parseFloat(deliveryData.tip_amount || 0);
+      const totalDisplay = deliveryComponent + bonusComponent + tipComponent;
+
+      const earnings = `Rs.${totalDisplay.toFixed(2)} (${[
+        `Delivery Rs.${deliveryComponent.toFixed(0)}`,
+        bonusComponent > 0 ? `Bonus Rs.${bonusComponent.toFixed(0)}` : null,
+        tipComponent > 0 ? `Tip Rs.${tipComponent.toFixed(0)}` : null,
+      ]
+        .filter(Boolean)
+        .join(" + ")})`;
 
       const title =
         deliveryData.type === "tip_update"
           ? "💰 Tip Added to Delivery!"
           : "🚨 New Delivery Available!";
 
-      const distKm = parseFloat(deliveryData.distance_km || 0);
-      const estTime = parseFloat(deliveryData.estimated_time || 0);
+      const distKm = isStacked
+        ? parseFloat(deliveryData.extra_distance_km || 0)
+        : parseFloat(
+            deliveryData.total_distance_km || deliveryData.distance_km || 0,
+          );
+      const estTime = isStacked
+        ? parseFloat(deliveryData.extra_time_minutes || 0)
+        : parseFloat(deliveryData.estimated_time || 0);
       const body =
         `${earnings} - ${deliveryData.restaurant_name || "Restaurant"}\n${distKm > 0 ? distKm.toFixed(1) + " km" : ""} ${estTime > 0 ? Math.round(estTime) + " mins" : ""}`.trim();
 

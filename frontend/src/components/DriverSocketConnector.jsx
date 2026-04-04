@@ -23,10 +23,15 @@ export default function DriverSocketConnector() {
     const role = localStorage.getItem("role");
     const token = localStorage.getItem("token");
     const userId = localStorage.getItem("userId");
+    const currentPath = String(window.location?.pathname || "");
+    const isDriverBlockedPage =
+      currentPath.startsWith("/driver/pending") ||
+      currentPath.startsWith("/driver/onboarding");
 
     // Validate that all required data exists and role is driver
     return !!(
       role === "driver" &&
+      !isDriverBlockedPage &&
       token &&
       token !== "null" &&
       token !== "undefined" &&

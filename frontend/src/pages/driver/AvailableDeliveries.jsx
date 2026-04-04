@@ -7,7 +7,6 @@ import React, {
 } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import DriverRealtimeNotificationListener from "../../components/DriverRealtimeNotificationListener";
 import DriverLayout from "../../components/DriverLayout";
 import { API_URL } from "../../config";
 import { useSocket } from "../../context/SocketContext";
@@ -57,12 +56,7 @@ export default function AvailableDeliveries() {
   const deliveriesQueryKey = getAvailableDeliveriesQueryKey(userId);
 
   // Socket connection for real-time notifications
-  const {
-    newDeliveryAlert,
-    clearNewDeliveryAlert,
-    takenDeliveries,
-    clearAllTakenDeliveries,
-  } = useSocket();
+  const { takenDeliveries, clearAllTakenDeliveries } = useSocket();
 
   // Initialize with cached data for instant display
   const initialSnapshot = getAvailableDeliveriesSnapshot(queryClient, userId);
@@ -102,7 +96,6 @@ export default function AvailableDeliveries() {
     navigate(path);
   }, [navigate, queryClient, token, userId]);
   const [fetchError, setFetchError] = useState(null); // Network error state
-  const [showNewDeliveryBanner, setShowNewDeliveryBanner] = useState(false); // Real-time alert banner
   const abortControllerRef = useRef(null); // For cancelling pending requests
   const deliveryMetaRef = useRef(new Map());
   const arrivalSeqRef = useRef(0);
@@ -228,37 +221,6 @@ export default function AvailableDeliveries() {
   const isLoaded = true;
 
   // Socket connection is managed globally by DriverSocketConnector.
-
-  // Handle real-time new delivery alerts
-  useEffect(() => {
-    if (newDeliveryAlert) {
-      console.log(
-        "[AvailableDeliveries] 🚨 New delivery alert received!",
-        newDeliveryAlert,
-      );
-
-      // Show the banner
-      setShowNewDeliveryBanner(true);
-
-      // Play notification sound (optional)
-      try {
-        const audio = new Audio("/driver-alert-tone.wav");
-        audio.volume = 0.5;
-        audio.play().catch(() => {}); // Ignore errors if audio can't play
-      } catch (e) {}
-
-      // Auto-refresh to get the new delivery
-      if (driverLocation) {
-        fetchPendingDeliveriesWithLocation(driverLocation, true);
-      }
-
-      // Hide banner after 5 seconds
-      setTimeout(() => {
-        setShowNewDeliveryBanner(false);
-        clearNewDeliveryAlert();
-      }, 5000);
-    }
-  }, [newDeliveryAlert, driverLocation, clearNewDeliveryAlert]);
 
   // Handle deliveries taken by other drivers (remove from list)
   useEffect(() => {
@@ -680,14 +642,6 @@ export default function AvailableDeliveries() {
         style={{ fontFamily: "'Work Sans', sans-serif" }}
       >
         <div className="relative h-[calc(100vh-5rem)] overflow-hidden">
-          <DriverRealtimeNotificationListener
-            onNewDelivery={() => {
-              if (driverLocation) {
-                fetchPendingDeliveriesWithLocation(driverLocation, true);
-              }
-            }}
-          />
-
           <AnimatedAlert alert={alertState} visible={alertVisible} />
 
           {inDeliveringMode ? (

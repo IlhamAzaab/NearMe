@@ -1758,7 +1758,7 @@ router.patch(
               deliveryTipData?.tip_amount || 0,
             );
 
-            const broadcastResult = broadcastNewDelivery({
+            const broadcastResult = await broadcastNewDelivery({
               delivery_id: delivery.id,
               order_id: orderId,
               order_number: order.order_number,

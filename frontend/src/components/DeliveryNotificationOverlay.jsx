@@ -390,6 +390,10 @@ function NotificationCard({
     customer_city,
     distance_km,
     estimated_time,
+    extra_distance_km,
+    extra_time_minutes,
+    total_distance_km,
+    base_amount,
     driver_earnings,
     total_trip_earnings,
     extra_earnings,
@@ -399,7 +403,13 @@ function NotificationCard({
     order_number,
   } = notification;
 
-  const isFirstDelivery = (delivery_sequence || 1) === 1;
+  const isStackedDelivery =
+    Number(delivery_sequence || 1) > 1 ||
+    parseFloat(extra_distance_km || 0) > 0 ||
+    parseFloat(extra_time_minutes || 0) > 0 ||
+    parseFloat(extra_earnings || 0) > 0 ||
+    parseFloat(bonus_amount || 0) > 0;
+  const isFirstDelivery = !isStackedDelivery;
   const isTipUpdate = type === "tip_update";
   const tipValue = parseFloat(tip_amount || 0);
 
@@ -408,12 +418,14 @@ function NotificationCard({
   let earningsLabel = "Est. Earnings";
 
   if (isFirstDelivery) {
-    mainEarnings = parseFloat(driver_earnings || total_trip_earnings || 0);
+    mainEarnings = parseFloat(
+      base_amount || driver_earnings || total_trip_earnings || 0,
+    );
     earningsLabel = "Base Earning";
   } else {
     mainEarnings =
       parseFloat(extra_earnings || 0) + parseFloat(bonus_amount || 0);
-    earningsLabel = "Extra Earning";
+    earningsLabel = "Route Extension";
   }
 
   // Add tip to display if available
@@ -426,14 +438,16 @@ function NotificationCard({
     : "🚚 New Delivery Available!";
 
   // Format distance
-  const distanceText = distance_km
-    ? `${parseFloat(distance_km).toFixed(1)} km${!isFirstDelivery ? " extra" : ""}`
-    : null;
+  const displayDistance = isStackedDelivery
+    ? parseFloat(extra_distance_km || 0)
+    : parseFloat(total_distance_km || distance_km || 0);
+  const distanceText = `${displayDistance.toFixed(1)} km${isStackedDelivery ? " extra" : ""}`;
 
   // Format time
-  const timeText = estimated_time
-    ? `${Math.round(estimated_time)} min${!isFirstDelivery ? " extra" : "s"}`
-    : null;
+  const displayTime = isStackedDelivery
+    ? parseFloat(extra_time_minutes || 0)
+    : parseFloat(estimated_time || 0);
+  const timeText = `${Math.round(displayTime)} min${isStackedDelivery ? " extra" : "s"}`;
 
   // Drop-off text
   const dropOffText = customer_address
@@ -544,7 +558,7 @@ function NotificationCard({
                       fontWeight: 600,
                     }}
                   >
-                    Extra: Rs.{parseFloat(extra_earnings).toFixed(2)}
+                    Delivery: Rs.{parseFloat(extra_earnings).toFixed(2)}
                   </span>
                 )}
                 {!isFirstDelivery && parseFloat(bonus_amount || 0) > 0 && (

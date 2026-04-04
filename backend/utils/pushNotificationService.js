@@ -13,6 +13,7 @@
  */
 
 import { supabaseAdmin } from "../supabaseAdmin.js";
+import { getEligibleDriverIdsForDeliveryNotifications } from "./driverNotificationEligibility.js";
 
 const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
 
@@ -407,13 +408,36 @@ export async function sendDepositApprovalNotification(driverId, depositInfo) {
  * @param {string} userType - User type (admin, driver, customer)
  * @param {object} notification - { title, body, data }
  */
-export async function sendBroadcastNotification(userType, notification) {
+export async function sendBroadcastNotification(
+  userType,
+  notification,
+  options = {},
+) {
   try {
-    const { data: tokens, error } = await supabaseAdmin
+    let tokenQuery = supabaseAdmin
       .from("push_notification_tokens")
       .select("expo_push_token, user_id")
       .eq("user_type", userType)
       .eq("is_active", true);
+
+    const scopedUserIds = Array.isArray(options.userIds)
+      ? [
+          ...new Set(
+            options.userIds
+              .map((id) => String(id || "").trim())
+              .filter(Boolean),
+          ),
+        ]
+      : null;
+
+    if (scopedUserIds) {
+      if (scopedUserIds.length === 0) {
+        return { success: true, sent: 0, skipped: "no target users" };
+      }
+      tokenQuery = tokenQuery.in("user_id", scopedUserIds);
+    }
+
+    const { data: tokens, error } = await tokenQuery;
 
     if (error) {
       console.error("Error fetching tokens for broadcast:", error);
@@ -609,6 +633,14 @@ export async function sendOrderStatusNotification(customerId, orderInfo) {
  */
 export async function sendNewDeliveryNotificationToDrivers(deliveryInfo) {
   try {
+    const eligibleDriverIds =
+      await getEligibleDriverIdsForDeliveryNotifications();
+
+    if (eligibleDriverIds.length === 0) {
+      console.log("[PUSH] No eligible drivers for new delivery notification");
+      return { success: true, sent: 0 };
+    }
+
     const tipAmount = parseFloat(deliveryInfo.tipAmount || 0);
     let body = `Order #${deliveryInfo.orderNumber} from ${deliveryInfo.restaurantName}`;
     if (tipAmount > 0) {
@@ -616,22 +648,26 @@ export async function sendNewDeliveryNotificationToDrivers(deliveryInfo) {
     }
     body += `\nCheck available deliveries for earnings details.`;
 
-    return await sendBroadcastNotification("driver", {
-      title: "New Delivery Available",
-      body,
-      sound: "default",
-      channelId: "urgent_orders",
-      sticky: true,
-      data: {
-        type: "new_delivery",
-        persistent: "true",
-        deliveryId: String(deliveryInfo.deliveryId),
-        orderNumber: deliveryInfo.orderNumber,
-        tipAmount: tipAmount > 0 ? String(tipAmount) : undefined,
-        screen: "AvailableDeliveries",
+    return await sendBroadcastNotification(
+      "driver",
+      {
+        title: "New Delivery Available",
+        body,
+        sound: "default",
         channelId: "urgent_orders",
+        sticky: true,
+        data: {
+          type: "new_delivery",
+          persistent: "true",
+          deliveryId: String(deliveryInfo.deliveryId),
+          orderNumber: deliveryInfo.orderNumber,
+          tipAmount: tipAmount > 0 ? String(tipAmount) : undefined,
+          screen: "AvailableDeliveries",
+          channelId: "urgent_orders",
+        },
       },
-    });
+      { userIds: eligibleDriverIds },
+    );
   } catch (error) {
     console.error("sendNewDeliveryNotificationToDrivers error:", error);
     return { success: false, error: error.message };
@@ -764,6 +800,14 @@ export async function sendDeliveryStatusToAdmin(restaurantId, info) {
 export async function sendTipDeliveryNotificationToDrivers(deliveryInfo) {
   try {
     console.log("💰 sendTipDeliveryNotificationToDrivers:", deliveryInfo);
+    const eligibleDriverIds =
+      await getEligibleDriverIdsForDeliveryNotifications();
+
+    if (eligibleDriverIds.length === 0) {
+      console.log("[PUSH] No eligible drivers for tip delivery notification");
+      return { success: true, sent: 0 };
+    }
+
     const tipAmount = parseFloat(deliveryInfo.tipAmount || 0);
     const bonusAmount = parseFloat(deliveryInfo.bonusAmount || 0);
 
@@ -776,23 +820,27 @@ export async function sendTipDeliveryNotificationToDrivers(deliveryInfo) {
     }
     body += `\nCheck available deliveries for full earnings breakdown.`;
 
-    return await sendBroadcastNotification("driver", {
-      title: "Tipped Delivery Available",
-      body,
-      sound: "default",
-      channelId: "urgent_orders",
-      sticky: true,
-      data: {
-        type: "new_delivery",
-        persistent: "true",
-        deliveryId: String(deliveryInfo.deliveryId),
-        orderNumber: deliveryInfo.orderNumber,
-        tipAmount: String(tipAmount),
-        bonusAmount: bonusAmount > 0 ? String(bonusAmount) : undefined,
-        screen: "AvailableDeliveries",
+    return await sendBroadcastNotification(
+      "driver",
+      {
+        title: "Tipped Delivery Available",
+        body,
+        sound: "default",
         channelId: "urgent_orders",
+        sticky: true,
+        data: {
+          type: "new_delivery",
+          persistent: "true",
+          deliveryId: String(deliveryInfo.deliveryId),
+          orderNumber: deliveryInfo.orderNumber,
+          tipAmount: String(tipAmount),
+          bonusAmount: bonusAmount > 0 ? String(bonusAmount) : undefined,
+          screen: "AvailableDeliveries",
+          channelId: "urgent_orders",
+        },
       },
-    });
+      { userIds: eligibleDriverIds },
+    );
   } catch (error) {
     console.error("sendTipDeliveryNotificationToDrivers error:", error);
     return { success: false, error: error.message };

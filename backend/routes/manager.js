@@ -2220,7 +2220,7 @@ router.patch(
           if (orderData) {
             const { broadcastTipUpdate } =
               await import("../utils/socketManager.js");
-            broadcastTipUpdate({
+            await broadcastTipUpdate({
               delivery_id: deliveryId,
               order_id: updated.order_id,
               order_number: orderData.order_number,

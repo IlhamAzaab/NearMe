@@ -8,6 +8,8 @@
 import { Server } from "socket.io";
 import dotenv from "dotenv";
 import { getValidatedAuthConfig, verifyJwtWithRotation } from "./authConfig.js";
+import { getEligibleDriverIdsForDeliveryNotifications } from "./driverNotificationEligibility.js";
+import { supabaseAdmin } from "../supabaseAdmin.js";
 
 if (process.env.NODE_ENV !== "production") {
   dotenv.config({ path: "../.env" });
@@ -66,7 +68,9 @@ export function initializeSocket(server) {
   }
 
   const normalizedSocketAllowedOrigins = socketAllowedOrigins.map((origin) =>
-    String(origin || "").trim().replace(/\/$/, ""),
+    String(origin || "")
+      .trim()
+      .replace(/\/$/, ""),
   );
 
   io = new Server(server, {
@@ -123,34 +127,112 @@ export function initializeSocket(server) {
     console.log(`🔗 New socket connection: ${socket.id}`);
 
     // Driver joins and registers their driver ID
-    socket.on("driver:register", (driverId) => {
-      if (!driverId) {
+    socket.on("driver:register", async (driverId) => {
+      const requestedDriverId = String(driverId || "").trim();
+      const authenticatedDriverId = String(socket.userId || "").trim();
+      const isAuthenticatedDriver =
+        socket.userRole === "driver" && authenticatedDriverId.length > 0;
+
+      if (!requestedDriverId && !isAuthenticatedDriver) {
         console.log(
           `⚠️ Socket ${socket.id} tried to register without driverId`,
         );
+        socket.emit("driver:registration_error", {
+          success: false,
+          reason: "missing_driver_id",
+          message: "Driver ID is required",
+        });
+        return;
+      }
+
+      // Security gate: do not allow unauthenticated sockets to subscribe to driver events.
+      if (!isAuthenticatedDriver) {
+        console.log(
+          `⚠️ Socket ${socket.id} rejected driver registration (missing/invalid auth role)`,
+        );
+        socket.emit("driver:registration_error", {
+          success: false,
+          reason: "unauthorized",
+          message: "Driver authentication required",
+        });
+        return;
+      }
+
+      // Prevent client-side spoofing via arbitrary driverId payload.
+      if (requestedDriverId && requestedDriverId !== authenticatedDriverId) {
+        console.log(
+          `⚠️ Socket ${socket.id} tried to register mismatched driverId ${requestedDriverId} (auth: ${authenticatedDriverId})`,
+        );
+        socket.emit("driver:registration_error", {
+          success: false,
+          reason: "driver_id_mismatch",
+          message: "Driver identity mismatch",
+        });
+        return;
+      }
+
+      const resolvedDriverId = authenticatedDriverId;
+
+      // Only active drivers can subscribe to delivery broadcast channels.
+      const { data: driverProfile, error: driverError } = await supabaseAdmin
+        .from("drivers")
+        .select("id, driver_status")
+        .eq("id", resolvedDriverId)
+        .maybeSingle();
+
+      if (driverError) {
+        console.error(
+          `[Socket] Failed to validate driver ${resolvedDriverId}:`,
+          driverError.message,
+        );
+        socket.emit("driver:registration_error", {
+          success: false,
+          reason: "driver_validation_failed",
+          message: "Could not validate driver profile",
+        });
+        return;
+      }
+
+      const driverStatus = String(driverProfile?.driver_status || "")
+        .trim()
+        .toLowerCase();
+
+      if (!driverProfile || driverStatus !== "active") {
+        console.log(
+          `⚠️ Driver ${resolvedDriverId} blocked from realtime delivery notifications (status: ${driverStatus || "unknown"})`,
+        );
+        socket.emit("driver:registration_error", {
+          success: false,
+          reason: "driver_not_active",
+          driverStatus: driverStatus || null,
+          message:
+            "Driver is not active and cannot receive delivery notifications",
+        });
         return;
       }
 
       // Store driver connection
-      connectedDrivers.set(driverId, {
+      connectedDrivers.set(resolvedDriverId, {
         socketId: socket.id,
         connectedAt: new Date(),
         userId: socket.userId,
       });
 
       // Join driver-specific room
-      socket.join(`driver:${driverId}`);
+      socket.join(`driver:${resolvedDriverId}`);
 
       // Join "all-drivers" room for broadcasts
       socket.join("all-drivers");
 
-      console.log(`✅ Driver ${driverId} registered (socket: ${socket.id})`);
+      console.log(
+        `✅ Driver ${resolvedDriverId} registered (socket: ${socket.id})`,
+      );
       console.log(`📊 Total online drivers: ${connectedDrivers.size}`);
 
       // Acknowledge registration
       socket.emit("driver:registered", {
         success: true,
-        driverId,
+        driverId: resolvedDriverId,
         onlineDrivers: connectedDrivers.size,
       });
     });
@@ -359,14 +441,15 @@ export function getIO() {
  * @param {Object} deliveryData.customer - Customer location (for distance calc on client)
  * @param {number} deliveryData.total_amount - Order total
  */
-export function broadcastNewDelivery(deliveryData) {
+export async function broadcastNewDelivery(deliveryData) {
   if (!io) {
     console.error("❌ Socket.io not initialized, cannot broadcast delivery");
     return { success: false, driversNotified: 0 };
   }
 
   const timestamp = Date.now();
-  const onlineDriverCount = connectedDrivers.size;
+  const onlineDriverIds = Array.from(connectedDrivers.keys());
+  const onlineDriverCount = onlineDriverIds.length;
 
   console.log(`\n${"=".repeat(60)}`);
   console.log(`📢 BROADCASTING NEW DELIVERY TO ALL DRIVERS`);
@@ -383,21 +466,33 @@ export function broadcastNewDelivery(deliveryData) {
     return { success: true, driversNotified: 0 };
   }
 
-  // Broadcast to ALL drivers in the "all-drivers" room SIMULTANEOUSLY
-  // Socket.io broadcasts to all members of a room in a single operation
-  io.to("all-drivers").emit("delivery:new", {
+  const eligibleDriverIds =
+    await getEligibleDriverIdsForDeliveryNotifications(onlineDriverIds);
+
+  if (eligibleDriverIds.length === 0) {
+    console.log(
+      "⚠️ No eligible active/non-delivering drivers for delivery broadcast",
+    );
+    return { success: true, driversNotified: 0 };
+  }
+
+  const payload = {
     ...deliveryData,
     broadcast_timestamp: timestamp,
     message: "New delivery available! Check available deliveries now.",
+  };
+
+  eligibleDriverIds.forEach((driverId) => {
+    io.to(`driver:${driverId}`).emit("delivery:new", payload);
   });
 
   console.log(
-    `✅ Broadcast sent to ${onlineDriverCount} online drivers at exactly the same time`,
+    `✅ Broadcast sent to ${eligibleDriverIds.length} eligible drivers (${onlineDriverCount} online)`,
   );
 
   return {
     success: true,
-    driversNotified: onlineDriverCount,
+    driversNotified: eligibleDriverIds.length,
     broadcastTimestamp: timestamp,
   };
 }
@@ -410,13 +505,14 @@ export function broadcastNewDelivery(deliveryData) {
  * @param {string} data.delivery_id - Delivery ID
  * @param {number} data.tip_amount - Tip amount set by manager
  */
-export function broadcastTipUpdate(data) {
+export async function broadcastTipUpdate(data) {
   if (!io) {
     console.error("❌ Socket.io not initialized, cannot broadcast tip update");
     return { success: false, driversNotified: 0 };
   }
 
-  const onlineDriverCount = connectedDrivers.size;
+  const onlineDriverIds = Array.from(connectedDrivers.keys());
+  const onlineDriverCount = onlineDriverIds.length;
 
   console.log(`\n${"=".repeat(60)}`);
   console.log(`💰 BROADCASTING TIP UPDATE TO ALL DRIVERS`);
@@ -431,15 +527,29 @@ export function broadcastTipUpdate(data) {
     return { success: true, driversNotified: 0 };
   }
 
-  io.to("all-drivers").emit("delivery:tip_updated", {
+  const eligibleDriverIds =
+    await getEligibleDriverIdsForDeliveryNotifications(onlineDriverIds);
+
+  if (eligibleDriverIds.length === 0) {
+    console.log("⚠️ No eligible active/non-delivering drivers for tip update");
+    return { success: true, driversNotified: 0 };
+  }
+
+  const payload = {
     ...data,
     broadcast_timestamp: Date.now(),
     message: "A tip has been added to a delivery!",
+  };
+
+  eligibleDriverIds.forEach((driverId) => {
+    io.to(`driver:${driverId}`).emit("delivery:tip_updated", payload);
   });
 
-  console.log(`✅ Tip update broadcast sent to ${onlineDriverCount} drivers`);
+  console.log(
+    `✅ Tip update broadcast sent to ${eligibleDriverIds.length} eligible drivers (${onlineDriverCount} online)`,
+  );
 
-  return { success: true, driversNotified: onlineDriverCount };
+  return { success: true, driversNotified: eligibleDriverIds.length };
 }
 
 /**

@@ -77,7 +77,6 @@ import { NotificationProvider } from "./contexts/NotificationContext";
 import { SocketProvider } from "./context/SocketContext";
 import NotificationBar from "./components/NotificationBar";
 import RealtimeNotificationListener from "./components/RealtimeNotificationListener";
-import DriverDeliveryNotificationListener from "./components/DriverDeliveryNotificationListener";
 import ActiveDeliveries from "./pages/driver/ActiveDeliveries";
 import DriverMapPage from "./pages/driver/DriverMapPage";
 import DeliveryTracking from "./pages/DeliveryTracking";
@@ -118,7 +117,6 @@ function App() {
                 <OfflineStatusBanner />
                 <NotificationBar />
                 <RealtimeNotificationListener />
-                <DriverDeliveryNotificationListener />
                 {isAuthReady && <CustomerSocketConnector />}
                 {isAuthReady && <AdminSocketConnector />}
                 {isAuthReady && <DriverSocketConnector />}

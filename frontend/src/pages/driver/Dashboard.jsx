@@ -113,7 +113,8 @@ export default function DriverDashboard() {
     () => cachedDashboard?.recentDeliveries || [],
   );
   const [availableDeliveries, setAvailableDeliveries] = useState(
-    () => nearbySnapshot?.deliveries || cachedDashboard?.availableDeliveries || [],
+    () =>
+      nearbySnapshot?.deliveries || cachedDashboard?.availableDeliveries || [],
   );
   const [activeDeliveries, setActiveDeliveries] = useState(
     () => cachedDashboard?.activeDeliveries || [],
@@ -366,7 +367,8 @@ export default function DriverDashboard() {
         return;
       }
 
-      let currentLocation = driverLocation || nearbySnapshot?.driverLocation || DEFAULT_LOCATION;
+      let currentLocation =
+        driverLocation || nearbySnapshot?.driverLocation || DEFAULT_LOCATION;
       if (navigator.geolocation) {
         try {
           const position = await new Promise((resolve, reject) => {
@@ -469,7 +471,9 @@ export default function DriverDashboard() {
       if (availableRes.status === "fulfilled" && availableRes.value.ok) {
         const deliveriesData = await availableRes.value.json();
         nextAvailableDeliveries =
-          deliveriesData.available_deliveries || deliveriesData.deliveries || [];
+          deliveriesData.available_deliveries ||
+          deliveriesData.deliveries ||
+          [];
 
         setAvailableDeliveries(nextAvailableDeliveries);
         setAvailableDeliveriesSnapshot(queryClient, userId, {
@@ -490,7 +494,9 @@ export default function DriverDashboard() {
         monthlyStats: nextMonthlyStats || prev.monthlyStats,
         recentDeliveries: nextRecentDeliveries || prev.recentDeliveries,
         availableDeliveries:
-          nextAvailableDeliveries || prev.availableDeliveries || availableDeliveries,
+          nextAvailableDeliveries ||
+          prev.availableDeliveries ||
+          availableDeliveries,
         activeDeliveries: nextActiveDeliveries || prev.activeDeliveries,
       });
     } catch (error) {
@@ -712,13 +718,26 @@ export default function DriverDashboard() {
   const getEarningsBreakdown = (delivery) => {
     const routeImpact = delivery.route_impact || {};
     const pricing = delivery.pricing || {};
-    const isFirst =
-      routeImpact.is_first_delivery === true ||
-      (routeImpact.is_first_delivery === undefined &&
-        routeImpact.delivery_sequence === 1);
+    const sequence = Number(routeImpact.delivery_sequence || 0);
+    const hasRouteExtraSignals =
+      Number(routeImpact.extra_distance_km || 0) > 0 ||
+      Number(routeImpact.extra_time_minutes || 0) > 0 ||
+      Number(routeImpact.extra_earnings || 0) > 0 ||
+      Number(routeImpact.bonus_amount || 0) > 0;
+    const hasActiveDeliveries = Number(activeDeliveries?.length || 0) > 0;
+    const isStacked =
+      routeImpact.is_first_delivery === false ||
+      sequence > 1 ||
+      hasRouteExtraSignals ||
+      hasActiveDeliveries;
+    const isFirst = !isStacked;
 
     const baseAmount = parseFloat(
-      routeImpact.base_amount || pricing.base_amount || 0,
+      routeImpact.base_amount ||
+        pricing.base_amount ||
+        pricing.total_trip_earnings ||
+        routeImpact.total_trip_earnings ||
+        0,
     );
     const extraEarnings = parseFloat(
       routeImpact.extra_earnings || pricing.extra_earnings || 0,
@@ -782,20 +801,52 @@ export default function DriverDashboard() {
 
   const getDistanceAndTimeSummary = (delivery) => {
     const routeImpact = delivery.route_impact || {};
-    const deliverySequence = Number(routeImpact.delivery_sequence || 1);
-    const isFirstDelivery =
-      routeImpact.is_first_delivery === true || deliverySequence <= 1;
+    const deliverySequence = Number(routeImpact.delivery_sequence || 0);
+    const hasRouteExtraSignals =
+      Number(routeImpact.extra_distance_km || 0) > 0 ||
+      Number(routeImpact.extra_time_minutes || 0) > 0 ||
+      Number(routeImpact.extra_earnings || 0) > 0 ||
+      Number(routeImpact.bonus_amount || 0) > 0;
+    const hasActiveDeliveries = Number(activeDeliveries?.length || 0) > 0;
+    const isStackedDelivery =
+      routeImpact.is_first_delivery === false ||
+      deliverySequence > 1 ||
+      hasRouteExtraSignals ||
+      hasActiveDeliveries;
+    const isFirstDelivery = !isStackedDelivery;
     const totalDistance = Number(
       delivery.total_delivery_distance_km ||
         routeImpact.total_distance_km ||
         routeImpact.r1_distance_km ||
+        delivery.distance_km ||
         0,
     );
+    const routeDistanceFallback = Number(calculateDistance(delivery) || 0);
     const extraDistance = Number(routeImpact.extra_distance_km || 0);
     const totalMinutes = Number(
-      routeImpact.estimated_time_minutes || delivery.estimated_time_minutes || 0,
+      routeImpact.estimated_time_minutes ||
+        routeImpact.estimated_time ||
+        delivery.estimated_time_minutes ||
+        delivery.estimated_time ||
+        0,
     );
     const extraMinutes = Number(routeImpact.extra_time_minutes || 0);
+
+    const primaryDistance = isFirstDelivery
+      ? totalDistance > 0
+        ? totalDistance
+        : routeDistanceFallback > 0
+          ? routeDistanceFallback
+          : extraDistance
+      : extraDistance;
+
+    const primaryMinutes = isFirstDelivery
+      ? totalMinutes > 0
+        ? totalMinutes
+        : primaryDistance > 0
+          ? Math.round(primaryDistance * 2)
+          : 0
+      : extraMinutes;
 
     return {
       isFirstDelivery,
@@ -803,6 +854,8 @@ export default function DriverDashboard() {
       extraDistance: Number.isFinite(extraDistance) ? extraDistance : 0,
       totalMinutes: Number.isFinite(totalMinutes) ? totalMinutes : 0,
       extraMinutes: Number.isFinite(extraMinutes) ? extraMinutes : 0,
+      primaryDistance: Number.isFinite(primaryDistance) ? primaryDistance : 0,
+      primaryMinutes: Number.isFinite(primaryMinutes) ? primaryMinutes : 0,
     };
   };
 
@@ -1195,28 +1248,27 @@ export default function DriverDashboard() {
               </div>
             ) : (
               nearbyDeliveries.slice(0, 5).map((delivery, index) => {
-                const routeDistanceKm = calculateDistance(delivery);
                 const breakdown = getEarningsBreakdown(delivery);
                 const tripSummary = getDistanceAndTimeSummary(delivery);
-                const earningChips = [
-                  breakdown.isFirst && breakdown.baseAmount > 0
-                    ? `Base Rs. ${breakdown.baseAmount.toFixed(0)}`
-                    : null,
-                  breakdown.extraEarnings > 0
-                    ? `Extra Rs. ${breakdown.extraEarnings.toFixed(0)}`
-                    : null,
-                  breakdown.bonusAmount > 0
-                    ? `Bonus Rs. ${breakdown.bonusAmount.toFixed(0)}`
-                    : null,
-                  breakdown.tipAmount > 0
-                    ? `Tip Rs. ${breakdown.tipAmount.toFixed(0)}`
-                    : null,
-                ].filter(Boolean);
+                const earningChips = breakdown.isFirst
+                  ? [
+                      `Delivery Rs. ${breakdown.baseAmount.toFixed(0)}`,
+                      breakdown.tipAmount > 0
+                        ? `Tip Rs. ${breakdown.tipAmount.toFixed(0)}`
+                        : null,
+                    ].filter(Boolean)
+                  : [
+                      `Delivery Rs. ${breakdown.extraEarnings.toFixed(0)}`,
+                      `Bonus Rs. ${breakdown.bonusAmount.toFixed(0)}`,
+                      breakdown.tipAmount > 0
+                        ? `Tip Rs. ${breakdown.tipAmount.toFixed(0)}`
+                        : null,
+                    ].filter(Boolean);
 
                 return (
                   <div key={delivery.delivery_id} className="px-4">
                     <div className="flex flex-col gap-4 rounded-2xl bg-white p-4 shadow-sm border border-slate-100">
-                      <div className="flex justify-between items-start gap-3">
+                      <div className="flex items-start gap-3">
                         <div className="flex flex-col gap-1.5 flex-1">
                           <div className="flex items-center gap-2">
                             {index === 0 && (
@@ -1234,54 +1286,52 @@ export default function DriverDashboard() {
                             Rs. {getDeliveryEarnings(delivery)}
                           </p>
                           {earningChips.length > 0 && (
-                            <p className="text-slate-500 text-xs">
+                            <p className="text-slate-900 text-xs font-semibold">
                               {earningChips.join(" • ")}
                             </p>
                           )}
 
+                          <div className="mt-1 flex items-center gap-4 text-slate-700 text-xs font-semibold">
+                            <div className="flex items-center gap-1">
+                              <span className="material-symbols-outlined text-base text-slate-500">
+                                route
+                              </span>
+                              <span>
+                                {tripSummary.primaryDistance > 0
+                                  ? `${
+                                      breakdown.isFirst ? "" : "+"
+                                    }${tripSummary.primaryDistance.toFixed(1)} km`
+                                  : "0"}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <span className="material-symbols-outlined text-base text-slate-500">
+                                schedule
+                              </span>
+                              <span>
+                                {tripSummary.primaryMinutes > 0
+                                  ? `${
+                                      breakdown.isFirst ? "" : "+"
+                                    }${Math.round(tripSummary.primaryMinutes)} min`
+                                  : "0"}
+                              </span>
+                            </div>
+                          </div>
+
                           <div className="mt-2 space-y-1 text-xs">
                             <p className="text-slate-500">
-                              <span className="font-semibold text-slate-700">Pickup:</span>{" "}
+                              <span className="font-semibold text-slate-700">
+                                Pickup:
+                              </span>{" "}
                               {getPickupRestaurantWithCity(delivery)}
                             </p>
                             <p className="text-slate-500">
-                              <span className="font-semibold text-slate-700">Drop-off:</span>{" "}
+                              <span className="font-semibold text-slate-700">
+                                Drop-off:
+                              </span>{" "}
                               {getDropoffAddress(delivery)}
                             </p>
                           </div>
-                        </div>
-
-                        <div className="shrink-0 text-right rounded-lg bg-slate-50 border border-slate-100 px-3 py-2 min-w-[92px]">
-                          <p className="text-[10px] uppercase tracking-wide text-slate-400 font-bold">
-                            {tripSummary.isFirstDelivery
-                              ? "Distance"
-                              : "Extra Distance"}
-                          </p>
-                          <p className="text-xs font-semibold text-slate-700 mt-1">
-                            {tripSummary.isFirstDelivery
-                              ? tripSummary.totalDistance > 0
-                                ? `${tripSummary.totalDistance.toFixed(1)} km`
-                                : routeDistanceKm
-                                  ? `${routeDistanceKm} km`
-                                  : "--"
-                              : tripSummary.extraDistance > 0
-                                ? `+${tripSummary.extraDistance.toFixed(1)} km`
-                                : "--"}
-                          </p>
-                          <p className="text-[10px] uppercase tracking-wide text-slate-400 font-bold mt-2">
-                            {tripSummary.isFirstDelivery ? "Time" : "Extra Time"}
-                          </p>
-                          <p className="text-xs font-semibold text-slate-700 mt-1">
-                            {tripSummary.isFirstDelivery
-                              ? tripSummary.totalMinutes > 0
-                                ? `${tripSummary.totalMinutes} min`
-                                : getEstimatedTime(delivery) > 0
-                                  ? `${getEstimatedTime(delivery)} min`
-                                  : "--"
-                              : tripSummary.extraMinutes > 0
-                                ? `+${tripSummary.extraMinutes.toFixed(0)} min`
-                                : "--"}
-                          </p>
                         </div>
                       </div>
 
