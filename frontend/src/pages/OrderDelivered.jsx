@@ -153,7 +153,7 @@ const OrderDelivered = () => {
         <div className="status-content">
           <h1 className="status-title success">Order Delivered!</h1>
           <p className="status-subtitle">
-            Enjoy your meal! Thank you for ordering with NearMe.
+            Enjoy your meal! Thank you for ordering with Meezo.
           </p>
         </div>
 

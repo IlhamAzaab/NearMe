@@ -640,8 +640,8 @@ const Checkout = () => {
       <div className="min-h-screen bg-gray-50 font-poppins">
         <div className="flex flex-col items-center justify-center py-20">
           <div className="relative">
-            <div className="w-16 h-16 border-4 border-orange-100 rounded-full"></div>
-            <div className="absolute top-0 left-0 w-16 h-16 border-4 border-[#FF7A00] border-t-transparent rounded-full animate-spin"></div>
+            <div className="w-16 h-16 border-4 border-green-100 rounded-full"></div>
+            <div className="absolute top-0 left-0 w-16 h-16 border-4 border-[#06C168] border-t-transparent rounded-full animate-spin"></div>
           </div>
           <p className="mt-4 text-gray-500 text-sm font-medium">
             Loading checkout...
@@ -685,7 +685,7 @@ const Checkout = () => {
             <div className="bg-gray-50 rounded-2xl p-4 mb-6 text-left space-y-3">
               <div className="flex justify-between items-center">
                 <span className="text-sm text-gray-500">Order Number</span>
-                <span className="font-bold text-[#FF7A00]">
+                <span className="font-bold text-[#06C168]">
                   {orderSuccess.order_number}
                 </span>
               </div>
@@ -717,15 +717,15 @@ const Checkout = () => {
               </div>
               <div className="border-t border-gray-200 pt-3 flex justify-between items-center">
                 <span className="font-semibold text-gray-900">Total</span>
-                <span className="text-xl font-bold text-[#FF7A00]">
+                <span className="text-xl font-bold text-[#06C168]">
                   {formatPrice(orderSuccess.total_amount)}
                 </span>
               </div>
             </div>
 
             {/* Status Badge */}
-            <div className="inline-flex items-center gap-2 bg-orange-100 text-[#FF7A00] px-4 py-2 rounded-full text-sm font-medium mb-6">
-              <div className="w-2 h-2 bg-[#FF7A00] rounded-full animate-pulse"></div>
+            <div className="inline-flex items-center gap-2 bg-green-100 text-[#06C168] px-4 py-2 rounded-full text-sm font-medium mb-6">
+              <div className="w-2 h-2 bg-[#06C168] rounded-full animate-pulse"></div>
               Waiting for restaurant to accept
             </div>
 
@@ -733,7 +733,7 @@ const Checkout = () => {
             <div className="space-y-3">
               <button
                 onClick={() => navigate("/orders/" + orderSuccess.id)}
-                className="w-full px-6 py-3.5 bg-[#FF7A00] text-white font-semibold rounded-full hover:bg-orange-600 transition shadow-lg shadow-orange-200"
+                className="w-full px-6 py-3.5 bg-[#06C168] text-white font-semibold rounded-full hover:bg-green-600 transition shadow-lg shadow-green-200"
               >
                 Track Order
               </button>
@@ -759,7 +759,7 @@ const Checkout = () => {
             <p className="text-sm">{error}</p>
             <button
               onClick={() => navigate("/cart")}
-              className="mt-4 px-6 py-2.5 bg-[#FF7A00] text-white font-semibold rounded-full hover:bg-orange-600 transition"
+              className="mt-4 px-6 py-2.5 bg-[#06C168] text-white font-semibold rounded-full hover:bg-green-600 transition"
             >
               Back to Cart
             </button>
@@ -817,7 +817,7 @@ const Checkout = () => {
                 {position && (
                   <Marker
                     position={[position[0], position[1]]}
-                    icon={createCircleIcon("#FF7A00")}
+                    icon={createCircleIcon("#06C168")}
                   />
                 )}
               </MapContainer>
@@ -827,7 +827,7 @@ const Checkout = () => {
               </div>
             ) : (
               <div className="h-full w-full flex items-center justify-center">
-                <div className="w-8 h-8 border-3 border-[#FF7A00] border-t-transparent rounded-full animate-spin"></div>
+                <div className="w-8 h-8 border-3 border-[#06C168] border-t-transparent rounded-full animate-spin"></div>
               </div>
             )}
 
@@ -840,7 +840,7 @@ const Checkout = () => {
                 <button
                   onClick={handleUseMyLocation}
                   disabled={locating}
-                  className="bg-white px-3 py-1.5 rounded-full shadow-lg text-xs font-medium text-[#FF7A00] flex items-center gap-1.5 hover:bg-orange-50 transition"
+                  className="bg-white px-3 py-1.5 rounded-full shadow-lg text-xs font-medium text-[#06C168] flex items-center gap-1.5 hover:bg-green-50 transition"
                 >
                   {locating ? (
                     <>
@@ -929,8 +929,8 @@ const Checkout = () => {
               disabled={savingAddress}
               className={`absolute bottom-3 right-3 z-[1000] px-4 py-2 rounded-full shadow-lg text-sm font-medium flex items-center gap-1.5 transition ${
                 isMapEditMode
-                  ? "bg-[#FF7A00] text-white hover:bg-orange-600 shadow-orange-200"
-                  : "bg-white text-[#FF7A00] hover:bg-orange-50"
+                  ? "bg-[#06C168] text-white hover:bg-green-600 shadow-green-200"
+                  : "bg-white text-[#06C168] hover:bg-green-50"
               } ${savingAddress ? "opacity-50 cursor-not-allowed" : ""}`}
             >
               {savingAddress ? (
@@ -982,7 +982,7 @@ const Checkout = () => {
           <div className="flex items-start gap-3">
             <div className="flex-shrink-0">
               <svg
-                className="w-6 h-6 text-[#FF7A00]"
+                className="w-6 h-6 text-[#06C168]"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -1016,10 +1016,10 @@ const Checkout = () => {
                     setEditCity(city);
                     setShowAddressModal(true);
                   }}
-                  className="p-2 bg-orange-50 rounded-xl hover:bg-orange-100 transition"
+                  className="p-2 bg-green-50 rounded-xl hover:bg-green-100 transition"
                 >
                   <svg
-                    className="w-5 h-5 text-[#FF7A00]"
+                    className="w-5 h-5 text-[#06C168]"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -1086,7 +1086,7 @@ const Checkout = () => {
                     onChange={(e) => setEditAddress(e.target.value)}
                     placeholder="Enter your full address"
                     rows={3}
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#FF7A00]/40 focus:border-[#FF7A00] transition resize-none"
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#06C168]/40 focus:border-[#06C168] transition resize-none"
                   />
                 </div>
 
@@ -1100,7 +1100,7 @@ const Checkout = () => {
                     value={editCity}
                     onChange={(e) => setEditCity(e.target.value)}
                     placeholder="Enter city name"
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#FF7A00]/40 focus:border-[#FF7A00] transition"
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#06C168]/40 focus:border-[#06C168] transition"
                   />
                 </div>
 
@@ -1150,7 +1150,7 @@ const Checkout = () => {
                     }
                   }}
                   disabled={savingAddress}
-                  className="w-full py-3.5 bg-[#FF7A00] text-white font-semibold rounded-xl hover:bg-orange-600 transition shadow-lg shadow-orange-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  className="w-full py-3.5 bg-[#06C168] text-white font-semibold rounded-xl hover:bg-green-600 transition shadow-lg shadow-green-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
                   {savingAddress ? (
                     <>
@@ -1187,7 +1187,7 @@ const Checkout = () => {
         <div className="mx-4 mt-3 bg-white rounded-2xl shadow-sm p-4">
           <div className="flex items-center gap-3">
             <svg
-              className="w-6 h-6 text-[#FF7A00]"
+              className="w-6 h-6 text-[#06C168]"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -1212,7 +1212,7 @@ const Checkout = () => {
         <div className="mx-4 mt-3 bg-white rounded-2xl shadow-sm p-4">
           <div className="flex items-center gap-3">
             <svg
-              className="w-6 h-6 text-[#FF7A00]"
+              className="w-6 h-6 text-[#06C168]"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -1229,7 +1229,7 @@ const Checkout = () => {
               <p className="font-semibold text-gray-900">
                 {routeLoading ? (
                   <span className="flex items-center gap-1">
-                    <div className="w-3 h-3 border-2 border-[#FF7A00] border-t-transparent rounded-full animate-spin"></div>
+                    <div className="w-3 h-3 border-2 border-[#06C168] border-t-transparent rounded-full animate-spin"></div>
                     Calculating...
                   </span>
                 ) : (
@@ -1244,7 +1244,7 @@ const Checkout = () => {
         <div className="mx-4 mt-3 bg-white rounded-2xl shadow-sm p-4">
           <div className="flex items-center gap-2 mb-3">
             <svg
-              className="w-5 h-5 text-[#FF7A00]"
+              className="w-5 h-5 text-[#06C168]"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -1270,8 +1270,8 @@ const Checkout = () => {
                   className="w-12 h-12 rounded-xl object-cover"
                 />
               ) : (
-                <div className="w-12 h-12 rounded-xl bg-orange-100 flex items-center justify-center">
-                  <span className="text-lg font-bold text-[#FF7A00]">
+                <div className="w-12 h-12 rounded-xl bg-green-100 flex items-center justify-center">
+                  <span className="text-lg font-bold text-[#06C168]">
                     {cart?.restaurant?.restaurant_name?.charAt(0) || "R"}
                   </span>
                 </div>
@@ -1281,7 +1281,7 @@ const Checkout = () => {
                   {cart?.restaurant?.restaurant_name || "Restaurant"}
                 </p>
                 {routeInfo && (
-                  <p className="text-xs text-[#FF7A00] font-medium flex items-center gap-1">
+                  <p className="text-xs text-[#06C168] font-medium flex items-center gap-1">
                     <svg
                       className="w-3 h-3"
                       fill="none"
@@ -1356,7 +1356,7 @@ const Checkout = () => {
                   className="flex items-center justify-between p-3 bg-gray-50 rounded-xl"
                 >
                   <div className="flex items-center gap-2">
-                    <span className="w-7 h-7 bg-[#FF7A00] text-white rounded-lg text-xs font-bold flex items-center justify-center">
+                    <span className="w-7 h-7 bg-[#06C168] text-white rounded-lg text-xs font-bold flex items-center justify-center">
                       {item.quantity}x
                     </span>
                     <div>
@@ -1368,7 +1368,7 @@ const Checkout = () => {
                       </span>
                     </div>
                   </div>
-                  <span className="text-sm font-semibold text-[#FF7A00]">
+                  <span className="text-sm font-semibold text-[#06C168]">
                     {formatPrice(item.total_price)}
                   </span>
                 </div>
@@ -1381,7 +1381,7 @@ const Checkout = () => {
         <div className="mx-4 mt-3 bg-white rounded-2xl shadow-sm p-4">
           <div className="flex items-center gap-2 mb-3">
             <svg
-              className="w-5 h-5 text-[#FF7A00]"
+              className="w-5 h-5 text-[#06C168]"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -1398,7 +1398,7 @@ const Checkout = () => {
           <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
             {paymentMethod === "cash" ? (
               <svg
-                className="w-6 h-6 text-[#FF7A00]"
+                className="w-6 h-6 text-[#06C168]"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -1412,7 +1412,7 @@ const Checkout = () => {
               </svg>
             ) : (
               <svg
-                className="w-6 h-6 text-[#FF7A00]"
+                className="w-6 h-6 text-[#06C168]"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -1442,7 +1442,7 @@ const Checkout = () => {
         <div className="mx-4 mt-3 bg-white rounded-2xl shadow-sm p-4">
           <div className="flex items-center gap-2 mb-3">
             <svg
-              className="w-5 h-5 text-[#FF7A00]"
+              className="w-5 h-5 text-[#06C168]"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -1497,7 +1497,7 @@ const Checkout = () => {
             )}
             <div className="border-t border-gray-100 pt-3 flex justify-between items-center">
               <span className="text-lg font-bold text-gray-900">Total</span>
-              <span className="text-xl font-bold text-[#FF7A00]">
+              <span className="text-xl font-bold text-[#06C168]">
                 {finalTotal !== null ? formatPrice(finalTotal) : "--"}
               </span>
             </div>
@@ -1564,7 +1564,7 @@ const Checkout = () => {
                     onClick={() =>
                       navigate(`/restaurant/${cart.restaurant.id}/foods`)
                     }
-                    className="mt-2 inline-flex items-center gap-1.5 px-4 py-2 bg-[#FF7A00] text-white text-xs font-bold rounded-full hover:bg-orange-600 active:scale-[0.97] transition-all shadow-sm"
+                    className="mt-2 inline-flex items-center gap-1.5 px-4 py-2 bg-[#06C168] text-white text-xs font-bold rounded-full hover:bg-green-600 active:scale-[0.97] transition-all shadow-sm"
                   >
                     <svg
                       className="w-4 h-4"
@@ -1611,7 +1611,7 @@ const Checkout = () => {
               !phone ||
               !address
                 ? "bg-gray-200 text-gray-400 cursor-not-allowed"
-                : "bg-[#FF7A00] text-white hover:bg-orange-600 shadow-orange-200 active:scale-[0.98]"
+                : "bg-[#06C168] text-white hover:bg-green-600 shadow-green-200 active:scale-[0.98]"
             }`}
           >
             {placing ? (
@@ -1621,7 +1621,7 @@ const Checkout = () => {
               </>
             ) : routeLoading ? (
               <>
-                <div className="w-5 h-5 border-2 border-[#FF7A00] border-t-transparent rounded-full animate-spin"></div>
+                <div className="w-5 h-5 border-2 border-[#06C168] border-t-transparent rounded-full animate-spin"></div>
                 Calculating...
               </>
             ) : isTooFar ? (

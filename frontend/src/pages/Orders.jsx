@@ -248,7 +248,7 @@ export default function Orders() {
       case "placed":
         return "bg-yellow-100 text-yellow-700";
       case "pending":
-        return "bg-orange-100 text-orange-700";
+        return "bg-green-100 text-green-700";
       case "accepted":
       case "driver_assigned":
         return "bg-blue-100 text-blue-700";
@@ -651,7 +651,7 @@ export default function Orders() {
             </div>
           ) : !isLoggedIn ? (
             <div className="flex flex-col items-center justify-center py-16 px-6">
-              <div className="w-32 h-32 mb-6 bg-orange-100 rounded-full flex items-center justify-center">
+              <div className="w-32 h-32 mb-6 bg-green-100 rounded-full flex items-center justify-center">
                 <span className="text-5xl">🍽️</span>
               </div>
               <h2 className="text-2xl font-bold text-gray-900 mb-2">
@@ -669,7 +669,7 @@ export default function Orders() {
             </div>
           ) : displayedOrders.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
-              <div className="w-32 h-32 mb-6 bg-orange-100 rounded-full flex items-center justify-center">
+              <div className="w-32 h-32 mb-6 bg-green-100 rounded-full flex items-center justify-center">
                 <span className="text-5xl">
                   {activeTab === "active" ? "🛵" : "📦"}
                 </span>

@@ -106,7 +106,7 @@ export const supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
   },
   global: {
     headers: {
-      "X-Client-Info": "nearme-web",
+      "X-Client-Info": "meezo-web",
     },
   },
   auth: {

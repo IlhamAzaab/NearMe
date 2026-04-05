@@ -3,8 +3,8 @@
 
 /* ===== Variables ===== */
 :root {
-  --primary-orange: #F97316;
-  --primary-orange-light: #FFF7ED;
+  --primary-accent: #06C168;
+  --primary-accent-light: #ECFDF5;
   --primary-green: #22C55E;
   --primary-green-light: #DCFCE7;
   --cream-bg: #FEF3E2;
@@ -48,7 +48,7 @@
   width: 2.5rem;
   height: 2.5rem;
   border: 3px solid var(--grey-200);
-  border-top-color: var(--primary-orange);
+  border-top-color: var(--primary-accent);
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
@@ -281,7 +281,7 @@
   width: 48px;
   height: 48px;
   border-radius: 12px;
-  background: var(--primary-orange-light);
+  background: var(--primary-accent-light);
   display: flex;
   align-items: center;
   justify-content: center;

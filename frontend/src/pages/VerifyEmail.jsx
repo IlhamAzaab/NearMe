@@ -7,7 +7,7 @@ function VerifyEmail() {
   return (
     <>
       <SiteHeader />
-      <div className="min-h-screen bg-gradient-to-br from-orange-50 to-red-50 flex items-center justify-center px-4">
+      <div className="min-h-screen bg-gradient-to-br from-green-50 to-red-50 flex items-center justify-center px-4">
         <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center">
           <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <svg
@@ -34,7 +34,7 @@ function VerifyEmail() {
           <div className="space-y-3">
             <button
               onClick={() => navigate("/signup")}
-              className="w-full bg-orange-500 text-white py-3 px-4 rounded-lg hover:bg-orange-600 transition-colors font-medium"
+              className="w-full bg-green-500 text-white py-3 px-4 rounded-lg hover:bg-green-600 transition-colors font-medium"
             >
               Go to Signup
             </button>

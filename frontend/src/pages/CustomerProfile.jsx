@@ -60,12 +60,12 @@ export default function CustomerProfile() {
         <header className="sticky top-0 z-50 bg-white px-4 py-3 shadow-sm">
           <div className="max-w-6xl mx-auto">
             <div className="flex items-center gap-2">
-              <div className="w-10 h-10 bg-[#FF7A00] rounded-xl flex items-center justify-center shadow-lg shadow-orange-200">
+              <div className="w-10 h-10 bg-[#06C168] rounded-xl flex items-center justify-center shadow-lg shadow-green-200">
                 <span className="text-white text-lg font-bold">N</span>
               </div>
               <div>
                 <h1 className="text-xl font-bold text-gray-900">Profile</h1>
-                <p className="text-xs text-gray-500">Welcome to NearMe</p>
+                <p className="text-xs text-gray-500">Welcome to Meezo</p>
               </div>
             </div>
           </div>
@@ -73,9 +73,9 @@ export default function CustomerProfile() {
 
         <main className="max-w-lg mx-auto px-4 py-12">
           <div className="bg-white rounded-2xl shadow-lg p-8 text-center">
-            <div className="w-24 h-24 bg-orange-50 rounded-full flex items-center justify-center mx-auto mb-6">
+            <div className="w-24 h-24 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-6">
               <svg
-                className="w-12 h-12 text-[#FF7A00]"
+                className="w-12 h-12 text-[#06C168]"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -89,14 +89,14 @@ export default function CustomerProfile() {
               </svg>
             </div>
             <h2 className="text-2xl font-bold text-gray-900 mb-2">
-              Welcome to NearMe
+              Welcome to Meezo
             </h2>
             <p className="text-gray-500 mb-6">
               Sign in to access your profile and order history
             </p>
             <button
               onClick={() => navigate("/login")}
-              className="w-full py-3 bg-[#FF7A00] text-white font-semibold rounded-full hover:bg-orange-600 transition shadow-lg shadow-orange-200"
+              className="w-full py-3 bg-[#06C168] text-white font-semibold rounded-full hover:bg-green-600 transition shadow-lg shadow-green-200"
             >
               Login
             </button>
@@ -104,7 +104,7 @@ export default function CustomerProfile() {
               Don't have an account?{" "}
               <button
                 onClick={() => navigate("/signup")}
-                className="text-[#FF7A00] font-medium hover:underline"
+                className="text-[#06C168] font-medium hover:underline"
               >
                 Sign Up
               </button>
@@ -123,8 +123,8 @@ export default function CustomerProfile() {
       <div className="min-h-screen bg-gray-50 font-poppins flex items-center justify-center">
         <div className="flex flex-col items-center">
           <div className="relative">
-            <div className="w-16 h-16 border-4 border-orange-100 rounded-full"></div>
-            <div className="absolute top-0 left-0 w-16 h-16 border-4 border-[#FF7A00] border-t-transparent rounded-full animate-spin"></div>
+            <div className="w-16 h-16 border-4 border-green-100 rounded-full"></div>
+            <div className="absolute top-0 left-0 w-16 h-16 border-4 border-[#06C168] border-t-transparent rounded-full animate-spin"></div>
           </div>
           <p className="mt-4 text-gray-500 text-sm font-medium">
             Loading profile...
@@ -142,7 +142,7 @@ export default function CustomerProfile() {
         <div className="max-w-6xl mx-auto">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <div className="w-10 h-10 bg-[#FF7A00] rounded-xl flex items-center justify-center shadow-lg shadow-orange-200">
+              <div className="w-10 h-10 bg-[#06C168] rounded-xl flex items-center justify-center shadow-lg shadow-green-200">
                 <span className="text-white text-lg font-bold">N</span>
               </div>
               <div>
@@ -152,9 +152,9 @@ export default function CustomerProfile() {
             </div>
 
             {/* Settings Icon */}
-            <div className="w-10 h-10 bg-orange-50 rounded-full flex items-center justify-center">
+            <div className="w-10 h-10 bg-green-50 rounded-full flex items-center justify-center">
               <svg
-                className="w-5 h-5 text-[#FF7A00]"
+                className="w-5 h-5 text-[#06C168]"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -181,7 +181,7 @@ export default function CustomerProfile() {
         {/* Profile Header Card */}
         <div className="bg-white rounded-2xl shadow-md p-6 mb-4">
           <div className="flex items-center gap-4">
-            <div className="w-20 h-20 bg-gradient-to-br from-[#FF7A00] to-orange-600 rounded-2xl flex items-center justify-center text-white text-3xl font-bold shadow-lg shadow-orange-200">
+            <div className="w-20 h-20 bg-gradient-to-br from-[#06C168] to-green-600 rounded-2xl flex items-center justify-center text-white text-3xl font-bold shadow-lg shadow-green-200">
               {userName ? userName.charAt(0).toUpperCase() : "U"}
             </div>
             <div className="flex-1">
@@ -200,7 +200,7 @@ export default function CustomerProfile() {
         {profile && (
           <div className="bg-white rounded-2xl shadow-md p-5 mb-4">
             <div className="flex items-center gap-2 mb-4">
-              <div className="w-8 h-8 bg-orange-100 rounded-lg flex items-center justify-center">
+              <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
                 <span className="text-base">📋</span>
               </div>
               <h3 className="font-bold text-gray-900">Profile Details</h3>
@@ -249,7 +249,7 @@ export default function CustomerProfile() {
         <div className="bg-white rounded-2xl shadow-md overflow-hidden mb-4">
           <div className="p-4 border-b border-gray-100">
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-orange-100 rounded-lg flex items-center justify-center">
+              <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
                 <span className="text-base">⚡</span>
               </div>
               <h3 className="font-bold text-gray-900">Quick Actions</h3>
@@ -258,10 +258,10 @@ export default function CustomerProfile() {
 
           <button
             onClick={() => navigate("/orders")}
-            className="w-full flex items-center justify-between p-4 hover:bg-orange-50 transition"
+            className="w-full flex items-center justify-between p-4 hover:bg-green-50 transition"
           >
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-[#FF7A00] rounded-xl flex items-center justify-center shadow-md shadow-orange-200">
+              <div className="w-10 h-10 bg-[#06C168] rounded-xl flex items-center justify-center shadow-md shadow-green-200">
                 <span className="text-lg">📦</span>
               </div>
               <div className="text-left">
@@ -288,7 +288,7 @@ export default function CustomerProfile() {
 
           <button
             onClick={() => navigate("/customer/notifications")}
-            className="w-full flex items-center justify-between p-4 hover:bg-orange-50 transition border-t border-gray-100"
+            className="w-full flex items-center justify-between p-4 hover:bg-green-50 transition border-t border-gray-100"
           >
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-blue-500 rounded-xl flex items-center justify-center shadow-md shadow-blue-200">
@@ -318,7 +318,7 @@ export default function CustomerProfile() {
 
           <button
             onClick={() => navigate("/cart")}
-            className="w-full flex items-center justify-between p-4 hover:bg-orange-50 transition border-t border-gray-100"
+            className="w-full flex items-center justify-between p-4 hover:bg-green-50 transition border-t border-gray-100"
           >
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-green-500 rounded-xl flex items-center justify-center shadow-md shadow-green-200">

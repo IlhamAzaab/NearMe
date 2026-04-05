@@ -96,7 +96,7 @@ export default function SiteHeader({
                 <span className="text-white font-bold">NM</span>
               </div>
               <span className="hidden sm:block font-bold text-gray-800 text-lg">
-                NearMe
+                Meezo
               </span>
             </button>
 

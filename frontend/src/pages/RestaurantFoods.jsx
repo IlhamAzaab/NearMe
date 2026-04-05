@@ -344,7 +344,7 @@ const RestaurantFoods = () => {
                   />
                 </svg>
               </button>
-              <div className="w-10 h-10 bg-[#FF7A00] rounded-xl flex items-center justify-center shadow-lg shadow-orange-200">
+              <div className="w-10 h-10 bg-[#06C168] rounded-xl flex items-center justify-center shadow-lg shadow-green-200">
                 <span className="text-white text-lg font-bold">N</span>
               </div>
               <div>
@@ -360,10 +360,10 @@ const RestaurantFoods = () => {
             {/* Cart Icon */}
             <button
               onClick={() => navigate("/cart")}
-              className="relative p-2.5 bg-orange-50 rounded-full hover:bg-orange-100 transition-colors"
+              className="relative p-2.5 bg-green-50 rounded-full hover:bg-green-100 transition-colors"
             >
               <svg
-                className="w-5 h-5 text-[#FF7A00]"
+                className="w-5 h-5 text-[#06C168]"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -376,7 +376,7 @@ const RestaurantFoods = () => {
                 />
               </svg>
               {cartCount > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 w-5 h-5 bg-[#FF7A00] text-white text-xs font-bold rounded-full flex items-center justify-center">
+                <span className="absolute -top-0.5 -right-0.5 w-5 h-5 bg-[#06C168] text-white text-xs font-bold rounded-full flex items-center justify-center">
                   {cartCount > 9 ? "9+" : cartCount}
                 </span>
               )}
@@ -390,8 +390,8 @@ const RestaurantFoods = () => {
       {restaurantLoading ? (
         <div className="flex flex-col items-center justify-center py-20">
           <div className="relative">
-            <div className="w-16 h-16 border-4 border-orange-100 rounded-full"></div>
-            <div className="absolute top-0 left-0 w-16 h-16 border-4 border-[#FF7A00] border-t-transparent rounded-full animate-spin"></div>
+            <div className="w-16 h-16 border-4 border-green-100 rounded-full"></div>
+            <div className="absolute top-0 left-0 w-16 h-16 border-4 border-[#06C168] border-t-transparent rounded-full animate-spin"></div>
           </div>
           <p className="mt-4 text-gray-500 text-sm font-medium">
             Loading restaurant...
@@ -419,7 +419,7 @@ const RestaurantFoods = () => {
             <p className="text-sm text-red-600/80 mb-4">{error}</p>
             <button
               onClick={() => navigate("/")}
-              className="px-6 py-2.5 bg-[#FF7A00] text-white font-semibold rounded-full hover:bg-orange-600 transition-all shadow-lg shadow-orange-200"
+              className="px-6 py-2.5 bg-[#06C168] text-white font-semibold rounded-full hover:bg-green-600 transition-all shadow-lg shadow-green-200"
             >
               Back to Home
             </button>
@@ -439,7 +439,7 @@ const RestaurantFoods = () => {
                     className="w-full h-full object-cover"
                   />
                 ) : (
-                  <div className="w-full h-full bg-gradient-to-br from-[#FF7A00] to-orange-500"></div>
+                  <div className="w-full h-full bg-gradient-to-br from-[#06C168] to-green-500"></div>
                 )}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent"></div>
               </div>
@@ -458,7 +458,7 @@ const RestaurantFoods = () => {
                             className="w-full h-full object-cover"
                           />
                         ) : (
-                          <div className="w-full h-full bg-gradient-to-br from-[#FF7A00] to-orange-500 flex items-center justify-center">
+                          <div className="w-full h-full bg-gradient-to-br from-[#06C168] to-green-500 flex items-center justify-center">
                             <span className="text-2xl font-bold text-white">
                               {restaurant.restaurant_name.charAt(0)}
                             </span>
@@ -475,7 +475,7 @@ const RestaurantFoods = () => {
                             </h2>
                             <div className="flex flex-wrap items-center gap-3 text-sm text-gray-500">
                               {showDistance && restaurantDistance && (
-                                <span className="flex items-center gap-1 text-[#FF7A00] font-medium">
+                                <span className="flex items-center gap-1 text-[#06C168] font-medium">
                                   <svg
                                     className="w-4 h-4"
                                     fill="none"
@@ -633,7 +633,7 @@ const RestaurantFoods = () => {
                   placeholder="Search menu items..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-12 pr-4 py-3.5 bg-white rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-[#FF7A00]/40 border border-gray-100 shadow-sm transition-all placeholder-gray-400"
+                  className="w-full pl-12 pr-4 py-3.5 bg-white rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-[#06C168]/40 border border-gray-100 shadow-sm transition-all placeholder-gray-400"
                 />
               </div>
             </div>
@@ -654,8 +654,8 @@ const RestaurantFoods = () => {
             {foodsLoading ? (
               <div className="flex flex-col items-center justify-center py-16">
                 <div className="relative">
-                  <div className="w-12 h-12 border-4 border-orange-100 rounded-full"></div>
-                  <div className="absolute top-0 left-0 w-12 h-12 border-4 border-[#FF7A00] border-t-transparent rounded-full animate-spin"></div>
+                  <div className="w-12 h-12 border-4 border-green-100 rounded-full"></div>
+                  <div className="absolute top-0 left-0 w-12 h-12 border-4 border-[#06C168] border-t-transparent rounded-full animate-spin"></div>
                 </div>
                 <p className="mt-3 text-gray-500 text-sm">Loading menu...</p>
               </div>
@@ -666,9 +666,9 @@ const RestaurantFoods = () => {
               </div>
             ) : foods.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16">
-                <div className="w-24 h-24 bg-orange-50 rounded-full flex items-center justify-center mb-4">
+                <div className="w-24 h-24 bg-green-50 rounded-full flex items-center justify-center mb-4">
                   <svg
-                    className="w-12 h-12 text-[#FF7A00]"
+                    className="w-12 h-12 text-[#06C168]"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -706,7 +706,7 @@ const RestaurantFoods = () => {
                           className="w-full h-full object-cover hover:scale-105 transition-transform duration-500"
                         />
                       ) : (
-                        <div className="w-full h-full bg-gradient-to-br from-[#FF7A00] to-orange-400 flex items-center justify-center">
+                        <div className="w-full h-full bg-gradient-to-br from-[#06C168] to-green-400 flex items-center justify-center">
                           <svg
                             className="w-12 h-12 text-white/60"
                             fill="currentColor"
@@ -750,7 +750,7 @@ const RestaurantFoods = () => {
                             quickAddToCart(food);
                           }}
                           disabled={addingToCart === food.id}
-                          className="absolute bottom-2 right-2 w-9 h-9 bg-[#FF7A00] text-white rounded-full shadow-lg flex items-center justify-center hover:bg-orange-600 transition-all hover:scale-110 disabled:opacity-75"
+                          className="absolute bottom-2 right-2 w-9 h-9 bg-[#06C168] text-white rounded-full shadow-lg flex items-center justify-center hover:bg-green-600 transition-all hover:scale-110 disabled:opacity-75"
                         >
                           {addingToCart === food.id ? (
                             <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
@@ -792,7 +792,7 @@ const RestaurantFoods = () => {
                             {food.available_time.map((time) => (
                               <span
                                 key={time}
-                                className="px-2 py-0.5 bg-orange-50 text-[#FF7A00] text-[10px] font-medium rounded-full"
+                                className="px-2 py-0.5 bg-green-50 text-[#06C168] text-[10px] font-medium rounded-full"
                               >
                                 {time.charAt(0).toUpperCase() + time.slice(1)}
                               </span>
@@ -805,7 +805,7 @@ const RestaurantFoods = () => {
                         <div>
                           {food.offer_price ? (
                             <div className="flex items-center gap-2">
-                              <span className="text-lg font-bold text-[#FF7A00]">
+                              <span className="text-lg font-bold text-[#06C168]">
                                 {formatPrice(food.offer_price)}
                               </span>
                               <span className="text-xs text-gray-400 line-through">
@@ -825,7 +825,7 @@ const RestaurantFoods = () => {
                               `/restaurant/${restaurantId}/food/${food.id}`,
                             )
                           }
-                          className="text-xs text-[#FF7A00] font-medium hover:underline"
+                          className="text-xs text-[#06C168] font-medium hover:underline"
                         >
                           View Details →
                         </button>
@@ -846,7 +846,7 @@ const RestaurantFoods = () => {
       {cartCount > 0 && (
         <button
           onClick={() => navigate("/cart")}
-          className="fixed bottom-24 right-4 bg-[#FF7A00] text-white px-5 py-3 rounded-full shadow-xl shadow-orange-300/40 flex items-center gap-2 hover:bg-orange-600 transition-all z-50 hover:-translate-y-1"
+          className="fixed bottom-24 right-4 bg-[#06C168] text-white px-5 py-3 rounded-full shadow-xl shadow-green-300/40 flex items-center gap-2 hover:bg-green-600 transition-all z-50 hover:-translate-y-1"
         >
           <svg
             className="w-5 h-5"

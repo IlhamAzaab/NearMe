@@ -234,7 +234,7 @@ async function ensureSessionExchangeAvailable() {
 
   if (response.status === 404) {
     throw new Error(
-      "Auth session endpoint is unavailable (404). Restart backend from NearMe/backend before verifying OTP.",
+      "Auth session endpoint is unavailable (404). Restart backend from Meezo/backend before verifying OTP.",
     );
   }
 }

@@ -1,12 +1,47 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import mdImage from "../assets/md.jpg";
 import AnimatedAlert, { useAlert } from "../components/AnimatedAlert";
 import {
   getPostAuthRoute,
   login,
   persistSession,
 } from "../services/authService";
+
+function MeezoLogo({ size = 200 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 1080 1080">
+      <rect x="0" y="0" width="1080" height="1080" fill="transparent" />
+      <g>
+        <path
+          d="m796.84,470.43c2.16-2.3,1.79-4.86-.71-4.86h-101.74c-2.52,0-5.62,2.05-6.9,4.57l-17.16,33.68c-1.29,2.53-.29,4.58,2.24,4.58h27.48c2.5,0,2.88,2.56.72,4.85l-89.65,95.15c-2.16,2.29-1.78,4.85.72,4.85h112.31c2.52,0,5.62-2.04,6.9-4.57l10.68-33.68c1.29-2.53.28-4.57-2.25-4.57h-31.76c-2.5,0-2.87-2.57-.71-4.86l89.83-95.14Z"
+          fill="#000"
+        />
+        <path
+          d="m564.84,465.48h-89.17c-2.14,0-4.76,1.74-5.85,3.88l-71.86,141.03c-1.09,2.14-.24,3.88,1.9,3.88h91.3c2.14,0,4.75-1.74,5.84-3.88l18.04-35.4c1.09-2.14.24-3.87-1.9-3.87h-36.89c-2.14,0-2.99-1.73-1.9-3.87l3.1-6.07c1.09-2.14,3.7-3.87,5.84-3.87h31.36c2.14,0,4.76-1.74,5.85-3.88l14.57-28.6c1.09-2.14.24-3.87-1.9-3.87h-31.36c-2.14,0-2.99-1.73-1.9-3.87l2.34-4.58c1.09-2.14,3.7-3.88,5.84-3.88h34.77c2.13,0,4.75-1.73,5.84-3.87l18.04-35.4c1.09-2.14.24-3.88-1.9-3.88Z"
+          fill="#000"
+        />
+        <path
+          d="m674.3,465.48h-89.17c-2.14,0-4.76,1.74-5.85,3.88l-71.86,141.03c-1.09,2.14-.24,3.88,1.9,3.88h91.3c2.14,0,4.75-1.74,5.84-3.88l18.04-35.4c1.09-2.14.24-3.87-1.9-3.87h-36.89c-2.13,0-2.99-1.73-1.9-3.87l3.1-6.07c1.09-2.14,3.7-3.87,5.84-3.87h31.37c2.13,0,4.75-1.74,5.84-3.88l14.57-28.6c1.09-2.14.24-3.87-1.9-3.87h-31.36c-2.14,0-2.99-1.73-1.9-3.87l2.34-4.58c1.09-2.14,3.71-3.88,5.84-3.88h34.77c2.14,0,4.75-1.73,5.84-3.87l18.04-35.4c1.09-2.14.24-3.88-1.9-3.88Z"
+          fill="#000"
+        />
+        <path
+          d="m455.98,475.4l-23.01,44.91c-1.96,3.83-5.1,6.86-9.03,8.71-30.64,14.45-56.96,26.84-66.45,31.3-2.31,1.09-5.25.69-7.61-1.03l-14.61-10.6-16.76-12.16-1.95-1.41c-4.49-3.26-10.24-2.47-12.57,1.71l-30.61,56.84c-7.03,13.06-20.71,20.85-36.62,20.85h-40.32c-3.86,0-6.8-4.34-5.11-7.51l41.38-76.8,21.66-40.22,3-5.57c11.39-21.13,40.35-25.25,62.84-8.93l12.1,8.78c9.65,7,19.3,14,28.95,21,3.09,2.25,6.19,4.5,9.28,6.74l82.97-39.09c1.44-.68,3.19,1.08,2.47,2.48Z"
+          fill="#000"
+        />
+        <g>
+          <path
+            d="m883.66,586.15h-68.56s.09-.07.13-.12c-1.92-.44-3.34-2.16-3.34-4.2,0-1.19.48-2.28,1.26-3.06.79-.79,1.87-1.27,3.06-1.27h60.25c1.19,0,2.27-.48,3.05-1.26.79-.78,1.27-1.86,1.27-3.06,0-2.38-1.94-4.32-4.32-4.32h-42.37s.09-.08.14-.12c-1.91-.45-3.32-2.16-3.32-4.2,0-1.19.48-2.27,1.26-3.05.79-.79,1.87-1.27,3.06-1.27h32.57c1.2,0,2.28-.48,3.06-1.26.78-.78,1.26-1.86,1.26-3.06,0-2.38-1.93-4.32-4.32-4.32h-14.84c4.43-4.21,8.72-8.5,12.77-12.92,20.38-22.25,24.31-49.41,10.74-63.1-14.41-14.57-43.15-12.8-69.81,4.29-26.28,16.84-43.27,43.87-40.63,65.46,1.87,15.19,4.5,30.02,6.94,44.95.82,5.09,1.72,10.15,2.67,15.37.6,3.31,3.07,5.55,5.92,6.22.6.15,1.21.22,1.83.22h65.52c1.19,0,2.27-.49,3.06-1.27.78-.78,1.26-1.86,1.26-3.05,0-2.39-1.93-4.32-4.32-4.32h-52.95l.02-.02c-2.2-.2-3.92-2.06-3.92-4.3,0-1.19.48-2.27,1.26-3.06.78-.78,1.86-1.26,3.06-1.26h87.28c1.2,0,2.28-.49,3.06-1.27.78-.78,1.26-1.86,1.26-3.05,0-2.39-1.93-4.32-4.32-4.32Zm-78.14-67.05c5-10.73,17.74-19.42,28.47-19.42s15.36,8.69,10.35,19.42c-4.99,10.71-17.74,19.41-28.46,19.41s-15.36-8.7-10.36-19.41Z"
+            fill="#fff"
+          />
+          <path
+            d="m783.39,612.07h-.5c-.46,0-.91-.07-1.33-.22.6.15,1.21.22,1.83.22Z"
+            fill="#fff"
+          />
+        </g>
+      </g>
+    </svg>
+  );
+}
 
 export default function Login() {
   const [identifier, setIdentifier] = useState("");
@@ -61,22 +96,18 @@ export default function Login() {
   return (
     <div
       className="min-h-screen flex items-center justify-center p-4 overflow-hidden relative"
-      style={{ backgroundColor: "#FF4B5C" }}
+      style={{
+        background:
+          "linear-gradient(155deg, #04753E 0%, #059B52 55%, #06C168 100%)",
+      }}
     >
       <AnimatedAlert alert={alert} visible={visible} />
-      {/* Animated background blobs */}
-      <div className="absolute top-0 left-0 w-98 h-98 bg-red-400 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob"></div>
-      <div className="absolute top-0 right-0 w-96 h-96 bg-orange-400 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob animation-delay-2000"></div>
-      <div className="absolute -bottom-8 left-20 w-96 h-96 bg-red-300 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob animation-delay-4000"></div>
+      <div className="absolute -top-20 -right-12 w-72 h-72 bg-white/20 rounded-full blur-3xl animate-blob"></div>
+      <div className="absolute -bottom-24 -left-16 w-80 h-80 bg-emerald-300/35 rounded-full blur-3xl animate-blob animation-delay-2000"></div>
 
       {/* Success transition overlay */}
       {isTransitioning && (
-        <div
-          className="fixed inset-0 z-50"
-          style={{
-            background: "linear-gradient(to bottom right, #FF4B5C, #FF4B5C)",
-          }}
-        >
+        <div className="fixed inset-0 z-50" style={{ background: "rgba(0,0,0,0.55)" }}>
           {/* Animated success checkmark */}
           <div className="absolute inset-0 flex flex-col items-center justify-center">
             <div className="relative w-32 h-32 mb-8">
@@ -105,49 +136,55 @@ export default function Login() {
         </div>
       )}
 
-      {/* Main login form - Light card style */}
+      {/* Main login form */}
       <div
-        className={`w-full max-w-md backdrop-blur-xl bg-white/95 border border-red-100 rounded-3xl shadow-2xl shadow-red-100/50 overflow-hidden transform transition-all duration-500 ${shake ? "animate-shake" : ""} animate-fade-in-down z-10`}
+        className={`w-full max-w-md md:max-w-lg bg-white/95 border border-emerald-100 rounded-3xl shadow-2xl shadow-emerald-900/25 overflow-hidden transform transition-all duration-500 ${shake ? "animate-shake" : ""} animate-fade-in-down z-10`}
       >
-        {/* Top Image Section */}
-        {/* Top Image Section */}
+        {/* Green top section */}
         <div
-          className="h-60 w-full overflow-hidden"
+          className="relative px-6 pt-8 pb-5 text-center overflow-hidden"
           style={{
-            clipPath: "ellipse(100% 50% at 0% 50%)",
+            background: "linear-gradient(180deg, #04753E 0%, #059B52 55%, #06C168 100%)",
           }}
         >
-          <img
-            src={mdImage}
-            alt="Near Me Delivery"
-            className="w-full h-full object-cover"
-          />
+          <div className="absolute -top-16 -right-10 w-48 h-48 rounded-full bg-white/10" />
+          <div className="absolute -bottom-12 -left-12 w-44 h-44 rounded-full bg-white/10" />
+          <div className="relative z-10 flex flex-col items-center">
+            <div style={{ transform: "scale(2)", transformOrigin: "center" }}>
+              <MeezoLogo size={148} />
+            </div>
+            <p className="text-white/85 text-sm font-medium tracking-wide -mt-1">
+              Your favorite food, fast.
+            </p>
+          </div>
         </div>
 
-        {/* Card Content */}
-        <div className="p-8">
-          {/* Header */}
-          <div className="text-center mb-10">
-            <h1
-              className="text-4xl font-bold bg-clip-text text-transparent mb-2 animate-fade-in tracking-tight"
-              style={{
-                backgroundImage: "linear-gradient(to right, #FF4B5C, #FF4B5C)",
-              }}
-            >
-              Near Me
-            </h1>
+        {/* Wave separator */}
+        <div className="bg-white -mt-px">
+          <svg viewBox="0 0 500 48" preserveAspectRatio="none" className="w-full h-10">
+            <path d="M0 0 C120 60 380 -30 500 18 L500 0 Z" fill="#06C168" />
+          </svg>
+        </div>
+
+        {/* Card content */}
+        <div className="px-6 md:px-8 pb-8 bg-white">
+          <div className="text-center mb-8">
+            
+            <p className="text-sm text-gray-500 animate-fade-in animation-delay-200">
+              Please sign in to continue
+            </p>
           </div>
 
           {/* Login Form */}
-          <form className="space-y-5">
+          <form className="space-y-4">
             {/* Email Input */}
             <div className="relative group">
               <label className="text-sm font-medium text-gray-700 mb-2 block animate-fade-in animation-delay-200">
-                Email or Phone
+                Email
               </label>
               <div className="relative">
                 <svg
-                  className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-orange-500 transition-colors duration-300 group-focus-within:text-red-500"
+                  className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-emerald-500 transition-colors duration-300 group-focus-within:text-emerald-700"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -161,8 +198,8 @@ export default function Login() {
                 </svg>
                 <input
                   type="text"
-                  placeholder="you@example.com or 0771234567"
-                  className="w-full pl-12 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-orange-400 focus:bg-white focus:ring-2 focus:ring-orange-100 text-gray-800 placeholder-gray-400 transition-all duration-300 animate-fade-in animation-delay-200"
+                  placeholder="you@example.com"
+                  className="w-full pl-12 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100 text-gray-800 placeholder-gray-400 transition-all duration-300 animate-fade-in animation-delay-200"
                   onChange={(e) => setIdentifier(e.target.value)}
                   value={identifier}
                   autoComplete="username"
@@ -177,7 +214,7 @@ export default function Login() {
               </label>
               <div className="relative">
                 <svg
-                  className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-orange-500 transition-colors duration-300 group-focus-within:text-red-500"
+                  className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-emerald-500 transition-colors duration-300 group-focus-within:text-emerald-700"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -192,7 +229,7 @@ export default function Login() {
                 <input
                   type="password"
                   placeholder="••••••••"
-                  className="w-full pl-12 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-orange-400 focus:bg-white focus:ring-2 focus:ring-orange-100 text-gray-800 placeholder-gray-400 transition-all duration-300 animate-fade-in animation-delay-300"
+                  className="w-full pl-12 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100 text-gray-800 placeholder-gray-400 transition-all duration-300 animate-fade-in animation-delay-300"
                   onChange={(e) => setPassword(e.target.value)}
                   value={password}
                   autoComplete="current-password"
@@ -205,9 +242,9 @@ export default function Login() {
               type="button"
               onClick={handleLogin}
               disabled={isLoading}
-              className="w-full mt-8 px-6 py-3 text-white font-bold rounded-xl transition-all duration-300 shadow-lg hover:shadow-2xl hover:shadow-orange-200 hover:scale-105 active:scale-95 disabled:opacity-75 flex items-center justify-center gap-2 animate-fade-in animation-delay-400 group relative overflow-hidden"
+              className="w-full mt-6 px-6 py-3 text-white font-bold rounded-xl transition-all duration-300 shadow-lg hover:shadow-2xl hover:shadow-emerald-300/50 hover:scale-[1.02] active:scale-95 disabled:opacity-75 flex items-center justify-center gap-2 animate-fade-in animation-delay-400 group relative overflow-hidden"
               style={{
-                background: "linear-gradient(to right, #FF4B5C, #FF4B5C)",
+                background: "linear-gradient(to right, #06C168, #059B52, #04753E)",
               }}
             >
               <div className="absolute inset-0 bg-white/20 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
@@ -263,18 +300,18 @@ export default function Login() {
                   type="button"
                   onClick={() => navigate("/signup")}
                   className="font-semibold transition-colors duration-300 relative group"
-                  style={{ color: "#FF4B5C" }}
+                  style={{ color: "#059B52" }}
                 >
                   Sign up here
                   <span
                     className="absolute bottom-0 left-0 w-0 h-0.5 group-hover:w-full transition-all duration-300"
-                    style={{ background: "#FF6A00" }}
+                    style={{ background: "#06C168" }}
                   ></span>
                 </button>
               </p>
               <button
                 type="button"
-                className="text-gray-500 hover:text-orange-500 text-sm transition-colors duration-300 w-full"
+                className="text-gray-500 hover:text-emerald-600 text-sm transition-colors duration-300 w-full"
               >
                 Forgot password?
               </button>
@@ -282,16 +319,6 @@ export default function Login() {
           </form>
         </div>
       </div>
-
-      {/* Floating accent elements */}
-      <div
-        className="fixed top-6 right-6 w-2 h-2 rounded-full animate-float"
-        style={{ animationDelay: "0s", background: "#FF4B5C" }}
-      ></div>
-      <div
-        className="fixed bottom-6 left-6 w-2 h-2 rounded-full animate-float"
-        style={{ animationDelay: "1s", background: "#FF6A00" }}
-      ></div>
 
       {/* Custom animations */}
       <style>{`
@@ -384,10 +411,6 @@ export default function Login() {
           animation-delay: 2s;
         }
 
-        .animation-delay-4000 {
-          animation-delay: 4s;
-        }
-
         .animation-delay-200 {
           animation-delay: 200ms;
         }
@@ -426,10 +449,6 @@ export default function Login() {
 
         .animate-shake {
           animation: shake 0.5s ease-in-out;
-        }
-
-        .animate-float {
-          animation: float 3s ease-in-out infinite;
         }
       `}</style>
     </div>

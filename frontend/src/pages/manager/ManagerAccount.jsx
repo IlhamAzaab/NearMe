@@ -324,7 +324,7 @@ const ManagerAccount = () => {
 
         {/* Version info */}
         <p className="text-center text-[10px] text-gray-300 font-medium pb-4">
-          NearMe Manager v1.0
+          Meezo Manager v1.0
         </p>
       </div>
 

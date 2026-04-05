@@ -270,7 +270,7 @@ export default function CompleteProfile() {
       <AnimatedAlert alert={alert} visible={visible} />
 
       {isTransitioning && (
-        <div className="fixed inset-0 z-50 bg-linear-to-br from-rose-500 via-red-500 to-orange-500">
+        <div className="fixed inset-0 z-50 bg-linear-to-br from-emerald-600 via-red-500 to-green-500">
           <div className="absolute inset-0 flex flex-col items-center justify-center px-6 text-center">
             <div className="w-28 h-28 rounded-3xl bg-white/90 p-4 shadow-2xl mb-6 animate-pulse">
               <img
@@ -306,9 +306,9 @@ export default function CompleteProfile() {
       )}
 
       <div className="max-w-3xl mx-auto px-4 py-10">
-        <div className="bg-white/90 backdrop-blur-md border border-rose-100 rounded-3xl shadow-[0_20px_70px_-30px_rgba(255,75,92,0.6)] p-6 sm:p-8">
+        <div className="bg-white/90 backdrop-blur-md border border-emerald-100 rounded-3xl shadow-[0_20px_70px_-30px_rgba(255,75,92,0.6)] p-6 sm:p-8">
           <div className="mb-6">
-            <p className="text-xs uppercase tracking-[0.2em] text-rose-500 font-semibold mb-2">
+            <p className="text-xs uppercase tracking-[0.2em] text-emerald-600 font-semibold mb-2">
               Customer Onboarding
             </p>
             <h1 className="text-3xl font-extrabold text-gray-900 mb-2">
@@ -318,9 +318,9 @@ export default function CompleteProfile() {
               Step {step} of 2 -{" "}
               {step === 1 ? "Basic details" : "Pin your delivery location"}
             </p>
-            <div className="mt-4 w-full bg-rose-100 rounded-full h-2 overflow-hidden">
+            <div className="mt-4 w-full bg-emerald-100 rounded-full h-2 overflow-hidden">
               <div
-                className="h-full bg-linear-to-r from-rose-500 to-orange-500 transition-all duration-500"
+                className="h-full bg-linear-to-r from-emerald-600 to-green-500 transition-all duration-500"
                 style={{ width: `${stepProgress}%` }}
               />
             </div>
@@ -341,7 +341,7 @@ export default function CompleteProfile() {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="Your full name"
-                  className="w-full px-4 py-3 border border-rose-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-transparent"
+                  className="w-full px-4 py-3 border border-emerald-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                   required
                 />
               </div>
@@ -359,7 +359,7 @@ export default function CompleteProfile() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@example.com"
-                  className="w-full px-4 py-3 border border-rose-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-transparent"
+                  className="w-full px-4 py-3 border border-emerald-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                   required
                 />
               </div>
@@ -377,7 +377,7 @@ export default function CompleteProfile() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="At least 6 characters"
-                  className="w-full px-4 py-3 border border-rose-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-transparent"
+                  className="w-full px-4 py-3 border border-emerald-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                   autoComplete="new-password"
                   required
                 />
@@ -396,7 +396,7 @@ export default function CompleteProfile() {
                   value={city}
                   onChange={(e) => setCity(e.target.value)}
                   placeholder="Start typing your city"
-                  className="w-full px-4 py-3 border border-rose-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-transparent"
+                  className="w-full px-4 py-3 border border-emerald-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                   required
                 />
                 <datalist id="city-list">
@@ -408,14 +408,14 @@ export default function CompleteProfile() {
 
               <button
                 type="submit"
-                className="w-full py-3 px-6 bg-linear-to-r from-rose-500 to-orange-500 hover:from-rose-600 hover:to-orange-600 text-white font-semibold rounded-xl transition-all duration-300"
+                className="w-full py-3 px-6 bg-linear-to-r from-emerald-600 to-green-500 hover:from-rose-600 hover:to-green-600 text-white font-semibold rounded-xl transition-all duration-300"
               >
                 Continue to Map
               </button>
             </form>
           ) : (
             <div className="space-y-5">
-              <div className="flex items-start justify-between gap-3 p-4 rounded-2xl bg-rose-50 border border-rose-100">
+              <div className="flex items-start justify-between gap-3 p-4 rounded-2xl bg-rose-50 border border-emerald-100">
                 <div>
                   <p className="text-sm font-semibold text-gray-800">{name}</p>
                   <p className="text-xs text-gray-600">{email}</p>
@@ -444,7 +444,7 @@ export default function CompleteProfile() {
                   </button>
                 </div>
 
-                <div className="w-full h-80 rounded-2xl overflow-hidden border border-rose-200 shadow-sm">
+                <div className="w-full h-80 rounded-2xl overflow-hidden border border-emerald-200 shadow-sm">
                   <MapContainer
                     center={position}
                     zoom={15}
@@ -463,8 +463,8 @@ export default function CompleteProfile() {
                   </MapContainer>
                 </div>
 
-                <div className="p-4 rounded-2xl bg-orange-50 border border-orange-100 space-y-1">
-                  <p className="text-xs uppercase tracking-wide text-orange-700 font-semibold">
+                <div className="p-4 rounded-2xl bg-green-50 border border-green-100 space-y-1">
+                  <p className="text-xs uppercase tracking-wide text-green-700 font-semibold">
                     Pinned Coordinates
                   </p>
                   <p className="text-sm text-gray-700">
@@ -482,7 +482,7 @@ export default function CompleteProfile() {
                 type="button"
                 onClick={handleSubmitProfile}
                 disabled={loading || resolvingAddress}
-                className="w-full py-3 px-6 bg-linear-to-r from-rose-500 to-orange-500 hover:from-rose-600 hover:to-orange-600 text-white font-semibold rounded-xl transition-all duration-300 disabled:opacity-70"
+                className="w-full py-3 px-6 bg-linear-to-r from-emerald-600 to-green-500 hover:from-rose-600 hover:to-green-600 text-white font-semibold rounded-xl transition-all duration-300 disabled:opacity-70"
               >
                 {loading ? "Saving..." : "Finish Profile"}
               </button>

@@ -136,7 +136,7 @@ const Splash = () => {
           </div>
 
           <h1 className="text-5xl font-bold bg-gradient-to-r from-green-500 via-emerald-500 to-green-500 bg-clip-text text-transparent mb-4 animate-fade-in tracking-tight">
-            Near Me
+            NearMe
           </h1>
           <p className="text-gray-500 text-lg animate-fade-in animation-delay-100">
             Fastest delivery at your doorstep

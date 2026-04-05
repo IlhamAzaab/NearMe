@@ -185,8 +185,8 @@ const FoodDetail = () => {
       {loading ? (
         <div className="flex flex-col items-center justify-center py-32">
           <div className="relative">
-            <div className="w-16 h-16 border-4 border-orange-100 rounded-full"></div>
-            <div className="absolute top-0 left-0 w-16 h-16 border-4 border-[#FF7A00] border-t-transparent rounded-full animate-spin"></div>
+            <div className="w-16 h-16 border-4 border-green-100 rounded-full"></div>
+            <div className="absolute top-0 left-0 w-16 h-16 border-4 border-[#06C168] border-t-transparent rounded-full animate-spin"></div>
           </div>
           <p className="mt-4 text-gray-500 text-sm font-medium">
             Loading delicious details...
@@ -202,7 +202,7 @@ const FoodDetail = () => {
             <p className="text-sm mb-4">{error}</p>
             <button
               onClick={() => navigate(-1)}
-              className="px-6 py-3 bg-[#FF7A00] text-white font-semibold rounded-full hover:bg-orange-600 transition-all shadow-lg shadow-orange-200"
+              className="px-6 py-3 bg-[#06C168] text-white font-semibold rounded-full hover:bg-green-600 transition-all shadow-lg shadow-green-200"
             >
               Go Back
             </button>
@@ -213,7 +213,7 @@ const FoodDetail = () => {
           {/* Food Hero Card */}
           <div className="bg-white rounded-2xl shadow-md overflow-hidden mb-4">
             {/* Food Image */}
-            <div className="relative h-56 sm:h-64 bg-gradient-to-br from-orange-100 to-orange-50">
+            <div className="relative h-56 sm:h-64 bg-gradient-to-br from-green-100 to-green-50">
               {food.image_url ? (
                 <img
                   src={food.image_url}
@@ -268,7 +268,7 @@ const FoodDetail = () => {
 
               {/* Restaurant Badge */}
               <div className="absolute bottom-3 left-3 bg-white/90 backdrop-blur-sm px-3 py-1.5 rounded-xl shadow-md">
-                <p className="text-[#FF7A00] font-semibold text-xs">
+                <p className="text-[#06C168] font-semibold text-xs">
                   {restaurant?.restaurant_name}
                 </p>
               </div>
@@ -300,8 +300,8 @@ const FoodDetail = () => {
                 onClick={() => setSelectedSize("regular")}
                 className={`p-3 rounded-xl cursor-pointer transition-all ${
                   selectedSize === "regular"
-                    ? "bg-orange-50 border-2 border-[#FF7A00] shadow-sm"
-                    : "bg-gray-50 border-2 border-transparent hover:border-orange-200"
+                    ? "bg-green-50 border-2 border-[#06C168] shadow-sm"
+                    : "bg-gray-50 border-2 border-transparent hover:border-green-200"
                 }`}
               >
                 <div className="flex justify-between items-center">
@@ -309,7 +309,7 @@ const FoodDetail = () => {
                     <div
                       className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
                         selectedSize === "regular"
-                          ? "border-[#FF7A00] bg-[#FF7A00]"
+                          ? "border-[#06C168] bg-[#06C168]"
                           : "border-gray-300"
                       }`}
                     >
@@ -349,7 +349,7 @@ const FoodDetail = () => {
                         </div>
                       </div>
                     ) : (
-                      <span className="text-lg font-bold text-[#FF7A00]">
+                      <span className="text-lg font-bold text-[#06C168]">
                         {formatPrice(food.regular_price)}
                       </span>
                     )}
@@ -363,8 +363,8 @@ const FoodDetail = () => {
                   onClick={() => setSelectedSize("large")}
                   className={`p-3 rounded-xl cursor-pointer transition-all ${
                     selectedSize === "large"
-                      ? "bg-orange-50 border-2 border-[#FF7A00] shadow-sm"
-                      : "bg-gray-50 border-2 border-transparent hover:border-orange-200"
+                      ? "bg-green-50 border-2 border-[#06C168] shadow-sm"
+                      : "bg-gray-50 border-2 border-transparent hover:border-green-200"
                   }`}
                 >
                   <div className="flex justify-between items-center">
@@ -372,7 +372,7 @@ const FoodDetail = () => {
                       <div
                         className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
                           selectedSize === "large"
-                            ? "border-[#FF7A00] bg-[#FF7A00]"
+                            ? "border-[#06C168] bg-[#06C168]"
                             : "border-gray-300"
                         }`}
                       >
@@ -412,7 +412,7 @@ const FoodDetail = () => {
                           </div>
                         </div>
                       ) : (
-                        <span className="text-lg font-bold text-[#FF7A00]">
+                        <span className="text-lg font-bold text-[#06C168]">
                           {formatPrice(food.extra_price)}
                         </span>
                       )}
@@ -433,16 +433,16 @@ const FoodDetail = () => {
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                  className="w-10 h-10 rounded-xl bg-gray-100 hover:bg-orange-50 flex items-center justify-center transition-all font-bold text-lg text-gray-700 hover:text-[#FF7A00]"
+                  className="w-10 h-10 rounded-xl bg-gray-100 hover:bg-green-50 flex items-center justify-center transition-all font-bold text-lg text-gray-700 hover:text-[#06C168]"
                 >
                   −
                 </button>
-                <span className="text-2xl font-bold text-[#FF7A00] min-w-[40px] text-center">
+                <span className="text-2xl font-bold text-[#06C168] min-w-[40px] text-center">
                   {quantity}
                 </span>
                 <button
                   onClick={() => setQuantity(quantity + 1)}
-                  className="w-10 h-10 rounded-xl bg-[#FF7A00] hover:bg-orange-600 flex items-center justify-center transition-all font-bold text-lg text-white shadow-md shadow-orange-200"
+                  className="w-10 h-10 rounded-xl bg-[#06C168] hover:bg-green-600 flex items-center justify-center transition-all font-bold text-lg text-white shadow-md shadow-green-200"
                 >
                   +
                 </button>
@@ -453,13 +453,13 @@ const FoodDetail = () => {
           {/* Total & Actions Card */}
           <div className="bg-white rounded-2xl shadow-md overflow-hidden">
             {/* Total Price */}
-            <div className="p-4 bg-gradient-to-r from-orange-50 to-orange-100/50 border-b border-orange-100">
+            <div className="p-4 bg-gradient-to-r from-green-50 to-green-100/50 border-b border-green-100">
               <div className="flex justify-between items-center">
                 <div>
                   <span className="text-gray-500 text-xs">Total Price</span>
                   <p className="text-xs text-gray-400">{quantity} item(s)</p>
                 </div>
-                <span className="text-2xl font-bold text-[#FF7A00]">
+                <span className="text-2xl font-bold text-[#06C168]">
                   {formatPrice(
                     (selectedSize === "large" && food.extra_price
                       ? food.extra_offer_price || food.extra_price
@@ -494,7 +494,7 @@ const FoodDetail = () => {
               <button
                 onClick={() => addToCart()}
                 disabled={addingToCart || !food.is_available}
-                className="w-full py-3 bg-[#FF7A00] text-white font-bold rounded-xl hover:bg-orange-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-base shadow-md shadow-orange-200 hover:-translate-y-0.5"
+                className="w-full py-3 bg-[#06C168] text-white font-bold rounded-xl hover:bg-green-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-base shadow-md shadow-green-200 hover:-translate-y-0.5"
               >
                 {addingToCart ? (
                   <>
@@ -524,11 +524,11 @@ const FoodDetail = () => {
               <button
                 onClick={() => addToCart({ goToCheckout: true })}
                 disabled={addingToCart || !food.is_available}
-                className="w-full py-3 bg-white text-[#FF7A00] font-bold rounded-xl border-2 border-[#FF7A00] hover:bg-orange-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-base"
+                className="w-full py-3 bg-white text-[#06C168] font-bold rounded-xl border-2 border-[#06C168] hover:bg-green-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-base"
               >
                 {addingToCart ? (
                   <>
-                    <div className="w-5 h-5 border-2 border-[#FF7A00] border-t-transparent rounded-full animate-spin"></div>
+                    <div className="w-5 h-5 border-2 border-[#06C168] border-t-transparent rounded-full animate-spin"></div>
                     Processing...
                   </>
                 ) : (

@@ -197,7 +197,7 @@ const Cart = () => {
           {/* Logo and Title Row */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-[#FF7A00] rounded-xl flex items-center justify-center shadow-lg shadow-orange-200">
+              <div className="w-10 h-10 bg-[#06C168] rounded-xl flex items-center justify-center shadow-lg shadow-green-200">
                 <span className="text-white text-lg font-bold">N</span>
               </div>
               <div>
@@ -211,9 +211,9 @@ const Cart = () => {
             </div>
 
             {/* Cart Icon with Badge */}
-            <div className="relative p-2.5 bg-orange-50 rounded-full">
+            <div className="relative p-2.5 bg-green-50 rounded-full">
               <svg
-                className="w-5 h-5 text-[#FF7A00]"
+                className="w-5 h-5 text-[#06C168]"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -226,7 +226,7 @@ const Cart = () => {
                 />
               </svg>
               {cartCount > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 w-5 h-5 bg-[#FF7A00] text-white text-xs font-bold rounded-full flex items-center justify-center">
+                <span className="absolute -top-0.5 -right-0.5 w-5 h-5 bg-[#06C168] text-white text-xs font-bold rounded-full flex items-center justify-center">
                   {cartCount > 9 ? "9+" : cartCount}
                 </span>
               )}
@@ -264,7 +264,7 @@ const Cart = () => {
             </p>
             <button
               onClick={() => navigate("/login")}
-              className="px-8 py-3.5 bg-[#FF7A00] text-white font-semibold rounded-full hover:bg-orange-600 transition-all shadow-lg shadow-orange-200"
+              className="px-8 py-3.5 bg-[#06C168] text-white font-semibold rounded-full hover:bg-green-600 transition-all shadow-lg shadow-green-200"
             >
               Login
             </button>
@@ -272,8 +272,8 @@ const Cart = () => {
         ) : loading ? (
           <div className="flex flex-col items-center justify-center py-20">
             <div className="relative">
-              <div className="w-16 h-16 border-4 border-orange-100 rounded-full"></div>
-              <div className="absolute top-0 left-0 w-16 h-16 border-4 border-[#FF7A00] border-t-transparent rounded-full animate-spin"></div>
+              <div className="w-16 h-16 border-4 border-green-100 rounded-full"></div>
+              <div className="absolute top-0 left-0 w-16 h-16 border-4 border-[#06C168] border-t-transparent rounded-full animate-spin"></div>
             </div>
             <p className="mt-4 text-gray-500 text-sm font-medium">
               Loading your cart...
@@ -290,14 +290,14 @@ const Cart = () => {
             {/* Friendly Illustration */}
             <div className="relative mb-8">
               {/* Background circle */}
-              <div className="w-48 h-48 bg-orange-50 rounded-full flex items-center justify-center">
+              <div className="w-48 h-48 bg-green-50 rounded-full flex items-center justify-center">
                 {/* Shopping bag with food illustration */}
                 <svg viewBox="0 0 120 120" className="w-32 h-32">
                   {/* Shopping bag */}
                   <path
                     d="M30 45 L30 95 C30 100 35 105 40 105 L80 105 C85 105 90 100 90 95 L90 45 Z"
                     fill="#FFEDD5"
-                    stroke="#FF7A00"
+                    stroke="#06C168"
                     strokeWidth="2"
                   />
 
@@ -305,7 +305,7 @@ const Cart = () => {
                   <path
                     d="M45 45 L45 35 C45 25 55 20 60 20 C65 20 75 25 75 35 L75 45"
                     fill="none"
-                    stroke="#FF7A00"
+                    stroke="#06C168"
                     strokeWidth="3"
                     strokeLinecap="round"
                   />
@@ -375,19 +375,19 @@ const Cart = () => {
 
               {/* Decorative floating elements */}
               <div
-                className="absolute -top-2 -right-2 w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center animate-bounce"
+                className="absolute -top-2 -right-2 w-8 h-8 bg-green-100 rounded-full flex items-center justify-center animate-bounce"
                 style={{ animationDelay: "0s", animationDuration: "2s" }}
               >
                 <span className="text-lg">🍕</span>
               </div>
               <div
-                className="absolute -bottom-1 -left-3 w-7 h-7 bg-orange-100 rounded-full flex items-center justify-center animate-bounce"
+                className="absolute -bottom-1 -left-3 w-7 h-7 bg-green-100 rounded-full flex items-center justify-center animate-bounce"
                 style={{ animationDelay: "0.5s", animationDuration: "2.5s" }}
               >
                 <span className="text-sm">🍔</span>
               </div>
               <div
-                className="absolute top-1/2 -right-4 w-6 h-6 bg-orange-100 rounded-full flex items-center justify-center animate-bounce"
+                className="absolute top-1/2 -right-4 w-6 h-6 bg-green-100 rounded-full flex items-center justify-center animate-bounce"
                 style={{ animationDelay: "1s", animationDuration: "3s" }}
               >
                 <span className="text-xs">🌮</span>
@@ -406,7 +406,7 @@ const Cart = () => {
             {/* Primary Action Button */}
             <button
               onClick={() => navigate("/")}
-              className="px-8 py-3.5 bg-[#FF7A00] text-white font-semibold rounded-full hover:bg-orange-600 transition-all shadow-lg shadow-orange-200 flex items-center gap-2 mb-4"
+              className="px-8 py-3.5 bg-[#06C168] text-white font-semibold rounded-full hover:bg-green-600 transition-all shadow-lg shadow-green-200 flex items-center gap-2 mb-4"
             >
               <svg
                 className="w-5 h-5"
@@ -427,7 +427,7 @@ const Cart = () => {
             {/* Secondary Action */}
             <button
               onClick={() => navigate("/")}
-              className="text-[#FF7A00] font-medium hover:text-orange-600 transition-colors flex items-center gap-1"
+              className="text-[#06C168] font-medium hover:text-green-600 transition-colors flex items-center gap-1"
             >
               <svg
                 className="w-4 h-4"
@@ -451,7 +451,7 @@ const Cart = () => {
             {/* Back Button */}
             <button
               onClick={() => setSelectedCartId(null)}
-              className="inline-flex items-center gap-2 text-[#FF7A00] font-semibold hover:text-orange-600 transition-colors"
+              className="inline-flex items-center gap-2 text-[#06C168] font-semibold hover:text-green-600 transition-colors"
             >
               <svg
                 className="w-5 h-5"
@@ -471,7 +471,7 @@ const Cart = () => {
 
             {/* Restaurant Header Card */}
             <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
-              <div className="bg-gradient-to-r from-[#FF7A00] to-orange-500 p-5 text-white">
+              <div className="bg-gradient-to-r from-[#06C168] to-green-500 p-5 text-white">
                 <div className="flex items-center gap-4">
                   {selectedCart.restaurant.logo_url ? (
                     <img
@@ -521,7 +521,7 @@ const Cart = () => {
                           className="w-full h-full object-cover rounded-xl"
                         />
                       ) : (
-                        <div className="w-full h-full bg-gradient-to-br from-orange-400 to-orange-500 rounded-xl flex items-center justify-center">
+                        <div className="w-full h-full bg-gradient-to-br from-green-400 to-green-500 rounded-xl flex items-center justify-center">
                           <svg
                             className="w-8 h-8 text-white opacity-60"
                             fill="currentColor"
@@ -539,7 +539,7 @@ const Cart = () => {
                         {item.food_name}
                       </h3>
                       <div className="flex items-center gap-2 mt-1">
-                        <span className="px-2 py-0.5 bg-orange-100 text-[#FF7A00] text-xs font-medium rounded-lg">
+                        <span className="px-2 py-0.5 bg-green-100 text-[#06C168] text-xs font-medium rounded-lg">
                           {item.size.charAt(0).toUpperCase() +
                             item.size.slice(1)}
                         </span>
@@ -549,7 +549,7 @@ const Cart = () => {
                           </span>
                         )}
                       </div>
-                      <p className="text-sm text-[#FF7A00] font-semibold mt-1">
+                      <p className="text-sm text-[#06C168] font-semibold mt-1">
                         {formatPrice(item.unit_price)}
                       </p>
                     </div>
@@ -587,7 +587,7 @@ const Cart = () => {
                           updateQuantity(item.id, item.quantity + 1)
                         }
                         disabled={updatingItem === item.id}
-                        className="w-7 h-7 rounded-full bg-[#FF7A00] hover:bg-orange-600 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition"
+                        className="w-7 h-7 rounded-full bg-[#06C168] hover:bg-green-600 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition"
                       >
                         <svg
                           className="w-3 h-3 text-white"
@@ -659,7 +659,7 @@ const Cart = () => {
                   </div>
                   <div className="text-right">
                     <p className="text-xs text-gray-500">Cart Total</p>
-                    <p className="text-2xl font-bold text-[#FF7A00]">
+                    <p className="text-2xl font-bold text-[#06C168]">
                       {formatPrice(selectedCart.cart_total)}
                     </p>
                   </div>
@@ -672,7 +672,7 @@ const Cart = () => {
                         `/restaurant/${selectedCart.restaurant_id}/foods`,
                       )
                     }
-                    className="flex-1 px-5 py-3.5 border-2 border-[#FF7A00] text-[#FF7A00] font-semibold rounded-full hover:bg-orange-50 transition"
+                    className="flex-1 px-5 py-3.5 border-2 border-[#06C168] text-[#06C168] font-semibold rounded-full hover:bg-green-50 transition"
                   >
                     Add More Items
                   </button>
@@ -681,10 +681,10 @@ const Cart = () => {
                     disabled={selectedCart.items?.some(
                       (item) => !item.is_available,
                     )}
-                    className={`flex-1 px-5 py-3.5 font-semibold rounded-full transition shadow-lg shadow-orange-200 flex items-center justify-center gap-2 ${
+                    className={`flex-1 px-5 py-3.5 font-semibold rounded-full transition shadow-lg shadow-green-200 flex items-center justify-center gap-2 ${
                       selectedCart.items?.some((item) => !item.is_available)
                         ? "bg-gray-300 text-gray-500 cursor-not-allowed shadow-none"
-                        : "bg-[#FF7A00] text-white hover:bg-orange-600"
+                        : "bg-[#06C168] text-white hover:bg-green-600"
                     }`}
                   >
                     Checkout
@@ -734,7 +734,7 @@ const Cart = () => {
                         className="w-14 h-14 rounded-xl object-cover"
                       />
                     ) : (
-                      <div className="w-14 h-14 rounded-xl bg-orange-50 text-[#FF7A00] font-bold text-xl flex items-center justify-center">
+                      <div className="w-14 h-14 rounded-xl bg-green-50 text-[#06C168] font-bold text-xl flex items-center justify-center">
                         {cart.restaurant.restaurant_name.charAt(0)}
                       </div>
                     )}
@@ -760,7 +760,7 @@ const Cart = () => {
                       <p className="text-sm text-gray-500">
                         {cart.restaurant.city}
                       </p>
-                      <p className="text-sm font-semibold text-[#FF7A00]">
+                      <p className="text-sm font-semibold text-[#06C168]">
                         {cart.item_count} item{cart.item_count !== 1 ? "s" : ""}{" "}
                         • {formatPrice(cart.cart_total)}
                       </p>
@@ -771,7 +771,7 @@ const Cart = () => {
                   <div className="px-4 pb-4 flex gap-2">
                     <button
                       onClick={() => setSelectedCartId(cart.id)}
-                      className="flex-1 px-4 py-2.5 bg-[#FF7A00] text-white font-semibold rounded-full hover:bg-orange-600 transition shadow-md shadow-orange-200"
+                      className="flex-1 px-4 py-2.5 bg-[#06C168] text-white font-semibold rounded-full hover:bg-green-600 transition shadow-md shadow-green-200"
                     >
                       View items
                     </button>
@@ -780,7 +780,7 @@ const Cart = () => {
                         e.stopPropagation();
                         removeCart(cart.id);
                       }}
-                      className="px-4 py-2.5 text-[#FF7A00] border-2 border-[#FF7A00] rounded-full hover:bg-orange-50 transition font-medium"
+                      className="px-4 py-2.5 text-[#06C168] border-2 border-[#06C168] rounded-full hover:bg-green-50 transition font-medium"
                     >
                       Clear
                     </button>

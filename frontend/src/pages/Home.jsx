@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import BottomNavbar from "../components/BottomNavbar";
@@ -10,93 +10,48 @@ import {
 } from "../services/restaurantDistanceService";
 import { formatRestaurantHours } from "../utils/locationUtils";
 
-// Category Icons
+const CATEGORY_IMAGES = {
+  kothu:
+    "https://images.unsplash.com/photo-1512058564366-18510be2db19?w=200&h=200&fit=crop",
+  friedrice:
+    "https://images.unsplash.com/photo-1603133872878-684f208fb84b?w=200&h=200&fit=crop",
+  biryani:
+    "https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?w=200&h=200&fit=crop",
+  parotta:
+    "https://images.unsplash.com/photo-1565557623262-b51c2513a641?w=200&h=200&fit=crop",
+  shorteats:
+    "https://images.unsplash.com/photo-1601050690597-df0568f70950?w=200&h=200&fit=crop",
+};
+
+const CATEGORY_EMOJI = {
+  kothu: "🍜",
+  friedrice: "🍚",
+  biryani: "🍛",
+  parotta: "🫓",
+  shorteats: "🍢",
+};
+
 const CategoryIcon = ({ type }) => {
-  const icons = {
-    pizza: (
-      <svg viewBox="0 0 64 64" className="w-10 h-10">
-        <path d="M32 8 L56 52 L8 52 Z" fill="#FFA726" />
-        <path d="M32 12 L52 48 L12 48 Z" fill="#FFCC80" />
-        <circle cx="28" cy="35" r="5" fill="#E53935" />
-        <circle cx="38" cy="32" r="4" fill="#E53935" />
-        <circle cx="32" cy="42" r="4" fill="#4CAF50" />
-        <circle cx="24" cy="44" r="3" fill="#8D6E63" />
-        <circle cx="40" cy="44" r="3" fill="#E53935" />
-      </svg>
-    ),
-    burger: (
-      <svg viewBox="0 0 64 64" className="w-10 h-10">
-        <ellipse cx="32" cy="20" rx="22" ry="10" fill="#8D6E63" />
-        <ellipse cx="32" cy="18" rx="20" ry="8" fill="#A1887F" />
-        <rect x="10" y="28" width="44" height="6" fill="#4CAF50" />
-        <rect x="10" y="34" width="44" height="8" fill="#795548" />
-        <rect x="10" y="42" width="44" height="4" fill="#FFC107" />
-        <rect x="10" y="46" width="44" height="4" fill="#E53935" />
-        <ellipse cx="32" cy="54" rx="22" ry="6" fill="#8D6E63" />
-        <circle cx="20" cy="16" r="1.5" fill="#FFF9C4" />
-        <circle cx="32" cy="14" r="1.5" fill="#FFF9C4" />
-        <circle cx="44" cy="16" r="1.5" fill="#FFF9C4" />
-      </svg>
-    ),
-    biryani: (
-      <svg viewBox="0 0 64 64" className="w-10 h-10">
-        <ellipse cx="32" cy="48" rx="26" ry="10" fill="#5D4037" />
-        <ellipse cx="32" cy="44" rx="24" ry="14" fill="#8D6E63" />
-        <ellipse cx="32" cy="40" rx="22" ry="12" fill="#FFF8E1" />
-        <circle cx="24" cy="38" r="3" fill="#FF7043" />
-        <circle cx="36" cy="36" r="2" fill="#66BB6A" />
-        <circle cx="28" cy="42" r="2" fill="#FFCA28" />
-        <circle cx="40" cy="40" r="3" fill="#FF7043" />
-        <circle cx="32" cy="38" r="2" fill="#66BB6A" />
-        <path
-          d="M26 28 Q28 22, 30 28"
-          stroke="#9E9E9E"
-          fill="none"
-          strokeWidth="1.5"
-        />
-        <path
-          d="M32 26 Q34 20, 36 26"
-          stroke="#9E9E9E"
-          fill="none"
-          strokeWidth="1.5"
-        />
-        <path
-          d="M38 28 Q40 22, 42 28"
-          stroke="#9E9E9E"
-          fill="none"
-          strokeWidth="1.5"
-        />
-      </svg>
-    ),
-    desserts: (
-      <svg viewBox="0 0 64 64" className="w-10 h-10">
-        <path d="M20 56 L22 30 L42 30 L44 56 Z" fill="#FFF8E1" />
-        <ellipse cx="32" cy="30" rx="12" ry="4" fill="#FFECB3" />
-        <circle cx="32" cy="22" r="12" fill="#EC407A" />
-        <circle cx="32" cy="20" r="10" fill="#F48FB1" />
-        <circle cx="28" cy="18" r="2" fill="#FFEB3B" />
-        <circle cx="36" cy="22" r="2" fill="#4CAF50" />
-        <circle cx="32" cy="16" r="2" fill="#2196F3" />
-        <circle cx="32" cy="10" r="3" fill="#E53935" />
-        <path d="M30 8 L32 4 L34 8" fill="#4CAF50" />
-      </svg>
-    ),
-    drinks: (
-      <svg viewBox="0 0 64 64" className="w-10 h-10">
-        <path d="M20 16 L24 56 L40 56 L44 16 Z" fill="#81D4FA" />
-        <ellipse cx="32" cy="16" rx="12" ry="4" fill="#B3E5FC" />
-        <ellipse cx="32" cy="52" rx="8" ry="3" fill="#4FC3F7" />
-        <circle cx="26" cy="30" r="3" fill="#FFFFFF" opacity="0.6" />
-        <circle cx="34" cy="36" r="4" fill="#FFFFFF" opacity="0.6" />
-        <circle cx="28" cy="44" r="2" fill="#FFFFFF" opacity="0.6" />
-        <rect x="42" y="12" width="4" height="20" fill="#FF7043" />
-        <circle cx="50" cy="12" r="6" fill="#FF7043" />
-        <circle cx="50" cy="12" r="4" fill="#FFAB91" />
-        <path d="M44 20 L52 16" stroke="#FF7043" strokeWidth="2" />
-      </svg>
-    ),
-  };
-  return icons[type] || icons.pizza;
+  const [failed, setFailed] = useState(false);
+  const imageUrl = CATEGORY_IMAGES[type] || CATEGORY_IMAGES.biryani;
+  const fallbackEmoji = CATEGORY_EMOJI[type] || "🍽️";
+
+  if (failed) {
+    return (
+      <div className="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center text-2xl">
+        {fallbackEmoji}
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={imageUrl}
+      alt={`${type} category`}
+      className="w-14 h-14 rounded-full object-cover"
+      onError={() => setFailed(true)}
+    />
+  );
 };
 
 const Home = () => {
@@ -116,11 +71,11 @@ const Home = () => {
 
   // Food categories
   const categories = [
-    { id: 1, name: "Pizza", type: "pizza" },
-    { id: 2, name: "Burger", type: "burger" },
+    { id: 1, name: "Kothu", type: "kothu" },
+    { id: 2, name: "Fried Rice", type: "friedrice" },
     { id: 3, name: "Biryani", type: "biryani" },
-    { id: 4, name: "Desserts", type: "desserts" },
-    { id: 5, name: "Drinks", type: "drinks" },
+    { id: 4, name: "Parotta", type: "parotta" },
+    { id: 5, name: "Short Eats", type: "shorteats" },
   ];
 
   const [selectedCategory, setSelectedCategory] = useState(null);
@@ -324,17 +279,17 @@ const Home = () => {
       {showLaunchPromoModal && launchPromo?.promotion && (
         <div className="fixed inset-0 z-70 bg-black/50 backdrop-blur-[1px] flex items-end sm:items-center justify-center p-4">
           <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden">
-            <div className="bg-linear-to-r from-[#FF7A00] to-[#FF9A3D] p-5 text-white">
+            <div className="bg-linear-to-r from-[#06C168] to-[#059B52] p-5 text-white">
               <p className="text-xs font-semibold uppercase tracking-wider opacity-90">
                 Launch Offer
               </p>
-              <h3 className="text-xl font-bold mt-1">Welcome to Near Me</h3>
+              <h3 className="text-xl font-bold mt-1">Welcome to Meezo</h3>
               <p className="text-sm mt-2 opacity-95">
                 Your first delivery gets a special fee discount.
               </p>
             </div>
             <div className="p-5 space-y-3">
-              <div className="bg-orange-50 border border-orange-100 rounded-xl p-3">
+              <div className="bg-green-50 border border-green-100 rounded-xl p-3">
                 <p className="text-sm text-gray-700">
                   Rs. {launchPromo.promotion.first_km_rate} per 1km up to {" "}
                   {launchPromo.promotion.max_km}km
@@ -353,7 +308,7 @@ const Home = () => {
                 className={`w-full py-3 rounded-xl text-sm font-bold transition-all ${
                   acknowledgingPromo
                     ? "bg-gray-200 text-gray-500"
-                    : "bg-[#FF7A00] text-white hover:bg-orange-600"
+                    : "bg-[#06C168] text-white hover:bg-green-600"
                 }`}
               >
                 {acknowledgingPromo ? "Saving..." : "OK"}
@@ -369,11 +324,11 @@ const Home = () => {
           {/* Logo and Location Row */}
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <div className="w-10 h-10 bg-[#FF7A00] rounded-xl flex items-center justify-center shadow-lg shadow-orange-200">
+              <div className="w-10 h-10 bg-[#06C168] rounded-xl flex items-center justify-center shadow-lg shadow-green-200">
                 <span className="text-white text-lg font-bold">N</span>
               </div>
               <div>
-                <h1 className="text-xl font-bold text-gray-900">Near Me</h1>
+                <h1 className="text-xl font-bold text-gray-900">Meezo</h1>
                 <div className="flex items-center gap-1 text-xs text-gray-500">
                   <svg
                     className="w-3 h-3"
@@ -470,7 +425,7 @@ const Home = () => {
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-bold text-gray-900">Category</h3>
-            <button className="text-[#FF7A00] text-sm font-medium hover:text-orange-600 transition-colors">
+            <button className="text-[#06C168] text-sm font-medium hover:text-green-600 transition-colors">
               See All
             </button>
           </div>
@@ -487,15 +442,15 @@ const Home = () => {
                 }}
                 className={`flex-shrink-0 flex flex-col items-center gap-2 p-4 rounded-2xl transition-all hover:-translate-y-1 min-w-[90px] ${
                   selectedCategory === category.id
-                    ? "bg-[#FF7A00] shadow-lg shadow-orange-200"
-                    : "bg-orange-50 hover:shadow-md"
+                    ? "bg-[#06C168] shadow-lg shadow-green-200"
+                    : "bg-green-50 hover:shadow-md"
                 }`}
               >
                 <div className="w-14 h-14 flex items-center justify-center">
                   <CategoryIcon type={category.type} />
                 </div>
                 <span
-                  className={`text-sm font-medium ${selectedCategory === category.id ? "text-white" : "text-[#FF7A00]"}`}
+                  className={`text-sm font-medium ${selectedCategory === category.id ? "text-white" : "text-[#06C168]"}`}
                 >
                   {category.name}
                 </span>
@@ -510,8 +465,8 @@ const Home = () => {
             onClick={() => setActiveTab("restaurant")}
             className={`flex-1 py-3.5 px-6 rounded-full font-semibold text-sm transition-all duration-300 ${
               activeTab === "restaurant"
-                ? "bg-[#FF7A00] text-white shadow-lg shadow-orange-300/40"
-                : "bg-white text-[#FF7A00] border-2 border-[#FF7A00] hover:bg-orange-50"
+                ? "bg-[#06C168] text-white shadow-lg shadow-green-300/40"
+                : "bg-white text-[#06C168] border-2 border-[#06C168] hover:bg-green-50"
             }`}
           >
             Restaurants
@@ -520,8 +475,8 @@ const Home = () => {
             onClick={() => setActiveTab("food")}
             className={`flex-1 py-3.5 px-6 rounded-full font-semibold text-sm transition-all duration-300 ${
               activeTab === "food"
-                ? "bg-[#FF7A00] text-white shadow-lg shadow-orange-300/40"
-                : "bg-white text-[#FF7A00] border-2 border-[#FF7A00] hover:bg-orange-50"
+                ? "bg-[#06C168] text-white shadow-lg shadow-green-300/40"
+                : "bg-white text-[#06C168] border-2 border-[#06C168] hover:bg-green-50"
             }`}
           >
             Food Items
@@ -531,8 +486,8 @@ const Home = () => {
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20">
             <div className="relative">
-              <div className="w-16 h-16 border-4 border-orange-100 rounded-full"></div>
-              <div className="absolute top-0 left-0 w-16 h-16 border-4 border-[#FF7A00] border-t-transparent rounded-full animate-spin"></div>
+              <div className="w-16 h-16 border-4 border-green-100 rounded-full"></div>
+              <div className="absolute top-0 left-0 w-16 h-16 border-4 border-[#06C168] border-t-transparent rounded-full animate-spin"></div>
             </div>
             <p className="mt-4 text-gray-500 text-sm font-medium">
               Finding delicious options...
@@ -621,7 +576,7 @@ const Home = () => {
                       )}
                     </div>
                   </div>
-                  <div className="absolute top-4 right-4 px-4 py-1.5 bg-[#FF7A00] rounded-full text-xs font-semibold text-white shadow-lg">
+                  <div className="absolute top-4 right-4 px-4 py-1.5 bg-[#06C168] rounded-full text-xs font-semibold text-white shadow-lg">
                     ⭐ Featured
                   </div>
                 </div>
@@ -634,7 +589,7 @@ const Home = () => {
                 <h3 className="text-lg font-bold text-gray-900">
                   Nearby Restaurants
                 </h3>
-                <button className="text-[#FF7A00] text-sm font-medium hover:text-orange-600 transition-colors">
+                <button className="text-[#06C168] text-sm font-medium hover:text-green-600 transition-colors">
                   See All
                 </button>
               </div>
@@ -672,8 +627,8 @@ const Home = () => {
                             className="w-full h-full object-cover"
                           />
                         ) : (
-                          <div className="w-full h-full bg-orange-100 flex items-center justify-center">
-                            <span className="text-orange-500 text-xs font-bold">
+                          <div className="w-full h-full bg-green-100 flex items-center justify-center">
+                            <span className="text-green-500 text-xs font-bold">
                               {r.restaurant_name?.charAt(0) || "R"}
                             </span>
                           </div>
@@ -971,7 +926,7 @@ const Home = () => {
 
                     {food.is_available && (
                       <button
-                        className="absolute bottom-2 right-2 w-9 h-9 bg-white text-[#FF7A00] rounded-full flex items-center justify-center shadow-lg hover:bg-[#FF7A00] hover:text-white transition-colors"
+                        className="absolute bottom-2 right-2 w-9 h-9 bg-white text-[#06C168] rounded-full flex items-center justify-center shadow-lg hover:bg-[#06C168] hover:text-white transition-colors"
                         onClick={(e) => {
                           e.stopPropagation();
                           // Add to cart logic
@@ -1001,7 +956,7 @@ const Home = () => {
                       {food.restaurants?.restaurant_name || "Restaurant"}
                     </p>
                     <div className="flex items-center justify-between">
-                      <span className="font-bold text-[#FF7A00]">
+                      <span className="font-bold text-[#06C168]">
                         Rs. {food.price}
                       </span>
                       {food.prep_time && (
@@ -1053,7 +1008,7 @@ const Home = () => {
       {cartCount > 0 && (
         <button
           onClick={() => navigate("/cart")}
-          className="fixed bottom-24 right-4 bg-[#FF7A00] text-white px-5 py-3 rounded-full shadow-xl shadow-orange-300/40 flex items-center gap-2 hover:bg-orange-600 transition-all z-50 hover:-translate-y-1"
+          className="fixed bottom-24 right-4 bg-[#06C168] text-white px-5 py-3 rounded-full shadow-xl shadow-green-300/40 flex items-center gap-2 hover:bg-green-600 transition-all z-50 hover:-translate-y-1"
         >
           <svg
             className="w-5 h-5"

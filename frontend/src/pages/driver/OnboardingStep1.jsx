@@ -4,7 +4,7 @@ import { useMutation } from "@tanstack/react-query";
 import { API_URL } from "../../config";
 import OnboardingStepProgress from "../../components/driver/OnboardingStepProgress";
 import FloatingField from "../../components/driver/FloatingField";
-import meezoLogo from "../../assets/NearMeLogoArtboard5.svg";
+import meezoLogo from "../../assets/MeezoLogo.svg";
 
 export default function OnboardingStep1() {
   const navigate = useNavigate();

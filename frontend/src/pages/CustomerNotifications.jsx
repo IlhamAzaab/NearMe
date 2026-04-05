@@ -148,7 +148,7 @@ export default function CustomerNotifications() {
                 </svg>
               </button>
               <div className="flex items-center gap-2">
-                <div className="w-10 h-10 bg-[#FF7A00] rounded-xl flex items-center justify-center shadow-lg shadow-orange-200">
+                <div className="w-10 h-10 bg-[#06C168] rounded-xl flex items-center justify-center shadow-lg shadow-green-200">
                   <span className="text-white text-lg font-bold">N</span>
                 </div>
                 <div>
@@ -165,7 +165,7 @@ export default function CustomerNotifications() {
             </div>
 
             {/* Bell Icon */}
-            <div className="w-10 h-10 bg-orange-50 rounded-full flex items-center justify-center">
+            <div className="w-10 h-10 bg-green-50 rounded-full flex items-center justify-center">
               <span className="text-xl">🔔</span>
             </div>
           </div>
@@ -208,7 +208,7 @@ export default function CustomerNotifications() {
           </div>
         ) : notifications.length === 0 ? (
           <div className="text-center py-16">
-            <div className="w-24 h-24 bg-orange-50 rounded-full flex items-center justify-center mx-auto mb-6">
+            <div className="w-24 h-24 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-6">
               <span className="text-5xl">🔔</span>
             </div>
             <h3 className="text-xl font-bold text-gray-900 mb-2">
@@ -237,14 +237,14 @@ export default function CustomerNotifications() {
                   case "order_delivered":
                     return "bg-green-500";
                   default:
-                    return "bg-[#FF7A00]";
+                    return "bg-[#06C168]";
                 }
               };
 
               return (
                 <div
                   key={n.id}
-                  className="bg-white rounded-2xl shadow-md hover:shadow-lg transition-all p-4 border-l-4 border-[#FF7A00]"
+                  className="bg-white rounded-2xl shadow-md hover:shadow-lg transition-all p-4 border-l-4 border-[#06C168]"
                 >
                   <div className="flex items-start gap-4">
                     {/* Icon */}
@@ -270,8 +270,8 @@ export default function CustomerNotifications() {
 
                       {/* Driver Details for driver_assigned notifications */}
                       {notifType === "driver_assigned" && metadata.driver && (
-                        <div className="mt-3 p-3 bg-orange-50 rounded-xl">
-                          <p className="text-sm font-semibold text-[#FF7A00] mb-2">
+                        <div className="mt-3 p-3 bg-green-50 rounded-xl">
+                          <p className="text-sm font-semibold text-[#06C168] mb-2">
                             🛵 Driver Details
                           </p>
                           <div className="space-y-1">
@@ -290,7 +290,7 @@ export default function CustomerNotifications() {
                       {/* Metadata Tags */}
                       {metadata.order_id && (
                         <div className="mt-3">
-                          <span className="px-3 py-1 bg-orange-50 rounded-full text-xs font-semibold text-[#FF7A00]">
+                          <span className="px-3 py-1 bg-green-50 rounded-full text-xs font-semibold text-[#06C168]">
                             Order #{metadata.order_id.substring(0, 8)}
                           </span>
                         </div>

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { API_URL } from "../../config";
-import nearMeLogo from "../../assets/NearMeLogoArtboard5.svg";
+import meezoLogo from "../../assets/MeezoLogo.svg";
 
 export default function DriverProfile() {
   const navigate = useNavigate();
@@ -179,8 +179,8 @@ export default function DriverProfile() {
             <div className="flex items-center gap-4">
               <div className="h-200 w-200 rounded-3xl flex items-center justify-center p-1">
                 <img
-                  src={nearMeLogo}
-                  alt="NearMe logo"
+                  src={meezoLogo}
+                  alt="Meezo logo"
                   className="h-full w-full object-contain"
                 />
               </div>
@@ -367,8 +367,8 @@ export default function DriverProfile() {
         <div className="flex flex-col items-center mb-6">
           <div className="h-70 w-200 flex items-center justify-center">
             <img
-              src={nearMeLogo}
-              alt="NearMe logo"
+              src={meezoLogo}
+              alt="Meezo logo"
               className="h-full w-full object-contain"
             />
           </div>

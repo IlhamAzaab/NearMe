@@ -159,6 +159,22 @@ export default function AccountProfile() {
     },
   });
 
+  const { data: restaurantData } = useQuery({
+    queryKey: ["admin", "restaurant", "profile"],
+    enabled: !!token && role === "admin",
+    staleTime: 2 * 60 * 1000,
+    queryFn: async () => {
+      const res = await fetch(`${API_URL}/admin/restaurant`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.message || "Failed to load restaurant details");
+      }
+      return data.restaurant;
+    },
+  });
+
   useEffect(() => {
     if (!token || role !== "admin") {
       navigate("/login");
@@ -237,6 +253,10 @@ export default function AccountProfile() {
     },
   };
   const status = statusConfig[profile?.admin_status] || statusConfig.pending;
+  const restaurantLogo =
+    restaurantData?.logo_url || profile?.restaurant?.logo_url || null;
+  const restaurantName =
+    restaurantData?.restaurant_name || profile?.restaurant_name || "Restaurant";
 
   // ── Loading skeleton ──────────────────────────────────────────────────────────
   if (loadingProfile) {
@@ -271,12 +291,20 @@ export default function AccountProfile() {
           {/* ── Avatar + Identity Card ── */}
           <Card>
             <div className="px-6 pt-6 pb-5 flex flex-col sm:flex-row items-center sm:items-start gap-5">
-              {/* Avatar */}
+              {/* Restaurant logo/avatar */}
               <div className="relative flex-shrink-0">
-                <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-green-500 to-green-700 flex items-center justify-center shadow-lg">
-                  <span className="text-3xl font-bold text-white select-none">
-                    {(profile?.email?.[0] || "A").toUpperCase()}
-                  </span>
+                <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-green-100 to-green-50 border border-green-200 flex items-center justify-center shadow-lg overflow-hidden">
+                  {restaurantLogo ? (
+                    <img
+                      src={restaurantLogo}
+                      alt={`${restaurantName} logo`}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <span className="text-2xl font-bold text-green-700 select-none">
+                      {(restaurantName?.[0] || "R").toUpperCase()}
+                    </span>
+                  )}
                 </div>
                 <div
                   className={`absolute -bottom-1.5 -right-1.5 px-2 py-0.5 rounded-full text-xs font-semibold border ${status.cls}`}
@@ -288,9 +316,12 @@ export default function AccountProfile() {
               {/* Identity */}
               <div className="flex-1 min-w-0 text-center sm:text-left">
                 <p className="text-lg font-bold text-gray-900 truncate">
-                  {profile?.email}
+                  {restaurantName}
                 </p>
                 <p className="text-xs text-gray-400 mt-0.5">Admin Account</p>
+                <p className="text-xs text-gray-500 mt-1 break-all">
+                  {profile?.email}
+                </p>
                 <div className="flex flex-wrap gap-2 mt-3 justify-center sm:justify-start">
                   <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-green-50 text-green-700 text-xs font-medium rounded-lg border border-green-100">
                     <Icon path={ICONS.shield} className="w-3 h-3" /> Admin Role
@@ -321,6 +352,11 @@ export default function AccountProfile() {
               label="Phone Number"
               value={profile?.phone}
               icon={ICONS.phone}
+            />
+            <InfoRow
+              label="Restaurant"
+              value={restaurantName}
+              icon={ICONS.store}
             />
             <InfoRow label="Account Status" value={null} icon={ICONS.shield} />
           </Card>
