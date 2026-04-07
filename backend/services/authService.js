@@ -926,7 +926,10 @@ export async function getCurrentUser(userId) {
       .eq("user_id", userId)
       .maybeSingle();
 
-    if (managerResult.error && isMissingColumnError(managerResult.error, "mobile_number")) {
+    if (
+      managerResult.error &&
+      isMissingColumnError(managerResult.error, "mobile_number")
+    ) {
       managerResult = await supabaseAdmin
         .from("managers")
         .select("email, phone")
@@ -952,7 +955,9 @@ export async function getCurrentUser(userId) {
       ? {
           ...managerResult.data,
           phone:
-            managerResult.data.phone || managerResult.data.mobile_number || null,
+            managerResult.data.phone ||
+            managerResult.data.mobile_number ||
+            null,
         }
       : null;
   }

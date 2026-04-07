@@ -79,16 +79,26 @@ export default function AddAdmin() {
             );
           } else {
             const failedText = failedItems
-              .map((item) => `${item?.email || "unknown"}: ${item?.message || "failed"}`)
+              .map(
+                (item) =>
+                  `${item?.email || "unknown"}: ${item?.message || "failed"}`,
+              )
               .join(" | ");
             setError(
               `Created ${successCount}/${resultList.length} admins. Failed: ${failedText}`,
             );
           }
         } else {
-          setMessage(
-            `Admin created successfully. A temporary password has been sent to ${data?.email || "the admin email"}.`,
-          );
+          if (data?.emailSent === false) {
+            setError(
+              data?.emailError ||
+                "Admin was not created because invite email sending failed.",
+            );
+          } else {
+            setMessage(
+              `Admin created successfully. A temporary password has been sent to ${data?.email || "the admin email"}.`,
+            );
+          }
         }
 
         setEmailsInput("");

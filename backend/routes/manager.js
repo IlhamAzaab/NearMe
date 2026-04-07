@@ -74,7 +74,9 @@ function getUsernameFromEmail(email) {
 }
 
 function normalizeEmail(email) {
-  return String(email || "").trim().toLowerCase();
+  return String(email || "")
+    .trim()
+    .toLowerCase();
 }
 
 function isValidEmail(email) {
@@ -227,6 +229,9 @@ async function createSingleAdminAccount({ email, loginUrl }) {
 
   const cleanup = async () => {
     try {
+      await supabaseAdmin.from("admins").delete().eq("id", userId);
+      await supabaseAdmin.from("admins").delete().eq("user_id", userId);
+      await supabaseAdmin.from("admins").delete().eq("email", normalizedEmail);
       await supabaseAdmin.from("users").delete().eq("id", userId);
       await supabaseAdmin.auth.admin.deleteUser(userId);
     } catch (cleanupError) {
@@ -268,8 +273,6 @@ async function createSingleAdminAccount({ email, loginUrl }) {
     };
   }
 
-  let emailSent = true;
-  let emailError = null;
   try {
     await sendAdminInviteEmail({
       to: normalizedEmail,
@@ -277,9 +280,15 @@ async function createSingleAdminAccount({ email, loginUrl }) {
       loginUrl,
     });
   } catch (sendError) {
-    emailSent = false;
-    emailError = sendError?.message || "Email send failed";
     console.error(`Email send error for ${normalizedEmail}:`, sendError);
+    await cleanup();
+    return {
+      ok: false,
+      status: 502,
+      email: normalizedEmail,
+      message: "Failed to send invite email",
+      error: sendError?.message || "Email send failed",
+    };
   }
 
   return {
@@ -289,11 +298,9 @@ async function createSingleAdminAccount({ email, loginUrl }) {
     userId,
     tempPassword,
     loginUrl,
-    emailSent,
-    emailError,
-    message: emailSent
-      ? "Admin created successfully"
-      : "Admin created but invite email failed",
+    emailSent: true,
+    emailError: null,
+    message: "Admin created successfully",
   };
 }
 

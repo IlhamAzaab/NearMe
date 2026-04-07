@@ -72,8 +72,10 @@ export async function sendAdminInviteEmail({ to, tempPassword, loginUrl }) {
 
   // If SMTP not configured, stop after logging
   if (!transporter) {
-    console.log("⚠️  SMTP not configured - email not sent (console only)\n");
-    return;
+    const errorMessage =
+      "SMTP not configured - admin invite email was not sent";
+    console.error(`❌ ${errorMessage}`);
+    throw new Error(errorMessage);
   }
 
   try {
@@ -158,8 +160,10 @@ export async function sendDriverInviteEmail({ to, tempPassword, loginUrl }) {
 
   // If SMTP not configured, stop after logging
   if (!transporter) {
-    console.log("⚠️  SMTP not configured - email not sent (console only)\n");
-    return;
+    const errorMessage =
+      "SMTP not configured - driver invite email was not sent";
+    console.error(`❌ ${errorMessage}`);
+    throw new Error(errorMessage);
   }
 
   try {
