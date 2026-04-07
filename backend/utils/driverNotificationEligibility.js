@@ -1,12 +1,11 @@
 import { supabaseAdmin } from "../supabaseAdmin.js";
 
-export const PICKUP_MODE_STATUSES = ["accepted", "picking_up"];
+export const PICKUP_MODE_STATUSES = ["accepted"];
 
 export const DELIVERING_MODE_STATUSES = [
   "picked_up",
   "on_the_way",
   "at_customer",
-  "delivering",
 ];
 
 export const DELIVERY_IN_PROGRESS_STATUSES = [
@@ -15,7 +14,11 @@ export const DELIVERY_IN_PROGRESS_STATUSES = [
 ];
 
 function uniqueIds(ids = []) {
-  return [...new Set((ids || []).map((id) => String(id || "").trim()).filter(Boolean))];
+  return [
+    ...new Set(
+      (ids || []).map((id) => String(id || "").trim()).filter(Boolean),
+    ),
+  ];
 }
 
 /**
@@ -25,7 +28,9 @@ function uniqueIds(ids = []) {
  * - pure delivering mode (has delivering statuses and NO pickup statuses) => BLOCK
  * - idle mode (no active delivery rows) => ALLOW
  */
-export async function getEligibleDriverIdsForDeliveryNotifications(candidateDriverIds = null) {
+export async function getEligibleDriverIdsForDeliveryNotifications(
+  candidateDriverIds = null,
+) {
   const scopedIds =
     Array.isArray(candidateDriverIds) && candidateDriverIds.length > 0
       ? uniqueIds(candidateDriverIds)
@@ -47,7 +52,10 @@ export async function getEligibleDriverIdsForDeliveryNotifications(candidateDriv
   const { data: activeDrivers, error: activeDriverError } = await driverQuery;
 
   if (activeDriverError) {
-    console.error("[DriverEligibility] Failed to fetch active drivers:", activeDriverError.message);
+    console.error(
+      "[DriverEligibility] Failed to fetch active drivers:",
+      activeDriverError.message,
+    );
     return [];
   }
 
@@ -61,19 +69,42 @@ export async function getEligibleDriverIdsForDeliveryNotifications(candidateDriv
     .in("status", DELIVERY_IN_PROGRESS_STATUSES);
 
   if (progressError) {
-    console.error(
-      "[DriverEligibility] Failed to fetch driver progress rows:",
+    console.warn(
+      "[DriverEligibility] Status-filter query failed, retrying without status filter:",
       progressError.message,
     );
-    return [];
+
+    // Fallback keeps notifications flowing even if enum/status values drift.
+    const { data: fallbackRows, error: fallbackError } = await supabaseAdmin
+      .from("deliveries")
+      .select("driver_id, status")
+      .in("driver_id", activeIds);
+
+    if (fallbackError) {
+      console.error(
+        "[DriverEligibility] Failed to fetch driver progress rows (fallback):",
+        fallbackError.message,
+      );
+      return [];
+    }
+
+    return computeEligibleDriverIds(activeIds, fallbackRows || []);
   }
+
+  return computeEligibleDriverIds(activeIds, progressRows || []);
+}
+
+function computeEligibleDriverIds(activeIds, progressRows) {
+  const trackedStatuses = new Set(DELIVERY_IN_PROGRESS_STATUSES);
 
   const modeByDriver = new Map();
 
   for (const row of progressRows || []) {
     const driverId = String(row?.driver_id || "").trim();
-    const status = String(row?.status || "").trim().toLowerCase();
-    if (!driverId || !status) continue;
+    const status = String(row?.status || "")
+      .trim()
+      .toLowerCase();
+    if (!driverId || !status || !trackedStatuses.has(status)) continue;
 
     if (!modeByDriver.has(driverId)) {
       modeByDriver.set(driverId, {

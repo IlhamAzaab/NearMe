@@ -1,13 +1,80 @@
-import React, { useCallback } from "react";
+import React, { useCallback, useEffect, useMemo } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { resolveDriverActiveMapPath } from "../utils/driverActiveDelivery";
+import { API_URL } from "../config";
+import {
+  getAvailableDeliveriesQueryKey,
+  getAvailableDeliveriesSnapshot,
+  setAvailableDeliveriesSnapshot,
+} from "../utils/availableDeliveriesCache";
+import {
+  getDriverAvailableUnseenCount,
+  markDriverAvailableDeliveriesSeen,
+} from "../utils/driverAvailableUnseen";
 
 export default function DriverBottomNav() {
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const userId = localStorage.getItem("userId") || "default";
+  const token = localStorage.getItem("token");
+  const role = localStorage.getItem("role");
+  const deliveriesQueryKey = getAvailableDeliveriesQueryKey(userId);
+  const isAvailableScreen = location.pathname === "/driver/deliveries";
+
+  const { data: availableSnapshot } = useQuery({
+    queryKey: deliveriesQueryKey,
+    enabled: !!token && role === "driver",
+    staleTime: 30 * 1000,
+    refetchInterval: 60 * 1000,
+    refetchOnWindowFocus: true,
+    initialData: getAvailableDeliveriesSnapshot(queryClient, userId) || undefined,
+    queryFn: async () => {
+      const fallback = getAvailableDeliveriesSnapshot(queryClient, userId);
+      const currentLoc =
+        fallback?.driverLocation ||
+        { latitude: 8.5017, longitude: 81.186 };
+
+      const url = `${API_URL}/driver/deliveries/available/v2?driver_latitude=${currentLoc.latitude}&driver_longitude=${currentLoc.longitude}`;
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!res.ok) {
+        if (fallback) return fallback;
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.message || `HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+      const snapshot = {
+        deliveries: data.available_deliveries || [],
+        currentRoute: data.current_route || {
+          total_stops: 0,
+          active_deliveries: 0,
+        },
+        driverLocation: data.driver_location || currentLoc,
+        fetchedAt: Date.now(),
+      };
+
+      setAvailableDeliveriesSnapshot(queryClient, userId, snapshot, {
+        markAsSeen: isAvailableScreen,
+      });
+
+      return snapshot;
+    },
+  });
+
+  useEffect(() => {
+    if (!isAvailableScreen) return;
+    markDriverAvailableDeliveriesSeen(userId);
+  }, [isAvailableScreen, userId]);
+
+  const availableUnseenCount = useMemo(() => {
+    if (isAvailableScreen) return 0;
+    return getDriverAvailableUnseenCount(userId);
+  }, [availableSnapshot, isAvailableScreen, userId]);
 
   const handleOpenActiveMap = useCallback(async () => {
     const token = localStorage.getItem("token");
@@ -61,6 +128,7 @@ export default function DriverBottomNav() {
         </svg>
       ),
       label: "Available",
+      badge: availableUnseenCount > 0 ? availableUnseenCount : null,
     },
     {
       path: "/driver/delivery/active/map",
@@ -138,16 +206,21 @@ export default function DriverBottomNav() {
               key={item.path}
               type="button"
               onClick={item.onClick}
-              className={`flex flex-col items-center justify-center py-2 px-3 min-w-[64px] transition-all duration-200 ${
+              className={`flex flex-col items-center justify-center py-2 px-3 min-w-16 transition-all duration-200 ${
                 item.isActive
                   ? "text-emerald-600"
                   : "text-gray-400 hover:text-gray-600"
               }`}
             >
               <div
-                className={`${item.isActive ? "scale-110" : ""} transition-transform`}
+                className={`relative ${item.isActive ? "scale-110" : ""} transition-transform`}
               >
                 {item.icon}
+                {item.badge ? (
+                  <span className="absolute -top-2 -right-2 min-w-5 h-5 px-1 bg-emerald-500 text-white text-[11px] font-bold rounded-full flex items-center justify-center leading-none">
+                    {item.badge > 99 ? "99+" : item.badge}
+                  </span>
+                ) : null}
               </div>
               <span
                 className={`text-xs mt-1 font-medium ${item.isActive ? "font-semibold" : ""}`}
@@ -160,7 +233,7 @@ export default function DriverBottomNav() {
               key={item.path}
               to={item.path}
               className={({ isActive }) =>
-                `flex flex-col items-center justify-center py-2 px-3 min-w-[64px] transition-all duration-200 ${
+                `flex flex-col items-center justify-center py-2 px-3 min-w-16 transition-all duration-200 ${
                   isActive
                     ? "text-emerald-600"
                     : "text-gray-400 hover:text-gray-600"
@@ -170,9 +243,14 @@ export default function DriverBottomNav() {
               {({ isActive }) => (
                 <>
                   <div
-                    className={`${isActive ? "scale-110" : ""} transition-transform`}
+                    className={`relative ${isActive ? "scale-110" : ""} transition-transform`}
                   >
                     {item.icon}
+                    {item.badge ? (
+                      <span className="absolute -top-2 -right-2 min-w-5 h-5 px-1 bg-emerald-500 text-white text-[11px] font-bold rounded-full flex items-center justify-center leading-none">
+                        {item.badge > 99 ? "99+" : item.badge}
+                      </span>
+                    ) : null}
                   </div>
                   <span
                     className={`text-xs mt-1 font-medium ${isActive ? "font-semibold" : ""}`}

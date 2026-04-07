@@ -1,8 +1,14 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+} from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import DriverLayout from "../../components/DriverLayout";
-import AdminSkeleton from "../../components/AdminSkeleton";
+import { DriverActiveSkeleton } from "../../components/DriverScreenSkeletons";
 import PageWrapper from "../../components/PageWrapper";
 import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
 import { MapBoundsFitter } from "../../components/DraggableMap";
@@ -784,14 +790,14 @@ export default function ActiveDeliveries() {
   };
 
   return (
-    <DriverLayout>
+    <DriverLayout loading={initialLoading}>
       <AnimatedAlert alert={alertState} visible={alertVisible} />
       <div className="min-h-screen bg-gray-50 pb-24">
         <PageWrapper
           isFetching={isRefreshing}
           dataKey={`active-${mode}-${pickups.length}-${deliveries.length}`}
         >
-          <div className="max-w-4xl mx-auto px-4 py-6">
+          <div className="max-w-4xl mx-auto px-4 py-6" data-driver-stagger>
             {/* Header */}
             <div className="flex items-center justify-between mb-6">
               <div>
@@ -823,9 +829,7 @@ export default function ActiveDeliveries() {
             </div>
 
             {initialLoading ? (
-              <div className="space-y-4">
-                <AdminSkeleton type="deliveries" />
-              </div>
+              <DriverActiveSkeleton />
             ) : fetchError ? (
               /* Error State - Network or Server Error */
               <div className="bg-white rounded-xl shadow-md p-12 text-center">
@@ -1102,9 +1106,18 @@ function PickupCard({
               {/* Auto-fit map to show all markers */}
               <MapBoundsFitter
                 markers={[
-                  driverLocation && { lat: driverLocation.latitude, lng: driverLocation.longitude },
-                  restaurant && { lat: restaurant.latitude, lng: restaurant.longitude },
-                  customer && { lat: customer.latitude, lng: customer.longitude },
+                  driverLocation && {
+                    lat: driverLocation.latitude,
+                    lng: driverLocation.longitude,
+                  },
+                  restaurant && {
+                    lat: restaurant.latitude,
+                    lng: restaurant.longitude,
+                  },
+                  customer && {
+                    lat: customer.latitude,
+                    lng: customer.longitude,
+                  },
                 ].filter(Boolean)}
                 padding={[40, 40]}
               />
@@ -1740,10 +1753,19 @@ function FullRouteMap({
             {/* Auto-fit map to show all markers */}
             <MapBoundsFitter
               markers={[
-                driverLocation && { lat: driverLocation.latitude, lng: driverLocation.longitude },
-                ...pickups.map(p => ({ lat: p.restaurant?.latitude, lng: p.restaurant?.longitude })),
-                ...pickups.map(p => ({ lat: p.customer?.latitude, lng: p.customer?.longitude })),
-              ].filter(m => m && m.lat && m.lng)}
+                driverLocation && {
+                  lat: driverLocation.latitude,
+                  lng: driverLocation.longitude,
+                },
+                ...pickups.map((p) => ({
+                  lat: p.restaurant?.latitude,
+                  lng: p.restaurant?.longitude,
+                })),
+                ...pickups.map((p) => ({
+                  lat: p.customer?.latitude,
+                  lng: p.customer?.longitude,
+                })),
+              ].filter((m) => m && m.lat && m.lng)}
               padding={[40, 40]}
             />
 
@@ -2097,8 +2119,14 @@ function DeliveryCard({
               {/* Auto-fit map to show all markers */}
               <MapBoundsFitter
                 markers={[
-                  driverLocation && { lat: driverLocation.latitude, lng: driverLocation.longitude },
-                  customer && { lat: customer.latitude, lng: customer.longitude },
+                  driverLocation && {
+                    lat: driverLocation.latitude,
+                    lng: driverLocation.longitude,
+                  },
+                  customer && {
+                    lat: customer.latitude,
+                    lng: customer.longitude,
+                  },
                 ].filter(Boolean)}
                 padding={[40, 40]}
               />

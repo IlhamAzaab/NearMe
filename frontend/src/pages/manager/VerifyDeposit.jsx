@@ -5,6 +5,8 @@ import ManagerPageLayout from "../../components/ManagerPageLayout";
 import { ManagerPageSkeleton } from "../../components/ManagerSkeleton";
 import { API_URL } from "../../config";
 
+const SRI_LANKA_TIME_ZONE = "Asia/Colombo";
+
 export default function VerifyDeposit() {
   const navigate = useNavigate();
   const { depositId } = useParams();
@@ -149,14 +151,21 @@ export default function VerifyDeposit() {
   const formatDateTime = (dateStr) => {
     if (!dateStr) return "-";
     const date = new Date(dateStr);
+    if (Number.isNaN(date.getTime())) return "-";
     return date.toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
       year: "numeric",
       hour: "2-digit",
       minute: "2-digit",
+      hour12: true,
+      timeZone: SRI_LANKA_TIME_ZONE,
     });
   };
+
+  const transferId = String(deposit?.id || "-")
+    .substring(0, 12)
+    .toUpperCase();
 
   const getDriverInitials = (name) => {
     if (!name) return "DR";
@@ -321,6 +330,14 @@ export default function VerifyDeposit() {
                 {deposit.collection_date || "-"}
               </p>
             </div>
+          </div>
+          <div className="pt-4 border-t border-slate-100 mt-4">
+            <p className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">
+              Transfer ID
+            </p>
+            <p className="text-sm font-semibold text-slate-700 font-mono">
+              {transferId}
+            </p>
           </div>
         </div>
       </div>

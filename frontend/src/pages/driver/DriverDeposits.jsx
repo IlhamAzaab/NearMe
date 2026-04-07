@@ -311,7 +311,7 @@ export default function DriverDeposits() {
   }
 
   return (
-    <DriverLayout>
+    <DriverLayout loading={loading}>
       <div
         className="relative flex w-full flex-col overflow-x-hidden max-w-md mx-auto lg:max-w-2xl bg-white shadow-xl lg:shadow-none"
         style={{ fontFamily: "'Inter', 'Work Sans', sans-serif" }}
@@ -369,7 +369,7 @@ export default function DriverDeposits() {
             </span>
           </div>
         )}
-        <div className="flex flex-col gap-6 p-4 pb-32">
+        <div className="flex flex-col gap-6 p-4 pb-32" data-driver-stagger>
           {/* Hero Card: Pending Deposit - Shows ACTUAL pending balance (money owed to manager) */}
           <div className="relative overflow-hidden flex flex-col items-stretch justify-start rounded-xl shadow-lg bg-white border border-gray-100">
             {/* Status Icon */}

@@ -1,3 +1,8 @@
+import {
+  markDriverAvailableDeliveriesSeen,
+  syncDriverAvailableUnseenState,
+} from "./driverAvailableUnseen";
+
 const AVAILABLE_DELIVERIES_CACHE_TTL_MS = 60 * 1000;
 
 function getAvailableDeliveriesCacheKey(userId) {
@@ -79,7 +84,12 @@ export function getAvailableDeliveriesSnapshot(queryClient, userId) {
   return readAvailableDeliveriesCache(userId);
 }
 
-export function setAvailableDeliveriesSnapshot(queryClient, userId, snapshot) {
+export function setAvailableDeliveriesSnapshot(
+  queryClient,
+  userId,
+  snapshot,
+  options = {},
+) {
   const normalized = normalizeSnapshot(snapshot);
   if (!normalized) return;
 
@@ -91,4 +101,10 @@ export function setAvailableDeliveriesSnapshot(queryClient, userId, snapshot) {
   const queryKey = getAvailableDeliveriesQueryKey(userId);
   queryClient.setQueryData(queryKey, withTimestamp);
   writeAvailableDeliveriesCache(userId, withTimestamp);
+
+  syncDriverAvailableUnseenState(userId, withTimestamp.deliveries || []);
+
+  if (options.markAsSeen === true) {
+    markDriverAvailableDeliveriesSeen(userId);
+  }
 }

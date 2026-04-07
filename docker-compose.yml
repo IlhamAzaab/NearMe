@@ -39,7 +39,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        - VITE_API_URL=${VITE_API_URL:-http://localhost:5000}
+        - VITE_API_URL=${VITE_API_URL:-https://meezo-backend-d3gw.onrender.com}
         - VITE_OSRM_URL=${VITE_OSRM_URL:-https://router.project-osrm.org}
         - VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
         - VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY}

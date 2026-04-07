@@ -21,6 +21,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
 import DriverLayout from "../../components/DriverLayout";
+import { DriverDashboardSkeleton } from "../../components/DriverScreenSkeletons";
 import { API_URL } from "../../config";
 import { useDriverDeliveryNotifications } from "../../context/DriverDeliveryNotificationContext";
 import {
@@ -894,8 +895,17 @@ export default function DriverDashboard() {
   // RENDER
   // ============================================================================
 
+  if (loading) {
+    return (
+      <DriverLayout loading={true}>
+        <MaterialSymbolsCSS />
+        <DriverDashboardSkeleton />
+      </DriverLayout>
+    );
+  }
+
   return (
-    <DriverLayout>
+    <DriverLayout loading={loading}>
       <div className="bg-slate-50 font-['Work_Sans',sans-serif]">
         <MaterialSymbolsCSS />
         <AnimatedAlert alert={alertState} visible={alertVisible} />
@@ -954,7 +964,10 @@ export default function DriverDashboard() {
         )}
 
         {/* Main Container */}
-        <div className="relative flex h-auto min-h-screen w-full flex-col max-w-md mx-auto overflow-x-hidden border-x border-slate-200 bg-[#fdfdfd]">
+        <div
+          className="relative flex h-auto min-h-screen w-full flex-col max-w-md mx-auto overflow-x-hidden border-x border-slate-200 bg-[#fdfdfd]"
+          data-driver-stagger
+        >
           {/* Top App Bar */}
           <div className="flex items-center bg-white/90 p-4 pb-2 justify-between sticky top-0 z-50 border-b border-slate-100 backdrop-blur-md">
             <button

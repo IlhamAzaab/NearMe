@@ -1,9 +1,53 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { API_URL } from "../config";
 
 const AdminBottomNavbar = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const queryClient = useQueryClient();
+  const token = localStorage.getItem("token");
+  const ORDERS_QUERY_KEY = ["admin", "orders"];
+
+  const { data: orders = [] } = useQuery({
+    queryKey: ORDERS_QUERY_KEY,
+    enabled: !!token,
+    staleTime: 30 * 1000,
+    refetchInterval: 30 * 1000,
+    initialData: queryClient.getQueryData(ORDERS_QUERY_KEY) || undefined,
+    queryFn: async () => {
+      const response = await fetch(`${API_URL}/orders/restaurant/orders`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.message || "Failed to fetch orders");
+      }
+
+      const data = await response.json();
+      return data.orders || [];
+    },
+  });
+
+  const newOrdersCount = useMemo(() => {
+    const normalizeDeliveries = (deliveries) => {
+      if (!deliveries) return [];
+      return Array.isArray(deliveries) ? deliveries : [deliveries];
+    };
+
+    const getDeliveryStatus = (order) => {
+      const deliveries = normalizeDeliveries(order?.deliveries);
+      return deliveries[0]?.status || order?.delivery_status || order?.status || "placed";
+    };
+
+    return (orders || []).filter((order) => getDeliveryStatus(order) === "placed")
+      .length;
+  }, [orders]);
 
   // Determine active nav based on current path
   const getActiveNav = () => {
@@ -90,6 +134,7 @@ const AdminBottomNavbar = () => {
           }
           label="Orders"
           active={activeNav === "orders"}
+          badge={newOrdersCount > 0 ? newOrdersCount : null}
           onClick={() => navigate("/admin/orders")}
         />
 

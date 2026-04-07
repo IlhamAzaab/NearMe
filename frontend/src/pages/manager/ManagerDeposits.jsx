@@ -10,6 +10,8 @@ import supabaseClient from "../../supabaseClient";
 import { useNotification } from "../../contexts/NotificationContext";
 import { API_URL } from "../../config";
 
+const SRI_LANKA_TIME_ZONE = "Asia/Colombo";
+
 // ============================================================================
 // API FUNCTIONS
 // ============================================================================
@@ -190,14 +192,22 @@ export default function ManagerDeposits() {
   const formatDateTime = (dateStr) => {
     if (!dateStr) return "-";
     const date = new Date(dateStr);
+    if (Number.isNaN(date.getTime())) return "-";
     return date.toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
       year: "numeric",
       hour: "2-digit",
       minute: "2-digit",
+      hour12: true,
+      timeZone: SRI_LANKA_TIME_ZONE,
     });
   };
+
+  const getTransferId = (id) =>
+    String(id || "-")
+      .substring(0, 12)
+      .toUpperCase();
 
   const getDriverInitials = (name) => {
     if (!name) return "DR";
@@ -512,6 +522,9 @@ export default function ManagerDeposits() {
                     </p>
                     <p className="text-[#618980] text-xs">
                       {formatDateTime(deposit.created_at)}
+                    </p>
+                    <p className="text-[#4b5563] text-[11px] font-semibold mt-0.5">
+                      {`Transfer ID: ${getTransferId(deposit.id)}`}
                     </p>
                   </div>
                   <div className="text-right">

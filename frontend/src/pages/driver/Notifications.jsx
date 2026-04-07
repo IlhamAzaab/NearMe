@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import supabaseClient from "../../supabaseClient";
 import DriverLayout from "../../components/DriverLayout";
+import { DriverListSkeleton } from "../../components/DriverScreenSkeletons";
 import { API_URL } from "../../config";
 
 // Initialize Supabase
@@ -121,10 +122,12 @@ export default function DriverNotifications() {
     return `${diffDays}d ago`;
   };
 
+  const loading = isLoading && notifications.length === 0;
+
   return (
-    <DriverLayout>
+    <DriverLayout loading={loading}>
       <div className="flex-1 p-4 lg:p-8">
-        <div className="max-w-4xl mx-auto">
+        <div className="max-w-4xl mx-auto" data-driver-stagger>
           <div className="mb-8">
             <h2 className="text-3xl font-bold text-gray-900 mb-2">
               Notifications
@@ -139,23 +142,7 @@ export default function DriverNotifications() {
           </div>
 
           {loading ? (
-            <div className="space-y-3 animate-pulse">
-              {[...Array(5)].map((_, i) => (
-                <div
-                  key={`notification-skeleton-${i}`}
-                  className="bg-white rounded-xl p-4 border-l-4 border-gray-200 shadow"
-                >
-                  <div className="flex items-start gap-4">
-                    <div className="w-12 h-12 bg-gray-200 rounded-full shrink-0" />
-                    <div className="flex-1 space-y-2">
-                      <div className="h-4 w-1/3 bg-gray-200 rounded" />
-                      <div className="h-3 w-full bg-gray-100 rounded" />
-                      <div className="h-3 w-2/3 bg-gray-100 rounded" />
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <DriverListSkeleton count={5} />
           ) : notifications.length === 0 ? (
             <div className="text-center py-12">
               <div className="w-20 h-20 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-4">

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import DriverLayout from "../../components/DriverLayout";
+import { DriverListSkeleton } from "../../components/DriverScreenSkeletons";
 import { API_URL } from "../../config";
 
 export default function DeliveryHistory() {
@@ -55,33 +56,25 @@ export default function DeliveryHistory() {
 
   if (isLoading && !deliveries.length) {
     return (
-      <DriverLayout>
+      <DriverLayout loading={true}>
         <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-green-50 to-teal-50">
           <div className="relative overflow-hidden bg-gradient-to-r from-emerald-600 via-green-600 to-teal-600 text-white px-4 lg:px-8 py-12 shadow-xl">
-            <div className="max-w-5xl mx-auto animate-pulse">
-              <div className="h-4 w-36 bg-white/30 rounded mb-3" />
-              <div className="h-10 w-64 bg-white/30 rounded" />
+            <div className="max-w-5xl mx-auto">
+              <div className="h-4 w-36 bg-white/30 rounded mb-3 skeleton-fade" />
+              <div className="h-10 w-64 bg-white/30 rounded skeleton-fade" />
             </div>
           </div>
-          <div className="max-w-5xl mx-auto px-4 lg:px-8 py-8 animate-pulse">
+          <div className="max-w-5xl mx-auto px-4 lg:px-8 py-8">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
               {[...Array(3)].map((_, i) => (
                 <div key={i} className="bg-white rounded-2xl p-6 shadow-md">
-                  <div className="h-10 w-10 bg-gray-200 rounded-xl mb-3" />
-                  <div className="h-3 w-24 bg-gray-200 rounded mb-2" />
-                  <div className="h-8 w-20 bg-gray-200 rounded" />
+                  <div className="h-10 w-10 bg-gray-200 rounded-xl mb-3 skeleton-fade" />
+                  <div className="h-3 w-24 bg-gray-200 rounded mb-2 skeleton-fade" />
+                  <div className="h-8 w-20 bg-gray-200 rounded skeleton-fade" />
                 </div>
               ))}
             </div>
-            <div className="space-y-3">
-              {[...Array(4)].map((_, i) => (
-                <div key={i} className="bg-white rounded-2xl p-5 shadow-sm">
-                  <div className="h-4 w-1/3 bg-gray-200 rounded mb-3" />
-                  <div className="h-3 w-full bg-gray-100 rounded mb-2" />
-                  <div className="h-3 w-2/3 bg-gray-100 rounded" />
-                </div>
-              ))}
-            </div>
+            <DriverListSkeleton count={4} />
           </div>
         </div>
       </DriverLayout>
@@ -89,7 +82,7 @@ export default function DeliveryHistory() {
   }
 
   return (
-    <DriverLayout>
+    <DriverLayout loading={isLoading && !deliveries.length}>
       <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-green-50 to-teal-50">
         {/* Premium Header */}
         <div className="relative overflow-hidden bg-gradient-to-r from-emerald-600 via-green-600 to-teal-600 text-white px-4 lg:px-8 py-12 shadow-xl">
@@ -142,7 +135,10 @@ export default function DeliveryHistory() {
         </div>
 
         {/* Content */}
-        <div className="max-w-5xl mx-auto px-4 lg:px-8 py-8">
+        <div
+          className="max-w-5xl mx-auto px-4 lg:px-8 py-8"
+          data-driver-stagger
+        >
           {/* Stats Grid */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
             <div className="group relative bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-300 p-6 border-2 border-transparent hover:border-emerald-400 transform hover:-translate-y-1 animate-fade-in">

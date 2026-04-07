@@ -518,6 +518,7 @@ router.post(
       // 📱 PUSH NOTIFICATION: Notify driver about payment received
       sendDriverPaymentNotification(driverId, {
         amount: payAmount,
+        paymentId: payment.id,
         driverName: driver.full_name,
         note: note || null,
       }).catch((err) =>

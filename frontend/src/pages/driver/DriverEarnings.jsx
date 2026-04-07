@@ -11,6 +11,7 @@ import {
   YAxis,
 } from "recharts";
 import DriverLayout from "../../components/DriverLayout";
+import { DriverListSkeleton } from "../../components/DriverScreenSkeletons";
 import { API_URL } from "../../config";
 import { useDataPulse } from "../../hooks/useDataPulse";
 
@@ -200,8 +201,36 @@ export default function DriverEarnings() {
 
   const recentActivities = earnings.slice(0, 6);
 
+  if (loading) {
+    return (
+      <DriverLayout loading={true}>
+        <div
+          className="relative flex min-h-screen w-full flex-col max-w-md mx-auto bg-[#f6f8f6] text-[#111812]"
+          style={{ fontFamily: "'Work Sans', sans-serif" }}
+        >
+          <div className="bg-white p-4 border-b border-[#dbe6dd]">
+            <div className="h-6 w-32 bg-gray-200 rounded skeleton-fade mx-auto" />
+          </div>
+          <div className="p-4 space-y-4" data-driver-stagger>
+            <div className="rounded-xl bg-white p-6 border border-[#dbe6dd] space-y-3">
+              <div className="h-4 w-36 bg-gray-200 rounded skeleton-fade" />
+              <div className="h-9 w-40 bg-gray-200 rounded skeleton-fade" />
+              <div className="h-5 w-24 bg-gray-200 rounded skeleton-fade" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="h-22 rounded-xl bg-white border border-[#dbe6dd] skeleton-fade" />
+              <div className="h-22 rounded-xl bg-white border border-[#dbe6dd] skeleton-fade" />
+            </div>
+            <div className="h-40 rounded-xl bg-white border border-[#dbe6dd] skeleton-fade" />
+            <DriverListSkeleton count={4} />
+          </div>
+        </div>
+      </DriverLayout>
+    );
+  }
+
   return (
-    <DriverLayout>
+    <DriverLayout loading={loading}>
       <div
         className="relative flex min-h-screen w-full flex-col max-w-md mx-auto bg-[#f6f8f6] text-[#111812]"
         style={{ fontFamily: "'Work Sans', sans-serif" }}
@@ -232,7 +261,7 @@ export default function DriverEarnings() {
         </div>
 
         <div className="flex-1 overflow-y-auto pb-24 hide-scrollbar">
-          <div className="p-4">
+          <div className="p-4" data-driver-stagger>
             <div
               className={`relative overflow-hidden rounded-xl bg-[#18db9d] p-6 shadow-lg shadow-[#13ec37]/20 transition-all duration-500 ${summaryPulse ? "scale-[1.01]" : "scale-100"}`}
             >

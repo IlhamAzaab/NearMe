@@ -1018,15 +1018,6 @@ export default function DriverMapPage() {
     );
   }
 
-  if (loading) {
-    return (
-      <>
-        <DriverMapSkeleton />
-        <DriverBottomNav />
-      </>
-    );
-  }
-
   if (!currentTarget) {
     return (
       <>

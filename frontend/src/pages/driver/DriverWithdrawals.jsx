@@ -34,14 +34,7 @@ export default function DriverWithdrawals() {
   const role = localStorage.getItem("role");
 
   const {
-    data: summary = {
-      total_earnings: 0,
-      total_withdrawals: 0,
-      remaining_balance: 0,
-      today_earnings: 0,
-      today_withdrawals: 0,
-      payment_count: 0,
-    },
+    data: summary,
     isLoading: summaryLoading,
     isFetching: summaryFetching,
     error: summaryError,
@@ -63,7 +56,7 @@ export default function DriverWithdrawals() {
   });
 
   const {
-    data: payments = [],
+    data: payments,
     isLoading: paymentsLoading,
     isFetching: paymentsFetching,
     error: paymentsError,
@@ -91,9 +84,18 @@ export default function DriverWithdrawals() {
   }, [navigate, role]);
 
   const loading =
-    (summaryLoading && !summary) || (paymentsLoading && !payments.length);
+    (summaryLoading && !summary) || (paymentsLoading && !payments);
   const error = summaryError?.message || paymentsError?.message || null;
   const refreshing = summaryFetching || paymentsFetching;
+  const safeSummary = summary || {
+    total_earnings: 0,
+    total_withdrawals: 0,
+    remaining_balance: 0,
+    today_earnings: 0,
+    today_withdrawals: 0,
+    payment_count: 0,
+  };
+  const safePayments = payments || [];
 
   const fetchData = () => {
     queryClient.invalidateQueries({ queryKey: ["driver", "withdrawals"] });
@@ -159,8 +161,8 @@ export default function DriverWithdrawals() {
 
   const pendingBalance = Math.max(
     0,
-    Number(summary.remaining_balance || 0) -
-      Number(summary.today_earnings || 0),
+    Number(safeSummary.remaining_balance || 0) -
+      Number(safeSummary.today_earnings || 0),
   );
 
   if (loading) {
@@ -290,13 +292,13 @@ export default function DriverWithdrawals() {
             </div>
           </div>
 
-          <div className="px-4 py-4 space-y-5 pb-28">
+          <div className="px-4 py-4 space-y-5 pb-28" data-driver-stagger>
             <div className="bg-linear-to-br from-green-50 to-green-100 rounded-2xl p-6 border border-green-200">
               <p className="text-s font-semibold text-black-600 uppercase tracking-tight">
                 Total Earned
               </p>
               <p className="text-4xl font-bold text-gray-900 tracking-tight">
-                Rs.{summary.total_earnings?.toFixed(2)}
+                Rs.{safeSummary.total_earnings?.toFixed(2)}
               </p>
 
               <div className="pt-3 flex flex-col items-start gap-0.5">
@@ -304,7 +306,7 @@ export default function DriverWithdrawals() {
                   Total Receive
                 </p>
                 <p className="text-lg font-bold text-green-600 mt-1">
-                  Rs.{summary.total_withdrawals?.toFixed(2)}
+                  Rs.{safeSummary.total_withdrawals?.toFixed(2)}
                 </p>
               </div>
             </div>
@@ -314,7 +316,7 @@ export default function DriverWithdrawals() {
                 Balance to Receive
               </p>
               <p className="text-3xl font-bold text-orange-600 mt-1">
-                Rs.{summary.remaining_balance?.toFixed(2)}
+                Rs.{safeSummary.remaining_balance?.toFixed(2)}
               </p>
 
               <div className="grid grid-cols-2 gap-3 mt-3">
@@ -331,7 +333,7 @@ export default function DriverWithdrawals() {
                     Today Earned
                   </p>
                   <p className="text-base font-bold text-black-600 mt-1">
-                    Rs.{Number(summary.today_earnings || 0).toFixed(2)}
+                    Rs.{Number(safeSummary.today_earnings || 0).toFixed(2)}
                   </p>
                 </div>
               </div>
@@ -340,10 +342,10 @@ export default function DriverWithdrawals() {
             <div>
               <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
                 <span className="w-1 h-8 rounded-l-4xl bg-green-600" />
-                Payment History ({payments.length})
+                Payment History ({safePayments.length})
               </h2>
 
-              {payments.length === 0 ? (
+              {safePayments.length === 0 ? (
                 <div className="bg-white rounded-2xl border border-gray-100 p-10 text-center">
                   <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
                     <svg
@@ -369,7 +371,7 @@ export default function DriverWithdrawals() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {payments.map((payment) => (
+                  {safePayments.map((payment) => (
                     <button
                       key={payment.id}
                       onClick={() => setSelectedPayment(payment)}

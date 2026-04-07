@@ -454,11 +454,63 @@ export async function sendBroadcastNotification(
     // Expo allows max 100 tokens per request, so batch them
     const batchSize = 100;
     const results = [];
+    const tokenResults = new Map();
 
     for (let i = 0; i < expoPushTokens.length; i += batchSize) {
       const batch = expoPushTokens.slice(i, i + batchSize);
       const result = await sendExpoPushNotification(batch, notification);
       results.push(result);
+
+      // Capture per-token delivery outcomes so we can write per-user logs.
+      if (result?.success && Array.isArray(result?.result?.data)) {
+        for (let j = 0; j < batch.length; j++) {
+          const token = batch[j];
+          const ticket = result.result.data[j];
+          const ok = ticket?.status === "ok";
+          tokenResults.set(token, {
+            success: ok,
+            ticketId: ok ? ticket?.id || null : null,
+            error: ok
+              ? null
+              : ticket?.message || ticket?.details?.error || "Send failed",
+          });
+        }
+      } else {
+        for (const token of batch) {
+          tokenResults.set(token, {
+            success: false,
+            ticketId: null,
+            error: result?.error || "Send failed",
+          });
+        }
+      }
+    }
+
+    // Log one row per recipient user for notification history endpoints.
+    const uniqueUserIds = [
+      ...new Set(tokens.map((t) => t.user_id).filter(Boolean)),
+    ];
+    for (const userId of uniqueUserIds) {
+      const userTokens = tokens
+        .filter((t) => t.user_id === userId)
+        .map((t) => String(t.expo_push_token || "").trim())
+        .filter(Boolean);
+
+      const userTokenResults = userTokens
+        .map((token) => tokenResults.get(token))
+        .filter(Boolean);
+
+      const hasSuccess = userTokenResults.some((r) => r.success);
+      const firstSuccess = userTokenResults.find((r) => r.success);
+      const firstFailure = userTokenResults.find((r) => !r.success);
+
+      await logNotification(userId, userType, notification, {
+        success: hasSuccess,
+        result: firstSuccess ? { data: [{ id: firstSuccess.ticketId }] } : null,
+        error: hasSuccess
+          ? null
+          : firstFailure?.error || "Broadcast send failed",
+      });
     }
 
     return { success: true, batches: results.length, results };
@@ -864,6 +916,9 @@ export async function sendDriverPaymentNotification(driverId, paymentInfo) {
       data: {
         type: "payment_received",
         amount: String(paymentInfo.amount),
+        paymentId: paymentInfo.paymentId
+          ? String(paymentInfo.paymentId)
+          : undefined,
         screen: "DriverEarnings",
         channelId: "payments",
       },

@@ -8,6 +8,7 @@ import React, {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import DriverLayout from "../../components/DriverLayout";
+import { DriverAvailableSkeleton } from "../../components/DriverScreenSkeletons";
 import { API_URL } from "../../config";
 import { useSocket } from "../../context/SocketContext";
 import DraggableMap, {
@@ -511,7 +512,9 @@ export default function AvailableDeliveries() {
         driverLocation: newDriverLocation,
       };
 
-      setAvailableDeliveriesSnapshot(queryClient, userId, snapshot);
+      setAvailableDeliveriesSnapshot(queryClient, userId, snapshot, {
+        markAsSeen: true,
+      });
 
       // Clear any previous errors on successful fetch
       setFetchError(null);
@@ -636,12 +639,15 @@ export default function AvailableDeliveries() {
   };
 
   return (
-    <DriverLayout>
+    <DriverLayout loading={initialLoading || !hasCompletedFirstFetch}>
       <div
         className="bg-gray-100"
         style={{ fontFamily: "'Work Sans', sans-serif" }}
       >
-        <div className="relative h-[calc(100vh-5rem)] overflow-hidden">
+        <div
+          className="relative h-[calc(100vh-5rem)] overflow-hidden"
+          data-driver-stagger
+        >
           <AnimatedAlert alert={alertState} visible={alertVisible} />
 
           {inDeliveringMode ? (
@@ -663,7 +669,7 @@ export default function AvailableDeliveries() {
               </div>
             </div>
           ) : initialLoading || !hasCompletedFirstFetch ? (
-            <SkeletonCard />
+            <DriverAvailableSkeleton />
           ) : deliveries.length === 0 ? (
             <div className="h-full flex flex-col">
               {/* Back button for empty state */}
@@ -809,112 +815,6 @@ export default function AvailableDeliveries() {
         </div>
       </div>
     </DriverLayout>
-  );
-}
-
-// Skeleton Loading Card Component - Full-screen design
-function SkeletonCard() {
-  return (
-    <div className="relative h-full w-full skeleton-fade">
-      {/* Full-screen Map Skeleton */}
-      <div className="absolute inset-0 bg-gradient-to-br from-gray-100 to-gray-200">
-        <div
-          className="absolute inset-0"
-          style={{
-            background:
-              "linear-gradient(90deg, transparent 25%, rgba(255,255,255,0.4) 50%, transparent 75%)",
-            backgroundSize: "200% 100%",
-            animation: "shimmer 1.5s infinite",
-          }}
-        ></div>
-      </div>
-
-      {/* Back Button Skeleton */}
-      <div className="absolute top-4 left-4 w-10 h-10 bg-white/60 rounded-full z-50"></div>
-
-      {/* Skip Button Skeleton */}
-      <div className="absolute top-4 right-4 w-20 h-9 bg-white/60 rounded-full z-50"></div>
-
-      {/* Content Card Skeleton - Overlapping from bottom */}
-      <div className="absolute bottom-0 left-0 right-0 z-40">
-        <div className="bg-white rounded-t-[28px] shadow-2xl px-5 pt-6 pb-8">
-          {/* Earnings Skeleton */}
-          <div className="text-center mb-4">
-            <div
-              className="w-32 h-10 bg-gray-200 rounded-lg mx-auto mb-2"
-              style={{
-                background:
-                  "linear-gradient(90deg, #e5e7eb 25%, #f3f4f6 50%, #e5e7eb 75%)",
-                backgroundSize: "200% 100%",
-                animation: "shimmer 1.5s infinite",
-              }}
-            ></div>
-            <div className="w-24 h-4 bg-gray-200 rounded mx-auto"></div>
-          </div>
-
-          {/* Badges Skeleton */}
-          <div className="flex justify-center gap-2 mb-4">
-            <div className="w-28 h-7 bg-gray-100 rounded-full"></div>
-            <div className="w-24 h-7 bg-green-100 rounded-full"></div>
-            <div className="w-20 h-7 bg-gray-800/20 rounded-full"></div>
-          </div>
-
-          {/* Stats Skeleton */}
-          <div className="flex justify-center gap-4 mb-5">
-            <div className="w-20 h-6 bg-gray-100 rounded"></div>
-            <div className="w-20 h-6 bg-gray-100 rounded"></div>
-          </div>
-
-          {/* Timeline Skeleton */}
-          <div className="flex flex-col gap-0 mb-4">
-            <div className="flex gap-3">
-              <div className="flex flex-col items-center">
-                <div className="w-3 h-3 bg-green-200 rounded-full"></div>
-                <div className="w-0.5 bg-gray-200 flex-1 min-h-[40px]"></div>
-              </div>
-              <div className="flex-1 pb-3 space-y-2">
-                <div className="w-12 h-3 bg-green-100 rounded"></div>
-                <div
-                  className="w-40 h-5 bg-gray-200 rounded"
-                  style={{
-                    background:
-                      "linear-gradient(90deg, #e5e7eb 25%, #f3f4f6 50%, #e5e7eb 75%)",
-                    backgroundSize: "200% 100%",
-                    animation: "shimmer 1.5s infinite",
-                  }}
-                ></div>
-                <div className="w-52 h-4 bg-gray-100 rounded"></div>
-              </div>
-            </div>
-            <div className="flex gap-3">
-              <div className="w-3 h-3 bg-gray-200 rounded-full"></div>
-              <div className="flex-1 space-y-2">
-                <div className="w-16 h-3 bg-gray-100 rounded"></div>
-                <div className="w-32 h-5 bg-gray-200 rounded"></div>
-                <div className="w-44 h-4 bg-gray-100 rounded"></div>
-              </div>
-            </div>
-          </div>
-
-          {/* Order Number Skeleton */}
-          <div className="w-32 h-4 bg-gray-100 rounded mb-4"></div>
-
-          {/* Button Skeleton */}
-          <div className="flex items-center gap-3">
-            <div
-              className="flex-1 h-14 rounded-full"
-              style={{
-                background:
-                  "linear-gradient(90deg, #bbf7d0 25%, #86efac 50%, #bbf7d0 75%)",
-                backgroundSize: "200% 100%",
-                animation: "shimmer 1.5s infinite",
-              }}
-            ></div>
-            <div className="w-16 h-10 bg-gray-100 rounded-full"></div>
-          </div>
-        </div>
-      </div>
-    </div>
   );
 }
 

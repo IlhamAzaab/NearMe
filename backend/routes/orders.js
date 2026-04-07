@@ -1786,16 +1786,20 @@ router.patch(
               `📡 WebSocket broadcast result: ${broadcastResult.driversNotified} drivers notified instantly`,
             );
 
-            // 📱 PUSH: Also notify drivers who are offline / app closed
-            sendNewDeliveryNotificationToDrivers({
-              deliveryId: delivery.id,
-              orderNumber: order.order_number,
-              restaurantName: order.restaurant_name,
-              totalAmount: parseFloat(order.total_amount || 0),
-              tipAmount: deliveryTipAmount,
-            }).catch((err) =>
-              console.error("Push driver broadcast error (non-fatal):", err),
-            );
+            // 📱 PUSH: Also notify drivers who are offline / app closed.
+            // Await here to avoid dropping notifications in local/dev restarts.
+            try {
+              const pushResult = await sendNewDeliveryNotificationToDrivers({
+                deliveryId: delivery.id,
+                orderNumber: order.order_number,
+                restaurantName: order.restaurant_name,
+                totalAmount: parseFloat(order.total_amount || 0),
+                tipAmount: deliveryTipAmount,
+              });
+              console.log("📱 Driver push broadcast result:", pushResult);
+            } catch (err) {
+              console.error("Push driver broadcast error (non-fatal):", err);
+            }
           } else {
             console.log("⚠️ No active drivers found");
           }
