@@ -73,6 +73,14 @@ function getUsernameFromEmail(email) {
   return localPart.slice(0, 64);
 }
 
+function normalizeEmail(email) {
+  return String(email || "").trim().toLowerCase();
+}
+
+function isValidEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizeEmail(email));
+}
+
 async function findExistingAdminByEmail(email) {
   let result = await supabaseAdmin
     .from("admins")
@@ -141,6 +149,154 @@ async function insertAdminProfileWithFallback({ userId, email }) {
   return lastError;
 }
 
+async function createSingleAdminAccount({ email, loginUrl }) {
+  const normalizedEmail = normalizeEmail(email);
+
+  if (!isValidEmail(normalizedEmail)) {
+    return {
+      ok: false,
+      status: 400,
+      email: normalizedEmail || String(email || "").trim(),
+      message: "Invalid email format",
+    };
+  }
+
+  const existingAdmin = await findExistingAdminByEmail(normalizedEmail);
+  if (existingAdmin) {
+    return {
+      ok: false,
+      status: 409,
+      email: normalizedEmail,
+      message: `Email ${normalizedEmail} is already registered as an admin.`,
+    };
+  }
+
+  const { data: existingUser, error: existingUserError } = await supabaseAdmin
+    .from("users")
+    .select("id, role")
+    .eq("email", normalizedEmail)
+    .maybeSingle();
+
+  if (existingUserError) {
+    return {
+      ok: false,
+      status: 500,
+      email: normalizedEmail,
+      message: "Failed to check existing user",
+      error: existingUserError?.message,
+    };
+  }
+
+  if (existingUser) {
+    return {
+      ok: false,
+      status: 409,
+      email: normalizedEmail,
+      message: `Email ${normalizedEmail} is already in use by a ${existingUser.role || "user"}.`,
+    };
+  }
+
+  const tempPassword = generateTempPassword();
+  const { data: authData, error: authError } =
+    await supabaseAdmin.auth.admin.createUser({
+      email: normalizedEmail,
+      password: tempPassword,
+      email_confirm: true,
+    });
+
+  if (authError || !authData?.user?.id) {
+    if (authError?.code === "email_exists" || authError?.status === 422) {
+      return {
+        ok: false,
+        status: 409,
+        email: normalizedEmail,
+        message: `Email ${normalizedEmail} is already registered in auth.`,
+      };
+    }
+
+    return {
+      ok: false,
+      status: 500,
+      email: normalizedEmail,
+      message: "Failed to create auth user",
+      error: authError?.message,
+    };
+  }
+
+  const userId = authData.user.id;
+
+  const cleanup = async () => {
+    try {
+      await supabaseAdmin.from("users").delete().eq("id", userId);
+      await supabaseAdmin.auth.admin.deleteUser(userId);
+    } catch (cleanupError) {
+      console.error("Admin cleanup failed:", cleanupError);
+    }
+  };
+
+  const { error: userInsertError } = await supabaseAdmin.from("users").insert({
+    id: userId,
+    role: "admin",
+    email: normalizedEmail,
+    profile_completed: false,
+  });
+
+  if (userInsertError) {
+    await cleanup();
+    return {
+      ok: false,
+      status: 500,
+      email: normalizedEmail,
+      message: "Failed to insert user role",
+      error: userInsertError?.message,
+    };
+  }
+
+  const adminInsertError = await insertAdminProfileWithFallback({
+    userId,
+    email: normalizedEmail,
+  });
+
+  if (adminInsertError) {
+    await cleanup();
+    return {
+      ok: false,
+      status: 500,
+      email: normalizedEmail,
+      message: "Failed to insert admin profile",
+      error: adminInsertError?.message,
+    };
+  }
+
+  let emailSent = true;
+  let emailError = null;
+  try {
+    await sendAdminInviteEmail({
+      to: normalizedEmail,
+      tempPassword,
+      loginUrl,
+    });
+  } catch (sendError) {
+    emailSent = false;
+    emailError = sendError?.message || "Email send failed";
+    console.error(`Email send error for ${normalizedEmail}:`, sendError);
+  }
+
+  return {
+    ok: true,
+    status: 201,
+    email: normalizedEmail,
+    userId,
+    tempPassword,
+    loginUrl,
+    emailSent,
+    emailError,
+    message: emailSent
+      ? "Admin created successfully"
+      : "Admin created but invite email failed",
+  };
+}
+
 /**
  * GET /manager/me
  * Get manager profile
@@ -179,119 +335,66 @@ router.post("/add-admin", authenticate, async (req, res) => {
       return res.status(403).json({ message: "Forbidden" });
     }
 
-    const { email } = req.body || {};
-    if (!email) {
-      return res.status(400).json({ message: "email is required" });
-    }
-
-    const tempPassword = generateTempPassword();
+    const { email, emails } = req.body || {};
     const loginUrl =
       process.env.MANAGER_LOGIN_URL || "https://www.meezo.lk/login";
 
-    // 0) Check for orphaned records and clean them up
-    const existingAdmin = await findExistingAdminByEmail(email);
+    const requestedEmails = Array.isArray(emails)
+      ? emails
+      : String(email || "")
+          .split(/[\n,;]/)
+          .map((value) => value.trim())
+          .filter(Boolean);
 
-    if (existingAdmin) {
-      console.log(`Found orphaned admin record for ${email}, cleaning up...`);
-      // Delete orphaned admin record
-      await supabaseAdmin.from("admins").delete().eq("email", email);
-      // Delete orphaned user record if exists
-      if (existingAdmin.userId) {
-        await supabaseAdmin.from("users").delete().eq("id", existingAdmin.userId);
-      }
-      console.log("Orphaned records cleaned up");
+    if (!requestedEmails.length) {
+      return res.status(400).json({ message: "email or emails is required" });
     }
 
-    // 1) Create Auth user
-    const { data: authData, error: authError } =
-      await supabaseAdmin.auth.admin.createUser({
-        email,
-        password: tempPassword,
-        email_confirm: true,
+    const uniqueEmails = Array.from(
+      new Set(requestedEmails.map((value) => normalizeEmail(value))),
+    ).filter(Boolean);
+
+    const results = [];
+    for (const itemEmail of uniqueEmails) {
+      const result = await createSingleAdminAccount({
+        email: itemEmail,
+        loginUrl,
       });
+      results.push(result);
+    }
 
-    if (authError || !authData?.user?.id) {
-      console.error("Auth create error", authError);
-
-      // Handle duplicate email specifically
-      if (authError?.code === "email_exists" || authError?.status === 422) {
-        return res.status(409).json({
-          message: `Email ${email} is already registered. Please use a different email or delete the existing user from Supabase Auth.`,
+    if (uniqueEmails.length === 1) {
+      const singleResult = results[0];
+      if (!singleResult.ok) {
+        return res.status(singleResult.status || 500).json({
+          message: singleResult.message,
+          error: singleResult.error || null,
+          email: singleResult.email,
         });
       }
 
-      return res.status(500).json({
-        message: "Failed to create auth user",
-        error: authError?.message,
+      return res.status(201).json({
+        message: singleResult.message,
+        userId: singleResult.userId,
+        email: singleResult.email,
+        emailSent: singleResult.emailSent,
+        emailError: singleResult.emailError,
+        loginUrl: singleResult.loginUrl,
       });
     }
 
-    const userId = authData.user.id;
-    console.log(`Created auth user with ID: ${userId}`);
+    const successCount = results.filter((item) => item.ok).length;
+    const failed = results.filter((item) => !item.ok);
 
-    // Helper to rollback auth/user if downstream fails
-    const cleanup = async () => {
-      try {
-        await supabaseAdmin.from("users").delete().eq("id", userId);
-        await supabaseAdmin.auth.admin.deleteUser(userId);
-        console.log("Cleaned up failed admin creation");
-      } catch (e) {
-        console.error("Cleanup failed", e);
-      }
-    };
-
-    // 2) Insert into users table
-    const { error: userInsertError } = await supabaseAdmin
-      .from("users")
-      .insert({
-        id: userId,
-        role: "admin",
-        email,
-        profile_completed: false,
-      });
-
-    if (userInsertError) {
-      console.error("users insert error", userInsertError);
-      await cleanup();
-      return res.status(500).json({
-        message: "Failed to insert user role",
-        error: userInsertError?.message,
-      });
-    }
-
-    console.log("Inserted user role");
-
-    // 3) Insert into admins table
-    const adminInsertError = await insertAdminProfileWithFallback({
-      userId,
-      email,
+    return res.status(200).json({
+      message: `Processed ${uniqueEmails.length} admin request(s): ${successCount} success, ${failed.length} failed.`,
+      summary: {
+        requested: uniqueEmails.length,
+        success: successCount,
+        failed: failed.length,
+      },
+      results,
     });
-
-    if (adminInsertError) {
-      console.error("admins insert error", adminInsertError);
-      await cleanup();
-      return res.status(500).json({
-        message: "Failed to insert admin profile",
-        error: adminInsertError?.message,
-      });
-    }
-
-    console.log("Inserted admin profile");
-
-    // 4) Send email (non-blocking)
-    try {
-      console.log(`Sending admin invite → email: ${email}`);
-      await sendAdminInviteEmail({ to: email, tempPassword, loginUrl });
-      console.log(`Admin invite send complete for ${email}`);
-    } catch (e) {
-      console.error("Email send error (non-blocking):", e.message);
-      // Log but don't fail; admin is already created and can reset password via forgot link
-    }
-
-    console.log(`Successfully created admin: ${email}`);
-    return res
-      .status(201)
-      .json({ message: "Admin created successfully", userId });
   } catch (err) {
     console.error("Unexpected error in /manager/add-admin:", err);
     return res

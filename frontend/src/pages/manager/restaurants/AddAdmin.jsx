@@ -5,7 +5,7 @@ import AnimatedAlert, { useAlert } from "../../../components/AnimatedAlert";
 import { API_URL } from "../../../config";
 
 export default function AddAdmin() {
-  const [email, setEmail] = useState("");
+  const [emailsInput, setEmailsInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setRawMessage] = useState(null);
   const [error, setRawError] = useState(null);
@@ -25,13 +25,25 @@ export default function AddAdmin() {
     if (msg) showSuccess(msg);
   };
 
+  const parseEmails = (rawValue) => {
+    return Array.from(
+      new Set(
+        String(rawValue || "")
+          .split(/[\n,;]/)
+          .map((value) => value.trim().toLowerCase())
+          .filter(Boolean),
+      ),
+    );
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError(null);
     setMessage(null);
 
-    if (!email) {
-      setError("Email is required.");
+    const emailList = parseEmails(emailsInput);
+    if (!emailList.length) {
+      setError("At least one email is required.");
       return;
     }
 
@@ -49,17 +61,37 @@ export default function AddAdmin() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ emails: emailList }),
       });
 
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(data?.message || "Failed to create admin");
       } else {
-        setMessage(
-          `Admin created successfully. A temporary password has been sent to ${email}.`,
-        );
-        setEmail("");
+        const resultList = Array.isArray(data?.results) ? data.results : [];
+        if (resultList.length) {
+          const successCount = resultList.filter((item) => item?.ok).length;
+          const failedItems = resultList.filter((item) => !item?.ok);
+
+          if (!failedItems.length) {
+            setMessage(
+              `Successfully created ${successCount} admin account(s). Invite emails were attempted for all.`,
+            );
+          } else {
+            const failedText = failedItems
+              .map((item) => `${item?.email || "unknown"}: ${item?.message || "failed"}`)
+              .join(" | ");
+            setError(
+              `Created ${successCount}/${resultList.length} admins. Failed: ${failedText}`,
+            );
+          }
+        } else {
+          setMessage(
+            `Admin created successfully. A temporary password has been sent to ${data?.email || "the admin email"}.`,
+          );
+        }
+
+        setEmailsInput("");
         setTimeout(() => setMessage(null), 3000);
       }
     } catch (err) {
@@ -76,8 +108,8 @@ export default function AddAdmin() {
         <div className="max-w-2xl mx-auto">
           <h1 className="text-2xl font-bold text-gray-800">Add Admin</h1>
           <p className="text-gray-600 mt-2">
-            Create a new restaurant admin account. A temporary password will be
-            sent to the email address.
+            Create one or multiple restaurant admin accounts. Use comma or new
+            line to add multiple emails.
           </p>
 
           <form
@@ -86,16 +118,19 @@ export default function AddAdmin() {
           >
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Email Address
+                Email Address(es)
               </label>
-              <input
+              <textarea
                 className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
-                placeholder="admin@restaurant.com"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                placeholder={"admin1@restaurant.com\nadmin2@restaurant.com"}
+                rows={4}
+                value={emailsInput}
+                onChange={(e) => setEmailsInput(e.target.value)}
                 required
               />
+              <p className="text-xs text-gray-500 mt-1">
+                Example: admin1@restaurant.com, admin2@restaurant.com
+              </p>
             </div>
 
             <button
@@ -103,7 +138,7 @@ export default function AddAdmin() {
               disabled={loading}
               className="w-full px-4 py-3 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-60 transition"
             >
-              {loading ? "Creating..." : "Create Admin"}
+              {loading ? "Creating..." : "Create Admin(s)"}
             </button>
           </form>
         </div>
