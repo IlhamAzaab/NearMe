@@ -66,7 +66,11 @@ export default function AddAdmin() {
 
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(data?.message || "Failed to create admin");
+        const backendMessage = String(data?.message || "Failed to create admin");
+        const backendError = String(data?.error || "").trim();
+        setError(
+          backendError ? `${backendMessage}: ${backendError}` : backendMessage,
+        );
       } else {
         const resultList = Array.isArray(data?.results) ? data.results : [];
         if (resultList.length) {
