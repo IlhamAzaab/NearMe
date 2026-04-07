@@ -38,6 +38,25 @@ function appError(statusCode, message, code, details) {
   return error;
 }
 
+function isMissingColumnError(error, columnName) {
+  const message = String(error?.message || "").toLowerCase();
+  const details = String(error?.details || "").toLowerCase();
+  const hint = String(error?.hint || "").toLowerCase();
+  const target = String(columnName || "").toLowerCase();
+
+  if (!target) {
+    return false;
+  }
+
+  return (
+    error?.code === "42703" ||
+    message.includes(`column ${target}`) ||
+    message.includes(`'${target}'`) ||
+    details.includes(target) ||
+    hint.includes(target)
+  );
+}
+
 function sanitizeUser(user) {
   return {
     id: user.id,
@@ -901,27 +920,41 @@ export async function getCurrentUser(userId) {
 
     roleProfile = data;
   } else if (role === "manager") {
-    const { data, error } = await supabaseAdmin
+    let managerResult = await supabaseAdmin
       .from("managers")
-      .select("email, phone")
+      .select("email, mobile_number")
       .eq("user_id", userId)
       .maybeSingle();
 
-    if (error) {
+    if (managerResult.error && isMissingColumnError(managerResult.error, "mobile_number")) {
+      managerResult = await supabaseAdmin
+        .from("managers")
+        .select("email, phone")
+        .eq("user_id", userId)
+        .maybeSingle();
+    }
+
+    if (managerResult.error) {
       throw appError(
         500,
         "Failed to fetch manager profile",
         "DB_QUERY_FAILED",
         {
-          dbMessage: error.message,
-          dbHint: error.hint || null,
-          dbDetails: error.details || null,
-          dbCode: error.code || null,
+          dbMessage: managerResult.error.message,
+          dbHint: managerResult.error.hint || null,
+          dbDetails: managerResult.error.details || null,
+          dbCode: managerResult.error.code || null,
         },
       );
     }
 
-    roleProfile = data;
+    roleProfile = managerResult.data
+      ? {
+          ...managerResult.data,
+          phone:
+            managerResult.data.phone || managerResult.data.mobile_number || null,
+        }
+      : null;
   }
 
   const resolvedProfileCompleted =

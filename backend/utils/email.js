@@ -51,7 +51,7 @@ if (smtpConfigured) {
  * @param {string} options.loginUrl - Login URL
  */
 export async function sendAdminInviteEmail({ to, tempPassword, loginUrl }) {
-  const from = process.env.SMTP_FROM || "no-reply@nearme.com";
+  const from = process.env.SMTP_FROM || "mimilhamazaab51@gmail.com";
   const subject = "Your NearMe admin account";
   const text = `Welcome to NearMe!\n\nLogin URL: ${loginUrl}\nEmail: ${to}\nTemporary password: ${tempPassword}\n\nPlease sign in and change your password immediately.`;
   const html = `
@@ -93,7 +93,7 @@ export async function sendAdminInviteEmail({ to, tempPassword, loginUrl }) {
  * @param {string} options.verificationLink - Full verification URL
  */
 export async function sendVerificationEmail({ to, verificationLink }) {
-  const from = process.env.SMTP_FROM || "no-reply@nearme.com";
+  const from = process.env.SMTP_FROM || "mimilhamazaab51@gmail.com";
   const subject = "Verify your NearMe account";
   const text = `Welcome to NearMe!\n\nClick the link below to verify your email address:\n\n${verificationLink}\n\nThis link will expire in 1 hour.\n\nIf you didn't create this account, please ignore this email.`;
   const html = `
@@ -137,7 +137,7 @@ export async function sendVerificationEmail({ to, verificationLink }) {
  * @param {string} options.loginUrl - Login URL
  */
 export async function sendDriverInviteEmail({ to, tempPassword, loginUrl }) {
-  const from = process.env.SMTP_FROM || "no-reply@nearme.com";
+  const from = process.env.SMTP_FROM || "mimilhamazaab51@gmail.com";
   const subject = "Your NearMe driver account";
   const text = `Welcome to NearMe Drivers!\n\nLogin URL: ${loginUrl}\nEmail: ${to}\nTemporary password: ${tempPassword}\n\nPlease sign in and change your password immediately.`;
   const html = `

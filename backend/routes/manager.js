@@ -34,6 +34,113 @@ if (process.env.NODE_ENV !== "production") {
 
 const router = express.Router();
 
+function isMissingColumnError(error, columnName) {
+  const message = String(error?.message || "").toLowerCase();
+  const details = String(error?.details || "").toLowerCase();
+  const hint = String(error?.hint || "").toLowerCase();
+  const target = String(columnName || "").toLowerCase();
+
+  if (!target) {
+    return false;
+  }
+
+  return (
+    error?.code === "42703" ||
+    message.includes(`column ${target}`) ||
+    message.includes(`'${target}'`) ||
+    details.includes(target) ||
+    hint.includes(target)
+  );
+}
+
+function isSchemaVariantError(error) {
+  const code = String(error?.code || "");
+  const message = String(error?.message || "").toLowerCase();
+  const details = String(error?.details || "").toLowerCase();
+
+  return (
+    code === "42703" ||
+    code === "PGRST204" ||
+    code === "23502" ||
+    message.includes("column") ||
+    message.includes("schema cache") ||
+    details.includes("null value")
+  );
+}
+
+function getUsernameFromEmail(email) {
+  const localPart = String(email || "").split("@")[0] || "admin";
+  return localPart.slice(0, 64);
+}
+
+async function findExistingAdminByEmail(email) {
+  let result = await supabaseAdmin
+    .from("admins")
+    .select("id, email")
+    .eq("email", email)
+    .maybeSingle();
+
+  if (result.error && isMissingColumnError(result.error, "id")) {
+    result = await supabaseAdmin
+      .from("admins")
+      .select("user_id, email")
+      .eq("email", email)
+      .maybeSingle();
+  }
+
+  if (result.error) {
+    throw result.error;
+  }
+
+  if (!result.data) {
+    return null;
+  }
+
+  return {
+    email: result.data.email,
+    userId: result.data.id || result.data.user_id || null,
+  };
+}
+
+async function insertAdminProfileWithFallback({ userId, email }) {
+  const attempts = [
+    {
+      id: userId,
+      email,
+      force_password_change: true,
+      profile_completed: false,
+    },
+    {
+      user_id: userId,
+      username: getUsernameFromEmail(email),
+      email,
+      force_password_change: true,
+      profile_completed: false,
+    },
+    {
+      user_id: userId,
+      username: getUsernameFromEmail(email),
+      email,
+    },
+  ];
+
+  let lastError = null;
+
+  for (const payload of attempts) {
+    const { error } = await supabaseAdmin.from("admins").insert(payload);
+    if (!error) {
+      return null;
+    }
+
+    lastError = error;
+    if (!isSchemaVariantError(error)) {
+      return error;
+    }
+  }
+
+  return lastError;
+}
+
 /**
  * GET /manager/me
  * Get manager profile
@@ -79,21 +186,19 @@ router.post("/add-admin", authenticate, async (req, res) => {
 
     const tempPassword = generateTempPassword();
     const loginUrl =
-      process.env.MANAGER_LOGIN_URL || "http://localhost:5173/login";
+      process.env.MANAGER_LOGIN_URL || "https://www.meezo.lk/login";
 
     // 0) Check for orphaned records and clean them up
-    const { data: existingAdmin } = await supabaseAdmin
-      .from("admins")
-      .select("id, email")
-      .eq("email", email)
-      .maybeSingle();
+    const existingAdmin = await findExistingAdminByEmail(email);
 
     if (existingAdmin) {
       console.log(`Found orphaned admin record for ${email}, cleaning up...`);
       // Delete orphaned admin record
       await supabaseAdmin.from("admins").delete().eq("email", email);
       // Delete orphaned user record if exists
-      await supabaseAdmin.from("users").delete().eq("id", existingAdmin.id);
+      if (existingAdmin.userId) {
+        await supabaseAdmin.from("users").delete().eq("id", existingAdmin.userId);
+      }
       console.log("Orphaned records cleaned up");
     }
 
@@ -157,14 +262,10 @@ router.post("/add-admin", authenticate, async (req, res) => {
     console.log("Inserted user role");
 
     // 3) Insert into admins table
-    const { error: adminInsertError } = await supabaseAdmin
-      .from("admins")
-      .insert({
-        id: userId,
-        email,
-        force_password_change: true,
-        profile_completed: false,
-      });
+    const adminInsertError = await insertAdminProfileWithFallback({
+      userId,
+      email,
+    });
 
     if (adminInsertError) {
       console.error("admins insert error", adminInsertError);
@@ -217,7 +318,7 @@ router.post("/add-driver", authenticate, async (req, res) => {
 
     const tempPassword = generateTempPassword();
     const loginUrl =
-      process.env.MANAGER_LOGIN_URL || "http://localhost:5173/login";
+      process.env.MANAGER_LOGIN_URL || "https://www.meezo.lk/login";
 
     console.log("================ DRIVER CREATION ================");
     console.log(`Email: ${email}`);
