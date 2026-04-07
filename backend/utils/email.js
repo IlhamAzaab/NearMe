@@ -7,6 +7,7 @@ if (process.env.NODE_ENV !== "production") {
 
 // Build transporter only if SMTP is configured
 let transporter = null;
+let fallbackTransporter = null;
 const smtpPassRaw = String(process.env.SMTP_PASS || "");
 const smtpPass = smtpPassRaw.replace(/\s+/g, "");
 const smtpConfigured =
@@ -15,20 +16,64 @@ const smtpConfigured =
   process.env.SMTP_USER &&
   smtpPass;
 
-if (smtpConfigured) {
-  const smtpPort = Number(process.env.SMTP_PORT || 465);
-  transporter = nodemailer.createTransport({
+function createSmtpTransport(port) {
+  return nodemailer.createTransport({
     host: process.env.SMTP_HOST,
-    port: smtpPort,
-    secure: smtpPort === 465, // true for 465 (SSL), false for 587 (STARTTLS)
-    connectionTimeout: 10000, // 10s to connect
-    greetingTimeout: 10000, // 10s for SMTP greeting
-    socketTimeout: 15000, // 15s for socket inactivity
+    port,
+    secure: port === 465, // true for 465 (SSL), false for 587 (STARTTLS)
+    connectionTimeout: 30000, // allow slower cloud egress to establish SMTP
+    greetingTimeout: 30000,
+    socketTimeout: 60000,
     auth: {
       user: process.env.SMTP_USER,
       pass: smtpPass,
     },
   });
+}
+
+function isConnectionError(error) {
+  const code = String(error?.code || "").toUpperCase();
+  const message = String(error?.message || "").toLowerCase();
+  return (
+    code === "ETIMEDOUT" ||
+    code === "ECONNECTION" ||
+    code === "ESOCKET" ||
+    message.includes("timeout") ||
+    message.includes("timed out") ||
+    message.includes("connection")
+  );
+}
+
+async function sendMailWithFallback(mailOptions) {
+  if (!transporter) {
+    throw new Error("SMTP transporter is not configured");
+  }
+
+  try {
+    return await transporter.sendMail(mailOptions);
+  } catch (primaryError) {
+    if (!fallbackTransporter || !isConnectionError(primaryError)) {
+      throw primaryError;
+    }
+
+    console.warn(
+      `⚠️  Primary SMTP transport failed (${primaryError.message}). Retrying with fallback transport...`,
+    );
+    return fallbackTransporter.sendMail(mailOptions);
+  }
+}
+
+if (smtpConfigured) {
+  const smtpPort = Number(process.env.SMTP_PORT || 587);
+  transporter = createSmtpTransport(smtpPort);
+
+  // Gmail fallback: if primary is 587 and the host times out in cloud, retry via 465.
+  if (
+    String(process.env.SMTP_HOST || "").toLowerCase().includes("gmail.com") &&
+    smtpPort !== 465
+  ) {
+    fallbackTransporter = createSmtpTransport(465);
+  }
 
   if (smtpPassRaw && smtpPassRaw !== smtpPass) {
     console.warn(
@@ -45,6 +90,19 @@ if (smtpConfigured) {
     .catch((err) =>
       console.error("\u274c SMTP verification failed:", err.message),
     );
+
+  if (fallbackTransporter) {
+    fallbackTransporter
+      .verify()
+      .then(() =>
+        console.log(
+          "\u2705 SMTP fallback transporter verified — backup email route ready",
+        ),
+      )
+      .catch((err) =>
+        console.error("\u26a0\ufe0f SMTP fallback verification failed:", err.message),
+      );
+  }
 } else {
   console.warn(
     "\u26a0\ufe0f  SMTP not configured. Set SMTP_HOST, SMTP_USER, SMTP_PASS to enable emails.",
@@ -90,7 +148,7 @@ export async function sendAdminInviteEmail({ to, tempPassword, loginUrl }) {
   }
 
   try {
-    await transporter.sendMail({ from, to, subject, text, html });
+    await sendMailWithFallback({ from, to, subject, text, html });
     console.log(`✅ Admin invite email sent successfully to ${to}\n`);
   } catch (error) {
     console.error(`❌ Failed to send admin invite email to ${to}`);
@@ -136,7 +194,7 @@ export async function sendVerificationEmail({ to, verificationLink }) {
   }
 
   try {
-    await transporter.sendMail({ from, to, subject, text, html });
+    await sendMailWithFallback({ from, to, subject, text, html });
     console.log(`✅ Verification email sent to ${to}`);
   } catch (error) {
     console.error(`❌ Failed to send verification email to ${to}`);
@@ -184,7 +242,7 @@ export async function sendDriverInviteEmail({ to, tempPassword, loginUrl }) {
   }
 
   try {
-    await transporter.sendMail({ from, to, subject, text, html });
+    await sendMailWithFallback({ from, to, subject, text, html });
     console.log(`✅ Driver invite email sent successfully to ${to}\n`);
   } catch (error) {
     console.error(`❌ Failed to send driver invite email to ${to}`);
