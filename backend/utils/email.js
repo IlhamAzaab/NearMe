@@ -12,8 +12,7 @@ const smtpPassRaw = String(process.env.SMTP_PASS || "");
 const smtpPass = smtpPassRaw.replace(/\s+/g, "");
 const resendApiKey = String(process.env.RESEND_API_KEY || "").trim();
 const resendFrom =
-  String(process.env.RESEND_FROM || "").trim() ||
-  "NearMe <noreply@nearme.com>";
+  String(process.env.RESEND_FROM || "").trim() || "NearMe <noreply@nearme.com>";
 const smtpConfigured =
   process.env.SMTP_HOST &&
   process.env.SMTP_HOST !== "smtp.example.com" &&
@@ -54,9 +53,7 @@ async function sendViaResend(mailOptions) {
     ? mailOptions.to
     : [mailOptions?.to];
 
-  const to = toList
-    .map((value) => String(value || "").trim())
-    .filter(Boolean);
+  const to = toList.map((value) => String(value || "").trim()).filter(Boolean);
 
   if (!to.length) {
     throw new Error("No recipient specified for Resend email");
