@@ -17,9 +17,12 @@
  * - Uses small lanes and shortcuts instead of main roads
  * - Provides shortest actual distance for delivery fee calculation
  *
- * OSRM-ONLY POLICY: When OSRM is unavailable, returns explicit unavailable state.
- * No Haversine fallback for route calculations - all user-facing routes
- * must use actual road-based routing for accuracy.
+ * Fallback policy:
+ * 1) OSRM (primary + backup, with retries)
+ * 2) GraphHopper walking route (if configured)
+ * 3) Haversine last resort (only when all providers fail)
+ *
+ * OSRM remains the preferred provider and is retried periodically after failures.
  * ============================================================================
  */
 
@@ -29,6 +32,11 @@ const OSRM_PRIMARY_URL =
 const OSRM_BACKUP_URL =
   process.env.OSRM_BACKUP_URL || "https://routing.openstreetmap.de/routed-foot";
 const OSRM_BASE_URL = OSRM_PRIMARY_URL; // Default for compatibility
+const GRAPHOPPER_URL =
+  process.env.GRAPHHOPPER_URL || "https://graphhopper.com/api/1/route";
+const GRAPHOPPER_API_KEY = process.env.GRAPHHOPPER_API_KEY || "";
+const GRAPHOPPER_MAX_RETRIES = 2;
+const GRAPHOPPER_RETRY_BACKOFF_MS = [1000, 2000];
 
 // Flag to track if OSRM is available (to avoid repeated failed attempts)
 let osrmAvailable = true;
@@ -43,6 +51,7 @@ const OSRM_RETRY_BACKOFF_MS = [1000, 2000, 3000]; // Backoff delays for retries
 // Key = rounded coordinates (4 decimals ≈ 11m precision), Value = { result, timestamp }
 const osrmRouteCache = new Map();
 const OSRM_CACHE_TTL_MS = 5 * 60 * 1000; // Cache routes for 5 minutes
+const OSRM_STALE_CACHE_MAX_AGE_MS = 30 * 60 * 1000; // Allow stale road-cache fallback up to 30 minutes
 const OSRM_CACHE_MAX_SIZE = 500; // Max entries to prevent memory leak
 
 // Minimum distance (meters) between two points to bother calling OSRM
@@ -56,13 +65,27 @@ function makeRouteCacheKey(waypoints) {
     .join("|");
 }
 
-function getCachedRoute(key) {
+function getCachedRoute(key, options = {}) {
+  const allowStale = options.allowStale === true;
   const entry = osrmRouteCache.get(key);
   if (!entry) return null;
-  if (Date.now() - entry.timestamp > OSRM_CACHE_TTL_MS) {
+
+  const ageMs = Date.now() - entry.timestamp;
+
+  if (ageMs > OSRM_STALE_CACHE_MAX_AGE_MS) {
     osrmRouteCache.delete(key);
     return null;
   }
+
+  if (ageMs > OSRM_CACHE_TTL_MS) {
+    if (!allowStale) return null;
+    return {
+      ...entry.result,
+      isStaleCache: true,
+      cacheAgeMs: ageMs,
+    };
+  }
+
   return entry.result;
 }
 
@@ -122,6 +145,98 @@ function createUnavailableRouteResult(waypoints, reason = "OSRM unavailable") {
     // Provide basic straight-line coordinates for display fallback (not for distance)
     straightLineCoordinates: waypoints.map((wp) => [wp.lng, wp.lat]),
   };
+}
+
+function createHaversineFallbackRouteResult(
+  waypoints,
+  reason = "All routing providers unavailable",
+) {
+  let totalDistance = 0;
+  for (let i = 0; i < waypoints.length - 1; i += 1) {
+    const from = waypoints[i];
+    const to = waypoints[i + 1];
+    totalDistance += haversineDistanceForProximityOnly(
+      from.lat,
+      from.lng,
+      to.lat,
+      to.lng,
+    );
+  }
+
+  const totalDuration = Math.max(60, (totalDistance / 18000) * 3600);
+
+  console.warn(
+    `[ROUTING] ⚠️ Using Haversine LAST RESORT fallback. reason=${reason}, distance_km=${(totalDistance / 1000).toFixed(3)}`,
+  );
+
+  return {
+    distance: totalDistance,
+    duration: totalDuration,
+    geometry: {
+      type: "LineString",
+      coordinates: waypoints.map((wp) => [wp.lng, wp.lat]),
+    },
+    roadSegments: [],
+    polyline: "",
+    legs: [],
+    isFallback: true,
+    isHaversineFallback: true,
+    fallbackProvider: "haversine",
+    unavailableReason: reason,
+  };
+}
+
+async function fetchGraphHopperRoute(
+  waypoints,
+  context = "",
+  retryAttempt = 0,
+) {
+  if (!GRAPHOPPER_API_KEY) return null;
+
+  try {
+    const query = waypoints
+      .map((wp) => `point=${encodeURIComponent(`${wp.lat},${wp.lng}`)}`)
+      .join("&");
+
+    const url = `${GRAPHOPPER_URL}?${query}&profile=foot&locale=en&points_encoded=false&instructions=true&key=${encodeURIComponent(GRAPHOPPER_API_KEY)}`;
+
+    const controller = new AbortController();
+    const timeoutMs = 9000 + retryAttempt * 2000;
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    const response = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeoutId);
+
+    if (!response.ok) return null;
+
+    const data = await response.json();
+    const path = data?.paths?.[0];
+    if (!path) return null;
+
+    const coordinates = Array.isArray(path?.points?.coordinates)
+      ? path.points.coordinates
+      : waypoints.map((wp) => [wp.lng, wp.lat]);
+
+    return {
+      distance: Number(path.distance),
+      duration: Number(path.time) / 1000,
+      geometry: {
+        type: "LineString",
+        coordinates,
+      },
+      roadSegments: [],
+      polyline: encodePolyline(coordinates),
+      legs: [],
+      provider: "graphhopper",
+      profile: "foot",
+      context,
+    };
+  } catch (err) {
+    console.log(
+      `[GraphHopper] ⚠️ foot profile failed: ${err.message}${context ? ` (${context})` : ""}`,
+    );
+    return null;
+  }
 }
 
 /**
@@ -202,6 +317,8 @@ export async function getOSRMRoute(waypoints, context = "", options = {}) {
   // Use FOOT (walking) profile by default (shortest distance)
   const useSingleMode = options.useSingleMode !== false;
   const optimize = options.optimize !== false;
+  const forceRetry = options.forceRetry === true;
+  const allowStaleCache = options.allowStaleCache !== false;
 
   if (!waypoints || waypoints.length < 2) {
     throw new Error("Need at least 2 waypoints for routing");
@@ -243,6 +360,9 @@ export async function getOSRMRoute(waypoints, context = "", options = {}) {
   if (cached) {
     return cached;
   }
+  const staleCached = allowStaleCache
+    ? getCachedRoute(cacheKey, { allowStale: true })
+    : null;
 
   console.log(
     `\n[OSRM] 🗺️ Getting route for ${waypoints.length} waypoints${context ? ` (${context})` : ""}`,
@@ -262,14 +382,43 @@ export async function getOSRMRoute(waypoints, context = "", options = {}) {
     osrmAvailable = true; // Allow retry
   }
 
-  // If OSRM was marked as unavailable, return unavailable state directly
-  if (!osrmAvailable) {
+  // If OSRM is currently marked unavailable and not forcing retry,
+  // skip straight to fallback providers/caches for this request.
+  if (!osrmAvailable && !forceRetry) {
     console.log(
-      `[OSRM] ⚠️ OSRM circuit breaker active, returning unavailable state`,
+      `[OSRM] ⚠️ OSRM circuit breaker active, attempting fallback providers`,
     );
-    return createUnavailableRouteResult(
+    if (staleCached) {
+      console.log(
+        `[OSRM] ♻️ Returning stale cached road route while circuit breaker is active`,
+      );
+      return staleCached;
+    }
+
+    if (GRAPHOPPER_API_KEY) {
+      for (let retry = 0; retry <= GRAPHOPPER_MAX_RETRIES; retry += 1) {
+        if (retry > 0) {
+          const backoffMs = GRAPHOPPER_RETRY_BACKOFF_MS[retry - 1] || 2000;
+          await new Promise((resolve) => setTimeout(resolve, backoffMs));
+        }
+        const ghRoute = await fetchGraphHopperRoute(
+          waypoints,
+          `${context} (circuit-breaker fallback)`,
+          retry,
+        );
+        if (ghRoute && Number.isFinite(ghRoute.distance) && ghRoute.distance > 0) {
+          console.log(
+            `[GraphHopper] ✅ Fallback route selected: ${(ghRoute.distance / 1000).toFixed(3)} km`,
+          );
+          setCachedRoute(cacheKey, ghRoute);
+          return ghRoute;
+        }
+      }
+    }
+
+    return createHaversineFallbackRouteResult(
       waypoints,
-      "OSRM service temporarily unavailable",
+      "OSRM unavailable and GraphHopper fallback failed",
     );
   }
 
@@ -290,6 +439,9 @@ export async function getOSRMRoute(waypoints, context = "", options = {}) {
 
   console.log(`[OSRM] → Using profile: FOOT (walking) for shortest routes`);
   console.log(`[OSRM] → Available servers: ${serversToTry.length}`);
+  if (forceRetry) {
+    console.log(`[OSRM] → Force retry enabled: bypassing circuit breaker`);
+  }
 
   // Try each server with retry backoff
   for (let serverIdx = 0; serverIdx < serversToTry.length; serverIdx++) {
@@ -394,14 +546,51 @@ export async function getOSRMRoute(waypoints, context = "", options = {}) {
 
   // All retries on all servers failed - mark OSRM as unavailable
   console.log(
-    "[OSRM] ❌ All OSRM servers and retries exhausted - returning unavailable state",
+    "[OSRM] ❌ All OSRM servers and retries exhausted - attempting GraphHopper fallback",
   );
   osrmAvailable = false;
   osrmLastCheckTime = now;
 
-  return createUnavailableRouteResult(
+  if (staleCached) {
+    console.log(
+      "[OSRM] ♻️ All live servers failed; using stale cached road route",
+    );
+    return staleCached;
+  }
+
+  if (GRAPHOPPER_API_KEY) {
+    for (let retry = 0; retry <= GRAPHOPPER_MAX_RETRIES; retry += 1) {
+      if (retry > 0) {
+        const backoffMs = GRAPHOPPER_RETRY_BACKOFF_MS[retry - 1] || 2000;
+        console.log(
+          `[GraphHopper] → Retry ${retry}/${GRAPHOPPER_MAX_RETRIES} after ${backoffMs}ms backoff`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, backoffMs));
+      }
+
+      const ghRoute = await fetchGraphHopperRoute(
+        waypoints,
+        `${context} (after OSRM retries exhausted)`,
+        retry,
+      );
+
+      if (ghRoute && Number.isFinite(ghRoute.distance) && ghRoute.distance > 0) {
+        console.log(
+          `[GraphHopper] ✅ Fallback route selected: ${(ghRoute.distance / 1000).toFixed(3)} km`,
+        );
+        setCachedRoute(cacheKey, ghRoute);
+        return ghRoute;
+      }
+    }
+  } else {
+    console.warn(
+      "[GraphHopper] ⚠️ API key missing; skipping GraphHopper fallback",
+    );
+  }
+
+  return createHaversineFallbackRouteResult(
     waypoints,
-    "All OSRM servers failed after multiple retries",
+    "All OSRM retries exhausted and GraphHopper fallback failed",
   );
 }
 

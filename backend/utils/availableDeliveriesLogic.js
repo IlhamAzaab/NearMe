@@ -110,9 +110,12 @@ async function loadConfigConstants() {
 // ============================================================================
 // OSRM ROUTE CALCULATION (Using Public OSRM Server)
 // ============================================================================
-async function getOSRMRoute(waypoints, context = "") {
+async function getOSRMRoute(waypoints, context = "", options = {}) {
   // Uses OSRM foot profile for shortest distance (suitable for motorcycles too)
-  return await calculateOSRMRoute(waypoints, context, { useSingleMode: true });
+  return await calculateOSRMRoute(waypoints, context, {
+    useSingleMode: true,
+    ...options,
+  });
 }
 
 // ============================================================================
@@ -685,6 +688,7 @@ async function calculateSegmentBySegmentRouteDistance(
   let totalDistance = 0;
   let totalDuration = 0;
   const segments = [];
+  let hasUnavailableSegments = false;
 
   for (let i = 0; i < waypoints.length - 1; i++) {
     const from = waypoints[i];
@@ -695,16 +699,55 @@ async function calculateSegmentBySegmentRouteDistance(
       `${from.label} → ${to.label}`,
     );
 
-    const segmentDistanceKm = segmentRoute.distance / 1000;
-    totalDistance += segmentRoute.distance;
-    totalDuration += segmentRoute.duration;
+    let segmentDistance = Number(segmentRoute?.distance);
+    let segmentDuration = Number(segmentRoute?.duration);
+
+    if (
+      !Number.isFinite(segmentDistance) ||
+      segmentDistance <= 0 ||
+      !Number.isFinite(segmentDuration) ||
+      segmentDuration <= 0
+    ) {
+      const retriedRoute = await getOSRMRoute(
+        [from, to],
+        `${from.label} → ${to.label} (forced retry)`,
+        {
+          forceRetry: true,
+          allowStaleCache: true,
+        },
+      );
+
+      segmentDistance = Number(retriedRoute?.distance);
+      segmentDuration = Number(retriedRoute?.duration);
+
+      if (
+        !Number.isFinite(segmentDistance) ||
+        segmentDistance <= 0 ||
+        !Number.isFinite(segmentDuration) ||
+        segmentDuration <= 0
+      ) {
+        throw new Error(
+          `OSRM unavailable for segment ${from.label} -> ${to.label}`,
+        );
+      }
+
+      hasUnavailableSegments = Boolean(retriedRoute?.isUnavailable);
+      console.warn(
+        `[SEGMENT-ROUTE] ⚠️ OSRM live route unavailable for ${from.label} → ${to.label}; recovered via forced retry/cache ${(segmentDistance / 1000).toFixed(3)} km`,
+      );
+    }
+
+    const segmentDistanceKm = segmentDistance / 1000;
+    totalDistance += segmentDistance;
+    totalDuration += segmentDuration;
 
     segments.push({
       from: from.label,
       to: to.label,
-      distance: segmentRoute.distance,
+      distance: segmentDistance,
       distanceKm: segmentDistanceKm,
-      duration: segmentRoute.duration,
+      duration: segmentDuration,
+      osrm_unavailable: Boolean(segmentRoute?.isUnavailable),
     });
 
     console.log(
@@ -729,6 +772,7 @@ async function calculateSegmentBySegmentRouteDistance(
     segments,
     optimizedRestaurants,
     optimizedCustomers,
+    hasUnavailableSegments,
   };
 }
 
@@ -2166,7 +2210,31 @@ async function evaluateAvailableDeliveryOptimized(
         [driverLocation, newRestaurant],
         `Driver→Restaurant (${orderNumber})`,
       );
-      driverToRestaurantKm = dtrRoute.distance / 1000;
+      let dtrDistanceMeters = Number(dtrRoute?.distance);
+      if (!Number.isFinite(dtrDistanceMeters) || dtrDistanceMeters <= 0) {
+        const dtrRetried = await getOSRMRoute(
+          [driverLocation, newRestaurant],
+          `Driver→Restaurant (${orderNumber}) forced retry`,
+          {
+            forceRetry: true,
+            allowStaleCache: true,
+          },
+        );
+        dtrDistanceMeters = Number(dtrRetried?.distance);
+      }
+
+      if (!Number.isFinite(dtrDistanceMeters) || dtrDistanceMeters <= 0) {
+        throw new Error(
+          `OSRM unavailable for first-delivery Driver→Restaurant (${orderNumber})`,
+        );
+      }
+
+      if (Boolean(dtrRoute?.isUnavailable)) {
+        console.warn(
+          `[FIRST-DELIVERY] ⚠️ Driver→Restaurant (${orderNumber}) recovered via forced retry/cache ${(dtrDistanceMeters / 1000).toFixed(3)} km`,
+        );
+      }
+      driverToRestaurantKm = dtrDistanceMeters / 1000;
       // 🆕 Store route geometry for map display
       driverToRestaurantGeometry = {
         coordinates: dtrRoute.geometry?.coordinates || null,
@@ -2184,7 +2252,31 @@ async function evaluateAvailableDeliveryOptimized(
         [newRestaurant, newCustomer],
         `Restaurant→Customer (${orderNumber})`,
       );
-      restaurantToCustomerKm = rtcRoute.distance / 1000;
+      let rtcDistanceMeters = Number(rtcRoute?.distance);
+      if (!Number.isFinite(rtcDistanceMeters) || rtcDistanceMeters <= 0) {
+        const rtcRetried = await getOSRMRoute(
+          [newRestaurant, newCustomer],
+          `Restaurant→Customer (${orderNumber}) forced retry`,
+          {
+            forceRetry: true,
+            allowStaleCache: true,
+          },
+        );
+        rtcDistanceMeters = Number(rtcRetried?.distance);
+      }
+
+      if (!Number.isFinite(rtcDistanceMeters) || rtcDistanceMeters <= 0) {
+        throw new Error(
+          `OSRM unavailable for first-delivery Restaurant→Customer (${orderNumber})`,
+        );
+      }
+
+      if (Boolean(rtcRoute?.isUnavailable)) {
+        console.warn(
+          `[FIRST-DELIVERY] ⚠️ Restaurant→Customer (${orderNumber}) recovered via forced retry/cache ${(rtcDistanceMeters / 1000).toFixed(3)} km`,
+        );
+      }
+      restaurantToCustomerKm = rtcDistanceMeters / 1000;
       // 🆕 Store route geometry for map display
       restaurantToCustomerGeometry = {
         coordinates: rtcRoute.geometry?.coordinates || null,
@@ -2330,6 +2422,7 @@ async function evaluateAvailableDeliveryOptimized(
         coordinates: null,
         encoded_polyline: null,
       },
+      route_unavailable: Boolean(r1SegmentRoute.hasUnavailableSegments),
     };
 
     if (activeDeliveryCount === 0) {
