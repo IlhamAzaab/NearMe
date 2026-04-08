@@ -193,6 +193,16 @@ if (resendConfigured) {
   );
 }
 
+function getDefaultFromAddress() {
+  if (resendConfigured) {
+    return resendFrom;
+  }
+
+  return (
+    process.env.SMTP_FROM || process.env.SMTP_USER || "support.meezo@gmail.com"
+  );
+}
+
 /**
  * Send admin invitation email with temporary password
  * @param {Object} options - Email options
@@ -201,8 +211,7 @@ if (resendConfigured) {
  * @param {string} options.loginUrl - Login URL
  */
 export async function sendAdminInviteEmail({ to, tempPassword, loginUrl }) {
-  const from =
-    process.env.SMTP_FROM || process.env.SMTP_USER || "support.meezo@gmail.com";
+  const from = getDefaultFromAddress();
   const subject = "Your NearMe admin account";
   const text = `Welcome to NearMe!\n\nLogin URL: ${loginUrl}\nEmail: ${to}\nTemporary password: ${tempPassword}\n\nPlease sign in and change your password immediately.`;
   const html = `
@@ -221,10 +230,10 @@ export async function sendAdminInviteEmail({ to, tempPassword, loginUrl }) {
   console.log(`Login URL: ${loginUrl}`);
   console.log("========================================\n");
 
-  // If SMTP not configured, stop after logging
-  if (!transporter) {
+  // Ensure at least one provider is configured before attempting delivery
+  if (!resendConfigured && !transporter) {
     const errorMessage =
-      "SMTP not configured - admin invite email was not sent";
+      "No email provider configured - admin invite email was not sent";
     console.error(`❌ ${errorMessage}`);
     throw new Error(errorMessage);
   }
@@ -246,8 +255,7 @@ export async function sendAdminInviteEmail({ to, tempPassword, loginUrl }) {
  * @param {string} options.verificationLink - Full verification URL
  */
 export async function sendVerificationEmail({ to, verificationLink }) {
-  const from =
-    process.env.SMTP_FROM || process.env.SMTP_USER || "support.meezo@gmail.com";
+  const from = getDefaultFromAddress();
   const subject = "Verify your NearMe account";
   const text = `Welcome to NearMe!\n\nClick the link below to verify your email address:\n\n${verificationLink}\n\nThis link will expire in 1 hour.\n\nIf you didn't create this account, please ignore this email.`;
   const html = `
@@ -266,11 +274,11 @@ export async function sendVerificationEmail({ to, verificationLink }) {
     </div>
   `;
 
-  // Check transporter is available
-  if (!transporter) {
-    console.error("❌ SMTP not configured — cannot send verification email");
+  // Check provider availability
+  if (!resendConfigured && !transporter) {
+    console.error("❌ Email provider not configured — cannot send verification email");
     console.log(`[DEV] Verification link for ${to}: ${verificationLink}`);
-    throw new Error("SMTP not configured. Cannot send verification email.");
+    throw new Error("Email provider not configured. Cannot send verification email.");
   }
 
   try {
@@ -291,8 +299,7 @@ export async function sendVerificationEmail({ to, verificationLink }) {
  * @param {string} options.loginUrl - Login URL
  */
 export async function sendDriverInviteEmail({ to, tempPassword, loginUrl }) {
-  const from =
-    process.env.SMTP_FROM || process.env.SMTP_USER || "support.meezo@gmail.com";
+  const from = getDefaultFromAddress();
   const subject = "Your NearMe driver account";
   const text = `Welcome to NearMe Drivers!\n\nLogin URL: ${loginUrl}\nEmail: ${to}\nTemporary password: ${tempPassword}\n\nPlease sign in and change your password immediately.`;
   const html = `
@@ -311,10 +318,10 @@ export async function sendDriverInviteEmail({ to, tempPassword, loginUrl }) {
   console.log(`Login URL: ${loginUrl}`);
   console.log("========================================\n");
 
-  // If SMTP not configured, stop after logging
-  if (!transporter) {
+  // Ensure at least one provider is configured before attempting delivery
+  if (!resendConfigured && !transporter) {
     const errorMessage =
-      "SMTP not configured - driver invite email was not sent";
+      "No email provider configured - driver invite email was not sent";
     console.error(`❌ ${errorMessage}`);
     throw new Error(errorMessage);
   }
