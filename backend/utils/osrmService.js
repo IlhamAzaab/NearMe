@@ -307,6 +307,20 @@ async function fetchRouteForProfile(
   }
 }
 
+function buildProfileLadder(options = {}) {
+  const preferredProfile = String(options.preferredProfile || "foot").trim();
+  const fallbackProfiles = Array.isArray(options.fallbackProfiles)
+    ? options.fallbackProfiles
+    : ["bike", "driving"];
+
+  const ordered = [preferredProfile, ...fallbackProfiles]
+    .map((p) => String(p || "").trim())
+    .filter(Boolean);
+
+  // Keep order stable while removing duplicates.
+  return [...new Set(ordered)];
+}
+
 /**
  * Get route using OSRM - uses FOOT (walking) profile for shortest distance
  * OSRM-ONLY: Returns unavailable state when OSRM fails (no Haversine fallback)
@@ -322,6 +336,7 @@ export async function getOSRMRoute(waypoints, context = "", options = {}) {
   const optimize = options.optimize !== false;
   const forceRetry = options.forceRetry === true;
   const allowStaleCache = options.allowStaleCache !== false;
+  const profileLadder = buildProfileLadder(options);
 
   if (!waypoints || waypoints.length < 2) {
     throw new Error("Need at least 2 waypoints for routing");
@@ -433,18 +448,17 @@ export async function getOSRMRoute(waypoints, context = "", options = {}) {
   // For now, we'll use the simple route service
   let orderedWaypoints = [...waypoints];
 
-  // ===== OSRM-ONLY RETRY STRATEGY =====
-  // ALWAYS use FOOT profile (walking) for shortest distance through small lanes
-  // Foot routing is optimal for motorcycle/bike riders on short distances
-  // 1. Try primary OSRM server with foot profile
-  // 2. Retry with backoff
-  // 3. Try backup OSRM server with foot profile
-  // 4. If all fail, return unavailable state (NO Haversine fallback)
+  // ===== OSRM RETRY + PROFILE FALLBACK STRATEGY =====
+  // 1. Try preferred profile (default: foot)
+  // 2. If unavailable, try fallback profiles (bike, driving)
+  // 3. Retry each profile with backoff on each server
+  // 4. If all OSRM attempts fail, proceed to non-OSRM fallbacks
 
-  const profilesToTry = ["foot"]; // ALWAYS foot - shortest distance through lanes
   const serversToTry = [OSRM_PRIMARY_URL, OSRM_BACKUP_URL].filter(Boolean);
 
-  console.log(`[OSRM] → Using profile: FOOT (walking) for shortest routes`);
+  console.log(
+    `[OSRM] → Profile ladder: ${profileLadder.map((p) => p.toUpperCase()).join(" -> ")}`,
+  );
   console.log(`[OSRM] → Available servers: ${serversToTry.length}`);
   if (forceRetry) {
     console.log(`[OSRM] → Force retry enabled: bypassing circuit breaker`);
@@ -457,96 +471,87 @@ export async function getOSRMRoute(waypoints, context = "", options = {}) {
       `[OSRM] → Attempting server ${serverIdx + 1}/${serversToTry.length}: ${serverUrl}`,
     );
 
-    // Try each profile on this server
-    for (let retry = 0; retry <= OSRM_MAX_RETRIES; retry++) {
-      if (retry > 0) {
-        const backoffMs = OSRM_RETRY_BACKOFF_MS[retry - 1] || 3000;
-        console.log(
-          `[OSRM] → Retry ${retry}/${OSRM_MAX_RETRIES} after ${backoffMs}ms backoff`,
-        );
-        await new Promise((resolve) => setTimeout(resolve, backoffMs));
-      }
-
-      // Fetch routes for all profiles in parallel on this attempt
-      const routePromises = profilesToTry.map((profile) =>
-        fetchRouteForProfile(orderedWaypoints, profile, serverUrl, retry),
+    for (let profileIdx = 0; profileIdx < profileLadder.length; profileIdx += 1) {
+      const profile = profileLadder[profileIdx];
+      console.log(
+        `[OSRM] → Trying profile ${profile.toUpperCase()} (${profileIdx + 1}/${profileLadder.length}) on ${serverUrl}`,
       );
 
-      const routeResults = await Promise.all(routePromises);
-
-      // Filter out failed attempts and find the shortest route
-      const validRoutes = routeResults.filter((r) => r !== null);
-
-      if (validRoutes.length > 0) {
-        // Success! Log comparison and return best route
-        console.log(`[OSRM] 📊 Route comparison:`);
-        validRoutes.forEach((r) => {
+      for (let retry = 0; retry <= OSRM_MAX_RETRIES; retry++) {
+        if (retry > 0) {
+          const backoffMs = OSRM_RETRY_BACKOFF_MS[retry - 1] || 3000;
           console.log(
-            `[OSRM]   ${r.profile.toUpperCase()}: ${(r.distance / 1000).toFixed(3)} km (${r.alternativesCount} alternatives)`,
+            `[OSRM] → Retry ${retry}/${OSRM_MAX_RETRIES} for ${profile.toUpperCase()} after ${backoffMs}ms backoff`,
           );
-        });
-
-        // Select the shortest route across all profiles
-        const shortest = validRoutes.reduce((best, current) =>
-          current.distance < best.distance ? current : best,
-        );
-
-        console.log(
-          `[OSRM] ✅ Selected: ${shortest.profile.toUpperCase()} profile with ${(shortest.distance / 1000).toFixed(3)} km`,
-        );
-
-        const route = shortest.route;
-
-        // OSRM returns distance in meters and duration in seconds
-        const totalDistance = route.distance; // meters
-        const totalDuration = route.duration; // seconds
-
-        console.log(
-          `[OSRM] ✓ Distance: ${(totalDistance / 1000).toFixed(3)} km`,
-        );
-        console.log(`[OSRM] ✓ Duration: ${Math.ceil(totalDuration / 60)} mins`);
-
-        // Extract road segments from steps for overlap calculation
-        const roadSegments = [];
-        if (route.legs) {
-          route.legs.forEach((leg, legIdx) => {
-            if (leg.steps) {
-              leg.steps.forEach((step, stepIdx) => {
-                if (step.geometry && step.geometry.coordinates) {
-                  roadSegments.push({
-                    legIdx,
-                    stepIdx,
-                    name: step.name || "unnamed",
-                    distance: step.distance,
-                    duration: step.duration,
-                    coordinates: step.geometry.coordinates,
-                  });
-                }
-              });
-            }
-          });
+          await new Promise((resolve) => setTimeout(resolve, backoffMs));
         }
 
-        console.log(`[OSRM] ✓ Road segments (steps): ${roadSegments.length}`);
+        const routeResult = await fetchRouteForProfile(
+          orderedWaypoints,
+          profile,
+          serverUrl,
+          retry,
+        );
 
-        // Extract full route geometry
-        const geometry = route.geometry;
-        const polyline = encodePolyline(geometry.coordinates);
+        if (routeResult) {
+          const route = routeResult.route;
 
-        const finalResult = {
-          distance: totalDistance,
-          duration: totalDuration,
-          geometry: geometry,
-          roadSegments: roadSegments,
-          polyline: polyline,
-          legs: route.legs || [],
-          serverUsed: serverUrl,
-        };
+          // OSRM returns distance in meters and duration in seconds
+          const totalDistance = route.distance; // meters
+          const totalDuration = route.duration; // seconds
 
-        // Store in cache
-        setCachedRoute(cacheKey, finalResult);
+          console.log(
+            `[OSRM] ✅ Selected profile: ${profile.toUpperCase()} with ${(totalDistance / 1000).toFixed(3)} km`,
+          );
+          console.log(
+            `[OSRM] ✓ Distance: ${(totalDistance / 1000).toFixed(3)} km`,
+          );
+          console.log(`[OSRM] ✓ Duration: ${Math.ceil(totalDuration / 60)} mins`);
 
-        return finalResult;
+          // Extract road segments from steps for overlap calculation
+          const roadSegments = [];
+          if (route.legs) {
+            route.legs.forEach((leg, legIdx) => {
+              if (leg.steps) {
+                leg.steps.forEach((step, stepIdx) => {
+                  if (step.geometry && step.geometry.coordinates) {
+                    roadSegments.push({
+                      legIdx,
+                      stepIdx,
+                      name: step.name || "unnamed",
+                      distance: step.distance,
+                      duration: step.duration,
+                      coordinates: step.geometry.coordinates,
+                    });
+                  }
+                });
+              }
+            });
+          }
+
+          console.log(`[OSRM] ✓ Road segments (steps): ${roadSegments.length}`);
+
+          // Extract full route geometry
+          const geometry = route.geometry;
+          const polyline = encodePolyline(geometry.coordinates);
+
+          const finalResult = {
+            distance: totalDistance,
+            duration: totalDuration,
+            geometry,
+            roadSegments,
+            polyline,
+            legs: route.legs || [],
+            serverUsed: serverUrl,
+            provider: "osrm",
+            profileUsed: profile,
+          };
+
+          // Store in cache
+          setCachedRoute(cacheKey, finalResult);
+
+          return finalResult;
+        }
       }
     }
   }

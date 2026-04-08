@@ -689,6 +689,7 @@ async function calculateSegmentBySegmentRouteDistance(
   let totalDuration = 0;
   const segments = [];
   let hasUnavailableSegments = false;
+  let routeProfileLock = "foot";
 
   for (let i = 0; i < waypoints.length - 1; i++) {
     const from = waypoints[i];
@@ -704,7 +705,26 @@ async function calculateSegmentBySegmentRouteDistance(
     const segmentRoute = await getOSRMRoute(
       [from, to],
       `${from.label} → ${to.label}`,
+      {
+        preferredProfile: routeProfileLock,
+        fallbackProfiles:
+          routeProfileLock === "foot"
+            ? ["bike", "driving"]
+            : routeProfileLock === "bike"
+              ? ["driving"]
+              : [],
+      },
     );
+
+    if (
+      segmentRoute?.profileUsed &&
+      segmentRoute.profileUsed !== routeProfileLock
+    ) {
+      console.log(
+        `[SEGMENT-ROUTE] 🔄 Profile fallback locked to ${segmentRoute.profileUsed.toUpperCase()} for remaining segments`,
+      );
+      routeProfileLock = segmentRoute.profileUsed;
+    }
 
     let segmentDistance = Number(segmentRoute?.distance);
     let segmentDuration = Number(segmentRoute?.duration);
@@ -719,10 +739,27 @@ async function calculateSegmentBySegmentRouteDistance(
         [from, to],
         `${from.label} → ${to.label} (forced retry)`,
         {
+          preferredProfile: routeProfileLock,
+          fallbackProfiles:
+            routeProfileLock === "foot"
+              ? ["bike", "driving"]
+              : routeProfileLock === "bike"
+                ? ["driving"]
+                : [],
           forceRetry: true,
           allowStaleCache: true,
         },
       );
+
+      if (
+        retriedRoute?.profileUsed &&
+        retriedRoute.profileUsed !== routeProfileLock
+      ) {
+        console.log(
+          `[SEGMENT-ROUTE] 🔄 Forced-retry profile locked to ${retriedRoute.profileUsed.toUpperCase()} for remaining segments`,
+        );
+        routeProfileLock = retriedRoute.profileUsed;
+      }
 
       segmentDistance = Number(retriedRoute?.distance);
       segmentDuration = Number(retriedRoute?.duration);
@@ -2217,10 +2254,16 @@ async function evaluateAvailableDeliveryOptimized(
         `[FIRST-DELIVERY] 🚗 Calculating earnings with separate OSRM routes`,
       );
 
+      let routeProfileLock = "foot";
+
       // OSRM Call 1: Driver → Restaurant
       const dtrRoute = await getOSRMRoute(
         [driverLocation, newRestaurant],
         `Driver→Restaurant (${orderNumber})`,
+        {
+          preferredProfile: routeProfileLock,
+          fallbackProfiles: ["bike", "driving"],
+        },
       );
       let dtrResolvedRoute = dtrRoute;
       let dtrDistanceMeters = Number(dtrRoute?.distance);
@@ -2237,12 +2280,21 @@ async function evaluateAvailableDeliveryOptimized(
           [driverLocation, newRestaurant],
           `Driver→Restaurant (${orderNumber}) forced retry`,
           {
+            preferredProfile: routeProfileLock,
+            fallbackProfiles: ["bike", "driving"],
             forceRetry: true,
             allowStaleCache: true,
           },
         );
         dtrResolvedRoute = dtrRetried;
         dtrDistanceMeters = Number(dtrRetried?.distance);
+      }
+
+      if (dtrResolvedRoute?.profileUsed) {
+        routeProfileLock = dtrResolvedRoute.profileUsed;
+        console.log(
+          `[FIRST-DELIVERY] 🔄 Profile lock set to ${routeProfileLock.toUpperCase()} after Driver→Restaurant`,
+        );
       }
 
       if (
@@ -2277,6 +2329,11 @@ async function evaluateAvailableDeliveryOptimized(
       const rtcRoute = await getOSRMRoute(
         [newRestaurant, newCustomer],
         `Restaurant→Customer (${orderNumber})`,
+        {
+          preferredProfile: routeProfileLock,
+          fallbackProfiles:
+            routeProfileLock === "foot" ? ["bike", "driving"] : ["driving"],
+        },
       );
       let rtcResolvedRoute = rtcRoute;
       let rtcDistanceMeters = Number(rtcRoute?.distance);
@@ -2293,6 +2350,11 @@ async function evaluateAvailableDeliveryOptimized(
           [newRestaurant, newCustomer],
           `Restaurant→Customer (${orderNumber}) forced retry`,
           {
+            preferredProfile: routeProfileLock,
+            fallbackProfiles:
+              routeProfileLock === "foot"
+                ? ["bike", "driving"]
+                : ["driving"],
             forceRetry: true,
             allowStaleCache: true,
           },
