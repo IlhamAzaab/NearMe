@@ -639,7 +639,22 @@ router.post(
         .in("status", ["picked_up", "on_the_way", "at_customer"])
         .limit(1);
 
-      if (deliveringCheck && deliveringCheck.length > 0) {
+      const { data: acceptedPickupsCheck } = await supabaseAdmin
+        .from("deliveries")
+        .select("id, status")
+        .eq("driver_id", req.user.id)
+        .eq("status", "accepted")
+        .limit(1);
+
+      const hasDeliveringStatuses =
+        Array.isArray(deliveringCheck) && deliveringCheck.length > 0;
+      const hasPendingPickupStatuses =
+        Array.isArray(acceptedPickupsCheck) && acceptedPickupsCheck.length > 0;
+
+      // A driver is considered in delivery mode only when there are no
+      // remaining accepted pickups. If at least one delivery is still accepted,
+      // the driver is still in pickup mode and can accept another eligible order.
+      if (hasDeliveringStatuses && !hasPendingPickupStatuses) {
         console.log(
           `[ACCEPT DELIVERY]   ⚠️  Driver is in delivering mode, cannot accept`,
         );

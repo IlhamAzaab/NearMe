@@ -2746,15 +2746,25 @@ export async function getAvailableDeliveriesForDriver(
       });
 
     const stableAcceptedDeliveries = acceptedDeliveries.filter((delivery) => {
-      const distanceKm = Number.parseFloat(delivery.total_delivery_distance_km || 0);
-      const etaMinutes = Number.parseFloat(delivery.estimated_time_minutes || 0);
+      const distanceKm = Number.parseFloat(
+        delivery.total_delivery_distance_km || 0,
+      );
+      const etaMinutes = Number.parseFloat(
+        delivery.estimated_time_minutes || 0,
+      );
       const routeImpact = delivery.route_impact || {};
       const pricing = delivery.pricing || {};
       const isFirstDelivery = Boolean(routeImpact.is_first_delivery);
 
-      const baseAmount = Number.parseFloat(routeImpact.base_amount || pricing.base_amount || 0);
-      const extraEarnings = Number.parseFloat(routeImpact.extra_earnings || pricing.extra_earnings || 0);
-      const bonusAmount = Number.parseFloat(routeImpact.bonus_amount || pricing.bonus_amount || 0);
+      const baseAmount = Number.parseFloat(
+        routeImpact.base_amount || pricing.base_amount || 0,
+      );
+      const extraEarnings = Number.parseFloat(
+        routeImpact.extra_earnings || pricing.extra_earnings || 0,
+      );
+      const bonusAmount = Number.parseFloat(
+        routeImpact.bonus_amount || pricing.bonus_amount || 0,
+      );
       const totalTripEarnings = Number.parseFloat(
         routeImpact.total_trip_earnings || pricing.total_trip_earnings || 0,
       );
@@ -2763,10 +2773,9 @@ export async function getAvailableDeliveriesForDriver(
         !isFirstDelivery ||
         Boolean(delivery.driver_to_restaurant_route?.coordinates?.length);
 
-      const hasValidEarnings =
-        isFirstDelivery
-          ? baseAmount > 0 && totalTripEarnings > 0
-          : totalTripEarnings > 0 && extraEarnings + bonusAmount > 0;
+      const hasValidEarnings = isFirstDelivery
+        ? baseAmount > 0 && totalTripEarnings > 0
+        : totalTripEarnings > 0 && extraEarnings + bonusAmount > 0;
 
       const isStable =
         distanceKm > 0 && etaMinutes > 0 && firstHasRoutes && hasValidEarnings;
