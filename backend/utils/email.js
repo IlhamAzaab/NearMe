@@ -12,7 +12,7 @@ const smtpPassRaw = String(process.env.SMTP_PASS || "");
 const smtpPass = smtpPassRaw.replace(/\s+/g, "");
 const resendApiKey = String(process.env.RESEND_API_KEY || "").trim();
 const resendFrom =
-  String(process.env.RESEND_FROM || "").trim() || "NearMe <noreply@nearme.com>";
+  String(process.env.RESEND_FROM || "").trim() || "Meezo <noreply@meezo.lk>";
 const smtpConfigured =
   process.env.SMTP_HOST &&
   process.env.SMTP_HOST !== "smtp.example.com" &&
@@ -212,10 +212,10 @@ function getDefaultFromAddress() {
  */
 export async function sendAdminInviteEmail({ to, tempPassword, loginUrl }) {
   const from = getDefaultFromAddress();
-  const subject = "Your NearMe admin account";
-  const text = `Welcome to NearMe!\n\nLogin URL: ${loginUrl}\nEmail: ${to}\nTemporary password: ${tempPassword}\n\nPlease sign in and change your password immediately.`;
+  const subject = "Your Meezo admin account";
+  const text = `Welcome to Meezo!\n\nLogin URL: ${loginUrl}\nEmail: ${to}\nTemporary password: ${tempPassword}\n\nPlease sign in and change your password immediately.`;
   const html = `
-    <p>Welcome to NearMe!</p>
+    <p>Welcome to Meezo!</p>
     <p><strong>Login URL:</strong> <a href="${loginUrl}">${loginUrl}</a></p>
     <p><strong>Email:</strong> ${to}</p>
     <p><strong>Temporary password:</strong> ${tempPassword}</p>
@@ -256,11 +256,11 @@ export async function sendAdminInviteEmail({ to, tempPassword, loginUrl }) {
  */
 export async function sendVerificationEmail({ to, verificationLink }) {
   const from = getDefaultFromAddress();
-  const subject = "Verify your NearMe account";
-  const text = `Welcome to NearMe!\n\nClick the link below to verify your email address:\n\n${verificationLink}\n\nThis link will expire in 1 hour.\n\nIf you didn't create this account, please ignore this email.`;
+  const subject = "Verify your Meezo account";
+  const text = `Welcome to Meezo!\n\nClick the link below to verify your email address:\n\n${verificationLink}\n\nThis link will expire in 1 hour.\n\nIf you didn't create this account, please ignore this email.`;
   const html = `
     <div style="font-family: Arial, sans-serif; line-height: 1.6;">
-      <h2>Welcome to NearMe!</h2>
+      <h2>Welcome to Meezo!</h2>
       <p>Please verify your email address by clicking the button below:</p>
       <p style="margin: 30px 0;">
         <a href="${verificationLink}" style="background-color: #22c55e; color: white; padding: 14px 32px; text-decoration: none; border-radius: 12px; display: inline-block; font-weight: bold; font-size: 16px;">Verify Email</a>
@@ -304,10 +304,10 @@ export async function sendVerificationEmail({ to, verificationLink }) {
  */
 export async function sendDriverInviteEmail({ to, tempPassword, loginUrl }) {
   const from = getDefaultFromAddress();
-  const subject = "Your NearMe driver account";
-  const text = `Welcome to NearMe Drivers!\n\nLogin URL: ${loginUrl}\nEmail: ${to}\nTemporary password: ${tempPassword}\n\nPlease sign in and change your password immediately.`;
+  const subject = "Your Meezo driver account";
+  const text = `Welcome to Meezo Drivers!\n\nLogin URL: ${loginUrl}\nEmail: ${to}\nTemporary password: ${tempPassword}\n\nPlease sign in and change your password immediately.`;
   const html = `
-    <p>Welcome to NearMe Drivers!</p>
+    <p>Welcome to Meezo Drivers!</p>
     <p><strong>Login URL:</strong> <a href="${loginUrl}">${loginUrl}</a></p>
     <p><strong>Email:</strong> ${to}</p>
     <p><strong>Temporary password:</strong> ${tempPassword}</p>

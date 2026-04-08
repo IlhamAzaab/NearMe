@@ -6,12 +6,12 @@
 
 import express from "express";
 import { authenticate } from "../middleware/authenticate.js";
-import { 
-  registerPushToken, 
+import {
+  registerPushToken,
   removePushToken,
   testPushNotification,
   sendPushNotification,
-  getServiceStatus 
+  getServiceStatus,
 } from "../utils/pushNotificationService.js";
 
 const router = express.Router();
@@ -20,45 +20,49 @@ const router = express.Router();
  * POST /push/register-token
  * Register or update Expo push token for push notifications
  * Call this after login and whenever token refreshes
- * 
+ *
  * Body: { expoPushToken, deviceType, deviceId }
  * expoPushToken format: ExponentPushToken[xxx] or ExpoPushToken[xxx]
  */
 router.post("/register-token", authenticate, async (req, res) => {
   try {
     const { expoPushToken, deviceType, deviceId } = req.body;
-    
+
     if (!expoPushToken) {
       return res.status(400).json({ message: "Expo push token is required" });
     }
-    
+
     // Validate token format
-    if (!expoPushToken.startsWith('ExponentPushToken[') && !expoPushToken.startsWith('ExpoPushToken[')) {
-      return res.status(400).json({ 
-        message: "Invalid token format. Expected ExponentPushToken[xxx] format." 
+    if (
+      !expoPushToken.startsWith("ExponentPushToken[") &&
+      !expoPushToken.startsWith("ExpoPushToken[")
+    ) {
+      return res.status(400).json({
+        message:
+          "Invalid token format. Expected ExponentPushToken[xxx] format.",
       });
     }
-    
+
     const userId = req.user.id;
     const userType = req.user.role; // 'admin', 'driver', 'customer', 'manager'
-    
+
     const result = await registerPushToken(
-      userId, 
-      userType, 
-      expoPushToken, 
-      deviceType || 'android', 
-      deviceId
+      userId,
+      userType,
+      expoPushToken,
+      deviceType || "android",
+      deviceId,
     );
-    
+
     if (result.success) {
-      return res.json({ 
+      return res.json({
         message: "Push token registered successfully",
-        data: result.data 
+        data: result.data,
       });
     } else {
-      return res.status(500).json({ 
+      return res.status(500).json({
         message: "Failed to register push token",
-        error: result.error 
+        error: result.error,
       });
     }
   } catch (e) {
@@ -76,15 +80,15 @@ router.post("/unregister-token", authenticate, async (req, res) => {
   try {
     const { deviceId } = req.body;
     const userId = req.user.id;
-    
+
     const result = await removePushToken(userId, deviceId);
-    
+
     if (result.success) {
       return res.json({ message: "Push token removed successfully" });
     } else {
-      return res.status(500).json({ 
+      return res.status(500).json({
         message: "Failed to remove push token",
-        error: result.error 
+        error: result.error,
       });
     }
   } catch (e) {
@@ -117,16 +121,18 @@ router.post("/send-test", authenticate, async (req, res) => {
   try {
     const { title, body } = req.body;
     const userId = req.user.id;
-    
+
     const result = await testPushNotification(
       userId,
       title || "Test Notification",
-      body || "This is a test push notification from NearMe!"
+      body || "This is a test push notification from Meezo!",
     );
-    
-    return res.json({ 
-      message: result.success ? "Test notification sent" : "Failed to send notification",
-      ...result
+
+    return res.json({
+      message: result.success
+        ? "Test notification sent"
+        : "Failed to send notification",
+      ...result,
     });
   } catch (e) {
     console.error("/push/send-test error:", e);

@@ -373,9 +373,9 @@ async function sendVerificationEmail(email, verificationLink) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      from: "NearMe <noreply@nearme.com>",
+      from: "Meezo <noreply@meezo.lk>",
       to: email,
-      subject: "Verify Your NearMe Email",
+      subject: "Verify Your Meezo Email",
       html: `<!DOCTYPE html>
 <html><head><meta charset="UTF-8"/><style>
 body{font-family:sans-serif;background:#f0fdf4}
@@ -386,11 +386,11 @@ p{color:#6b7280;font-size:14px;line-height:1.6;margin-bottom:16px}
 .footer{border-top:1px solid #e5e7eb;padding-top:16px;color:#9ca3af;font-size:12px}
 </style></head><body>
 <div class="container">
-<h1>Welcome to NearMe! 👋</h1>
+<h1>Welcome to Meezo! 👋</h1>
 <p>Thank you for signing up. Click the button below to verify your email address.</p>
 <a class="btn" href="${verificationLink}">Verify Email Address</a>
-<p style="font-size:12px;color:#9ca3af">This link expires in 1 hour and can only be used once. If you didn't sign up for NearMe, you can safely ignore this email.</p>
-<div class="footer"><p>NearMe &copy; 2026 | All rights reserved</p></div>
+<p style="font-size:12px;color:#9ca3af">This link expires in 1 hour and can only be used once. If you didn't sign up for Meezo, you can safely ignore this email.</p>
+<div class="footer"><p>Meezo &copy; 2026 | All rights reserved</p></div>
 </div></body></html>`,
     }),
   });
@@ -620,7 +620,7 @@ async function sendWhatsAppOTP(phone, otp) {
             to: formattedPhone,
             type: "text",
             text: {
-              body: `Your NearMe verification code is: ${otp}\n\nThis code expires in 10 minutes. Do not share it with anyone.`,
+              body: `Your Meezo verification code is: ${otp}\n\nThis code expires in 10 minutes. Do not share it with anyone.`,
             },
           }),
         },
@@ -2040,7 +2040,7 @@ router.get("/email-verified", (req, res) => {
   res.setHeader("Content-Type", "text/html");
   res.send(`<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>NearMe – Email Verified!</title>
+<title>Meezo – Email Verified!</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
