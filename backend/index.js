@@ -842,16 +842,17 @@ async function checkAndCreateMissedSnapshot() {
 // Handle server errors
 server.on("error", (error) => {
   console.error("Server error:", error);
-  process.exit(1);
+  // Do not force-exit on transient runtime errors; keep service available.
+  // Render will still restart the instance if it becomes truly unhealthy.
 });
 
 // Handle uncaught errors
 process.on("uncaughtException", (error) => {
   console.error("Uncaught exception:", error);
-  process.exit(1);
+  // Avoid crash-loops that surface as repeated 521/CORS failures at the edge.
 });
 
 process.on("unhandledRejection", (reason, promise) => {
   console.error("Unhandled rejection at:", promise, "reason:", reason);
-  process.exit(1);
+  // Keep process running to preserve availability while logging root causes.
 });
