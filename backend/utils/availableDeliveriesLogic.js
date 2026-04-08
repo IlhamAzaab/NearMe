@@ -693,6 +693,13 @@ async function calculateSegmentBySegmentRouteDistance(
   for (let i = 0; i < waypoints.length - 1; i++) {
     const from = waypoints[i];
     const to = waypoints[i + 1];
+    const samePointDistanceMeters = haversineDistance(
+      from.lat,
+      from.lng,
+      to.lat,
+      to.lng,
+    );
+    const isSamePointSegment = samePointDistanceMeters < 50;
 
     const segmentRoute = await getOSRMRoute(
       [from, to],
@@ -704,9 +711,9 @@ async function calculateSegmentBySegmentRouteDistance(
 
     if (
       !Number.isFinite(segmentDistance) ||
-      segmentDistance <= 0 ||
+      segmentDistance < 0 ||
       !Number.isFinite(segmentDuration) ||
-      segmentDuration <= 0
+      segmentDuration < 0
     ) {
       const retriedRoute = await getOSRMRoute(
         [from, to],
@@ -722,9 +729,9 @@ async function calculateSegmentBySegmentRouteDistance(
 
       if (
         !Number.isFinite(segmentDistance) ||
-        segmentDistance <= 0 ||
+        segmentDistance < 0 ||
         !Number.isFinite(segmentDuration) ||
-        segmentDuration <= 0
+        segmentDuration < 0
       ) {
         throw new Error(
           `OSRM unavailable for segment ${from.label} -> ${to.label}`,
@@ -735,6 +742,11 @@ async function calculateSegmentBySegmentRouteDistance(
       console.warn(
         `[SEGMENT-ROUTE] ⚠️ OSRM live route unavailable for ${from.label} → ${to.label}; recovered via forced retry/cache ${(segmentDistance / 1000).toFixed(3)} km`,
       );
+    }
+
+    // Same-location segments are valid and should not break route evaluation.
+    if (isSamePointSegment && segmentDistance === 0) {
+      segmentDuration = 0;
     }
 
     const segmentDistanceKm = segmentDistance / 1000;
@@ -2210,8 +2222,17 @@ async function evaluateAvailableDeliveryOptimized(
         [driverLocation, newRestaurant],
         `Driver→Restaurant (${orderNumber})`,
       );
+      let dtrResolvedRoute = dtrRoute;
       let dtrDistanceMeters = Number(dtrRoute?.distance);
-      if (!Number.isFinite(dtrDistanceMeters) || dtrDistanceMeters <= 0) {
+      const isDtrSamePoint =
+        haversineDistance(
+          driverLocation.lat,
+          driverLocation.lng,
+          newRestaurant.lat,
+          newRestaurant.lng,
+        ) < 50;
+
+      if (!Number.isFinite(dtrDistanceMeters) || dtrDistanceMeters < 0) {
         const dtrRetried = await getOSRMRoute(
           [driverLocation, newRestaurant],
           `Driver→Restaurant (${orderNumber}) forced retry`,
@@ -2220,10 +2241,15 @@ async function evaluateAvailableDeliveryOptimized(
             allowStaleCache: true,
           },
         );
+        dtrResolvedRoute = dtrRetried;
         dtrDistanceMeters = Number(dtrRetried?.distance);
       }
 
-      if (!Number.isFinite(dtrDistanceMeters) || dtrDistanceMeters <= 0) {
+      if (
+        !Number.isFinite(dtrDistanceMeters) ||
+        dtrDistanceMeters < 0 ||
+        (!isDtrSamePoint && dtrDistanceMeters === 0)
+      ) {
         throw new Error(
           `OSRM unavailable for first-delivery Driver→Restaurant (${orderNumber})`,
         );
@@ -2237,8 +2263,8 @@ async function evaluateAvailableDeliveryOptimized(
       driverToRestaurantKm = dtrDistanceMeters / 1000;
       // 🆕 Store route geometry for map display
       driverToRestaurantGeometry = {
-        coordinates: dtrRoute.geometry?.coordinates || null,
-        encoded_polyline: dtrRoute.polyline || null,
+        coordinates: dtrResolvedRoute?.geometry?.coordinates || null,
+        encoded_polyline: dtrResolvedRoute?.polyline || null,
       };
       console.log(
         `[FIRST-DELIVERY]   Driver → Restaurant: ${driverToRestaurantKm.toFixed(3)} km`,
@@ -2252,8 +2278,17 @@ async function evaluateAvailableDeliveryOptimized(
         [newRestaurant, newCustomer],
         `Restaurant→Customer (${orderNumber})`,
       );
+      let rtcResolvedRoute = rtcRoute;
       let rtcDistanceMeters = Number(rtcRoute?.distance);
-      if (!Number.isFinite(rtcDistanceMeters) || rtcDistanceMeters <= 0) {
+      const isRtcSamePoint =
+        haversineDistance(
+          newRestaurant.lat,
+          newRestaurant.lng,
+          newCustomer.lat,
+          newCustomer.lng,
+        ) < 50;
+
+      if (!Number.isFinite(rtcDistanceMeters) || rtcDistanceMeters < 0) {
         const rtcRetried = await getOSRMRoute(
           [newRestaurant, newCustomer],
           `Restaurant→Customer (${orderNumber}) forced retry`,
@@ -2262,10 +2297,15 @@ async function evaluateAvailableDeliveryOptimized(
             allowStaleCache: true,
           },
         );
+        rtcResolvedRoute = rtcRetried;
         rtcDistanceMeters = Number(rtcRetried?.distance);
       }
 
-      if (!Number.isFinite(rtcDistanceMeters) || rtcDistanceMeters <= 0) {
+      if (
+        !Number.isFinite(rtcDistanceMeters) ||
+        rtcDistanceMeters < 0 ||
+        (!isRtcSamePoint && rtcDistanceMeters === 0)
+      ) {
         throw new Error(
           `OSRM unavailable for first-delivery Restaurant→Customer (${orderNumber})`,
         );
@@ -2279,8 +2319,8 @@ async function evaluateAvailableDeliveryOptimized(
       restaurantToCustomerKm = rtcDistanceMeters / 1000;
       // 🆕 Store route geometry for map display
       restaurantToCustomerGeometry = {
-        coordinates: rtcRoute.geometry?.coordinates || null,
-        encoded_polyline: rtcRoute.polyline || null,
+        coordinates: rtcResolvedRoute?.geometry?.coordinates || null,
+        encoded_polyline: rtcResolvedRoute?.polyline || null,
       };
       console.log(
         `[FIRST-DELIVERY]   Restaurant → Customer: ${restaurantToCustomerKm.toFixed(3)} km`,

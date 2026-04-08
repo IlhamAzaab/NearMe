@@ -42,8 +42,11 @@ const GRAPHOPPER_RETRY_BACKOFF_MS = [1000, 2000];
 let osrmAvailable = true;
 let osrmLastCheckTime = 0;
 const OSRM_RETRY_INTERVAL = 30000; // Retry OSRM every 30 seconds after failure (reduced from 60s)
-const OSRM_MAX_RETRIES = 3; // Number of retry attempts per request
-const OSRM_RETRY_BACKOFF_MS = [1000, 2000, 3000]; // Backoff delays for retries
+const OSRM_MAX_RETRIES = Number.parseInt(
+  process.env.OSRM_MAX_RETRIES || "6",
+  10,
+); // Number of retry attempts per request
+const OSRM_RETRY_BACKOFF_MS = [1000, 2000, 3000, 5000, 8000, 12000]; // Backoff delays for retries
 
 // ============================================================================
 // OSRM ROUTE CACHE — avoids redundant network calls for identical segments
@@ -406,7 +409,11 @@ export async function getOSRMRoute(waypoints, context = "", options = {}) {
           `${context} (circuit-breaker fallback)`,
           retry,
         );
-        if (ghRoute && Number.isFinite(ghRoute.distance) && ghRoute.distance > 0) {
+        if (
+          ghRoute &&
+          Number.isFinite(ghRoute.distance) &&
+          ghRoute.distance > 0
+        ) {
           console.log(
             `[GraphHopper] ✅ Fallback route selected: ${(ghRoute.distance / 1000).toFixed(3)} km`,
           );
@@ -574,7 +581,11 @@ export async function getOSRMRoute(waypoints, context = "", options = {}) {
         retry,
       );
 
-      if (ghRoute && Number.isFinite(ghRoute.distance) && ghRoute.distance > 0) {
+      if (
+        ghRoute &&
+        Number.isFinite(ghRoute.distance) &&
+        ghRoute.distance > 0
+      ) {
         console.log(
           `[GraphHopper] ✅ Fallback route selected: ${(ghRoute.distance / 1000).toFixed(3)} km`,
         );
