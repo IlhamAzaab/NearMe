@@ -66,7 +66,9 @@ export default function AddAdmin() {
 
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const backendMessage = String(data?.message || "Failed to create admin");
+        const backendMessage = String(
+          data?.message || "Failed to create admin",
+        );
         const backendError = String(data?.error || "").trim();
         setError(
           backendError ? `${backendMessage}: ${backendError}` : backendMessage,

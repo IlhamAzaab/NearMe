@@ -188,7 +188,7 @@ async function fetchWithTimeout(
 // ============================================================================
 const OSRM_PRIMARY = "https://router.project-osrm.org";
 const OSRM_BACKUP = "https://routing.openstreetmap.de/routed-foot";
-const OSRM_PROFILES = ["foot", "driving"]; // Try foot first for shortest distance
+const OSRM_PROFILES = ["foot"]; // Foot-only mode for shortest distance calculations
 
 async function getRouteDistance(
   startLng,
@@ -3239,6 +3239,34 @@ const availableDeliveriesCache = new Map();
 const AVAILABLE_CACHE_TTL_MS = 30 * 1000; // 30 seconds
 const AVAILABLE_CACHE_MOVE_THRESHOLD_M = 200; // Only recalculate if driver moved 200m+
 
+const ACTIVE_DELIVERY_STATUSES = [
+  "accepted",
+  "picked_up",
+  "on_the_way",
+  "at_customer",
+];
+
+function buildPendingSignature(rows = []) {
+  return rows
+    .map((row) => {
+      const acceptedAt = row?.res_accepted_at || "";
+      const tipAmount = Number.parseFloat(row?.tip_amount || 0).toFixed(2);
+      return `${row.id}:${acceptedAt}:${tipAmount}`;
+    })
+    .sort()
+    .join("|");
+}
+
+function buildActiveSignature(rows = []) {
+  return rows
+    .map((row) => {
+      const acceptedAt = row?.accepted_at || "";
+      return `${row.id}:${row.status || ""}:${acceptedAt}`;
+    })
+    .sort()
+    .join("|");
+}
+
 function haversineDistanceSimple(lat1, lng1, lat2, lng2) {
   const R = 6371000;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
@@ -3258,7 +3286,14 @@ router.get(
   driverOnly,
   async (req, res) => {
     const driverId = req.user.id;
-    const { driver_latitude, driver_longitude } = req.query;
+    const { driver_latitude, driver_longitude, trigger_reason } = req.query;
+    const normalizedTriggerReason = String(trigger_reason || "")
+      .trim()
+      .toLowerCase();
+    const fullRecalculationTriggers = new Set(["delivery_accepted"]);
+    const forceFullRecalculationByTrigger = fullRecalculationTriggers.has(
+      normalizedTriggerReason,
+    );
     const lat = driver_latitude ? parseFloat(driver_latitude) : null;
     const lng = driver_longitude ? parseFloat(driver_longitude) : null;
 
@@ -3293,19 +3328,69 @@ router.get(
       });
     }
 
+    let pendingSignature = "";
+    let activeSignature = "";
+
+    // Build lightweight signatures so we can skip expensive recompute
+    // when there is no new pending delivery and route context is unchanged.
+    const [pendingMetaResult, activeMetaResult] = await Promise.all([
+      supabaseAdmin
+        .from("deliveries")
+        .select("id, res_accepted_at, tip_amount")
+        .eq("status", "pending")
+        .is("driver_id", null),
+      supabaseAdmin
+        .from("deliveries")
+        .select("id, status, accepted_at")
+        .eq("driver_id", driverId)
+        .in("status", ACTIVE_DELIVERY_STATUSES),
+    ]);
+
+    if (pendingMetaResult.error || activeMetaResult.error) {
+      return res.status(500).json({
+        message: "Failed to evaluate delivery trigger state",
+      });
+    }
+
+    pendingSignature = buildPendingSignature(pendingMetaResult.data || []);
+    activeSignature = buildActiveSignature(activeMetaResult.data || []);
+
     // Check response cache first
     const cached = availableDeliveriesCache.get(driverId);
+    let cacheHit = false;
+    let movedMeters = null;
+    let pendingChanged = false;
+    let activeChanged = false;
+
     if (cached && lat && lng) {
       const age = Date.now() - cached.timestamp;
       const moved = haversineDistanceSimple(cached.lat, cached.lng, lat, lng);
+      movedMeters = moved;
+      pendingChanged = cached.pendingSignature !== pendingSignature;
+      activeChanged = cached.activeSignature !== activeSignature;
       if (
         age < AVAILABLE_CACHE_TTL_MS &&
-        moved < AVAILABLE_CACHE_MOVE_THRESHOLD_M
+        moved < AVAILABLE_CACHE_MOVE_THRESHOLD_M &&
+        !pendingChanged &&
+        !activeChanged &&
+        !forceFullRecalculationByTrigger
       ) {
+        cacheHit = true;
         console.log(
-          `[ENDPOINT] GET /available/v2 → CACHED (age=${Math.round(age / 1000)}s, moved=${Math.round(moved)}m)`,
+          `[ENDPOINT] GET /available/v2 → CACHED (age=${Math.round(age / 1000)}s, moved=${Math.round(moved)}m, trigger=${normalizedTriggerReason || "none"})`,
         );
-        return res.json(cached.result);
+        return res.json({
+          ...cached.result,
+          telemetry: {
+            ...(cached.result?.telemetry || {}),
+            trigger_reason: normalizedTriggerReason || "none",
+            cache_hit: true,
+            moved_meters:
+              typeof movedMeters === "number" ? Math.round(movedMeters) : null,
+            pending_changed: pendingChanged,
+            active_changed: activeChanged,
+          },
+        });
       }
     }
 
@@ -3321,6 +3406,19 @@ router.get(
         lat,
         lng,
         getRouteDistance, // Pass the OSRM helper function
+        {
+          trigger: {
+            pendingSignature,
+            activeSignature,
+            reason: normalizedTriggerReason,
+            forceRecalculateAll:
+              forceFullRecalculationByTrigger ||
+              (cached && lat && lng
+                ? haversineDistanceSimple(cached.lat, cached.lng, lat, lng) >=
+                  AVAILABLE_CACHE_MOVE_THRESHOLD_M
+                : false),
+          },
+        },
       );
 
       // Store in cache
@@ -3329,14 +3427,29 @@ router.get(
           result: availableDeliveries,
           lat,
           lng,
+          pendingSignature,
+          activeSignature,
           timestamp: Date.now(),
         });
       }
 
+      const responseWithTelemetry = {
+        ...availableDeliveries,
+        telemetry: {
+          ...(availableDeliveries?.telemetry || {}),
+          trigger_reason: normalizedTriggerReason || "none",
+          cache_hit: cacheHit,
+          moved_meters:
+            typeof movedMeters === "number" ? Math.round(movedMeters) : null,
+          pending_changed: pendingChanged,
+          active_changed: activeChanged,
+        },
+      };
+
       console.log(
-        `[ENDPOINT] ✅ Returning ${availableDeliveries.available_deliveries?.length || 0} available deliveries`,
+        `[ENDPOINT] ✅ Returning ${availableDeliveries.available_deliveries?.length || 0} available deliveries | trigger=${responseWithTelemetry.telemetry.trigger_reason} | cache_hit=${responseWithTelemetry.telemetry.cache_hit} | reused=${responseWithTelemetry.telemetry.reused_evaluations_count || 0} | new=${responseWithTelemetry.telemetry.new_evaluations_count || 0}`,
       );
-      return res.json(availableDeliveries);
+      return res.json(responseWithTelemetry);
     } catch (error) {
       console.error(`[ENDPOINT] ❌ Error: ${error.message}`);
       console.error(error.stack);

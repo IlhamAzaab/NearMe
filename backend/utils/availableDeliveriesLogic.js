@@ -42,6 +42,14 @@ const DRIVER_EARNINGS = {
   },
 };
 
+const availableEvaluationCacheByDriver = new Map();
+
+function buildCandidateDeliverySignature(delivery) {
+  const acceptedAt = delivery?.res_accepted_at || "";
+  const tipAmount = Number.parseFloat(delivery?.tip_amount || 0).toFixed(2);
+  return `${delivery?.id}:${acceptedAt}:${tipAmount}`;
+}
+
 /**
  * Load live thresholds + earnings from system_config table.
  * Falls back to the hardcoded defaults above if the DB is unreachable.
@@ -2366,6 +2374,7 @@ export async function getAvailableDeliveriesForDriver(
   driverLatitude,
   driverLongitude,
   getRouteDistance, // OSRM helper function
+  options = {},
 ) {
   console.log(`\n\n${"=".repeat(80)}`);
   console.log(
@@ -2374,6 +2383,12 @@ export async function getAvailableDeliveriesForDriver(
   console.log(`${"=".repeat(80)}`);
 
   try {
+    const trigger = options?.trigger || {};
+    const triggerReason = String(trigger.reason || "manual");
+    const forceRecalculateAll = Boolean(trigger.forceRecalculateAll);
+    const pendingSignature = String(trigger.pendingSignature || "");
+    const activeSignature = String(trigger.activeSignature || "");
+
     // Load live config from DB (cached, refreshes every 60s)
     const { thresholds: liveThresholds, earnings: liveEarnings } =
       await loadConfigConstants();
@@ -2481,12 +2496,61 @@ export async function getAvailableDeliveriesForDriver(
       `[AVAILABLE DELIVERIES]   Processing ${candidateDeliveries.length} candidates...`,
     );
 
+    const driverEvalCache = availableEvaluationCacheByDriver.get(driverId);
+    const canReuseCachedEvaluations =
+      !forceRecalculateAll &&
+      driverEvalCache &&
+      driverEvalCache.activeSignature === activeSignature;
+
+    if (forceRecalculateAll) {
+      console.log(
+        `[AVAILABLE DELIVERIES]   Triggered full recompute (movement >= 200m or route context changed)`,
+      );
+    } else if (canReuseCachedEvaluations) {
+      console.log(
+        `[AVAILABLE DELIVERIES]   Reusing cached per-delivery evaluations where possible`,
+      );
+    }
+
     // OPTIMIZATION: Pre-calculate R0 (current route) ONCE for all evaluations
     // This saves 1 OSRM call per delivery
     const startTime = Date.now();
     let preCalculatedR0 = null;
 
-    if (routeContext.stops && routeContext.stops.length > 0) {
+    const deliveriesNeedingEvaluation = [];
+    const evaluationResults = [];
+    const evaluationStateByDelivery = new Map();
+
+    for (const delivery of candidateDeliveries) {
+      const signature = buildCandidateDeliverySignature(delivery);
+      const cachedState = canReuseCachedEvaluations
+        ? driverEvalCache.byDelivery?.get(delivery.id)
+        : null;
+
+      if (cachedState && cachedState.signature === signature) {
+        evaluationResults.push(cachedState.result);
+        evaluationStateByDelivery.set(delivery.id, {
+          signature,
+          result: cachedState.result,
+        });
+      } else {
+        deliveriesNeedingEvaluation.push({ delivery, signature });
+      }
+    }
+
+    console.log(
+      `[AVAILABLE DELIVERIES]   Cached reuse: ${candidateDeliveries.length - deliveriesNeedingEvaluation.length}, New evaluations: ${deliveriesNeedingEvaluation.length}`,
+    );
+
+    const reusedEvaluationsCount =
+      candidateDeliveries.length - deliveriesNeedingEvaluation.length;
+    const newEvaluationsCount = deliveriesNeedingEvaluation.length;
+
+    if (
+      deliveriesNeedingEvaluation.length > 0 &&
+      routeContext.stops &&
+      routeContext.stops.length > 0
+    ) {
       console.log(`[AVAILABLE DELIVERIES]   Pre-calculating R0 route...`);
       const driverLocation = {
         lat: routeContext.driver_location.latitude,
@@ -2552,16 +2616,19 @@ export async function getAvailableDeliveriesForDriver(
 
     // OPTIMIZATION: Process deliveries in PARALLEL with concurrency limit
     const CONCURRENCY_LIMIT = 5; // Process 5 at a time to avoid rate limiting
-    const evaluationResults = [];
 
-    for (let i = 0; i < candidateDeliveries.length; i += CONCURRENCY_LIMIT) {
-      const batch = candidateDeliveries.slice(i, i + CONCURRENCY_LIMIT);
+    for (
+      let i = 0;
+      i < deliveriesNeedingEvaluation.length;
+      i += CONCURRENCY_LIMIT
+    ) {
+      const batch = deliveriesNeedingEvaluation.slice(i, i + CONCURRENCY_LIMIT);
       console.log(
-        `[AVAILABLE DELIVERIES]   Processing batch ${Math.floor(i / CONCURRENCY_LIMIT) + 1}/${Math.ceil(candidateDeliveries.length / CONCURRENCY_LIMIT)} (${batch.length} deliveries)...`,
+        `[AVAILABLE DELIVERIES]   Processing batch ${Math.floor(i / CONCURRENCY_LIMIT) + 1}/${Math.ceil(deliveriesNeedingEvaluation.length / CONCURRENCY_LIMIT)} (${batch.length} deliveries)...`,
       );
 
       const batchResults = await Promise.all(
-        batch.map(async (delivery) => {
+        batch.map(async ({ delivery, signature }) => {
           try {
             const result = await evaluateAvailableDeliveryOptimized(
               driverId,
@@ -2586,8 +2653,23 @@ export async function getAvailableDeliveriesForDriver(
         }),
       );
 
-      evaluationResults.push(...batchResults);
+      for (let j = 0; j < batchResults.length; j += 1) {
+        const result = batchResults[j];
+        const source = batch[j];
+        evaluationResults.push(result);
+        evaluationStateByDelivery.set(source.delivery.id, {
+          signature: source.signature,
+          result,
+        });
+      }
     }
+
+    availableEvaluationCacheByDriver.set(driverId, {
+      pendingSignature,
+      activeSignature,
+      byDelivery: evaluationStateByDelivery,
+      updatedAt: Date.now(),
+    });
 
     const totalTime = Date.now() - startTime;
     console.log(
@@ -2663,6 +2745,41 @@ export async function getAvailableDeliveriesForDriver(
         };
       });
 
+    const stableAcceptedDeliveries = acceptedDeliveries.filter((delivery) => {
+      const distanceKm = Number.parseFloat(delivery.total_delivery_distance_km || 0);
+      const etaMinutes = Number.parseFloat(delivery.estimated_time_minutes || 0);
+      const routeImpact = delivery.route_impact || {};
+      const pricing = delivery.pricing || {};
+      const isFirstDelivery = Boolean(routeImpact.is_first_delivery);
+
+      const baseAmount = Number.parseFloat(routeImpact.base_amount || pricing.base_amount || 0);
+      const extraEarnings = Number.parseFloat(routeImpact.extra_earnings || pricing.extra_earnings || 0);
+      const bonusAmount = Number.parseFloat(routeImpact.bonus_amount || pricing.bonus_amount || 0);
+      const totalTripEarnings = Number.parseFloat(
+        routeImpact.total_trip_earnings || pricing.total_trip_earnings || 0,
+      );
+
+      const firstHasRoutes =
+        !isFirstDelivery ||
+        Boolean(delivery.driver_to_restaurant_route?.coordinates?.length);
+
+      const hasValidEarnings =
+        isFirstDelivery
+          ? baseAmount > 0 && totalTripEarnings > 0
+          : totalTripEarnings > 0 && extraEarnings + bonusAmount > 0;
+
+      const isStable =
+        distanceKm > 0 && etaMinutes > 0 && firstHasRoutes && hasValidEarnings;
+
+      if (!isStable) {
+        console.warn(
+          `[AVAILABLE DELIVERIES] ⚠️ Dropped unstable delivery ${delivery.delivery_id}: distance=${distanceKm}, eta=${etaMinutes}, first=${isFirstDelivery}, earnings(total=${totalTripEarnings}, base=${baseAmount}, extra=${extraEarnings}, bonus=${bonusAmount})`,
+        );
+      }
+
+      return isStable;
+    });
+
     const rejectedDeliveries = evaluationResults
       .filter((result) => !result.can_accept)
       .map((result) => ({
@@ -2670,16 +2787,30 @@ export async function getAvailableDeliveriesForDriver(
         reason: result.reason,
       }));
 
+    const unstableRejected = acceptedDeliveries
+      .filter(
+        (delivery) =>
+          !stableAcceptedDeliveries.some(
+            (stable) => stable.delivery_id === delivery.delivery_id,
+          ),
+      )
+      .map((delivery) => ({
+        delivery_id: delivery.delivery_id,
+        reason: "Unstable route/earnings calculation",
+      }));
+
+    rejectedDeliveries.push(...unstableRejected);
+
     // Step 4: Display summary
     console.log(`\n[AVAILABLE DELIVERIES] Step 4️⃣ : Summary`);
     console.log(
-      `[AVAILABLE DELIVERIES]   ✓ Accepted: ${acceptedDeliveries.length}`,
+      `[AVAILABLE DELIVERIES]   ✓ Accepted: ${stableAcceptedDeliveries.length}`,
     );
     console.log(
       `[AVAILABLE DELIVERIES]   ✗ Rejected: ${rejectedDeliveries.length}`,
     );
 
-    acceptedDeliveries.forEach((delivery) => {
+    stableAcceptedDeliveries.forEach((delivery) => {
       console.log(
         `[AVAILABLE DELIVERIES]     ✅ Order #${delivery.order_number}: Total ${delivery.total_delivery_distance_km}km, Extra +${delivery.route_impact.extra_distance_km}km, ${delivery.route_impact.extra_time_minutes}min`,
       );
@@ -2692,7 +2823,7 @@ export async function getAvailableDeliveriesForDriver(
     });
 
     // Sort: tipped deliveries first, then by tip amount descending
-    acceptedDeliveries.sort((a, b) => {
+    stableAcceptedDeliveries.sort((a, b) => {
       const tipA = parseFloat(a.pricing?.tip_amount || 0);
       const tipB = parseFloat(b.pricing?.tip_amount || 0);
       if (tipA > 0 && tipB <= 0) return -1;
@@ -2702,17 +2833,24 @@ export async function getAvailableDeliveriesForDriver(
     });
 
     console.log(
-      `\n[AVAILABLE DELIVERIES] ✅ Complete: Showing ${acceptedDeliveries.length} available deliveries (tipped first)`,
+      `\n[AVAILABLE DELIVERIES] ✅ Complete: Showing ${stableAcceptedDeliveries.length} available deliveries (tipped first)`,
     );
     console.log(`${"=".repeat(80)}\n`);
 
     return {
-      available_deliveries: acceptedDeliveries,
-      total_available: acceptedDeliveries.length,
+      available_deliveries: stableAcceptedDeliveries,
+      total_available: stableAcceptedDeliveries.length,
       driver_location: routeContext.driver_location,
       current_route: {
         total_stops: routeContext.total_stops,
         active_deliveries: Math.ceil(routeContext.total_stops / 2),
+      },
+      telemetry: {
+        trigger_reason: triggerReason,
+        forced_full_recalculation: forceRecalculateAll,
+        candidate_count: candidateDeliveries.length,
+        reused_evaluations_count: reusedEvaluationsCount,
+        new_evaluations_count: newEvaluationsCount,
       },
     };
   } catch (error) {

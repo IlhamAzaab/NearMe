@@ -80,7 +80,7 @@ async function getRouteDistance(
   overview = "false"
 ) {
   try {
-    const url = `https://router.project-osrm.org/route/v1/driving/${startLng},${startLat};${endLng},${endLat}?overview=${overview}${
+    const url = `https://router.project-osrm.org/route/v1/foot/${startLng},${startLat};${endLng},${endLat}?overview=${overview}${
       overview === "full" ? "&geometries=geojson" : ""
     }`;
 

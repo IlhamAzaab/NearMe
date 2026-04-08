@@ -69,7 +69,9 @@ if (smtpConfigured) {
 
   // Gmail fallback: if primary is 587 and the host times out in cloud, retry via 465.
   if (
-    String(process.env.SMTP_HOST || "").toLowerCase().includes("gmail.com") &&
+    String(process.env.SMTP_HOST || "")
+      .toLowerCase()
+      .includes("gmail.com") &&
     smtpPort !== 465
   ) {
     fallbackTransporter = createSmtpTransport(465);
@@ -100,7 +102,10 @@ if (smtpConfigured) {
         ),
       )
       .catch((err) =>
-        console.error("\u26a0\ufe0f SMTP fallback verification failed:", err.message),
+        console.error(
+          "\u26a0\ufe0f SMTP fallback verification failed:",
+          err.message,
+        ),
       );
   }
 } else {
@@ -118,9 +123,7 @@ if (smtpConfigured) {
  */
 export async function sendAdminInviteEmail({ to, tempPassword, loginUrl }) {
   const from =
-    process.env.SMTP_FROM ||
-    process.env.SMTP_USER ||
-    "mimilhamazaab51@gmail.com";
+    process.env.SMTP_FROM || process.env.SMTP_USER || "support.meezo@gmail.com";
   const subject = "Your NearMe admin account";
   const text = `Welcome to NearMe!\n\nLogin URL: ${loginUrl}\nEmail: ${to}\nTemporary password: ${tempPassword}\n\nPlease sign in and change your password immediately.`;
   const html = `
@@ -165,9 +168,7 @@ export async function sendAdminInviteEmail({ to, tempPassword, loginUrl }) {
  */
 export async function sendVerificationEmail({ to, verificationLink }) {
   const from =
-    process.env.SMTP_FROM ||
-    process.env.SMTP_USER ||
-    "mimilhamazaab51@gmail.com";
+    process.env.SMTP_FROM || process.env.SMTP_USER || "support.meezo@gmail.com";
   const subject = "Verify your NearMe account";
   const text = `Welcome to NearMe!\n\nClick the link below to verify your email address:\n\n${verificationLink}\n\nThis link will expire in 1 hour.\n\nIf you didn't create this account, please ignore this email.`;
   const html = `
@@ -212,9 +213,7 @@ export async function sendVerificationEmail({ to, verificationLink }) {
  */
 export async function sendDriverInviteEmail({ to, tempPassword, loginUrl }) {
   const from =
-    process.env.SMTP_FROM ||
-    process.env.SMTP_USER ||
-    "mimilhamazaab51@gmail.com";
+    process.env.SMTP_FROM || process.env.SMTP_USER || "support.meezo@gmail.com";
   const subject = "Your NearMe driver account";
   const text = `Welcome to NearMe Drivers!\n\nLogin URL: ${loginUrl}\nEmail: ${to}\nTemporary password: ${tempPassword}\n\nPlease sign in and change your password immediately.`;
   const html = `

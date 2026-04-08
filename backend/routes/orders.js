@@ -35,6 +35,7 @@ import {
   getSystemConfig,
   getLaunchPromoConfig,
 } from "../utils/systemConfig.js";
+import { getOSRMRoute } from "../utils/osrmService.js";
 import { getSriLankaDayRange } from "../utils/sriLankaTime.js";
 
 const router = express.Router();
@@ -183,45 +184,79 @@ async function generateOrderNumber() {
   return `${compactDate}-${sequenceText}${randomLetter}`;
 }
 
+async function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /**
  * Calculate road distance using OSRM routing API
  */
 async function calculateRouteDistance(lat1, lon1, lat2, lon2) {
   try {
-    // Use FOOT profile for shortest distance (motorcycles can use walking paths in town)
-    const url = `https://router.project-osrm.org/route/v1/foot/${lon1},${lat1};${lon2},${lat2}?overview=false`;
-    const response = await fetch(url);
-    const data = await response.json();
+    const route = await getOSRMRoute(
+      [
+        { lat: lat1, lng: lon1, label: "Customer" },
+        { lat: lat2, lng: lon2, label: "Restaurant" },
+      ],
+      "Order placement distance",
+      { useSingleMode: true, optimize: false },
+    );
 
-    if (data.code === "Ok" && data.routes && data.routes.length > 0) {
-      const route = data.routes[0];
+    if (
+      route &&
+      route.isUnavailable !== true &&
+      Number.isFinite(route.distance) &&
+      Number.isFinite(route.duration)
+    ) {
       return {
         distance: route.distance / 1000, // Convert meters to kilometers
         duration: route.duration / 60, // Convert seconds to minutes
         success: true,
       };
     }
-    return { success: false, error: "No route found" };
+    return {
+      success: false,
+      error: route?.unavailableReason || "No route found",
+    };
   } catch (error) {
     console.error("OSRM routing error:", error);
     return { success: false, error: error.message };
   }
 }
 
+async function calculateRouteDistanceWithRetry(lat1, lon1, lat2, lon2) {
+  const maxAttempts = 3;
+  let lastError = "OSRM route unavailable";
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const result = await calculateRouteDistance(lat1, lon1, lat2, lon2);
+    if (result.success) {
+      return result;
+    }
+
+    lastError = result.error || lastError;
+    if (attempt < maxAttempts) {
+      await delay(400 * attempt);
+    }
+  }
+
+  return { success: false, error: lastError };
+}
+
 /**
  * Valid delivery status transitions (deliveries table is source of truth)
  * Timestamp meanings:
- *   - res_accepted_at: Admin/restaurant accepted (status → pending)
- *   - accepted_at: Driver accepted (status → accepted)
- *   - rejected_at: Admin rejected (status → failed)
- *   - picked_up_at: Driver picked up (status → picked_up)
- *   - on_the_way_at: Driver on the way (status → on_the_way)
- *   - arrived_customer_at: Driver at customer (status → at_customer)
- *   - delivered_at: Delivered (status → delivered)
- *   - cancelled_at: Cancelled (status → cancelled)
+ *   - res_accepted_at: Admin/restaurant accepted (status G�� pending)
+ *   - accepted_at: Driver accepted (status G�� accepted)
+ *   - rejected_at: Admin rejected (status G�� failed)
+ *   - picked_up_at: Driver picked up (status G�� picked_up)
+ *   - on_the_way_at: Driver on the way (status G�� on_the_way)
+ *   - arrived_customer_at: Driver at customer (status G�� at_customer)
+ *   - delivered_at: Delivered (status G�� delivered)
+ *   - cancelled_at: Cancelled (status G�� cancelled)
  */
 const VALID_DELIVERY_TRANSITIONS = {
-  placed: ["pending", "failed", "cancelled"], // admin accepts → pending (not accepted!)
+  placed: ["pending", "failed", "cancelled"], // admin accepts G�� pending (not accepted!)
   pending: ["accepted", "failed", "cancelled"], // waiting for driver; driver can accept
   accepted: ["picked_up", "failed", "cancelled"], // driver accepted, can pick up or fail
   picked_up: ["on_the_way", "failed"],
@@ -459,7 +494,7 @@ router.post("/place", authenticate, async (req, res) => {
       distance_km <= 0 ||
       estimated_duration_min <= 0
     ) {
-      const routeResult = await calculateRouteDistance(
+      const routeResult = await calculateRouteDistanceWithRetry(
         delivery_latitude,
         delivery_longitude,
         parseFloat(restaurant.latitude),
@@ -470,23 +505,12 @@ router.post("/place", authenticate, async (req, res) => {
         distance_km = routeResult.distance;
         estimated_duration_min = routeResult.duration;
       } else {
-        // Fallback: calculate straight-line distance
-        const R = 6371; // Earth's radius in km
-        const dLat =
-          ((parseFloat(restaurant.latitude) - delivery_latitude) * Math.PI) /
-          180;
-        const dLon =
-          ((parseFloat(restaurant.longitude) - delivery_longitude) * Math.PI) /
-          180;
-        const a =
-          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-          Math.cos((delivery_latitude * Math.PI) / 180) *
-            Math.cos((parseFloat(restaurant.latitude) * Math.PI) / 180) *
-            Math.sin(dLon / 2) *
-            Math.sin(dLon / 2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        distance_km = R * c * 1.3; // Add 30% for road distance approximation
-        estimated_duration_min = distance_km * 3; // Rough estimate: 3 min per km
+        return res.status(503).json({
+          message:
+            "Unable to calculate accurate road distance right now. Please retry in a few seconds.",
+          error: routeResult.error || "OSRM routing unavailable",
+          retry: true,
+        });
       }
     }
 
@@ -844,7 +868,7 @@ router.post("/place", authenticate, async (req, res) => {
       .select("id")
       .eq("restaurant_id", restaurant.id);
 
-    console.log("🔍 Found admins for restaurant:", {
+    console.log("=��� Found admins for restaurant:", {
       restaurant_id: restaurant.id,
       admins,
       error: adminsError,
@@ -870,7 +894,7 @@ router.post("/place", authenticate, async (req, res) => {
         },
       }));
 
-      console.log("📤 Creating notifications:", notifications);
+      console.log("=��� Creating notifications:", notifications);
 
       // Notifications are now handled by push notification service
       // which automatically logs to notification_log table
@@ -880,13 +904,13 @@ router.post("/place", authenticate, async (req, res) => {
       //   .select();
 
       // if (notifError) {
-      //   console.error("❌ Notification insert error:", notifError);
+      //   console.error("G�� Notification insert error:", notifError);
       //   // Continue anyway
       // } else {
-      //   console.log("✅ Notifications created successfully:", insertedNotifs);
+      //   console.log("G�� Notifications created successfully:", insertedNotifs);
       // }
 
-      // 🔔 WebSocket: Notify each online admin in real-time
+      // =��� WebSocket: Notify each online admin in real-time
       const itemsSummary = processedItems
         .map((item) => {
           const size =
@@ -924,11 +948,11 @@ router.post("/place", authenticate, async (req, res) => {
         });
       }
 
-      // 📱 PUSH NOTIFICATION: Notify admin even when app is closed/phone locked
+      // =��� PUSH NOTIFICATION: Notify admin even when app is closed/phone locked
       // Pass admin IDs directly to avoid redundant DB lookup
       const adminIds = admins.map((a) => a.id);
       console.log(
-        "📱 Calling sendNewOrderNotification for restaurant:",
+        "=��� Calling sendNewOrderNotification for restaurant:",
         restaurant.id,
         "admins:",
         adminIds,
@@ -947,13 +971,13 @@ router.post("/place", authenticate, async (req, res) => {
         adminIds,
       )
         .then((result) => {
-          console.log("✅ Push notification result:", JSON.stringify(result));
+          console.log("G�� Push notification result:", JSON.stringify(result));
         })
         .catch((err) => {
-          console.error("❌ Push notify error (non-fatal):", err);
+          console.error("G�� Push notify error (non-fatal):", err);
         });
     } else {
-      console.log("⚠️ No admins found for restaurant");
+      console.log("G��n+� No admins found for restaurant");
     }
 
     // ========================================================================
@@ -1595,13 +1619,13 @@ router.patch(
       const deliveryId = delivery.id;
 
       // Map admin's status names to deliveries table status
-      // Admin "accepted" → deliveries "pending" (waiting for driver)
-      // Admin "rejected" → deliveries "failed"
+      // Admin "accepted" G�� deliveries "pending" (waiting for driver)
+      // Admin "rejected" G�� deliveries "failed"
       let targetDeliveryStatus = status;
       if (status === "rejected") {
         targetDeliveryStatus = "failed";
       } else if (status === "accepted") {
-        targetDeliveryStatus = "pending"; // Admin accepts → pending (not accepted!)
+        targetDeliveryStatus = "pending"; // Admin accepts G�� pending (not accepted!)
       }
 
       // Validate status transition using delivery status
@@ -1618,9 +1642,9 @@ router.patch(
         });
       }
 
-      // ═══════════════════════════════════════════════════════════════════
+      // G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��
       // PRIMARY: Update deliveries table (single source of truth)
-      // ═══════════════════════════════════════════════════════════════════
+      // G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��
       const now = new Date().toISOString();
       const deliveryUpdate = {
         status: targetDeliveryStatus,
@@ -1658,7 +1682,7 @@ router.patch(
       }
 
       console.log(
-        `✅ Delivery ${deliveryId} status updated: ${currentDeliveryStatus} → ${targetDeliveryStatus}`,
+        `G�� Delivery ${deliveryId} status updated: ${currentDeliveryStatus} G�� ${targetDeliveryStatus}`,
       );
 
       // Create notification for customer
@@ -1692,7 +1716,7 @@ router.patch(
       // Use original 'status' parameter (accepted/rejected) for notification lookup
       // NOT targetDeliveryStatus (pending/failed) which won't match the maps
       if (notificationTypes[status]) {
-        // 📡 REAL-TIME WEBSOCKET: Notify customer instantly
+        // =��� REAL-TIME WEBSOCKET: Notify customer instantly
         if (order.customer_id) {
           notifyCustomer(order.customer_id, "order:status_update", {
             type: notificationTypes[status],
@@ -1704,10 +1728,10 @@ router.patch(
             originalStatus: status, // Include original for reference
           });
           console.log(
-            `📡 WebSocket: Customer ${order.customer_id} notified of ${status} (delivery status: ${targetDeliveryStatus})`,
+            `=��� WebSocket: Customer ${order.customer_id} notified of ${status} (delivery status: ${targetDeliveryStatus})`,
           );
 
-          // 📱 PUSH NOTIFICATION: Reach customer even when app is closed/locked
+          // =��� PUSH NOTIFICATION: Reach customer even when app is closed/locked
           sendOrderStatusNotification(order.customer_id, {
             orderId,
             orderNumber: order.order_number,
@@ -1736,7 +1760,7 @@ router.patch(
 
           if (!driversError && activeDrivers && activeDrivers.length > 0) {
             console.log(
-              `📤 Notifying ${activeDrivers.length} active drivers...`,
+              `=��� Notifying ${activeDrivers.length} active drivers...`,
             );
 
             // Notifications are now handled by push notification service
@@ -1744,7 +1768,7 @@ router.patch(
             // and by WebSocket broadcast below
 
             // ================================================================
-            // 🚀 REAL-TIME WEBSOCKET BROADCAST - Fair Instant Notification
+            // =��� REAL-TIME WEBSOCKET BROADCAST - Fair Instant Notification
             // All online drivers receive this at EXACTLY the same time
             // ================================================================
 
@@ -1783,10 +1807,10 @@ router.patch(
             });
 
             console.log(
-              `📡 WebSocket broadcast result: ${broadcastResult.driversNotified} drivers notified instantly`,
+              `=��� WebSocket broadcast result: ${broadcastResult.driversNotified} drivers notified instantly`,
             );
 
-            // 📱 PUSH: Also notify drivers who are offline / app closed.
+            // =��� PUSH: Also notify drivers who are offline / app closed.
             // Await here to avoid dropping notifications in local/dev restarts.
             try {
               const pushResult = await sendNewDeliveryNotificationToDrivers({
@@ -1796,15 +1820,15 @@ router.patch(
                 totalAmount: parseFloat(order.total_amount || 0),
                 tipAmount: deliveryTipAmount,
               });
-              console.log("📱 Driver push broadcast result:", pushResult);
+              console.log("=��� Driver push broadcast result:", pushResult);
             } catch (err) {
               console.error("Push driver broadcast error (non-fatal):", err);
             }
           } else {
-            console.log("⚠️ No active drivers found");
+            console.log("G��n+� No active drivers found");
           }
         } catch (err) {
-          console.error("❌ Error in driver notification flow:", err);
+          console.error("G�� Error in driver notification flow:", err);
           // Don't fail the request, just log the error
         }
       }
