@@ -2352,9 +2352,7 @@ async function evaluateAvailableDeliveryOptimized(
           {
             preferredProfile: routeProfileLock,
             fallbackProfiles:
-              routeProfileLock === "foot"
-                ? ["bike", "driving"]
-                : ["driving"],
+              routeProfileLock === "foot" ? ["bike", "driving"] : ["driving"],
             forceRetry: true,
             allowStaleCache: true,
           },

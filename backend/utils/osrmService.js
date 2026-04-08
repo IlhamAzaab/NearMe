@@ -471,7 +471,11 @@ export async function getOSRMRoute(waypoints, context = "", options = {}) {
       `[OSRM] → Attempting server ${serverIdx + 1}/${serversToTry.length}: ${serverUrl}`,
     );
 
-    for (let profileIdx = 0; profileIdx < profileLadder.length; profileIdx += 1) {
+    for (
+      let profileIdx = 0;
+      profileIdx < profileLadder.length;
+      profileIdx += 1
+    ) {
       const profile = profileLadder[profileIdx];
       console.log(
         `[OSRM] → Trying profile ${profile.toUpperCase()} (${profileIdx + 1}/${profileLadder.length}) on ${serverUrl}`,
@@ -506,7 +510,9 @@ export async function getOSRMRoute(waypoints, context = "", options = {}) {
           console.log(
             `[OSRM] ✓ Distance: ${(totalDistance / 1000).toFixed(3)} km`,
           );
-          console.log(`[OSRM] ✓ Duration: ${Math.ceil(totalDuration / 60)} mins`);
+          console.log(
+            `[OSRM] ✓ Duration: ${Math.ceil(totalDuration / 60)} mins`,
+          );
 
           // Extract road segments from steps for overlap calculation
           const roadSegments = [];

@@ -476,6 +476,7 @@ router.post("/add-driver", authenticate, async (req, res) => {
 
     const cleanup = async () => {
       try {
+        await supabaseAdmin.from("drivers").delete().eq("id", userId);
         await supabaseAdmin.from("users").delete().eq("id", userId);
         await supabaseAdmin.auth.admin.deleteUser(userId);
         console.log("Cleaned up failed driver creation");
@@ -533,7 +534,12 @@ router.post("/add-driver", authenticate, async (req, res) => {
       await sendDriverInviteEmail({ to: email, tempPassword, loginUrl });
       console.log(`Driver invite send complete for ${email}`);
     } catch (e) {
-      console.error("Driver email send error (non-blocking):", e.message);
+      console.error("Driver email send error:", e.message);
+      await cleanup();
+      return res.status(502).json({
+        message: "Failed to send invite email",
+        error: e?.message || "Email send failed",
+      });
     }
 
     console.log(`Successfully created driver: ${email}`);

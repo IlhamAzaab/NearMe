@@ -10,7 +10,10 @@ TRUNCATE TABLE
   driver_deposits,
   delivery_stops,
   admin_payments,
-  driver_payments
+  driver_payments,
+  notification_log,
+  push_notification_tokens,
+  scheduled_notifications
 RESTART IDENTITY CASCADE;
 
 SELECT create_daily_deposit_snapshot();

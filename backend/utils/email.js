@@ -10,11 +10,16 @@ let transporter = null;
 let fallbackTransporter = null;
 const smtpPassRaw = String(process.env.SMTP_PASS || "");
 const smtpPass = smtpPassRaw.replace(/\s+/g, "");
+const resendApiKey = String(process.env.RESEND_API_KEY || "").trim();
+const resendFrom =
+  String(process.env.RESEND_FROM || "").trim() ||
+  "NearMe <noreply@nearme.com>";
 const smtpConfigured =
   process.env.SMTP_HOST &&
   process.env.SMTP_HOST !== "smtp.example.com" &&
   process.env.SMTP_USER &&
   smtpPass;
+const resendConfigured = Boolean(resendApiKey);
 
 function createSmtpTransport(port) {
   return nodemailer.createTransport({
@@ -44,7 +49,76 @@ function isConnectionError(error) {
   );
 }
 
+async function sendViaResend(mailOptions) {
+  const toList = Array.isArray(mailOptions?.to)
+    ? mailOptions.to
+    : [mailOptions?.to];
+
+  const to = toList
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+
+  if (!to.length) {
+    throw new Error("No recipient specified for Resend email");
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+  try {
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${resendApiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: String(mailOptions?.from || "").trim() || resendFrom,
+        to,
+        subject: String(mailOptions?.subject || ""),
+        text: String(mailOptions?.text || ""),
+        html: String(mailOptions?.html || ""),
+      }),
+      signal: controller.signal,
+    });
+
+    const responseData = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(responseData?.message || "Resend API error");
+    }
+
+    return responseData;
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error("Resend request timed out");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 async function sendMailWithFallback(mailOptions) {
+  if (!resendConfigured && !transporter) {
+    throw new Error(
+      "No email provider configured. Set RESEND_API_KEY or SMTP settings.",
+    );
+  }
+
+  if (resendConfigured) {
+    try {
+      return await sendViaResend(mailOptions);
+    } catch (resendError) {
+      if (!transporter) {
+        throw resendError;
+      }
+
+      console.warn(
+        `⚠️  Resend delivery failed (${resendError.message}). Retrying with SMTP...`,
+      );
+    }
+  }
+
   if (!transporter) {
     throw new Error("SMTP transporter is not configured");
   }
@@ -111,6 +185,14 @@ if (smtpConfigured) {
 } else {
   console.warn(
     "\u26a0\ufe0f  SMTP not configured. Set SMTP_HOST, SMTP_USER, SMTP_PASS to enable emails.",
+  );
+}
+
+if (resendConfigured) {
+  console.log("✅ Resend email provider configured");
+} else {
+  console.warn(
+    "⚠️  RESEND_API_KEY not configured. Cloud email delivery depends on SMTP connectivity.",
   );
 }
 
