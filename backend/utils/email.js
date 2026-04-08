@@ -276,9 +276,13 @@ export async function sendVerificationEmail({ to, verificationLink }) {
 
   // Check provider availability
   if (!resendConfigured && !transporter) {
-    console.error("❌ Email provider not configured — cannot send verification email");
+    console.error(
+      "❌ Email provider not configured — cannot send verification email",
+    );
     console.log(`[DEV] Verification link for ${to}: ${verificationLink}`);
-    throw new Error("Email provider not configured. Cannot send verification email.");
+    throw new Error(
+      "Email provider not configured. Cannot send verification email.",
+    );
   }
 
   try {
