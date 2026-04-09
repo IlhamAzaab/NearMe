@@ -59,10 +59,7 @@ console.log(
   process.env.SUPABASE_ANON_KEY ? "✓ Set" : "✗ Missing",
 );
 console.log("JWT_SECRET:", `✓ Set (${authConfig.jwtSecret.length} chars)`);
-console.log(
-  "WEB_ACCESS_TOKEN_EXPIRES_IN:",
-  authConfig.webAccessTokenExpiresIn,
-);
+console.log("WEB_ACCESS_TOKEN_EXPIRES_IN:", authConfig.webAccessTokenExpiresIn);
 console.log(
   "MOBILE_ACCESS_TOKEN_EXPIRES_IN:",
   authConfig.mobileAccessTokenExpiresIn,
@@ -149,7 +146,9 @@ const allowedOrigins = [
 ];
 
 const normalizedAllowedOrigins = allowedOrigins.map((origin) =>
-  String(origin || "").trim().replace(/\/$/, ""),
+  String(origin || "")
+    .trim()
+    .replace(/\/$/, ""),
 );
 
 // Add any extra allowed origins from environment (comma-separated)
@@ -300,7 +299,8 @@ app.use((err, req, res, next) => {
   }
 
   const statusCode = Number(err?.statusCode || err?.status || 500);
-  const safeMessage = statusCode >= 500 ? "Internal server error" : err?.message;
+  const safeMessage =
+    statusCode >= 500 ? "Internal server error" : err?.message;
   return res.status(statusCode).json({
     message: safeMessage || "Request failed",
   });

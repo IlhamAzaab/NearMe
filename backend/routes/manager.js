@@ -34,6 +34,35 @@ if (process.env.NODE_ENV !== "production") {
 
 const router = express.Router();
 
+// Short-lived in-memory cache for heavy manager analytics endpoints.
+// This reduces repeated aggregation load from frequent dashboard polling.
+const MANAGER_ANALYTICS_CACHE_TTL_MS = 30 * 1000;
+const managerAnalyticsCache = new Map();
+
+function getCachedManagerAnalytics(key) {
+  const entry = managerAnalyticsCache.get(key);
+  if (!entry) return null;
+
+  if (Date.now() > entry.expiresAt) {
+    managerAnalyticsCache.delete(key);
+    return null;
+  }
+
+  return entry.value;
+}
+
+function setCachedManagerAnalytics(key, value) {
+  managerAnalyticsCache.set(key, {
+    value,
+    expiresAt: Date.now() + MANAGER_ANALYTICS_CACHE_TTL_MS,
+  });
+}
+
+function buildCacheKey(path, req) {
+  const queryPart = new URLSearchParams(req.query || {}).toString();
+  return `${path}?${queryPart}`;
+}
+
 function isMissingColumnError(error, columnName) {
   const message = String(error?.message || "").toLowerCase();
   const details = String(error?.details || "").toLowerCase();
@@ -1464,6 +1493,14 @@ router.get("/dashboard-stats", authenticate, async (req, res) => {
       return res.status(403).json({ message: "Forbidden" });
     }
 
+    const cacheKey = buildCacheKey("/dashboard-stats", req);
+    const cached = getCachedManagerAnalytics(cacheKey);
+    if (cached) {
+      res.set("Cache-Control", "private, max-age=10");
+      res.set("X-Cache", "HIT");
+      return res.json(cached);
+    }
+
     const now = new Date();
     const {
       dateStr: todayDateStr,
@@ -1744,7 +1781,7 @@ router.get("/dashboard-stats", authenticate, async (req, res) => {
     });
 
     // ---- Respond ----
-    return res.json({
+    const responsePayload = {
       success: true,
       todayEarnings: parseFloat(todayEarnings.toFixed(2)),
       todaySales: parseFloat(todaySales.toFixed(2)),
@@ -1755,7 +1792,12 @@ router.get("/dashboard-stats", authenticate, async (req, res) => {
       restaurantPayment: parseFloat(restaurantPaymentBalance.toFixed(2)),
       restaurantCount: Object.keys(allRestaurantMap).length,
       earningsGraph,
-    });
+    };
+
+    setCachedManagerAnalytics(cacheKey, responsePayload);
+    res.set("Cache-Control", "private, max-age=10");
+    res.set("X-Cache", "MISS");
+    return res.json(responsePayload);
   } catch (e) {
     console.error("/manager/dashboard-stats error:", e);
     return res.status(500).json({ message: "Server error" });
@@ -1774,6 +1816,14 @@ router.get("/earnings/summary", authenticate, async (req, res) => {
   try {
     if (req.user.role !== "manager") {
       return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const cacheKey = buildCacheKey("/earnings/summary", req);
+    const cached = getCachedManagerAnalytics(cacheKey);
+    if (cached) {
+      res.set("Cache-Control", "private, max-age=10");
+      res.set("X-Cache", "HIT");
+      return res.json(cached);
     }
 
     const { period = "daily", from, to } = req.query;
@@ -1948,7 +1998,11 @@ router.get("/earnings/summary", authenticate, async (req, res) => {
       }
     });
 
-    return res.json({ summary });
+    const responsePayload = { summary };
+    setCachedManagerAnalytics(cacheKey, responsePayload);
+    res.set("Cache-Control", "private, max-age=10");
+    res.set("X-Cache", "MISS");
+    return res.json(responsePayload);
   } catch (e) {
     console.error("/manager/earnings/summary error:", e);
     return res.status(500).json({ message: "Server error" });
