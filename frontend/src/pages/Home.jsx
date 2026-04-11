@@ -1,8 +1,14 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
 import BottomNavbar from "../components/BottomNavbar";
-import { API_URL } from "../config";
+import {
+  useAcknowledgeLaunchPromotionMutation,
+  useCustomerCartCount,
+  useCustomerUnreadNotificationsCount,
+  useLaunchPromotionStatusQuery,
+  usePublicFoodsQuery,
+  usePublicRestaurantsQuery,
+} from "../hooks/useCustomerNotifications";
 import {
   calculateRestaurantDistances,
   formatDistance,
@@ -62,12 +68,8 @@ const Home = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [activeTab, setActiveTab] = useState("restaurant");
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [cartCount, setCartCount] = useState(0);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [launchPromo, setLaunchPromo] = useState(null);
   const [showLaunchPromoModal, setShowLaunchPromoModal] = useState(false);
-  const [acknowledgingPromo, setAcknowledgingPromo] = useState(false);
 
   // Food categories
   const categories = [
@@ -82,39 +84,27 @@ const Home = () => {
   const [restaurantsWithDistances, setRestaurantsWithDistances] = useState([]);
   const [showDistances, setShowDistances] = useState(false);
 
-  const restaurantsQuery = useQuery({
-    queryKey: ["customer", "home", "restaurants", debouncedSearch],
+  const restaurantsQuery = usePublicRestaurantsQuery(debouncedSearch, {
     enabled: activeTab === "restaurant",
-    staleTime: 60 * 1000,
     refetchInterval: 90 * 1000,
-    queryFn: async () => {
-      const url = new URL(`${API_URL}/public/restaurants`);
-      if (debouncedSearch) url.searchParams.append("search", debouncedSearch);
-      const res = await fetch(url);
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data?.message || "Failed to fetch restaurants");
-      }
-      return data;
-    },
   });
 
-  const foodsQuery = useQuery({
-    queryKey: ["customer", "home", "foods", debouncedSearch],
+  const foodsQuery = usePublicFoodsQuery(debouncedSearch, {
     enabled: activeTab === "food",
-    staleTime: 60 * 1000,
     refetchInterval: 90 * 1000,
-    queryFn: async () => {
-      const url = new URL(`${API_URL}/public/foods`);
-      if (debouncedSearch) url.searchParams.append("search", debouncedSearch);
-      const res = await fetch(url);
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data?.message || "Failed to fetch foods");
-      }
-      return data;
-    },
   });
+
+  const notificationsCountQuery = useCustomerUnreadNotificationsCount({
+    enabled: isLoggedIn,
+  });
+  const cartCountQuery = useCustomerCartCount({ enabled: isLoggedIn });
+  const launchPromoQuery = useLaunchPromotionStatusQuery({ enabled: isLoggedIn });
+  const acknowledgePromoMutation = useAcknowledgeLaunchPromotionMutation();
+
+  const unreadCount = notificationsCountQuery.data || 0;
+  const cartCount = cartCountQuery.data || 0;
+  const launchPromo = launchPromoQuery.data || null;
+  const acknowledgingPromo = acknowledgePromoMutation.isPending;
 
   // Check auth and fetch notifications/cart count
   useEffect(() => {
@@ -125,11 +115,11 @@ const Home = () => {
   }, [searchQuery]);
 
   useEffect(() => {
-    setRestaurants(restaurantsQuery.data?.restaurants || []);
+    setRestaurants(restaurantsQuery.data || []);
   }, [restaurantsQuery.data]);
 
   useEffect(() => {
-    setAllFoods(foodsQuery.data?.foods || []);
+    setAllFoods(foodsQuery.data || []);
   }, [foodsQuery.data]);
 
   useEffect(() => {
@@ -138,46 +128,20 @@ const Home = () => {
 
     if (token && role === "customer") {
       setIsLoggedIn(true);
-      fetchNotificationCount();
-      fetchCartCount();
       checkCustomerLocation();
-      fetchLaunchPromotionStatus();
     }
   }, []);
 
-  const fetchLaunchPromotionStatus = async () => {
-    try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/customer/launch-promotion`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) return;
-
-      const data = await res.json();
-      setLaunchPromo(data);
-      setShowLaunchPromoModal(Boolean(data.should_show_popup));
-    } catch (error) {
-      console.error("Launch promotion status fetch error:", error);
-    }
-  };
+  useEffect(() => {
+    setShowLaunchPromoModal(Boolean(launchPromo?.should_show_popup));
+  }, [launchPromo?.should_show_popup]);
 
   const handleLaunchPromoOk = async () => {
     try {
-      setAcknowledgingPromo(true);
-      const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/customer/launch-promotion/acknowledge`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (res.ok) {
-        setShowLaunchPromoModal(false);
-        fetchLaunchPromotionStatus();
-      }
+      await acknowledgePromoMutation.mutateAsync();
+      setShowLaunchPromoModal(false);
     } catch (error) {
       console.error("Launch promotion acknowledge error:", error);
-    } finally {
-      setAcknowledgingPromo(false);
     }
   };
 
@@ -218,44 +182,6 @@ const Home = () => {
       restaurantsWithDistances.find((r) => r.id === restaurantId) ||
       restaurants.find((r) => r.id === restaurantId)
     );
-  };
-
-  const fetchNotificationCount = async () => {
-    try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/customer/notifications?limit=100`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      const unread = (data.notifications || []).filter(
-        (n) => !n.is_read,
-      ).length;
-      setUnreadCount(unread);
-    } catch (err) {
-      console.error("Fetch notifications error:", err);
-    }
-  };
-
-  const fetchCartCount = async () => {
-    try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/cart`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      const totalItems = (data.carts || []).reduce((sum, cart) => {
-        return (
-          sum +
-          (cart.items || []).reduce(
-            (itemSum, item) => itemSum + item.quantity,
-            0,
-          )
-        );
-      }, 0);
-      setCartCount(totalItems);
-    } catch (err) {
-      console.error("Fetch cart error:", err);
-    }
   };
 
   useEffect(() => {

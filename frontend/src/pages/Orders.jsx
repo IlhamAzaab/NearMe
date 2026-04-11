@@ -12,10 +12,16 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import supabaseClient from "../supabaseClient";
 import AnimatedAlert, { useAlert } from "../components/AnimatedAlert";
 import { formatETAClockTime } from "../utils/etaFormatter";
-import { API_URL } from "../config";
+import {
+  customerQueryKeys,
+  useAddToCartMutation,
+  useCustomerCartCount,
+  useCustomerOrdersQuery,
+} from "../hooks/useCustomerNotifications";
 
 // Material Symbols CSS injection
 const MaterialSymbolsCSS = () => (
@@ -30,13 +36,13 @@ const supabase = supabaseClient;
 
 export default function Orders() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { alert: alertState, visible: alertVisible, showError } = useAlert();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [notifications, setNotifications] = useState([]);
   const [customerId, setCustomerId] = useState(null);
-  const [cartCount, setCartCount] = useState(0);
   const [activeTab, setActiveTab] = useState("active"); // 'active' or 'past'
   const [pastFilter, setPastFilter] = useState("all"); // 'all', 'delivered', 'cancelled'
 
@@ -45,6 +51,10 @@ export default function Orders() {
   const [role, setRole] = useState("");
   const [userName, setUserName] = useState("");
   const [userEmail, setUserEmail] = useState("");
+  const ordersQuery = useCustomerOrdersQuery({ enabled: isLoggedIn });
+  const cartCountQuery = useCustomerCartCount({ enabled: isLoggedIn });
+  const addToCartMutation = useAddToCartMutation();
+  const cartCount = cartCountQuery.data || 0;
 
   // ============================================================================
   // AUTH CHECK
@@ -63,7 +73,6 @@ export default function Orders() {
       setUserName(storedName || "");
       setUserEmail(storedEmail || "");
       setCustomerId(storedId);
-      fetchCartCount();
     } else {
       // Guest user - allow viewing but no orders
       setIsLoggedIn(false);
@@ -72,60 +81,21 @@ export default function Orders() {
   }, [navigate]);
 
   // ============================================================================
-  // FETCH CART COUNT
-  // ============================================================================
-
-  const fetchCartCount = async () => {
-    try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/cart`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      const totalItems = (data.carts || []).reduce((sum, cart) => {
-        return (
-          sum +
-          (cart.items || []).reduce(
-            (itemSum, item) => itemSum + item.quantity,
-            0,
-          )
-        );
-      }, 0);
-      setCartCount(totalItems);
-    } catch (err) {
-      console.error("Fetch cart error:", err);
-    }
-  };
-
-  // ============================================================================
   // FETCH ORDERS
   // ============================================================================
 
-  const fetchOrders = useCallback(async () => {
-    try {
-      const token = localStorage.getItem("token");
-      const response = await fetch(`${API_URL}/orders/my-orders`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      const data = await response.json();
-      if (response.ok) {
-        setOrders(data.orders || []);
-      } else {
-        console.error("Failed to fetch orders:", data.message);
-      }
-    } catch (error) {
-      console.error("Fetch orders error:", error);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
-    if (isLoggedIn) {
-      fetchOrders();
+    if (!isLoggedIn) return;
+
+    if (ordersQuery.data) {
+      setOrders(ordersQuery.data);
     }
-  }, [isLoggedIn, fetchOrders]);
+    setLoading(ordersQuery.isLoading);
+  }, [isLoggedIn, ordersQuery.data, ordersQuery.isLoading]);
+
+  const fetchOrders = useCallback(async () => {
+    await ordersQuery.refetch();
+  }, [ordersQuery]);
 
   // ============================================================================
   // REALTIME ORDER STATUS UPDATES
@@ -990,23 +960,19 @@ export default function Orders() {
   // Handle reorder function
   async function handleReorder(order) {
     try {
-      const token = localStorage.getItem("token");
       const items = order?.order_items || [];
 
       // Add each item to cart
       for (const item of items) {
-        await fetch(`${API_URL}/cart/add`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            foodId: item.food_id,
-            quantity: item.quantity,
-          }),
+        await addToCartMutation.mutateAsync({
+          foodId: item.food_id,
+          quantity: item.quantity,
         });
       }
+
+      await queryClient.invalidateQueries({
+        queryKey: customerQueryKeys.cart,
+      });
 
       navigate("/cart");
     } catch (error) {

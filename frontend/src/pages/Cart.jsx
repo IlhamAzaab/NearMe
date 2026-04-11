@@ -2,7 +2,12 @@ import React, { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import BottomNavbar from "../components/BottomNavbar";
 import AnimatedAlert, { useAlert } from "../components/AnimatedAlert";
-import { API_URL } from "../config";
+import {
+  useCustomerCartQuery,
+  useRemoveCartItemMutation,
+  useRemoveCartMutation,
+  useUpdateCartItemMutation,
+} from "../hooks/useCustomerNotifications";
 
 const Cart = () => {
   const navigate = useNavigate();
@@ -13,12 +18,16 @@ const Cart = () => {
   const [userEmail, setUserEmail] = useState("");
   const [userName, setUserName] = useState("");
 
-  const [carts, setCarts] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [updatingItem, setUpdatingItem] = useState(null);
   const [selectedCartId, setSelectedCartId] = useState(null);
   const { alert, visible, showSuccess, showError } = useAlert();
+  const cartsQuery = useCustomerCartQuery({ enabled: isLoggedIn });
+  const updateCartItemMutation = useUpdateCartItemMutation();
+  const removeCartItemMutation = useRemoveCartItemMutation();
+  const removeCartMutation = useRemoveCartMutation();
+  const carts = cartsQuery.data || [];
+  const loading = isLoggedIn ? cartsQuery.isLoading : false;
+  const error = cartsQuery.error?.message || null;
   const selectedCart = carts.find((cart) => cart.id === selectedCartId) || null;
 
   // Calculate total cart count for badge
@@ -42,54 +51,25 @@ const Cart = () => {
       const namePart = email.split("@")[0];
       setUserName(namePart.charAt(0).toUpperCase() + namePart.slice(1));
     }
-
-    fetchCarts();
   }, [navigate]);
 
-  const fetchCarts = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      const token = localStorage.getItem("token");
-      const response = await fetch(`${API_URL}/cart`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || "Failed to fetch cart");
-      }
-
-      setCarts(data.carts || []);
-
-      // Check if restaurantId is passed in URL (from Buy Now button)
-      const restaurantIdParam = searchParams.get("restaurantId");
-      if (restaurantIdParam && data.carts) {
-        const matchingCart = data.carts.find(
-          (cart) => cart.restaurant_id === restaurantIdParam,
-        );
-        if (matchingCart) {
-          setSelectedCartId(matchingCart.id);
-          // Clear the URL param after using it
-          setSearchParams({});
-          return;
-        }
-      }
-
-      setSelectedCartId((prev) =>
-        data.carts && data.carts.some((cart) => cart.id === prev) ? prev : null,
+  useEffect(() => {
+    const restaurantIdParam = searchParams.get("restaurantId");
+    if (restaurantIdParam && carts.length > 0) {
+      const matchingCart = carts.find(
+        (cart) => cart.restaurant_id === restaurantIdParam,
       );
-    } catch (err) {
-      console.error("Fetch cart error:", err);
-      setError(err.message);
-    } finally {
-      setLoading(false);
+      if (matchingCart) {
+        setSelectedCartId(matchingCart.id);
+        setSearchParams({});
+        return;
+      }
     }
-  };
+
+    setSelectedCartId((prev) =>
+      carts.some((cart) => cart.id === prev) ? prev : null,
+    );
+  }, [carts, searchParams, setSearchParams]);
 
   const formatPrice = (price) => {
     return price ? `Rs. ${parseFloat(price).toFixed(2)}` : "N/A";
@@ -101,23 +81,10 @@ const Cart = () => {
     try {
       setUpdatingItem(itemId);
 
-      const token = localStorage.getItem("token");
-      const response = await fetch(`${API_URL}/cart/item/${itemId}`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ quantity: newQuantity }),
+      await updateCartItemMutation.mutateAsync({
+        itemId,
+        quantity: newQuantity,
       });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || "Failed to update quantity");
-      }
-
-      await fetchCarts();
       showMessage("Quantity updated", "success");
     } catch (err) {
       console.error("Update quantity error:", err);
@@ -131,21 +98,7 @@ const Cart = () => {
     if (!confirm("Remove this item from cart?")) return;
 
     try {
-      const token = localStorage.getItem("token");
-      const response = await fetch(`${API_URL}/cart/item/${itemId}`, {
-        method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || "Failed to remove item");
-      }
-
-      await fetchCarts();
+      await removeCartItemMutation.mutateAsync(itemId);
       showMessage("Item removed from cart", "success");
     } catch (err) {
       console.error("Remove item error:", err);
@@ -157,21 +110,7 @@ const Cart = () => {
     if (!confirm("Remove all items from this restaurant?")) return;
 
     try {
-      const token = localStorage.getItem("token");
-      const response = await fetch(`${API_URL}/cart/${cartId}`, {
-        method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || "Failed to remove cart");
-      }
-
-      await fetchCarts();
+      await removeCartMutation.mutateAsync(cartId);
       setSelectedCartId((prev) => (prev === cartId ? null : prev));
       showMessage("Cart cleared", "success");
     } catch (err) {

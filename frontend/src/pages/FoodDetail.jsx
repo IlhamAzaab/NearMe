@@ -2,7 +2,11 @@ import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import BottomNavbar from "../components/BottomNavbar";
 import AnimatedAlert, { useAlert } from "../components/AnimatedAlert";
-import { API_URL } from "../config";
+import {
+  useAddToCartMutation,
+  usePublicFoodDetailQuery,
+  usePublicRestaurantQuery,
+} from "../hooks/useCustomerNotifications";
 
 const FoodDetail = () => {
   const { restaurantId, foodId } = useParams();
@@ -13,16 +17,23 @@ const FoodDetail = () => {
   const [userEmail, setUserEmail] = useState("");
   const [userName, setUserName] = useState("");
 
-  const [restaurant, setRestaurant] = useState(null);
-  const [food, setFood] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-
   // Form state
   const [selectedSize, setSelectedSize] = useState("regular");
   const [quantity, setQuantity] = useState(1);
   const [addingToCart, setAddingToCart] = useState(false);
   const { alert, visible, showSuccess, showError } = useAlert();
+  const addToCartMutation = useAddToCartMutation();
+  const restaurantQuery = usePublicRestaurantQuery(restaurantId, {
+    enabled: Boolean(restaurantId),
+  });
+  const foodQuery = usePublicFoodDetailQuery(restaurantId, foodId, {
+    enabled: Boolean(restaurantId && foodId),
+  });
+
+  const restaurant = restaurantQuery.data;
+  const food = foodQuery.data;
+  const loading = restaurantQuery.isLoading || foodQuery.isLoading;
+  const error = restaurantQuery.error?.message || foodQuery.error?.message || null;
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -38,46 +49,13 @@ const FoodDetail = () => {
       setUserName(namePart.charAt(0).toUpperCase() + namePart.slice(1));
     }
 
-    fetchFood();
   }, [restaurantId, foodId]);
 
-  const fetchFood = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      // Fetch restaurant
-      const restaurantRes = await fetch(
-        `${API_URL}/public/restaurants/${restaurantId}`,
-      );
-      const restaurantData = await restaurantRes.json();
-
-      if (!restaurantRes.ok) {
-        throw new Error(restaurantData.message || "Restaurant not found");
-      }
-
-      setRestaurant(restaurantData.restaurant);
-
-      // Fetch food
-      const foodRes = await fetch(
-        `${API_URL}/public/restaurants/${restaurantId}/foods/${foodId}`,
-      );
-      const foodData = await foodRes.json();
-
-      if (!foodRes.ok) {
-        throw new Error(foodData.message || "Food not found");
-      }
-
-      setFood(foodData.food);
-      // Set default size based on what's available
-      setSelectedSize(foodData.food.extra_price ? "regular" : "regular");
-    } catch (err) {
-      console.error("Fetch error:", err);
-      setError(err.message);
-    } finally {
-      setLoading(false);
+  useEffect(() => {
+    if (food) {
+      setSelectedSize("regular");
     }
-  };
+  }, [food]);
 
   const handleLogout = () => {
     localStorage.removeItem("token");
@@ -136,26 +114,12 @@ const FoodDetail = () => {
 
       setAddingToCart(true);
 
-      const token = currentToken;
-      const response = await fetch(`${API_URL}/cart/add`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
+      await addToCartMutation.mutateAsync({
           restaurant_id: restaurantId,
           food_id: foodId,
           size: selectedSize,
           quantity: quantity,
-        }),
       });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || "Failed to add to cart");
-      }
 
       if (goToCheckout) {
         // Navigate to cart with restaurantId to auto-select this restaurant's cart

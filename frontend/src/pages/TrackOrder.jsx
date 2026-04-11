@@ -9,11 +9,11 @@
  * - Driver tracking when assigned
  */
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import supabaseClient from "../supabaseClient";
 import SiteHeader from "../components/SiteHeader";
-import { API_URL } from "../config";
+import { useCustomerOrderQuery } from "../hooks/useCustomerNotifications";
 
 // Shared Supabase client (singleton)
 const supabase = supabaseClient;
@@ -35,6 +35,9 @@ export default function TrackOrder() {
 
   // Notification state
   const [notification, setNotification] = useState(null);
+  const orderQuery = useCustomerOrderQuery(orderId, {
+    enabled: isLoggedIn && Boolean(orderId),
+  });
 
   // Status timeline steps
   const statusSteps = [
@@ -102,38 +105,15 @@ export default function TrackOrder() {
     }
   }, [navigate]);
 
-  // ============================================================================
-  // FETCH ORDER
-  // ============================================================================
-
-  const fetchOrder = useCallback(async () => {
-    if (!orderId) return;
-
-    try {
-      const token = localStorage.getItem("token");
-      const response = await fetch(`${API_URL}/orders/${orderId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      const data = await response.json();
-      if (response.ok) {
-        setOrder(data.order);
-      } else {
-        setError(data.message || "Failed to fetch order");
-      }
-    } catch (err) {
-      console.error("Fetch order error:", err);
-      setError("Failed to connect to server");
-    } finally {
-      setLoading(false);
-    }
-  }, [orderId]);
-
   useEffect(() => {
-    if (isLoggedIn && orderId) {
-      fetchOrder();
+    if (!isLoggedIn || !orderId) return;
+
+    if (orderQuery.data) {
+      setOrder(orderQuery.data);
     }
-  }, [isLoggedIn, orderId, fetchOrder]);
+    setLoading(orderQuery.isLoading);
+    setError(orderQuery.error?.message || null);
+  }, [isLoggedIn, orderId, orderQuery.data, orderQuery.error, orderQuery.isLoading]);
 
   // Helper to get delivery status from order
   const getEffectiveStatus = (orderData) => {

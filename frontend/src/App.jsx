@@ -101,6 +101,7 @@ import { AdminCacheProvider } from "./context/AdminCacheContext";
 import AuthSessionWatcher from "./components/AuthSessionWatcher";
 import OfflineStatusBanner from "./components/OfflineStatusBanner";
 import SessionBootstrap from "./components/SessionBootstrap";
+import CustomerCacheDiagnostics from "./components/CustomerCacheDiagnostics";
 
 function App() {
   const [isAuthReady] = useState(true);
@@ -111,6 +112,7 @@ function App() {
         <AdminCacheProvider>
           <BrowserRouter>
             <SessionBootstrap />
+            <CustomerCacheDiagnostics />
             <AuthSessionWatcher />
             <DriverDeliveryNotificationProvider>
               <ManagerNotificationProvider>

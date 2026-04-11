@@ -12,7 +12,11 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
 import AnimatedAlert, { useAlert } from "../components/AnimatedAlert";
-import { API_URL } from "../config";
+import {
+  useAddToCartMutation,
+  useCustomerCartCount,
+  useCustomerOrderQuery,
+} from "../hooks/useCustomerNotifications";
 
 const PastOrderDetails = () => {
   const navigate = useNavigate();
@@ -26,56 +30,20 @@ const PastOrderDetails = () => {
 
   const orderId = paramOrderId || stateOrderId;
   const [order, setOrder] = useState(stateOrder || null);
-  const [loading, setLoading] = useState(!stateOrder);
-  const [cartCount, setCartCount] = useState(0);
+  const orderQuery = useCustomerOrderQuery(orderId, {
+    enabled: Boolean(orderId) && !stateOrder,
+  });
+  const cartCountQuery = useCustomerCartCount({ enabled: true });
+  const addToCartMutation = useAddToCartMutation();
+  const loading = !stateOrder ? orderQuery.isLoading : false;
+  const cartCount = cartCountQuery.data || 0;
 
   // Fetch order details if not passed via state
   useEffect(() => {
-    if (!order && orderId) {
-      fetchOrderDetails();
+    if (!order && orderQuery.data) {
+      setOrder(orderQuery.data);
     }
-    fetchCartCount();
-  }, [orderId]);
-
-  const fetchOrderDetails = async () => {
-    try {
-      const token = localStorage.getItem("token");
-      const response = await fetch(`${API_URL}/orders/${orderId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setOrder(data.order);
-      }
-    } catch (error) {
-      console.error("Fetch order error:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchCartCount = async () => {
-    try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/cart`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      const totalItems = (data.carts || []).reduce((sum, cart) => {
-        return (
-          sum +
-          (cart.items || []).reduce(
-            (itemSum, item) => itemSum + item.quantity,
-            0,
-          )
-        );
-      }, 0);
-      setCartCount(totalItems);
-    } catch (err) {
-      console.error("Fetch cart error:", err);
-    }
-  };
+  }, [order, orderQuery.data]);
 
   // Format date
   const formatDate = (dateString) => {
@@ -137,21 +105,13 @@ const PastOrderDetails = () => {
   // Handle reorder
   const handleReorder = async () => {
     try {
-      const token = localStorage.getItem("token");
       const items = order?.order_items || [];
 
       // Add each item to cart
       for (const item of items) {
-        await fetch(`${API_URL}/cart/add`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            foodId: item.food_id,
-            quantity: item.quantity,
-          }),
+        await addToCartMutation.mutateAsync({
+          foodId: item.food_id,
+          quantity: item.quantity,
         });
       }
 

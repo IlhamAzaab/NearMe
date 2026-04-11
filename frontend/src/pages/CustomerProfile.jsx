@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import BottomNavbar from "../components/BottomNavbar";
-import { API_URL } from "../config";
+import { useCustomerProfileQuery } from "../hooks/useCustomerNotifications";
 import { logout } from "../services/authService";
 
 export default function CustomerProfile() {
@@ -9,8 +9,9 @@ export default function CustomerProfile() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userName, setUserName] = useState("");
   const [userEmail, setUserEmail] = useState("");
-  const [profile, setProfile] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const profileQuery = useCustomerProfileQuery({ enabled: isLoggedIn });
+  const profile = profileQuery.data || null;
+  const loading = isLoggedIn ? profileQuery.isLoading : false;
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -22,29 +23,10 @@ export default function CustomerProfile() {
       setIsLoggedIn(true);
       setUserName(storedName || "");
       setUserEmail(storedEmail || "");
-      fetchProfile();
     } else {
       setIsLoggedIn(false);
-      setLoading(false);
     }
   }, []);
-
-  const fetchProfile = async () => {
-    try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/customer/me`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setProfile(data.customer || data);
-      }
-    } catch (err) {
-      console.error("Failed to fetch profile:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleLogout = async () => {
     const token = localStorage.getItem("token");

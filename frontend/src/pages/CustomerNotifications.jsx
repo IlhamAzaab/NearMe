@@ -1,35 +1,27 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import BottomNavbar from "../components/BottomNavbar";
 import supabaseClient from "../supabaseClient";
-import { API_URL } from "../config";
+import {
+  customerQueryKeys,
+  useCustomerNotificationsQuery,
+} from "../hooks/useCustomerNotifications";
 
 // Initialize Supabase
 const supabase = supabaseClient;
 
 export default function CustomerNotifications() {
   const navigate = useNavigate();
-  const [notifications, setNotifications] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [customerId, setCustomerId] = useState(null);
 
-  const fetchNotifications = useCallback(async () => {
-    try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/customer/notifications?limit=100`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      setNotifications(data.notifications || []);
-    } catch (e) {
-      console.error("Fetch error:", e);
-      setNotifications([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const notificationsQuery = useCustomerNotificationsQuery({
+    enabled: isLoggedIn,
+  });
+  const notifications = notificationsQuery.data || [];
+  const loading = isLoggedIn ? notificationsQuery.isLoading : false;
 
   useEffect(() => {
     const role = localStorage.getItem("role");
@@ -39,12 +31,10 @@ export default function CustomerNotifications() {
     if (token && role === "customer") {
       setIsLoggedIn(true);
       setCustomerId(userId);
-      fetchNotifications();
     } else {
       setIsLoggedIn(false);
-      setLoading(false);
     }
-  }, [navigate, fetchNotifications]);
+  }, [navigate]);
 
   // Real-time subscription for new notifications (using broadcast channel)
   useEffect(() => {
@@ -66,7 +56,7 @@ export default function CustomerNotifications() {
         (payload) => {
           console.log("🆕 New customer notification received:", payload.new);
           const newNotif = payload.new;
-          setNotifications((prev) => [
+          queryClient.setQueryData(customerQueryKeys.notifications, (prev = []) => [
             {
               id: newNotif.id,
               title: newNotif.title,

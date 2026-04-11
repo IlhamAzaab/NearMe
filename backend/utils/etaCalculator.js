@@ -176,11 +176,11 @@ async function getDeliveryStopSequence(driverId, driverLocation = null) {
 
   if (error || !deliveries?.length) return [];
 
-  // Build ordered stops from deliveries with intelligent sequencing:
-  // 1. Restaurant stops ordered by distance from driver (nearest first)
-  // 2. Customer stops ordered by distance from last restaurant (nearest first)
-  const restaurantStops = [];
-  const customerStops = [];
+  // Build ordered stops by delivery sequence (source-of-truth ordering).
+  // For each delivery:
+  // - status=accepted: restaurant stop first, then customer stop
+  // - status in picked_up/on_the_way/at_customer: customer stop only
+  const stops = [];
 
   // Get driver's current location for proximity detection
   const driverLat = driverLocation?.latitude
@@ -190,9 +190,13 @@ async function getDeliveryStopSequence(driverId, driverLocation = null) {
     ? parseFloat(driverLocation.longitude)
     : null;
 
-  for (const d of deliveries) {
+  for (let index = 0; index < deliveries.length; index += 1) {
+    const d = deliveries[index];
     const o = d.orders;
     if (!o) continue;
+    const sequence = Number.isFinite(Number(d.delivery_sequence))
+      ? Number(d.delivery_sequence)
+      : index + 1;
 
     const resLat = parseFloat(o.restaurant_latitude);
     const resLng = parseFloat(o.restaurant_longitude);
@@ -211,20 +215,10 @@ async function getDeliveryStopSequence(driverId, driverLocation = null) {
         d.arrived_restaurant_at ||
         (isNearby && d.last_location_update ? d.last_location_update : null);
 
-      // Calculate distance from driver for sorting (Haversine acceptable for internal sorting)
-      const distanceFromDriver =
-        driverLat && driverLng
-          ? haversineDistanceForProximityAndSorting(
-              driverLat,
-              driverLng,
-              resLat,
-              resLng,
-            )
-          : Infinity;
-
-      restaurantStops.push({
+      stops.push({
         delivery_id: d.id,
         order_id: d.order_id,
+        delivery_sequence: sequence,
         stop_type: "restaurant",
         lat: resLat,
         lng: resLng,
@@ -236,7 +230,6 @@ async function getDeliveryStopSequence(driverId, driverLocation = null) {
         restaurant_name: o.restaurant_name,
         customer_name: o.customer_name,
         delivery_status: d.status,
-        distance_from_driver: distanceFromDriver,
       });
     }
 
@@ -253,9 +246,10 @@ async function getDeliveryStopSequence(driverId, driverLocation = null) {
         d.arrived_customer_at ||
         (isNearby && d.last_location_update ? d.last_location_update : null);
 
-      customerStops.push({
+      stops.push({
         delivery_id: d.id,
         order_id: d.order_id,
+        delivery_sequence: sequence,
         stop_type: "customer",
         lat: cusLat,
         lng: cusLng,
@@ -271,38 +265,16 @@ async function getDeliveryStopSequence(driverId, driverLocation = null) {
     }
   }
 
-  // Sort restaurant stops by distance from driver (nearest first)
-  restaurantStops.sort(
-    (a, b) => a.distance_from_driver - b.distance_from_driver,
-  );
+  // Stable sort by delivery sequence. For same delivery sequence, restaurant stop
+  // must come before customer stop.
+  stops.sort((a, b) => {
+    if (a.delivery_sequence !== b.delivery_sequence) {
+      return a.delivery_sequence - b.delivery_sequence;
+    }
 
-  // Determine reference point for sorting customer stops
-  // Use last restaurant location if any, otherwise driver location
-  let customerSortLat = driverLat;
-  let customerSortLng = driverLng;
-
-  if (restaurantStops.length > 0) {
-    const lastRestaurant = restaurantStops[restaurantStops.length - 1];
-    customerSortLat = lastRestaurant.lat;
-    customerSortLng = lastRestaurant.lng;
-  }
-
-  // Sort customer stops by distance from reference point (nearest first)
-  // Haversine is acceptable for internal sorting algorithm
-  if (customerSortLat && customerSortLng) {
-    customerStops.forEach((stop) => {
-      stop.distance_from_ref = haversineDistanceForProximityAndSorting(
-        customerSortLat,
-        customerSortLng,
-        stop.lat,
-        stop.lng,
-      );
-    });
-    customerStops.sort((a, b) => a.distance_from_ref - b.distance_from_ref);
-  }
-
-  // Combine: all restaurant stops first, then all customer stops
-  const stops = [...restaurantStops, ...customerStops];
+    if (a.stop_type === b.stop_type) return 0;
+    return a.stop_type === "restaurant" ? -1 : 1;
+  });
 
   return stops;
 }
@@ -318,7 +290,8 @@ function getStopOvertimeSeconds(arrivedAt) {
   const elapsed = (Date.now() - new Date(arrivedAt).getTime()) / 1000;
   if (elapsed <= STOP_WAIT_TIME_SEC) return 0;
 
-  // Calculate how many full 5-min blocks have passed beyond the first 5 min
+  // Add +5 min immediately after crossing base wait, then +5 for each
+  // additional 5-min overtime window.
   const overtime = elapsed - STOP_WAIT_TIME_SEC;
   const extraBlocks = Math.ceil(overtime / STOP_OVERTIME_THRESHOLD_SEC);
   return extraBlocks * STOP_WAIT_TIME_SEC;
@@ -539,43 +512,17 @@ export async function calculateCustomerETA(orderId, driverLocation = null) {
       // Stop wait time (remaining from 5 min base + overtime if applicable)
       // Don't add wait time for the final customer stop (that's the destination)
       if (i < targetIdx) {
-        let waitTime = 0;
-        let remainingBaseWait = STOP_WAIT_TIME_SEC;
-        let overtime = 0;
+        // STRICT ALLOCATION: every pending intermediate stop contributes
+        // a full 5-minute wait budget, then overtime blocks if stop exceeds 5 minutes.
+        // We do NOT count down this wait while a stop is in progress.
+        const overtime = stop.arrived_at
+          ? getStopOvertimeSeconds(stop.arrived_at)
+          : 0;
+        const waitTime = STOP_WAIT_TIME_SEC + overtime;
 
-        if (stop.arrived_at) {
-          // Driver has arrived at this stop — calculate expected departure time
-          const arrivedTime = new Date(stop.arrived_at);
-          const now = new Date();
-          const elapsedSeconds = Math.max(0, (now - arrivedTime) / 1000);
-
-          // Calculate total expected wait time at this stop
-          let expectedTotalWait = STOP_WAIT_TIME_SEC; // Base 5 mins
-
-          if (elapsedSeconds >= STOP_WAIT_TIME_SEC) {
-            // Add overtime in 5-min blocks beyond base wait
-            const overtime = getStopOvertimeSeconds(stop.arrived_at);
-            expectedTotalWait = STOP_WAIT_TIME_SEC + overtime;
-          }
-
-          // Expected departure time = arrival time + total expected wait
-          const expectedDepartureMs =
-            arrivedTime.getTime() + expectedTotalWait * 1000;
-          const expectedDepartureTime = new Date(expectedDepartureMs);
-
-          // Remaining wait = time until expected departure
-          const remainingWaitMs = expectedDepartureTime - now;
-          remainingBaseWait = Math.max(0, remainingWaitMs / 1000);
-          overtime =
-            elapsedSeconds >= STOP_WAIT_TIME_SEC
-              ? getStopOvertimeSeconds(stop.arrived_at)
-              : 0;
-
-          waitTime = remainingBaseWait;
-        } else {
-          // Driver hasn't arrived yet — use full 5 min base wait time
-          waitTime = STOP_WAIT_TIME_SEC;
-        }
+        const elapsedWaitSec = stop.arrived_at
+          ? Math.max(0, (new Date() - new Date(stop.arrived_at)) / 1000)
+          : 0;
 
         totalETASeconds += waitTime;
 
@@ -585,13 +532,8 @@ export async function calculateCustomerETA(orderId, driverLocation = null) {
           delivery_id: stop.delivery_id,
           order_number: stop.order_number,
           base_wait_sec: STOP_WAIT_TIME_SEC,
-          elapsed_wait_sec: stop.arrived_at
-            ? Math.min(
-                STOP_WAIT_TIME_SEC,
-                (new Date() - new Date(stop.arrived_at)) / 1000,
-              )
-            : 0,
-          remaining_base_wait_sec: Math.round(remainingBaseWait),
+          elapsed_wait_sec: Math.round(elapsedWaitSec),
+          remaining_base_wait_sec: STOP_WAIT_TIME_SEC,
           overtime_sec: overtime,
           total_wait_sec: Math.round(waitTime),
         });
@@ -870,35 +812,12 @@ export async function calculateAllCustomerETAs(driverId, driverLocation) {
 
       // Add wait time for non-final stops (restaurant stops, intermediate customer stops)
       if (i < stops.length - 1) {
-        let waitTime = 0;
-
-        if (stop.arrived_at) {
-          // Driver has arrived at this stop — calculate expected departure time
-          const arrivedTime = new Date(stop.arrived_at);
-          const now = new Date();
-          const elapsedSeconds = Math.max(0, (now - arrivedTime) / 1000);
-
-          // Calculate total expected wait time at this stop
-          let expectedTotalWait = STOP_WAIT_TIME_SEC; // Base 5 mins
-
-          if (elapsedSeconds >= STOP_WAIT_TIME_SEC) {
-            // Add overtime in 5-min blocks beyond base wait
-            const overtime = getStopOvertimeSeconds(stop.arrived_at);
-            expectedTotalWait = STOP_WAIT_TIME_SEC + overtime;
-          }
-
-          // Expected departure time = arrival time + total expected wait
-          const expectedDepartureMs =
-            arrivedTime.getTime() + expectedTotalWait * 1000;
-          const expectedDepartureTime = new Date(expectedDepartureMs);
-
-          // Remaining wait = time until expected departure
-          const remainingWaitMs = expectedDepartureTime - now;
-          waitTime = Math.max(0, remainingWaitMs / 1000);
-        } else {
-          // Driver hasn't arrived yet — use full 5 min base wait time
-          waitTime = STOP_WAIT_TIME_SEC;
-        }
+        // Keep all-customer ETA consistent with single-customer ETA:
+        // full 5-minute wait per pending intermediate stop + overtime blocks.
+        const overtime = stop.arrived_at
+          ? getStopOvertimeSeconds(stop.arrived_at)
+          : 0;
+        const waitTime = STOP_WAIT_TIME_SEC + overtime;
 
         cumulativeSeconds += waitTime;
       }

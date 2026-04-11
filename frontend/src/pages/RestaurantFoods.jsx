@@ -2,7 +2,12 @@ import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import BottomNavbar from "../components/BottomNavbar";
 import AnimatedAlert, { useAlert } from "../components/AnimatedAlert";
-import { API_URL } from "../config";
+import {
+  useAddToCartMutation,
+  useCustomerCartCount,
+  usePublicRestaurantFoodsQuery,
+  usePublicRestaurantQuery,
+} from "../hooks/useCustomerNotifications";
 import {
   calculateRestaurantDistance,
   formatDistance,
@@ -18,15 +23,8 @@ const RestaurantFoods = () => {
   const [role, setRole] = useState("");
   const [userEmail, setUserEmail] = useState("");
   const [userName, setUserName] = useState("");
-  const [cartCount, setCartCount] = useState(0);
-
-  const [restaurant, setRestaurant] = useState(null);
-  const [foods, setFoods] = useState([]);
-  const [restaurantLoading, setRestaurantLoading] = useState(true);
-  const [foodsLoading, setFoodsLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [foodsError, setFoodsError] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
 
   // Cart state
   const [addingToCart, setAddingToCart] = useState(null);
@@ -35,6 +33,23 @@ const RestaurantFoods = () => {
   // Location state for distance calculation
   const [restaurantDistance, setRestaurantDistance] = useState(null);
   const [showDistance, setShowDistance] = useState(false);
+
+  const cartCountQuery = useCustomerCartCount({
+    enabled: isLoggedIn && role === "customer",
+  });
+  const addToCartMutation = useAddToCartMutation();
+  const restaurantQuery = usePublicRestaurantQuery(restaurantId);
+  const foodsQuery = usePublicRestaurantFoodsQuery(restaurantId, debouncedSearch, {
+    enabled: Boolean(restaurantId),
+  });
+
+  const restaurant = restaurantQuery.data;
+  const foods = foodsQuery.data || [];
+  const restaurantLoading = restaurantQuery.isLoading;
+  const foodsLoading = foodsQuery.isLoading;
+  const error = restaurantQuery.error?.message || null;
+  const foodsError = foodsQuery.error?.message || null;
+  const cartCount = cartCountQuery.data || 0;
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -49,13 +64,15 @@ const RestaurantFoods = () => {
       const namePart = email.split("@")[0];
       setUserName(namePart.charAt(0).toUpperCase() + namePart.slice(1));
     }
-
-    if (token && storedRole === "customer") {
-      fetchCartCount();
-    }
-
-    fetchRestaurant();
   }, [restaurantId]);
+
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+    }, 300);
+
+    return () => clearTimeout(timeoutId);
+  }, [searchQuery]);
 
   // Check if customer has delivery location and calculate distance
   useEffect(() => {
@@ -79,92 +96,6 @@ const RestaurantFoods = () => {
       setShowDistance(false);
     }
   };
-
-  const fetchCartCount = async () => {
-    try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/cart`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      const totalItems = (data.carts || []).reduce((sum, cart) => {
-        return (
-          sum +
-          (cart.items || []).reduce(
-            (itemSum, item) => itemSum + item.quantity,
-            0,
-          )
-        );
-      }, 0);
-      setCartCount(totalItems);
-    } catch (err) {
-      console.error("Fetch cart error:", err);
-    }
-  };
-
-  // Fetch restaurant details once per restaurantId
-  const fetchRestaurant = async () => {
-    try {
-      setRestaurantLoading(true);
-      setError(null);
-
-      const restaurantResponse = await fetch(
-        `${API_URL}/public/restaurants/${restaurantId}`,
-      );
-      const restaurantData = await restaurantResponse.json();
-
-      if (!restaurantResponse.ok) {
-        throw new Error(restaurantData.message || "Restaurant not found");
-      }
-
-      setRestaurant(restaurantData.restaurant);
-      // Load foods after restaurant is available
-      fetchFoods(searchQuery);
-    } catch (err) {
-      console.error("Error fetching restaurant:", err);
-      setError(err.message);
-    } finally {
-      setRestaurantLoading(false);
-    }
-  };
-
-  // Fetch foods with optional search
-  const fetchFoods = async (search = "") => {
-    try {
-      setFoodsLoading(true);
-      setFoodsError(null);
-
-      const foodsUrl = new URL(
-        `${API_URL}/public/restaurants/${restaurantId}/foods`,
-      );
-      if (search) {
-        foodsUrl.searchParams.append("search", search);
-      }
-
-      const foodsResponse = await fetch(foodsUrl);
-      const foodsData = await foodsResponse.json();
-
-      if (!foodsResponse.ok) {
-        throw new Error(foodsData.message || "Failed to fetch foods");
-      }
-
-      setFoods(foodsData.foods || []);
-    } catch (err) {
-      console.error("Error fetching foods:", err);
-      setFoodsError(err.message);
-    } finally {
-      setFoodsLoading(false);
-    }
-  };
-
-  // Live-search foods with a short debounce
-  useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      fetchFoods(searchQuery);
-    }, 300);
-
-    return () => clearTimeout(timeoutId);
-  }, [searchQuery, restaurantId]);
 
   const handleLogout = () => {
     localStorage.removeItem("token");
@@ -223,29 +154,14 @@ const RestaurantFoods = () => {
     try {
       setAddingToCart(food.id);
 
-      const token = localStorage.getItem("token");
-      const response = await fetch(`${API_URL}/cart/add`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
+      await addToCartMutation.mutateAsync({
           restaurant_id: restaurantId,
           food_id: food.id,
           size: "regular",
           quantity: 1,
-        }),
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || "Failed to add to cart");
-      }
-
       showSuccess("Added to cart!");
-      fetchCartCount();
     } catch (error) {
       console.error("Add to cart error:", error);
       showError(error.message);
@@ -288,26 +204,12 @@ const RestaurantFoods = () => {
     try {
       setAddingToCart(food.id);
 
-      const token = localStorage.getItem("token");
-      const response = await fetch(`${API_URL}/cart/add`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
+      await addToCartMutation.mutateAsync({
           restaurant_id: restaurantId,
           food_id: food.id,
           size: "regular",
           quantity: 1,
-        }),
       });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || "Failed to add to cart");
-      }
 
       navigate("/cart");
     } catch (error) {
