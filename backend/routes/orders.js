@@ -460,58 +460,120 @@ router.post("/place", authenticate, async (req, res) => {
     }
 
     // ========================================================================
-    // STEP 4.5: Get delivery location from customer if not provided
+    // STEP 4.5: Resolve delivery location/address and enforce first-order input
     // ========================================================================
-    if (!delivery_latitude || !delivery_longitude) {
-      if (customer.latitude && customer.longitude) {
-        delivery_latitude = parseFloat(customer.latitude);
-        delivery_longitude = parseFloat(customer.longitude);
-      } else {
+    const { count: previousOrdersCount, error: previousOrdersError } =
+      await supabaseAdmin
+        .from("orders")
+        .select("id", { count: "exact", head: true })
+        .eq("customer_id", customerId);
+
+    if (previousOrdersError) {
+      console.error("Previous orders count error:", previousOrdersError);
+    }
+
+    const isFirstOrder = (previousOrdersCount || 0) === 0;
+
+    const parsedDeliveryLat = Number(delivery_latitude);
+    const parsedDeliveryLng = Number(delivery_longitude);
+    const hasProvidedCoords =
+      Number.isFinite(parsedDeliveryLat) && Number.isFinite(parsedDeliveryLng);
+
+    const parsedCustomerLat = Number(customer.latitude);
+    const parsedCustomerLng = Number(customer.longitude);
+    const hasStoredCoords =
+      Number.isFinite(parsedCustomerLat) && Number.isFinite(parsedCustomerLng);
+
+    const payloadAddress = String(delivery_address || "").trim();
+    const payloadCity = String(delivery_city || "").trim();
+    const storedAddress = String(customer.address || "").trim();
+    const storedCity = String(customer.city || "").trim();
+
+    if (isFirstOrder) {
+      if (!hasProvidedCoords || !payloadAddress || !payloadCity) {
         return res.status(400).json({
           message:
-            "Delivery location is required. Please set your location in profile.",
+            "For your first order, delivery location, address, and city are required.",
+          error_type: "first_order_location_required",
         });
       }
     }
+
+    if (hasProvidedCoords) {
+      delivery_latitude = parsedDeliveryLat;
+      delivery_longitude = parsedDeliveryLng;
+    } else if (hasStoredCoords) {
+      delivery_latitude = parsedCustomerLat;
+      delivery_longitude = parsedCustomerLng;
+    } else {
+      return res.status(400).json({
+        message:
+          "Delivery location is required. Please set your location before placing the order.",
+        error_type: "location_required",
+      });
+    }
+
+    if (
+      !Number.isFinite(delivery_latitude) ||
+      !Number.isFinite(delivery_longitude) ||
+      delivery_latitude < -90 ||
+      delivery_latitude > 90 ||
+      delivery_longitude < -180 ||
+      delivery_longitude > 180
+    ) {
+      return res.status(400).json({
+        message: "Valid delivery coordinates are required",
+        error_type: "invalid_delivery_coordinates",
+      });
+    }
+
+    delivery_address = payloadAddress || storedAddress;
+    delivery_city = payloadCity || storedCity;
 
     if (!delivery_address) {
-      if (customer.address) {
-        delivery_address = customer.address;
-        delivery_city = customer.city || "";
-      } else {
-        return res
-          .status(400)
-          .json({ message: "Delivery address is required" });
-      }
+      return res.status(400).json({
+        message: "Delivery address is required",
+        error_type: "address_required",
+      });
+    }
+
+    if (!delivery_city) {
+      return res.status(400).json({
+        message: "Delivery city is required",
+        error_type: "city_required",
+      });
     }
 
     // ========================================================================
-    // STEP 4.6: Calculate distance and duration if not provided
+    // STEP 4.6: Always calculate distance and duration server-side via OSRM
     // ========================================================================
-    if (
-      !distance_km ||
-      !estimated_duration_min ||
-      distance_km <= 0 ||
-      estimated_duration_min <= 0
-    ) {
-      const routeResult = await calculateRouteDistanceWithRetry(
-        delivery_latitude,
-        delivery_longitude,
-        parseFloat(restaurant.latitude),
-        parseFloat(restaurant.longitude),
-      );
+    const routeResult = await calculateRouteDistanceWithRetry(
+      delivery_latitude,
+      delivery_longitude,
+      parseFloat(restaurant.latitude),
+      parseFloat(restaurant.longitude),
+    );
 
-      if (routeResult.success) {
-        distance_km = routeResult.distance;
-        estimated_duration_min = routeResult.duration;
-      } else {
-        return res.status(503).json({
-          message:
-            "Unable to calculate accurate road distance right now. Please retry in a few seconds.",
-          error: routeResult.error || "OSRM routing unavailable",
-          retry: true,
-        });
+    if (routeResult.success) {
+      const clientDistanceKm = Number(distance_km);
+      distance_km = Number(routeResult.distance);
+      estimated_duration_min = Number(routeResult.duration);
+
+      if (
+        Number.isFinite(clientDistanceKm) &&
+        Math.abs(clientDistanceKm - distance_km) > 1
+      ) {
+        console.warn(
+          `[orders/place] Client/server distance mismatch: client=${clientDistanceKm.toFixed(2)} km, server=${distance_km.toFixed(2)} km`,
+        );
       }
+    } else {
+      return res.status(503).json({
+        message:
+          "Unable to calculate accurate road distance right now. Please retry in a few seconds.",
+        error: routeResult.error || "OSRM routing unavailable",
+        retry: true,
+      });
     }
 
     // ========================================================================
@@ -619,18 +681,7 @@ router.post("/place", authenticate, async (req, res) => {
     const normalDeliveryFee = await calculateDeliveryFee(distance_km);
 
     // Launch promotion: apply only for first-ever order when customer acknowledged popup.
-    const { count: previousOrdersCount, error: previousOrdersError } =
-      await supabaseAdmin
-        .from("orders")
-        .select("id", { count: "exact", head: true })
-        .eq("customer_id", customerId);
-
-    if (previousOrdersError) {
-      console.error("Previous orders count error:", previousOrdersError);
-    }
-
     const launchPromoConfig = getLaunchPromoConfig(config);
-    const isFirstOrder = (previousOrdersCount || 0) === 0;
     const launchPromoEligible =
       launchPromoConfig.enabled &&
       isFirstOrder &&

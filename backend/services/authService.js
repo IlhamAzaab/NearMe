@@ -554,10 +554,20 @@ export async function completeCustomerProfile({
   const normalizedName = String(name || "").trim();
   const normalizedEmail = email.toLowerCase().trim();
   const normalizedPassword = String(password || "");
-  const normalizedCity = String(city || "").trim();
-  const normalizedAddress = address.trim();
-  const normalizedLatitude = Number(latitude);
-  const normalizedLongitude = Number(longitude);
+  const normalizedCity =
+    typeof city === "string" && city.trim() ? city.trim() : null;
+  const normalizedAddress =
+    typeof address === "string" && address.trim() ? address.trim() : null;
+  const hasValidLatitude =
+    latitude !== undefined &&
+    latitude !== null &&
+    Number.isFinite(Number(latitude));
+  const hasValidLongitude =
+    longitude !== undefined &&
+    longitude !== null &&
+    Number.isFinite(Number(longitude));
+  const normalizedLatitude = hasValidLatitude ? Number(latitude) : null;
+  const normalizedLongitude = hasValidLongitude ? Number(longitude) : null;
 
   async function ensureLegacyUserRow() {
     const { error: upsertError } = await supabaseAdmin.from("users").upsert(
@@ -684,7 +694,7 @@ export async function completeCustomerProfile({
   const { data: existingProfile, error: existingProfileError } =
     await supabaseAdmin
       .from("customers")
-      .select("id, username")
+      .select("id, username, city, address, latitude, longitude")
       .eq("id", userId)
       .maybeSingle();
 
@@ -706,11 +716,15 @@ export async function completeCustomerProfile({
         .update({
           username: normalizedName,
           email: normalizedEmail,
-          city: normalizedCity,
-          address: normalizedAddress,
+          city: normalizedCity || existingProfile.city || null,
+          address: normalizedAddress || existingProfile.address || null,
           phone: normalizedPhone,
-          latitude: normalizedLatitude,
-          longitude: normalizedLongitude,
+          latitude: hasValidLatitude
+            ? normalizedLatitude
+            : (existingProfile.latitude ?? null),
+          longitude: hasValidLongitude
+            ? normalizedLongitude
+            : (existingProfile.longitude ?? null),
           updated_at: new Date().toISOString(),
         })
         .eq("id", userId)
@@ -771,10 +785,18 @@ export async function completeCustomerProfile({
     role,
     email: normalizedEmail,
     name: normalizedName,
-    city: normalizedCity,
-    address: normalizedAddress,
-    latitude: normalizedLatitude,
-    longitude: normalizedLongitude,
+    city: normalizedCity ?? customerProfile.city ?? null,
+    address: normalizedAddress ?? customerProfile.address ?? null,
+    latitude:
+      normalizedLatitude ??
+      customerProfile.latitude ??
+      authUser.user_metadata?.latitude ??
+      null,
+    longitude:
+      normalizedLongitude ??
+      customerProfile.longitude ??
+      authUser.user_metadata?.longitude ??
+      null,
     profile_completed: true,
   };
 
@@ -834,8 +856,8 @@ export async function completeCustomerProfile({
       mergedMetadata.email ||
       null,
     phone: normalizedPhone,
-    city: customerProfile.city || normalizedCity || null,
-    address: customerProfile.address || mergedMetadata.address || null,
+    city: customerProfile.city ?? mergedMetadata.city ?? null,
+    address: customerProfile.address ?? mergedMetadata.address ?? null,
     latitude: customerProfile.latitude ?? mergedMetadata.latitude ?? null,
     longitude: customerProfile.longitude ?? mergedMetadata.longitude ?? null,
     phoneVerified: Boolean(updatedAuthUser.phone_confirmed_at),
