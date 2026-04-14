@@ -1375,6 +1375,10 @@ router.get("/:id/delivery-status", authenticate, async (req, res) => {
       }
     }
 
+    const hasDriverCoords =
+      Number.isFinite(Number(delivery?.current_latitude)) &&
+      Number.isFinite(Number(delivery?.current_longitude));
+
     // Calculate dynamic ETA for customer
     let eta = null;
     if (
@@ -1383,13 +1387,12 @@ router.get("/:id/delivery-status", authenticate, async (req, res) => {
         deliveryStatus,
       )
     ) {
-      const driverLoc =
-        delivery?.current_latitude && delivery?.current_longitude
-          ? {
-              latitude: parseFloat(delivery.current_latitude),
-              longitude: parseFloat(delivery.current_longitude),
-            }
-          : null;
+      const driverLoc = hasDriverCoords
+        ? {
+            latitude: parseFloat(delivery.current_latitude),
+            longitude: parseFloat(delivery.current_longitude),
+          }
+        : null;
       eta = await calculateCustomerETA(orderId, driverLoc);
     }
 
@@ -1416,14 +1419,13 @@ router.get("/:id/delivery-status", authenticate, async (req, res) => {
       deliveredAt: delivery?.delivered_at || null,
       driver: driverInfo,
       // Location data for live tracking
-      driverLocation:
-        delivery?.current_latitude && delivery?.current_longitude
-          ? {
-              latitude: parseFloat(delivery.current_latitude),
-              longitude: parseFloat(delivery.current_longitude),
-              lastUpdate: delivery.last_location_update,
-            }
-          : null,
+      driverLocation: hasDriverCoords
+        ? {
+            latitude: parseFloat(delivery.current_latitude),
+            longitude: parseFloat(delivery.current_longitude),
+            lastUpdate: delivery.last_location_update,
+          }
+        : null,
       customerLocation: {
         latitude: order.delivery_latitude
           ? parseFloat(order.delivery_latitude)
