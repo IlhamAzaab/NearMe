@@ -142,7 +142,7 @@ export default function DriverNotifications() {
           </div>
 
           {loading ? (
-            <DriverListSkeleton count={5} />
+            <DriverListSkeleton count={5} variant="notifications" />
           ) : notifications.length === 0 ? (
             <div className="text-center py-12">
               <div className="w-20 h-20 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-4">

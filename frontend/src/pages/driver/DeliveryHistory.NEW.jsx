@@ -76,7 +76,7 @@ export default function DeliveryHistory() {
                 </div>
               ))}
             </div>
-            <DriverListSkeleton count={4} />
+            <DriverListSkeleton count={4} variant="history" />
           </div>
         </div>
       </DriverLayout>

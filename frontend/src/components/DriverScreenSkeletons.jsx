@@ -21,51 +21,81 @@ export function DriverDashboardSkeleton() {
       </div>
 
       <div className="p-4 space-y-4 pb-28">
-        <div className="bg-white rounded-2xl border border-slate-100 p-4 space-y-4">
-          <div className="flex items-center justify-between">
-            <Block className="w-28 h-4" />
+        <div className="bg-white rounded-2xl border border-slate-100 p-5 space-y-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="space-y-2 flex-1">
+              <Block className="w-40 h-5" />
+              <Block className="w-32 h-3" />
+            </div>
             <Block className="w-12 h-7 rounded-full" />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <Block className="h-16" />
-            <Block className="h-16" />
-          </div>
-        </div>
-
-        <div className="bg-white rounded-2xl border border-slate-100 p-4 space-y-3">
-          <Block className="w-20 h-3" />
-          <Block className="w-28 h-6" />
-          <Block className="w-full h-14" />
-          <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-100">
-            <Block className="h-10" />
-            <Block className="h-10" />
+          <div className="h-9 rounded-lg bg-slate-100 p-1">
+            <Block className="h-full w-1/2 rounded-md" />
           </div>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
-          <div className="bg-white rounded-xl border border-slate-100 p-3 space-y-2">
-            <Block className="h-3 w-20" />
-            <Block className="h-5 w-24" />
+          <div className="bg-white rounded-xl border border-slate-100 p-5 space-y-2">
+            <Block className="h-3 w-24" />
+            <Block className="h-8 w-28" />
           </div>
-          <div className="bg-white rounded-xl border border-slate-100 p-3 space-y-2">
-            <Block className="h-3 w-20" />
-            <Block className="h-5 w-24" />
+          <div className="bg-white rounded-xl border border-slate-100 p-5 space-y-2">
+            <Block className="h-3 w-24" />
+            <Block className="h-8 w-20" />
           </div>
         </div>
 
-        <Block className="w-36 h-6 rounded-md" />
+        <div className="bg-white rounded-xl border border-slate-100 p-5 space-y-2">
+          <Block className="h-3 w-28" />
+          <Block className="h-8 w-36" />
+        </div>
 
-        {[...Array(4)].map((_, i) => (
+        <div className="flex items-center justify-between pt-1">
+          <Block className="w-40 h-6 rounded-md" />
+          <Block className="w-16 h-5 rounded-md" />
+        </div>
+
+        {[...Array(2)].map((_, i) => (
           <div
-            key={`dashboard-skeleton-item-${i}`}
+            key={`dashboard-active-skeleton-item-${i}`}
+            className="bg-white rounded-2xl border border-slate-100 p-4"
+          >
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Block className="w-24 h-4" />
+                <Block className="w-14 h-6 rounded-full" />
+              </div>
+              <div className="flex items-center gap-3">
+                <Block className="w-11 h-11 rounded-xl shrink-0" />
+                <div className="flex-1 space-y-2">
+                  <Block className="w-3/4 h-4" />
+                  <Block className="w-full h-3" />
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Block className="h-10 flex-1 rounded-lg" />
+                <Block className="h-10 w-24 rounded-lg" />
+              </div>
+            </div>
+          </div>
+        ))}
+
+        <div className="flex items-center justify-between pt-1">
+          <Block className="w-44 h-6 rounded-md" />
+          <Block className="w-20 h-5 rounded-md" />
+        </div>
+
+        {[...Array(3)].map((_, i) => (
+          <div
+            key={`dashboard-nearby-skeleton-item-${i}`}
             className="bg-white rounded-2xl border border-slate-100 p-3"
           >
             <div className="flex items-center gap-3">
               <Block className="w-11 h-11 rounded-full shrink-0" />
               <div className="flex-1 space-y-2">
                 <Block className="w-24 h-4" />
-                <Block className="w-20 h-3" />
-                <Block className="w-28 h-3" />
+                <Block className="w-full h-3" />
+                <Block className="w-2/3 h-3" />
               </div>
               <div className="space-y-2">
                 <Block className="w-16 h-4" />
@@ -165,24 +195,93 @@ export function DriverAvailableSkeleton() {
   );
 }
 
-export function DriverListSkeleton({ count = 4 }) {
-  return (
-    <div className="space-y-3">
-      {[...Array(count)].map((_, i) => (
+export function DriverListSkeleton({ count = 4, variant = "default" }) {
+  const renderCard = (index) => {
+    if (variant === "notifications") {
+      return (
         <div
-          key={`driver-list-skeleton-${i}`}
+          key={`driver-list-skeleton-${variant}-${index}`}
           className="bg-white rounded-xl p-4 border border-slate-100"
         >
           <div className="flex items-start gap-3">
-            <Block className="w-10 h-10 rounded-full shrink-0" />
+            <Block className="w-12 h-12 rounded-full shrink-0" />
             <div className="flex-1 space-y-2">
-              <Block className="w-32 h-4" />
+              <Block className="w-36 h-4" />
               <Block className="w-full h-3" />
-              <Block className="w-2/3 h-3" />
+              <Block className="w-3/4 h-3" />
+              <div className="flex items-center justify-between pt-1">
+                <Block className="w-20 h-3" />
+                <Block className="w-14 h-6 rounded-full" />
+              </div>
             </div>
           </div>
         </div>
-      ))}
+      );
+    }
+
+    if (variant === "history") {
+      return (
+        <div
+          key={`driver-list-skeleton-${variant}-${index}`}
+          className="bg-white rounded-2xl p-4 border border-slate-100"
+        >
+          <div className="flex items-start gap-3">
+            <Block className="w-12 h-12 rounded-xl shrink-0" />
+            <div className="flex-1 space-y-2">
+              <Block className="w-32 h-4" />
+              <Block className="w-24 h-3" />
+              <Block className="w-full h-3" />
+            </div>
+            <div className="space-y-2 text-right">
+              <Block className="w-16 h-4" />
+              <Block className="w-12 h-3" />
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (variant === "activity") {
+      return (
+        <div
+          key={`driver-list-skeleton-${variant}-${index}`}
+          className="bg-white rounded-xl p-4 border border-slate-100"
+        >
+          <div className="flex items-center gap-3">
+            <Block className="w-10 h-10 rounded-lg shrink-0" />
+            <div className="flex-1 space-y-2">
+              <Block className="w-28 h-4" />
+              <Block className="w-20 h-3" />
+            </div>
+            <div className="text-right space-y-2">
+              <Block className="w-14 h-4" />
+              <Block className="w-10 h-3" />
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div
+        key={`driver-list-skeleton-${variant}-${index}`}
+        className="bg-white rounded-xl p-4 border border-slate-100"
+      >
+        <div className="flex items-start gap-3">
+          <Block className="w-10 h-10 rounded-full shrink-0" />
+          <div className="flex-1 space-y-2">
+            <Block className="w-32 h-4" />
+            <Block className="w-full h-3" />
+            <Block className="w-2/3 h-3" />
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-3">
+      {[...Array(count)].map((_, i) => renderCard(i))}
     </div>
   );
 }

@@ -23,7 +23,7 @@ router.get("/me", authenticate, async (req, res) => {
     const { data, error } = await supabaseAdmin
       .from("drivers")
       .select(
-        "id, full_name, email, phone, nic_number, driver_status, driver_type, city, address, working_time, force_password_change, profile_completed, onboarding_completed, onboarding_step",
+        "id, full_name, email, phone, nic_number, date_of_birth, driver_status, driver_type, city, address, profile_photo_url, working_time, force_password_change, profile_completed, onboarding_completed, onboarding_step",
       )
       .eq("id", userId)
       .maybeSingle();
@@ -39,22 +39,111 @@ router.get("/me", authenticate, async (req, res) => {
       return res.status(404).json({ message: "Driver profile not found" });
     }
 
-    // Fetch vehicle number from driver_vehicle_license table
-    let vehicleNumber = null;
+    // Fetch vehicle/license details from driver_vehicle_license table
+    let vehicleDetails = null;
     try {
       const { data: vehicleData } = await supabaseAdmin
         .from("driver_vehicle_license")
-        .select("vehicle_number")
+        .select(
+          "vehicle_number, vehicle_type, vehicle_model, insurance_expiry, vehicle_license_expiry, driving_license_number, license_expiry_date",
+        )
         .eq("driver_id", userId)
         .maybeSingle();
-      vehicleNumber = vehicleData?.vehicle_number || null;
+      vehicleDetails = vehicleData || null;
     } catch (vErr) {
       console.error("Vehicle fetch error:", vErr);
     }
 
-    return res.json({ driver: { ...data, vehicle_number: vehicleNumber } });
+    return res.json({
+      driver: {
+        ...data,
+        profile_picture: data.profile_photo_url,
+        vehicle_number: vehicleDetails?.vehicle_number || null,
+        vehicle_type: vehicleDetails?.vehicle_type || null,
+        vehicle_model: vehicleDetails?.vehicle_model || null,
+        insurance_expiry: vehicleDetails?.insurance_expiry || null,
+        vehicle_license_expiry: vehicleDetails?.vehicle_license_expiry || null,
+        driving_license_number: vehicleDetails?.driving_license_number || null,
+        license_expiry_date: vehicleDetails?.license_expiry_date || null,
+        vehicle: vehicleDetails,
+      },
+    });
   } catch (e) {
     console.error("/driver/me error:", e);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
+/**
+ * GET /driver/bank-account
+ * Return latest bank account details for logged-in driver.
+ */
+router.get("/bank-account", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "driver") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const driverId = req.user.id;
+    const { data: bankAccount, error } = await supabaseAdmin
+      .from("driver_bank_accounts")
+      .select(
+        "id, driver_id, account_holder_name, bank_name, branch, account_number, verified, verified_at, created_at",
+      )
+      .eq("driver_id", driverId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.error("/driver/bank-account fetch error:", error);
+      return res.status(500).json({ message: "Failed to load bank details" });
+    }
+
+    if (!bankAccount) {
+      return res.status(404).json({ message: "Bank details not found" });
+    }
+
+    return res.json({ bankAccount });
+  } catch (e) {
+    console.error("/driver/bank-account error:", e);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
+/**
+ * GET /driver/contract
+ * Return latest accepted contract data for logged-in driver.
+ */
+router.get("/contract", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "driver") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const driverId = req.user.id;
+    const { data: contract, error } = await supabaseAdmin
+      .from("driver_contracts")
+      .select(
+        "id, driver_id, contract_version, accepted_at, ip_address, user_agent, contract_html, created_at",
+      )
+      .eq("driver_id", driverId)
+      .order("accepted_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.error("/driver/contract fetch error:", error);
+      return res.status(500).json({ message: "Failed to load contract" });
+    }
+
+    if (!contract) {
+      return res.status(404).json({ message: "Contract not found" });
+    }
+
+    return res.json({ contract });
+  } catch (e) {
+    console.error("/driver/contract error:", e);
     return res.status(500).json({ message: "Server error" });
   }
 });

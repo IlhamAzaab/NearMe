@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import ManagerPageLayout from "../../components/ManagerPageLayout";
+import { ManagerPageSkeleton } from "../../components/ManagerSkeleton";
 import { API_URL } from "../../config";
 
 export default function SendNotification() {
@@ -30,18 +31,7 @@ export default function SendNotification() {
   };
 
   if (loading) {
-    return (
-      <ManagerPageLayout title="Send Notification">
-        <div className="p-4 space-y-4 max-w-2xl mx-auto lg:max-w-none animate-pulse">
-          <div className="h-40 bg-gray-200 rounded-xl" />
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="h-44 bg-gray-200 rounded-xl" />
-            <div className="h-44 bg-gray-200 rounded-xl" />
-            <div className="h-44 bg-gray-200 rounded-xl" />
-          </div>
-        </div>
-      </ManagerPageLayout>
-    );
+    return <ManagerPageSkeleton type="notification" />;
   }
 
   const roleCards = [

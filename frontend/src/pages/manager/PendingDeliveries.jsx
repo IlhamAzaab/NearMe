@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ManagerPageLayout from "../../components/ManagerPageLayout";
-import AdminSkeleton from "../../components/AdminSkeleton";
+import { ManagerPageSkeleton } from "../../components/ManagerSkeleton";
 import PageWrapper from "../../components/PageWrapper";
 import { API_URL } from "../../config";
 
@@ -119,11 +119,7 @@ export default function PendingDeliveries() {
   };
 
   if (loading) {
-    return (
-      <ManagerPageLayout title="Pending Deliveries">
-        <AdminSkeleton type="deliveries" />
-      </ManagerPageLayout>
-    );
+    return <ManagerPageSkeleton type="pendingDeliveries" />;
   }
 
   return (

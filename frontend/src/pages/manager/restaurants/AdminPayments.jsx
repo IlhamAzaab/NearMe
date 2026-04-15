@@ -64,11 +64,7 @@ export default function AdminPayments() {
 
   // Skeleton loader
   if (loading) {
-    return (
-      <ManagerPageLayout title="Admin Payments">
-        <ManagerPageSkeleton type="payments" />
-      </ManagerPageLayout>
-    );
+    return <ManagerPageSkeleton type="payments" />;
   }
 
   return (

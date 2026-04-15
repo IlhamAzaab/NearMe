@@ -148,11 +148,7 @@ export default function DriverVerification() {
   };
 
   if (loading) {
-    return (
-      <ManagerPageLayout title="Driver Verification">
-        <ManagerPageSkeleton type="list" />
-      </ManagerPageLayout>
-    );
+    return <ManagerPageSkeleton type="list" />;
   }
 
   return (

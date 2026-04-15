@@ -249,11 +249,7 @@ export default function ProcessAdminPayment() {
   };
 
   if (loading) {
-    return (
-      <ManagerPageLayout title="Process Payment">
-        <ManagerPageSkeleton type="form" />
-      </ManagerPageLayout>
-    );
+    return <ManagerPageSkeleton type="form" />;
   }
 
   if (!restaurant) {

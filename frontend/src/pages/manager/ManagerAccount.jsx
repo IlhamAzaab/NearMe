@@ -91,7 +91,7 @@ const ManagerAccount = () => {
     periodOptions.find((p) => p.key === period)?.label || "Today";
 
   if (loading) {
-    return <ManagerPageSkeleton type="deposits" />;
+    return <ManagerPageSkeleton type="account" />;
   }
 
   return (

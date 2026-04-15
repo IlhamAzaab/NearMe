@@ -64,11 +64,7 @@ export default function ManagerDriverPayments() {
 
   // Skeleton loader
   if (loading) {
-    return (
-      <ManagerPageLayout title="Driver Payments">
-        <ManagerPageSkeleton type="payments" />
-      </ManagerPageLayout>
-    );
+    return <ManagerPageSkeleton type="payments" />;
   }
 
   return (

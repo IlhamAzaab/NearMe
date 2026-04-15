@@ -33,7 +33,7 @@ router.get("/me", authenticate, async (req, res) => {
     const { data, error } = await supabaseAdmin
       .from("admins")
       .select(
-        "id, email, phone, force_password_change, profile_completed, onboarding_step, onboarding_completed, admin_status, restaurant_id",
+        "id, email, phone, full_name, nic_number, home_address, force_password_change, profile_completed, onboarding_step, onboarding_completed, admin_status, restaurant_id",
       )
       .eq("id", adminId)
       .maybeSingle();
@@ -45,6 +45,122 @@ router.get("/me", authenticate, async (req, res) => {
     return res.json({ admin: data });
   } catch (e) {
     console.error("/admin/me error:", e);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
+/**
+ * GET /admin/personal-info
+ * Return admin personal information and linked restaurant identity.
+ */
+router.get("/personal-info", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const adminId = req.user.id;
+
+    const { data: admin, error: adminError } = await supabaseAdmin
+      .from("admins")
+      .select(
+        "id, full_name, email, phone, nic_number, home_address, role, restaurant_id",
+      )
+      .eq("id", adminId)
+      .maybeSingle();
+
+    if (adminError || !admin) {
+      return res.status(404).json({ message: "Admin profile not found" });
+    }
+
+    let restaurant = null;
+    if (admin.restaurant_id) {
+      const { data: restaurantData } = await supabaseAdmin
+        .from("restaurants")
+        .select("id, restaurant_name, logo_url")
+        .eq("id", admin.restaurant_id)
+        .maybeSingle();
+
+      restaurant = restaurantData || null;
+    }
+
+    return res.json({ admin, restaurant });
+  } catch (e) {
+    console.error("/admin/personal-info error:", e);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
+/**
+ * GET /admin/bank-account
+ * Return latest bank account details for logged-in admin.
+ */
+router.get("/bank-account", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const adminId = req.user.id;
+    const { data: bankAccount, error } = await supabaseAdmin
+      .from("restaurant_bank_accounts")
+      .select(
+        "id, admin_id, restaurant_id, account_holder_name, bank_name, branch, account_number, verified, verified_at, created_at",
+      )
+      .eq("admin_id", adminId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.error("/admin/bank-account fetch error:", error);
+      return res.status(500).json({ message: "Failed to load bank details" });
+    }
+
+    if (!bankAccount) {
+      return res.status(404).json({ message: "Bank details not found" });
+    }
+
+    return res.json({ bankAccount });
+  } catch (e) {
+    console.error("/admin/bank-account error:", e);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
+/**
+ * GET /admin/contract
+ * Return latest accepted contract data for logged-in admin.
+ */
+router.get("/contract", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const adminId = req.user.id;
+    const { data: contract, error } = await supabaseAdmin
+      .from("restaurant_contracts")
+      .select(
+        "id, admin_id, restaurant_id, contract_version, accepted, ip_address, user_agent, contract_html, created_at",
+      )
+      .eq("admin_id", adminId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.error("/admin/contract fetch error:", error);
+      return res.status(500).json({ message: "Failed to load contract" });
+    }
+
+    if (!contract) {
+      return res.status(404).json({ message: "Contract not found" });
+    }
+
+    return res.json({ contract });
+  } catch (e) {
+    console.error("/admin/contract error:", e);
     return res.status(500).json({ message: "Server error" });
   }
 });

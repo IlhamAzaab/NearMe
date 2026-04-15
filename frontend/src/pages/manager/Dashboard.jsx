@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import ManagerPageLayout from "../../components/ManagerPageLayout";
-import AdminSkeleton from "../../components/AdminSkeleton";
+import { ManagerPageSkeleton } from "../../components/ManagerSkeleton";
 import PageWrapper from "../../components/PageWrapper";
 import { API_URL } from "../../config";
 
@@ -115,7 +115,7 @@ const Dashboard = () => {
 
   // Loading skeleton
   if (loading) {
-    return <AdminSkeleton type="deposits" />;
+    return <ManagerPageSkeleton type="dashboard" />;
   }
 
   return (

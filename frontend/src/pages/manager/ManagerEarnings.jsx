@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { API_URL } from "../../config";
 import ManagerPageLayout from "../../components/ManagerPageLayout";
-import AdminSkeleton from "../../components/AdminSkeleton";
+import { ManagerPageSkeleton } from "../../components/ManagerSkeleton";
 import PageWrapper from "../../components/PageWrapper";
 
 const ManagerEarnings = () => {
@@ -153,7 +153,7 @@ const ManagerEarnings = () => {
       </div>
 
       {loading ? (
-        <AdminSkeleton type="deposits" />
+        <ManagerPageSkeleton type="earnings" />
       ) : (
         <PageWrapper
           isFetching={refreshing}

@@ -146,7 +146,7 @@ const DriverNotifications = () => {
       <DriverLayout loading={showSkeleton}>
         <div className="min-h-screen bg-gray-50 p-6">
           <div className="max-w-4xl mx-auto">
-            <DriverListSkeleton count={6} />
+            <DriverListSkeleton count={6} variant="notifications" />
           </div>
         </div>
       </DriverLayout>

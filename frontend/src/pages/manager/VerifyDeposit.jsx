@@ -207,11 +207,7 @@ export default function VerifyDeposit() {
   };
 
   if (loading) {
-    return (
-      <ManagerPageLayout title="Verify Deposit">
-        <ManagerPageSkeleton type="form" />
-      </ManagerPageLayout>
-    );
+    return <ManagerPageSkeleton type="form" />;
   }
 
   if (error || !deposit) {

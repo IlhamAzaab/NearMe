@@ -177,6 +177,10 @@ export default function PendingRestaurants() {
     return timeString;
   };
 
+  if (loading && restaurants.length === 0) {
+    return <ManagerPageSkeleton type="table" />;
+  }
+
   return (
     <ManagerPageLayout title="Pending Restaurants">
       <div className="p-4">

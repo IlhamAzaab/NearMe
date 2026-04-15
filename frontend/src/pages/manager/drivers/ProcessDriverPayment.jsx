@@ -218,11 +218,7 @@ export default function ProcessDriverPayment() {
   };
 
   if (loading) {
-    return (
-      <ManagerPageLayout title="Process Payment">
-        <ManagerPageSkeleton type="form" />
-      </ManagerPageLayout>
-    );
+    return <ManagerPageSkeleton type="form" />;
   }
 
   if (!driver) {

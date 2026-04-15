@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ManagerPageLayout from "../../../components/ManagerPageLayout";
-import AdminSkeleton from "../../../components/AdminSkeleton";
+import { ManagerPageSkeleton } from "../../../components/ManagerSkeleton";
 import AnimatedAlert, { useAlert } from "../../../components/AnimatedAlert";
 import PageWrapper from "../../../components/PageWrapper";
 import { API_URL } from "../../../config";
@@ -120,11 +120,7 @@ export default function AdminManagement() {
   const refreshing = !loading && isFetching;
 
   if (loading) {
-    return (
-      <ManagerPageLayout title="Admin Management">
-        <AdminSkeleton type="list" />
-      </ManagerPageLayout>
-    );
+    return <ManagerPageSkeleton type="table" />;
   }
 
   const formatDate = (value) => {
