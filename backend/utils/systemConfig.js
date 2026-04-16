@@ -110,9 +110,12 @@ export function getLaunchPromoConfig(config) {
     first_km_rate: parseFloat(
       config?.launch_promo_first_km_rate ?? defaults.launch_promo_first_km_rate,
     ),
-    max_km: parseFloat(config?.launch_promo_max_km ?? defaults.launch_promo_max_km),
+    max_km: parseFloat(
+      config?.launch_promo_max_km ?? defaults.launch_promo_max_km,
+    ),
     beyond_km_rate: parseFloat(
-      config?.launch_promo_beyond_km_rate ?? defaults.launch_promo_beyond_km_rate,
+      config?.launch_promo_beyond_km_rate ??
+        defaults.launch_promo_beyond_km_rate,
     ),
   };
 }
