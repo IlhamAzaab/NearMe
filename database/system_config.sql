@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS system_config (
 
   -- Section 1: Driver Earnings
   rate_per_km NUMERIC(10,2) NOT NULL DEFAULT 40,
+  rtc_rate_below_5km NUMERIC(10,2) NOT NULL DEFAULT 40,
+  rtc_rate_above_5km NUMERIC(10,2) NOT NULL DEFAULT 40,
   max_driver_to_restaurant_km NUMERIC(10,2) NOT NULL DEFAULT 1,
   max_driver_to_restaurant_amount NUMERIC(10,2) NOT NULL DEFAULT 30,
   max_restaurant_proximity_km NUMERIC(10,2) NOT NULL DEFAULT 1,

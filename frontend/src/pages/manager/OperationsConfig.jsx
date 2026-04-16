@@ -32,6 +32,8 @@ export default function OperationsConfig() {
 
   // Section 1: Driver Earnings
   const [ratePerKm, setRatePerKm] = useState(40);
+  const [rtcRateBelow5Km, setRtcRateBelow5Km] = useState(40);
+  const [rtcRateAbove5Km, setRtcRateAbove5Km] = useState(40);
   const [maxDTRKm, setMaxDTRKm] = useState(1);
   const [maxDTRAmount, setMaxDTRAmount] = useState(30);
   const [maxRestProximity, setMaxRestProximity] = useState(1);
@@ -117,6 +119,12 @@ export default function OperationsConfig() {
 
       // Section 1
       setRatePerKm(parseFloat(config.rate_per_km));
+      setRtcRateBelow5Km(
+        parseFloat(config.rtc_rate_below_5km ?? config.rate_per_km),
+      );
+      setRtcRateAbove5Km(
+        parseFloat(config.rtc_rate_above_5km ?? config.rate_per_km),
+      );
       setMaxDTRKm(parseFloat(config.max_driver_to_restaurant_km));
       setMaxDTRAmount(parseFloat(config.max_driver_to_restaurant_amount));
       setMaxRestProximity(parseFloat(config.max_restaurant_proximity_km));
@@ -228,6 +236,8 @@ export default function OperationsConfig() {
 
       const body = {
         rate_per_km: parseFloat(ratePerKm),
+        rtc_rate_below_5km: parseFloat(rtcRateBelow5Km),
+        rtc_rate_above_5km: parseFloat(rtcRateAbove5Km),
         max_driver_to_restaurant_km: parseFloat(maxDTRKm),
         max_driver_to_restaurant_amount: parseFloat(maxDTRAmount),
         max_restaurant_proximity_km: parseFloat(maxRestProximity),
@@ -475,16 +485,29 @@ export default function OperationsConfig() {
           </div>
           <div className="p-4 grid grid-cols-2 gap-3">
             <div>
-              <label className={labelClass}>Rate per KM (Rs.)</label>
+              <label className={labelClass}>RTC Rate <= 5km (Rs./km)</label>
               <input
                 type="number"
                 step="0.01"
-                value={ratePerKm}
-                onChange={(e) => setRatePerKm(e.target.value)}
+                value={rtcRateBelow5Km}
+                onChange={(e) => setRtcRateBelow5Km(e.target.value)}
                 className={inputClass}
               />
               <p className="text-[10px] text-[#618980] mt-0.5">
-                Paid per km for Restaurant→Customer leg
+                Paid per km for Restaurant→Customer leg up to 5km
+              </p>
+            </div>
+            <div>
+              <label className={labelClass}>RTC Rate {'>'} 5km (Rs./km)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={rtcRateAbove5Km}
+                onChange={(e) => setRtcRateAbove5Km(e.target.value)}
+                className={inputClass}
+              />
+              <p className="text-[10px] text-[#618980] mt-0.5">
+                Paid per km for Restaurant→Customer leg above 5km
               </p>
             </div>
             <div>
@@ -498,6 +521,19 @@ export default function OperationsConfig() {
               />
               <p className="text-[10px] text-[#618980] mt-0.5">
                 Max paid distance: Driver→Restaurant
+              </p>
+            </div>
+            <div>
+              <label className={labelClass}>Rate per KM (Rs.)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={ratePerKm}
+                onChange={(e) => setRatePerKm(e.target.value)}
+                className={inputClass}
+              />
+              <p className="text-[10px] text-[#618980] mt-0.5">
+                Used for extra-distance and legacy fallback calculations
               </p>
             </div>
             <div>

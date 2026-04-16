@@ -2576,6 +2576,8 @@ router.put("/system-config", authenticate, async (req, res) => {
 
     const {
       rate_per_km,
+      rtc_rate_below_5km,
+      rtc_rate_above_5km,
       max_driver_to_restaurant_km,
       max_driver_to_restaurant_amount,
       max_restaurant_proximity_km,
@@ -2602,6 +2604,8 @@ router.put("/system-config", authenticate, async (req, res) => {
 
     const updatePayload = {
       rate_per_km,
+      rtc_rate_below_5km,
+      rtc_rate_above_5km,
       max_driver_to_restaurant_km,
       max_driver_to_restaurant_amount,
       max_restaurant_proximity_km,

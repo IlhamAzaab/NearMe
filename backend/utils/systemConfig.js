@@ -160,6 +160,8 @@ function getDefaults() {
   return {
     id: 1,
     rate_per_km: 40,
+    rtc_rate_below_5km: 40,
+    rtc_rate_above_5km: 40,
     max_driver_to_restaurant_km: 1,
     max_driver_to_restaurant_amount: 30,
     max_restaurant_proximity_km: 1,

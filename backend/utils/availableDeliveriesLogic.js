@@ -33,6 +33,8 @@ const AVAILABLE_DELIVERY_THRESHOLDS = {
 // Default driver earnings (fallback values — overridden by DB system_config)
 const DRIVER_EARNINGS = {
   RATE_PER_KM: 40,
+  RTC_RATE_BELOW_5KM: 40,
+  RTC_RATE_ABOVE_5KM: 40,
   MAX_DRIVER_TO_RESTAURANT_KM: 1,
   MAX_DRIVER_TO_RESTAURANT_AMOUNT: 30,
   MAX_RESTAURANT_PROXIMITY_KM: 1,
@@ -71,6 +73,12 @@ async function loadConfigConstants() {
     };
     const earnings = {
       RATE_PER_KM: parseFloat(cfg.rate_per_km ?? DRIVER_EARNINGS.RATE_PER_KM),
+      RTC_RATE_BELOW_5KM: parseFloat(
+        cfg.rtc_rate_below_5km ?? DRIVER_EARNINGS.RTC_RATE_BELOW_5KM,
+      ),
+      RTC_RATE_ABOVE_5KM: parseFloat(
+        cfg.rtc_rate_above_5km ?? DRIVER_EARNINGS.RTC_RATE_ABOVE_5KM,
+      ),
       MAX_DRIVER_TO_RESTAURANT_KM: parseFloat(
         cfg.max_driver_to_restaurant_km ??
           DRIVER_EARNINGS.MAX_DRIVER_TO_RESTAURANT_KM,
@@ -105,6 +113,13 @@ async function loadConfigConstants() {
       earnings: DRIVER_EARNINGS,
     };
   }
+}
+
+function getRestaurantToCustomerRatePerKm(restaurantToCustomerKm) {
+  const distanceKm = Number(restaurantToCustomerKm) || 0;
+  return distanceKm <= 5
+    ? DRIVER_EARNINGS.RTC_RATE_BELOW_5KM
+    : DRIVER_EARNINGS.RTC_RATE_ABOVE_5KM;
 }
 
 // ============================================================================
@@ -1619,9 +1634,12 @@ async function evaluateAvailableDelivery(
         paidDriverToRestaurantKm *
         DRIVER_EARNINGS.MAX_DRIVER_TO_RESTAURANT_AMOUNT;
 
-      // Calculate earnings: RATE_PER_KM per km
-      restaurantToCustomerEarnings =
-        restaurantToCustomerKm * DRIVER_EARNINGS.RATE_PER_KM;
+      const rtcRatePerKm = getRestaurantToCustomerRatePerKm(
+        restaurantToCustomerKm,
+      );
+
+      // Calculate Restaurant->Customer earnings using tiered rate
+      restaurantToCustomerEarnings = restaurantToCustomerKm * rtcRatePerKm;
 
       // Total earnings = driver-to-restaurant + restaurant-to-customer
       extraEarnings = driverToRestaurantEarnings + restaurantToCustomerEarnings;
@@ -1636,13 +1654,13 @@ async function evaluateAvailableDelivery(
         `[EVALUATE]   📍 Paid DTR (max 1km): ${paidDriverToRestaurantKm.toFixed(3)} km`,
       );
       console.log(
-        `[EVALUATE]   💵 DTR Earnings: ${paidDriverToRestaurantKm.toFixed(3)} × Rs. ${DRIVER_EARNINGS.RATE_PER_KM} = Rs. ${driverToRestaurantEarnings.toFixed(2)}`,
+        `[EVALUATE]   💵 DTR Earnings: ${paidDriverToRestaurantKm.toFixed(3)} × Rs. ${DRIVER_EARNINGS.MAX_DRIVER_TO_RESTAURANT_AMOUNT} = Rs. ${driverToRestaurantEarnings.toFixed(2)}`,
       );
       console.log(
         `[EVALUATE]   📍 Restaurant → Customer: ${restaurantToCustomerKm.toFixed(3)} km`,
       );
       console.log(
-        `[EVALUATE]   💵 RTC Earnings: ${restaurantToCustomerKm.toFixed(3)} × Rs. ${DRIVER_EARNINGS.RATE_PER_KM} = Rs. ${restaurantToCustomerEarnings.toFixed(2)}`,
+        `[EVALUATE]   💵 RTC Earnings: ${restaurantToCustomerKm.toFixed(3)} × Rs. ${rtcRatePerKm} = Rs. ${restaurantToCustomerEarnings.toFixed(2)}`,
       );
       console.log(
         `[EVALUATE]   💰 TOTAL EARNINGS: Rs. ${extraEarnings.toFixed(2)}`,
@@ -1848,8 +1866,11 @@ async function evaluateAvailableDelivery(
 
       // Calculate earnings for first delivery
       const dtrEarnings =
-        paidDriverToRestaurantKm * DRIVER_EARNINGS.RATE_PER_KM;
-      const rtcEarnings = restaurantToCustomerKm * DRIVER_EARNINGS.RATE_PER_KM;
+        paidDriverToRestaurantKm * DRIVER_EARNINGS.MAX_DRIVER_TO_RESTAURANT_AMOUNT;
+      const rtcRatePerKm = getRestaurantToCustomerRatePerKm(
+        restaurantToCustomerKm,
+      );
+      const rtcEarnings = restaurantToCustomerKm * rtcRatePerKm;
 
       // For first delivery:
       // - base_amount = TOTAL earnings (driver-to-restaurant + restaurant-to-customer)
@@ -2406,7 +2427,10 @@ async function evaluateAvailableDeliveryOptimized(
       const dtrEarnings =
         paidDriverToRestaurantKm *
         DRIVER_EARNINGS.MAX_DRIVER_TO_RESTAURANT_AMOUNT;
-      const rtcEarnings = restaurantToCustomerKm * DRIVER_EARNINGS.RATE_PER_KM;
+      const rtcRatePerKm = getRestaurantToCustomerRatePerKm(
+        restaurantToCustomerKm,
+      );
+      const rtcEarnings = restaurantToCustomerKm * rtcRatePerKm;
 
       totalTripEarnings = dtrEarnings + rtcEarnings;
       baseAmount = totalTripEarnings;
@@ -2591,7 +2615,7 @@ export async function getAvailableDeliveriesForDriver(
     // Also update nested DELIVERY_BONUS
     Object.assign(DRIVER_EARNINGS.DELIVERY_BONUS, liveEarnings.DELIVERY_BONUS);
     console.log(
-      `[AVAILABLE DELIVERIES] ⚙️  Config loaded: RATE_PER_KM=${DRIVER_EARNINGS.RATE_PER_KM}, MAX_ACTIVE=${AVAILABLE_DELIVERY_THRESHOLDS.MAX_ACTIVE_DELIVERIES}`,
+      `[AVAILABLE DELIVERIES] ⚙️  Config loaded: RATE_PER_KM=${DRIVER_EARNINGS.RATE_PER_KM}, RTC_RATE_BELOW_5KM=${DRIVER_EARNINGS.RTC_RATE_BELOW_5KM}, RTC_RATE_ABOVE_5KM=${DRIVER_EARNINGS.RTC_RATE_ABOVE_5KM}, MAX_ACTIVE=${AVAILABLE_DELIVERY_THRESHOLDS.MAX_ACTIVE_DELIVERIES}`,
     );
 
     // Step 1: Get driver's current route context (pass coordinates to ensure location is set)

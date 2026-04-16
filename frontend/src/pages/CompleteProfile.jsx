@@ -27,6 +27,7 @@ const CITY_OPTIONS = [
   "Kurunegala",
   "Anuradhapura",
 ];
+const TERMS_AND_CONDITIONS_URL = "https://lucent-bombolone-2fa396.netlify.app";
 
 let leafletIconPatched = false;
 
@@ -86,6 +87,7 @@ export default function CompleteProfile() {
   const [resolvingAddress, setResolvingAddress] = useState(false);
   const [locating, setLocating] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
 
   const stepProgress = useMemo(() => (step === 1 ? 50 : 100), [step]);
@@ -177,6 +179,11 @@ export default function CompleteProfile() {
   };
 
   const handleSubmitProfile = async () => {
+    if (!termsAccepted) {
+      showError("Please accept Terms & Conditions to continue");
+      return;
+    }
+
     if (!address.trim()) {
       showError("Pin your location to auto-fill address");
       return;
@@ -478,11 +485,32 @@ export default function CompleteProfile() {
                 </div>
               </div>
 
+              <label className="flex items-start gap-3 p-3 rounded-xl border border-emerald-100 bg-emerald-50/60">
+                <input
+                  type="checkbox"
+                  checked={termsAccepted}
+                  onChange={(e) => setTermsAccepted(e.target.checked)}
+                  className="mt-1 h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                />
+                <span className="text-sm text-gray-700">
+                  I accept the{" "}
+                  <a
+                    href={TERMS_AND_CONDITIONS_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-semibold text-emerald-700 underline hover:text-rose-600"
+                  >
+                    Terms & Conditions
+                  </a>
+                  .
+                </span>
+              </label>
+
               <button
                 type="button"
                 onClick={handleSubmitProfile}
-                disabled={loading || resolvingAddress}
-                className="w-full py-3 px-6 bg-linear-to-r from-emerald-600 to-green-500 hover:from-rose-600 hover:to-green-600 text-white font-semibold rounded-xl transition-all duration-300 disabled:opacity-70"
+                disabled={loading || resolvingAddress || !termsAccepted}
+                className="w-full py-3 px-6 bg-linear-to-r from-emerald-600 to-green-500 hover:from-rose-600 hover:to-green-600 text-white font-semibold rounded-xl transition-all duration-300 disabled:opacity-70 disabled:cursor-not-allowed"
               >
                 {loading ? "Saving..." : "Finish Profile"}
               </button>

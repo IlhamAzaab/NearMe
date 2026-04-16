@@ -81,6 +81,17 @@ function calculateHaversineDistanceForProximity(lat1, lon1, lat2, lon2) {
   return R * c; // Distance in meters
 }
 
+function getRestaurantToCustomerRatePerKm(earningsConfig, restaurantToCustomerKm) {
+  const distanceKm = Number(restaurantToCustomerKm) || 0;
+  return distanceKm <= 5
+    ? Number(
+        earningsConfig?.RTC_RATE_BELOW_5KM ?? earningsConfig?.RATE_PER_KM ?? 40,
+      )
+    : Number(
+        earningsConfig?.RTC_RATE_ABOVE_5KM ?? earningsConfig?.RATE_PER_KM ?? 40,
+      );
+}
+
 // ============================================================================
 // Helper: Simple in-memory cache for OSRM responses (avoid duplicate calls)
 // ============================================================================
@@ -796,9 +807,13 @@ router.post(
           );
           const dtrEarnings =
             paidDTR * earningsConfig.MAX_DRIVER_TO_RESTAURANT_AMOUNT;
+          const rtcRatePerKm = getRestaurantToCustomerRatePerKm(
+            earningsConfig,
+            earningsDistance.restaurantToCustomerKm,
+          );
           const rtcEarnings =
             earningsDistance.restaurantToCustomerKm *
-            earningsConfig.RATE_PER_KM;
+            rtcRatePerKm;
           const baseAmount = dtrEarnings + rtcEarnings;
           const totalDistKm =
             earningsDistance.driverToRestaurantKm +
@@ -952,8 +967,12 @@ router.post(
             parseFloat(deliveryRecord?.orders?.distance_km || 0),
           );
           const fallbackBase = Math.max(
-            orderDistanceKm * earningsConfig.RATE_PER_KM,
-            earningsConfig.RATE_PER_KM,
+            orderDistanceKm *
+              getRestaurantToCustomerRatePerKm(
+                earningsConfig,
+                orderDistanceKm,
+              ),
+            getRestaurantToCustomerRatePerKm(earningsConfig, orderDistanceKm),
           );
 
           earningsData = {
@@ -2341,8 +2360,15 @@ router.patch(
                 );
                 fallbackBase = Math.max(
                   fallbackBase,
-                  orderDistanceKm * earningsConfig.RATE_PER_KM,
-                  earningsConfig.RATE_PER_KM,
+                  orderDistanceKm *
+                    getRestaurantToCustomerRatePerKm(
+                      earningsConfig,
+                      orderDistanceKm,
+                    ),
+                  getRestaurantToCustomerRatePerKm(
+                    earningsConfig,
+                    orderDistanceKm,
+                  ),
                 );
                 fallbackExtra = 0;
                 fallbackBonus = 0;
