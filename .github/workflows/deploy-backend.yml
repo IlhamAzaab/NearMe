@@ -17,7 +17,7 @@ jobs:
       AWS_REGION: ap-south-1
       ECR_REPOSITORY: nearme-backend
       ECS_CLUSTER: nearme-cluster
-      ECS_SERVICE: nearme-backend-service
+      ECS_SERVICE: nearme-backend-service-f2vk8u4s
       CONTAINER_NAME: nearme-backend
       IMAGE_TAG: latest
 
