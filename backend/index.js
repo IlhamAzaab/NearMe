@@ -266,7 +266,12 @@ const authLimiter = rateLimit({
 app.get("/health", (req, res) => {
   res.json({ status: "ok", message: "Backend is running" });
 });
-
+app.get("/", (_req, res) => {
+  res.json({
+    status: "ok",
+    message: "Meezo backend is running"
+  });
+});
 // Routes
 app.use("/auth", smsHookRoutes);
 app.use("/auth", authLimiter, authOtpRoutes);
