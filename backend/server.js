@@ -15,6 +15,12 @@ app.get("/health", (_req, res) => {
   res.status(200).json({ success: true, status: "ok" });
 });
 
+app.get("/", (req, res) => {
+  res.json({
+    status: "ok",
+    message: "Meezo backend is running"
+  });
+});
 // Mount route: POST /auth/send-sms-hook
 app.use("/auth", smsHookRoutes);
 
