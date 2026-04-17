@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS foods (
     REFERENCES restaurants(id) ON DELETE CASCADE,
   
   name TEXT NOT NULL,
+  category TEXT NOT NULL DEFAULT 'others',
   description TEXT,
   image_url TEXT,
   
@@ -67,6 +68,10 @@ ON foods(restaurant_id);
 -- Availability filtering
 CREATE INDEX IF NOT EXISTS idx_foods_is_available
 ON foods(is_available);
+
+-- Category filtering
+CREATE INDEX IF NOT EXISTS idx_foods_category
+ON foods(lower(category));
 
 -- Available time filtering (GIN index for arrays)
 CREATE INDEX IF NOT EXISTS idx_foods_available_time

@@ -6,6 +6,20 @@ import AnimatedAlert, { useAlert } from "../../components/AnimatedAlert";
 import { API_URL } from "../../config";
 import { useAdminCache, CACHE_KEYS } from "../../context/AdminCacheContext";
 
+const FOOD_CATEGORIES = [
+  "Koththu",
+  "Fried Rice",
+  "Biriyani",
+  "BBQ",
+  "parotta",
+  "rice and curry",
+  "curry",
+  "short eats",
+  "dolphin",
+  "sea food",
+  "others",
+];
+
 export default function Products() {
   const navigate = useNavigate();
   const { getCache, setCache } = useAdminCache();
@@ -165,9 +179,12 @@ export default function Products() {
   };
 
   const filteredFoods = foods.filter((food) => {
-    const matchesSearch = food.name
-      .toLowerCase()
-      .includes(search.toLowerCase());
+    const safeSearch = search.toLowerCase();
+    const matchesSearch =
+      food.name.toLowerCase().includes(safeSearch) ||
+      String(food.category || "")
+        .toLowerCase()
+        .includes(safeSearch);
     const matchesAvailability =
       availabilityFilter === "all" ||
       (availabilityFilter === "available" && food.is_available) ||
@@ -450,6 +467,9 @@ export default function Products() {
                     <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">
                       {food.description || "No description"}
                     </p>
+                    <p className="text-[11px] font-semibold text-green-700 mt-1">
+                      {food.category || "others"}
+                    </p>
 
                     {/* Sizes & Prices */}
                     <div className="mt-2 space-y-1">
@@ -569,6 +589,7 @@ export default function Products() {
 function AddProductModal({ food, onClose, onSave }) {
   const [formData, setFormData] = useState({
     name: food?.name || "",
+    category: food?.category || "others",
     description: food?.description || "",
     image_url: food?.image_url || "",
     available_time: food?.available_time || [],
@@ -603,6 +624,7 @@ function AddProductModal({ food, onClose, onSave }) {
   useEffect(() => {
     setFormData({
       name: food?.name || "",
+      category: food?.category || "others",
       description: food?.description || "",
       image_url: food?.image_url || "",
       available_time: food?.available_time || [],
@@ -696,6 +718,12 @@ function AddProductModal({ food, onClose, onSave }) {
       return;
     }
 
+    if (!formData.category || !FOOD_CATEGORIES.includes(formData.category)) {
+      setError("Please select a valid category");
+      setLoading(false);
+      return;
+    }
+
     if (formData.available_time.length === 0) {
       setError("Select at least one available time");
       setLoading(false);
@@ -711,6 +739,7 @@ function AddProductModal({ food, onClose, onSave }) {
 
       const payload = {
         name: formData.name.trim(),
+        category: formData.category,
         description: formData.description.trim() || null,
         image_url: formData.image_url || null,
         available_time: formData.available_time,
@@ -909,6 +938,26 @@ function AddProductModal({ food, onClose, onSave }) {
                   style={{ "--tw-ring-color": "#06C168" }}
                   placeholder="e.g. Chicken Koththu"
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                  Category <span className="text-red-500">*</span>
+                </label>
+                <select
+                  name="category"
+                  required
+                  value={formData.category}
+                  onChange={handleInputChange}
+                  className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:border-transparent bg-white"
+                  style={{ "--tw-ring-color": "#06C168" }}
+                >
+                  {FOOD_CATEGORIES.map((category) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div>

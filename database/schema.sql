@@ -155,6 +155,7 @@ create table if not exists foods (
     references restaurants(id) on delete cascade,
 
   name text not null,
+  category text not null default 'others',
   description text,
   image_url text,
 
@@ -187,6 +188,10 @@ on foods(restaurant_id);
 -- Availability filtering
 create index idx_foods_is_available
 on foods(is_available);
+
+-- Category filtering
+create index idx_foods_category
+on foods(lower(category));
 
 -- Available time filtering (GIN index for arrays)
 create index idx_foods_available_time

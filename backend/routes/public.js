@@ -91,7 +91,9 @@ router.get("/foods", async (req, res) => {
     if (search && search.trim()) {
       const safe = sanitizeSearch(search);
       if (safe) {
-        query = query.or(`name.ilike.%${safe}%,description.ilike.%${safe}%`);
+        query = query.or(
+          `name.ilike.%${safe}%,description.ilike.%${safe}%,category.ilike.%${safe}%`,
+        );
       }
     }
 
@@ -190,7 +192,9 @@ router.get("/restaurants/:restaurantId/foods", async (req, res) => {
     if (search && search.trim()) {
       const safe = sanitizeSearch(search);
       if (safe) {
-        query = query.or(`name.ilike.%${safe}%,description.ilike.%${safe}%`);
+        query = query.or(
+          `name.ilike.%${safe}%,description.ilike.%${safe}%,category.ilike.%${safe}%`,
+        );
       }
     }
 

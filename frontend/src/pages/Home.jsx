@@ -1,5 +1,16 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import {
+  Beef,
+  Drumstick,
+  Fish,
+  Flame,
+  Grip,
+  Sandwich,
+  Soup,
+  UtensilsCrossed,
+  Wheat,
+} from "lucide-react";
 import BottomNavbar from "../components/BottomNavbar";
 import {
   useAcknowledgeLaunchPromotionMutation,
@@ -16,49 +27,54 @@ import {
 } from "../services/restaurantDistanceService";
 import { formatRestaurantHours } from "../utils/locationUtils";
 
-const CATEGORY_IMAGES = {
-  kothu:
-    "https://images.unsplash.com/photo-1512058564366-18510be2db19?w=200&h=200&fit=crop",
-  friedrice:
-    "https://images.unsplash.com/photo-1603133872878-684f208fb84b?w=200&h=200&fit=crop",
-  biryani:
-    "https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?w=200&h=200&fit=crop",
-  parotta:
-    "https://images.unsplash.com/photo-1565557623262-b51c2513a641?w=200&h=200&fit=crop",
-  shorteats:
-    "https://images.unsplash.com/photo-1601050690597-df0568f70950?w=200&h=200&fit=crop",
+const CATEGORY_ORDER = [
+  "Koththu",
+  "Fried Rice",
+  "Biriyani",
+  "BBQ",
+  "parotta",
+  "rice and curry",
+  "curry",
+  "short eats",
+  "dolphin",
+  "sea food",
+  "others",
+];
+
+const CATEGORY_LABEL_LOOKUP = new Map(
+  CATEGORY_ORDER.map((label) => [label.toLowerCase(), label]),
+);
+
+const CATEGORY_ICON_BY_KEY = {
+  koththu: UtensilsCrossed,
+  "fried rice": Wheat,
+  biriyani: Drumstick,
+  bbq: Flame,
+  parotta: Sandwich,
+  "rice and curry": Soup,
+  curry: Beef,
+  "short eats": Grip,
+  dolphin: Fish,
+  "sea food": Fish,
+  others: UtensilsCrossed,
 };
 
-const CATEGORY_EMOJI = {
-  kothu: "🍜",
-  friedrice: "🍚",
-  biryani: "🍛",
-  parotta: "🫓",
-  shorteats: "🍢",
-};
+function normalizeCategoryLabel(value) {
+  const key = String(value || "")
+    .trim()
+    .toLowerCase();
+  return CATEGORY_LABEL_LOOKUP.get(key) || "others";
+}
 
-const CategoryIcon = ({ type }) => {
-  const [failed, setFailed] = useState(false);
-  const imageUrl = CATEGORY_IMAGES[type] || CATEGORY_IMAGES.biryani;
-  const fallbackEmoji = CATEGORY_EMOJI[type] || "🍽️";
-
-  if (failed) {
-    return (
-      <div className="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center text-2xl">
-        {fallbackEmoji}
-      </div>
-    );
-  }
-
+function CategoryIcon({ category }) {
+  const key = normalizeCategoryLabel(category).toLowerCase();
+  const Icon = CATEGORY_ICON_BY_KEY[key] || UtensilsCrossed;
   return (
-    <img
-      src={imageUrl}
-      alt={`${type} category`}
-      className="w-14 h-14 rounded-full object-cover"
-      onError={() => setFailed(true)}
-    />
+    <div className="w-14 h-14 rounded-full bg-green-100 border border-green-200 flex items-center justify-center">
+      <Icon className="w-7 h-7 text-[#06C168]" strokeWidth={2.2} />
+    </div>
   );
-};
+}
 
 const Home = () => {
   const navigate = useNavigate();
@@ -71,15 +87,6 @@ const Home = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [showLaunchPromoModal, setShowLaunchPromoModal] = useState(false);
 
-  // Food categories
-  const categories = [
-    { id: 1, name: "Kothu", type: "kothu" },
-    { id: 2, name: "Fried Rice", type: "friedrice" },
-    { id: 3, name: "Biryani", type: "biryani" },
-    { id: 4, name: "Parotta", type: "parotta" },
-    { id: 5, name: "Short Eats", type: "shorteats" },
-  ];
-
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [restaurantsWithDistances, setRestaurantsWithDistances] = useState([]);
   const [showDistances, setShowDistances] = useState(false);
@@ -89,8 +96,8 @@ const Home = () => {
     refetchInterval: 90 * 1000,
   });
 
-  const foodsQuery = usePublicFoodsQuery(debouncedSearch, {
-    enabled: activeTab === "food",
+  const foodsQuery = usePublicFoodsQuery("", {
+    enabled: true,
     refetchInterval: 90 * 1000,
   });
 
@@ -121,6 +128,56 @@ const Home = () => {
   useEffect(() => {
     setAllFoods(foodsQuery.data || []);
   }, [foodsQuery.data]);
+
+  const categories = useMemo(() => {
+    const categorySet = new Set();
+    for (const food of allFoods) {
+      categorySet.add(normalizeCategoryLabel(food?.category));
+    }
+
+    return Array.from(categorySet)
+      .sort((a, b) => {
+        const aIndex = CATEGORY_ORDER.indexOf(a);
+        const bIndex = CATEGORY_ORDER.indexOf(b);
+        const safeA = aIndex === -1 ? Number.MAX_SAFE_INTEGER : aIndex;
+        const safeB = bIndex === -1 ? Number.MAX_SAFE_INTEGER : bIndex;
+        if (safeA !== safeB) return safeA - safeB;
+        return a.localeCompare(b);
+      })
+      .map((name, index) => ({ id: index + 1, name }));
+  }, [allFoods]);
+
+  const filteredFoods = useMemo(() => {
+    const normalizedSelectedCategory = selectedCategory
+      ? normalizeCategoryLabel(selectedCategory)
+      : null;
+    const safeSearch = searchQuery.trim().toLowerCase();
+
+    return allFoods.filter((food) => {
+      const normalizedFoodCategory = normalizeCategoryLabel(food?.category);
+
+      if (
+        normalizedSelectedCategory &&
+        normalizedFoodCategory !== normalizedSelectedCategory
+      ) {
+        return false;
+      }
+
+      if (!safeSearch) return true;
+
+      const searchableText = [
+        food?.name,
+        food?.description,
+        normalizedFoodCategory,
+        food?.restaurants?.restaurant_name,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return searchableText.includes(safeSearch);
+    });
+  }, [allFoods, searchQuery, selectedCategory]);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -362,21 +419,22 @@ const Home = () => {
               <button
                 key={category.id}
                 onClick={() => {
-                  setSelectedCategory(category.id);
+                      setSelectedCategory(category.name);
                   setActiveTab("food");
                   setSearchQuery(category.name);
+                      setDebouncedSearch(category.name);
                 }}
                 className={`flex-shrink-0 flex flex-col items-center gap-2 p-4 rounded-2xl transition-all hover:-translate-y-1 min-w-[90px] ${
-                  selectedCategory === category.id
+                      selectedCategory === category.name
                     ? "bg-[#06C168] shadow-lg shadow-green-200"
                     : "bg-green-50 hover:shadow-md"
                 }`}
               >
                 <div className="w-14 h-14 flex items-center justify-center">
-                  <CategoryIcon type={category.type} />
+                      <CategoryIcon category={category.name} />
                 </div>
                 <span
-                  className={`text-sm font-medium ${selectedCategory === category.id ? "text-white" : "text-[#06C168]"}`}
+                      className={`text-sm font-medium ${selectedCategory === category.name ? "text-white" : "text-[#06C168]"}`}
                 >
                   {category.name}
                 </span>
@@ -388,7 +446,10 @@ const Home = () => {
         {/* Category Toggle */}
         <div className="flex gap-3 mb-6">
           <button
-            onClick={() => setActiveTab("restaurant")}
+            onClick={() => {
+              setActiveTab("restaurant");
+              setSelectedCategory(null);
+            }}
             className={`flex-1 py-3.5 px-6 rounded-full font-semibold text-sm transition-all duration-300 ${
               activeTab === "restaurant"
                 ? "bg-[#06C168] text-white shadow-lg shadow-green-300/40"
@@ -821,7 +882,7 @@ const Home = () => {
               Popular Dishes
             </h3>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              {allFoods.map((food) => (
+              {filteredFoods.map((food) => (
                 <div
                   key={food.id}
                   onClick={() =>
@@ -912,7 +973,7 @@ const Home = () => {
         )}
 
         {!loading &&
-          (activeTab === "food" ? allFoods : restaurants).length === 0 && (
+          (activeTab === "food" ? filteredFoods : restaurants).length === 0 && (
             <div className="text-center py-20">
               <div className="w-24 h-24 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
                 <span className="text-5xl">🔍</span>

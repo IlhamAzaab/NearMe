@@ -12,6 +12,31 @@ import { normalizeSriLankaPhone } from "../services/otpService.js";
 
 const router = express.Router();
 
+const FOOD_CATEGORIES = [
+  "Koththu",
+  "Fried Rice",
+  "Biriyani",
+  "BBQ",
+  "parotta",
+  "rice and curry",
+  "curry",
+  "short eats",
+  "dolphin",
+  "sea food",
+  "others",
+];
+
+const FOOD_CATEGORY_LOOKUP = new Map(
+  FOOD_CATEGORIES.map((category) => [category.toLowerCase(), category]),
+);
+
+function normalizeFoodCategory(rawCategory) {
+  const value = String(rawCategory || "")
+    .trim()
+    .toLowerCase();
+  return FOOD_CATEGORY_LOOKUP.get(value) || null;
+}
+
 // Configure Cloudinary
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -981,7 +1006,7 @@ router.get("/foods", authenticate, async (req, res) => {
     const { data: foods, error } = await supabaseAdmin
       .from("foods")
       .select(
-        "id, name, description, image_url, is_available, available_time, regular_size, regular_portion, regular_price, offer_price, extra_size, extra_portion, extra_price, extra_offer_price, stars, created_at",
+        "id, name, category, description, image_url, is_available, available_time, regular_size, regular_portion, regular_price, offer_price, extra_size, extra_portion, extra_price, extra_offer_price, stars, created_at",
       )
       .eq("restaurant_id", admin.restaurant_id)
       .order("created_at", { ascending: false });
@@ -1021,6 +1046,7 @@ router.post("/foods", authenticate, async (req, res) => {
 
     const {
       name,
+      category,
       description,
       image_url,
       available_time,
@@ -1046,11 +1072,19 @@ router.post("/foods", authenticate, async (req, res) => {
       });
     }
 
+    const normalizedCategory = normalizeFoodCategory(category);
+    if (!normalizedCategory) {
+      return res.status(400).json({
+        message: `category is required and must be one of: ${FOOD_CATEGORIES.join(", ")}`,
+      });
+    }
+
     const { data: food, error } = await supabaseAdmin
       .from("foods")
       .insert({
         restaurant_id: admin.restaurant_id,
         name: name.trim(),
+        category: normalizedCategory,
         description: description?.trim() || null,
         image_url: image_url || null,
         available_time,
@@ -1159,6 +1193,15 @@ router.patch("/foods/:foodId", authenticate, async (req, res) => {
     // Build update object
     const cleanData = {};
     if (updateData.name !== undefined) cleanData.name = updateData.name.trim();
+    if (updateData.category !== undefined) {
+      const normalizedCategory = normalizeFoodCategory(updateData.category);
+      if (!normalizedCategory) {
+        return res.status(400).json({
+          message: `category must be one of: ${FOOD_CATEGORIES.join(", ")}`,
+        });
+      }
+      cleanData.category = normalizedCategory;
+    }
     if (updateData.description !== undefined)
       cleanData.description = updateData.description?.trim() || null;
     if (updateData.image_url !== undefined)
