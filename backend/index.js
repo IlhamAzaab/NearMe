@@ -264,7 +264,7 @@ const authLimiter = rateLimit({
 
 // Health check endpoint
 app.get("/health", (req, res) => {
-  res.json({ status: "ok", message: "Backend is running" });
+  res.json({ status: "ok", message: "Backend is running - NEW VERSION TEST" });
 });
 app.get("/", (_req, res) => {
   res.json({
