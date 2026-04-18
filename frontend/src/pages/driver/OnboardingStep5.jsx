@@ -1,6 +1,7 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
+import DOMPurify from "dompurify";
 import { API_URL } from "../../config";
 import OnboardingStepProgress from "../../components/driver/OnboardingStepProgress";
 import meezoLogo from "../../assets/NearMeLogoArtboard5.svg";
@@ -91,6 +92,11 @@ export default function OnboardingStep5() {
     <h3>13. Acceptance</h3>
     <p>By selecting the acceptance option below, you confirm that you have read, understood, and accepted these Meezo Delivery Partner Terms and Conditions.</p>
   `;
+
+  const sanitizedContractHtml = useMemo(
+    () => DOMPurify.sanitize(contractHtml),
+    [contractHtml],
+  );
 
   const submitMutation = useMutation({
     mutationFn: async ({ contractAcceptedValue }) => {
@@ -198,7 +204,7 @@ export default function OnboardingStep5() {
             <div className="border border-gray-200 rounded-xl p-5 h-72 overflow-y-auto bg-gray-50">
               <div
                 className="prose prose-sm max-w-none"
-                dangerouslySetInnerHTML={{ __html: contractHtml }}
+                dangerouslySetInnerHTML={{ __html: sanitizedContractHtml }}
                 style={{
                   fontSize: "0.8rem",
                   lineHeight: "1.6",

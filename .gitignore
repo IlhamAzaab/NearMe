@@ -7,7 +7,10 @@ backend/dist/
 
 # Ignore env files
 frontend/.env
+frontend/.env.development
+frontend/.env.example
 backend/.env
+backend/.env.example
 .env
 .env.example
 

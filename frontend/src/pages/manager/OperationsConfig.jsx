@@ -361,7 +361,11 @@ export default function OperationsConfig() {
   };
 
   const calculateNormalDeliveryFeeForDistance = (distanceKm) => {
-    if (distanceKm === null || distanceKm === undefined || Number.isNaN(distanceKm)) {
+    if (
+      distanceKm === null ||
+      distanceKm === undefined ||
+      Number.isNaN(distanceKm)
+    ) {
       return null;
     }
 
@@ -398,7 +402,11 @@ export default function OperationsConfig() {
   };
 
   const calculatePromoDeliveryFeeForDistance = (distanceKm) => {
-    if (distanceKm === null || distanceKm === undefined || Number.isNaN(distanceKm)) {
+    if (
+      distanceKm === null ||
+      distanceKm === undefined ||
+      Number.isNaN(distanceKm)
+    ) {
       return null;
     }
 
@@ -485,7 +493,7 @@ export default function OperationsConfig() {
           </div>
           <div className="p-4 grid grid-cols-2 gap-3">
             <div>
-              <label className={labelClass}>RTC Rate <= 5km (Rs./km)</label>
+              <label className={labelClass}>RTC Rate {"<="} 5km (Rs./km)</label>
               <input
                 type="number"
                 step="0.01"
@@ -498,7 +506,7 @@ export default function OperationsConfig() {
               </p>
             </div>
             <div>
-              <label className={labelClass}>RTC Rate {'>'} 5km (Rs./km)</label>
+              <label className={labelClass}>RTC Rate {">"} 5km (Rs./km)</label>
               <input
                 type="number"
                 step="0.01"
@@ -1155,7 +1163,10 @@ export default function OperationsConfig() {
             </div>
 
             <div className="bg-gray-50 rounded-lg p-3 border border-[#dbe6e3] text-xs text-[#618980]">
-              Formula: up to {launchPromoMaxKm} km = distance x Rs. {launchPromoFirstKmRate}. Above {launchPromoMaxKm} km = ({launchPromoMaxKm} x Rs. {launchPromoFirstKmRate}) + ((distance - {launchPromoMaxKm}) x Rs. {launchPromoBeyondKmRate}).
+              Formula: up to {launchPromoMaxKm} km = distance x Rs.{" "}
+              {launchPromoFirstKmRate}. Above {launchPromoMaxKm} km = (
+              {launchPromoMaxKm} x Rs. {launchPromoFirstKmRate}) + ((distance -{" "}
+              {launchPromoMaxKm}) x Rs. {launchPromoBeyondKmRate}).
             </div>
 
             <div className="bg-[#f8fbfa] rounded-lg p-3 border border-[#dbe6e3] space-y-3">
@@ -1199,10 +1210,13 @@ export default function OperationsConfig() {
               {calculatorDifference !== null && (
                 <p
                   className={`text-xs font-medium ${
-                    calculatorDifference >= 0 ? "text-emerald-700" : "text-amber-700"
+                    calculatorDifference >= 0
+                      ? "text-emerald-700"
+                      : "text-amber-700"
                   }`}
                 >
-                  Difference (normal - promo): Rs. {calculatorDifference.toFixed(2)}
+                  Difference (normal - promo): Rs.{" "}
+                  {calculatorDifference.toFixed(2)}
                 </p>
               )}
               {!calculatorDistanceIsValid && (
@@ -1215,7 +1229,8 @@ export default function OperationsConfig() {
             <div className="mt-2">
               <div className="flex items-center justify-between mb-2">
                 <p className="text-[10px] font-semibold text-[#618980] uppercase tracking-wider">
-                  Customers who accepted promotion ({launchPromoCustomers.length})
+                  Customers who accepted promotion (
+                  {launchPromoCustomers.length})
                 </p>
                 <button
                   onClick={fetchLaunchPromoCustomers}
@@ -1228,10 +1243,18 @@ export default function OperationsConfig() {
                 <table className="w-full text-xs">
                   <thead className="bg-[#f8fbfa] text-[#618980]">
                     <tr>
-                      <th className="text-left px-3 py-2 font-semibold">Customer</th>
-                      <th className="text-left px-3 py-2 font-semibold">Phone</th>
-                      <th className="text-left px-3 py-2 font-semibold">Accepted</th>
-                      <th className="text-left px-3 py-2 font-semibold">Orders</th>
+                      <th className="text-left px-3 py-2 font-semibold">
+                        Customer
+                      </th>
+                      <th className="text-left px-3 py-2 font-semibold">
+                        Phone
+                      </th>
+                      <th className="text-left px-3 py-2 font-semibold">
+                        Accepted
+                      </th>
+                      <th className="text-left px-3 py-2 font-semibold">
+                        Orders
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1243,15 +1266,26 @@ export default function OperationsConfig() {
                       </tr>
                     ) : (
                       launchPromoCustomers.map((customer) => (
-                        <tr key={customer.id} className="border-t border-[#eef4f2]">
+                        <tr
+                          key={customer.id}
+                          className="border-t border-[#eef4f2]"
+                        >
                           <td className="px-3 py-2 text-[#111816]">
-                            <div className="font-medium">{customer.username || "-"}</div>
-                            <div className="text-[#8aa39c]">{customer.email || "-"}</div>
+                            <div className="font-medium">
+                              {customer.username || "-"}
+                            </div>
+                            <div className="text-[#8aa39c]">
+                              {customer.email || "-"}
+                            </div>
                           </td>
-                          <td className="px-3 py-2 text-[#111816]">{customer.phone || "-"}</td>
+                          <td className="px-3 py-2 text-[#111816]">
+                            {customer.phone || "-"}
+                          </td>
                           <td className="px-3 py-2 text-[#111816]">
                             {customer.launch_promo_acknowledged_at
-                              ? new Date(customer.launch_promo_acknowledged_at).toLocaleString()
+                              ? new Date(
+                                  customer.launch_promo_acknowledged_at,
+                                ).toLocaleString()
                               : "-"}
                           </td>
                           <td className="px-3 py-2 text-[#111816]">

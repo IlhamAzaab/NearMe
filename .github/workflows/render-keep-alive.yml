@@ -11,7 +11,7 @@ jobs:
     timeout-minutes: 5
     env:
       HEALTHCHECK_URL: ${{ vars.RENDER_HEALTHCHECK_URL }}
-      DEFAULT_URL: https://meezo-backend-d3gw.onrender.com/health
+      DEFAULT_URL: https://api.meezo.lk/health
     steps:
       - name: Ping health endpoint
         shell: bash

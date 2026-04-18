@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
+import DOMPurify from "dompurify";
 import AnimatedAlert, { useAlert } from "../../../components/AnimatedAlert";
 import { API_URL } from "../../../config";
 import meezoLogo from "../../../assets/SvgArtboard8.svg";
@@ -110,6 +111,10 @@ export default function AdminOnboardingStep4() {
   const token = localStorage.getItem("token");
   const [accepted, setAccepted] = useState(false);
   const [loading, setLoading] = useState(false);
+  const sanitizedContractHtml = useMemo(
+    () => DOMPurify.sanitize(CONTRACT_HTML),
+    [],
+  );
   const {
     alert: alertState,
     visible: alertVisible,
@@ -262,7 +267,7 @@ export default function AdminOnboardingStep4() {
         {/* Contract Content */}
         <div
           className="border-2 border-gray-200 rounded-xl p-4 md:p-5 bg-gradient-to-r from-green-50 to-green-100 text-sm text-gray-700 space-y-3 max-h-96 overflow-y-auto mb-4 shadow-inner"
-          dangerouslySetInnerHTML={{ __html: CONTRACT_HTML }}
+          dangerouslySetInnerHTML={{ __html: sanitizedContractHtml }}
         />
 
         <form className="mt-2 space-y-3" onSubmit={handleSubmit}>

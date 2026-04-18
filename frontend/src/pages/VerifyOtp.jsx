@@ -3,8 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import MeezoLogo from "../assets/MeezoLogo.svg";
 import { persistAuthSession } from "../auth/tokenStorage";
 
-const API_URL =
-  import.meta.env.VITE_API_URL || "https://meezo-backend-d3gw.onrender.com";
+const API_URL = import.meta.env.VITE_API_URL || "https://api.meezo.lk";
 
 export default function VerifyOtp() {
   const navigate = useNavigate();

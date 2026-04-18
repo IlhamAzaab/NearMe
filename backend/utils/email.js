@@ -222,11 +222,10 @@ export async function sendAdminInviteEmail({ to, tempPassword, loginUrl }) {
     <p>Please sign in and change your password immediately.</p>
   `;
 
-  // Always log credentials for developer tracking
+  // Never log temporary credentials.
   console.log("\n========== ADMIN INVITE EMAIL ==========");
   console.log(`To: ${to}`);
-  console.log(`Temp password: "${tempPassword}"`);
-  console.log(`Password length: ${tempPassword.length}`);
+  console.log("Temporary password generated and included in email payload");
   console.log(`Login URL: ${loginUrl}`);
   console.log("========================================\n");
 
@@ -279,7 +278,9 @@ export async function sendVerificationEmail({ to, verificationLink }) {
     console.error(
       "❌ Email provider not configured — cannot send verification email",
     );
-    console.log(`[DEV] Verification link for ${to}: ${verificationLink}`);
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`[DEV] Verification link for ${to}: ${verificationLink}`);
+    }
     throw new Error(
       "Email provider not configured. Cannot send verification email.",
     );
@@ -314,11 +315,10 @@ export async function sendDriverInviteEmail({ to, tempPassword, loginUrl }) {
     <p>Please sign in and change your password immediately.</p>
   `;
 
-  // Always log credentials for developer tracking
+  // Never log temporary credentials.
   console.log("\n========== DRIVER INVITE EMAIL ==========");
   console.log(`To: ${to}`);
-  console.log(`Temp password: "${tempPassword}"`);
-  console.log(`Password length: ${tempPassword.length}`);
+  console.log("Temporary password generated and included in email payload");
   console.log(`Login URL: ${loginUrl}`);
   console.log("========================================\n");
 

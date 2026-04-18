@@ -18,14 +18,16 @@
     "axios": "^1.14.0",
     "bcryptjs": "^3.0.3",
     "cloudinary": "^2.8.0",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "express-rate-limit": "^8.2.1",
+    "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.0.2",
     "node-cron": "^4.2.1",
-    "nodemailer": "^7.0.12",
+    "nodemailer": "^8.0.5",
     "socket.io": "^4.8.3",
     "standardwebhooks": "^1.0.0"
   }

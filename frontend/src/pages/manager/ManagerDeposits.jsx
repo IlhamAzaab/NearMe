@@ -62,6 +62,7 @@ export default function ManagerDeposits() {
   const { addNotification } = useNotification();
   const [activeTab, setActiveTab] = useState("pending");
   const [selectedPeriod, setSelectedPeriod] = useState("today");
+  const [failedProofMap, setFailedProofMap] = useState({});
 
   const token = localStorage.getItem("token");
   const role = localStorage.getItem("role");
@@ -181,6 +182,15 @@ export default function ManagerDeposits() {
 
   const handleVerifyDeposit = (depositId) => {
     navigate(`/manager/deposits/verify/${depositId}`);
+  };
+
+  const markProofLoadError = (depositId) => {
+    setFailedProofMap((prev) => {
+      if (prev[depositId]) {
+        return prev;
+      }
+      return { ...prev, [depositId]: true };
+    });
   };
 
   // ============================================================================
@@ -554,15 +564,13 @@ export default function ManagerDeposits() {
                 {activeTab === "pending" && (
                   <div className="px-4 pb-4 flex items-center gap-3">
                     <div className="relative h-14 w-20 rounded-lg overflow-hidden border border-[#dbe6e3] flex-shrink-0">
-                      {deposit.proof_url ? (
+                      {deposit.proof_url && !failedProofMap[deposit.id] ? (
                         <>
                           <img
                             className="h-full w-full object-cover"
                             src={getPreviewUrl(deposit)}
                             alt="Receipt"
-                            onError={(e) => {
-                              e.target.parentElement.innerHTML = `<div class="flex items-center justify-center h-full bg-gray-100"><span class="material-symbols-outlined text-gray-400">description</span></div>`;
-                            }}
+                            onError={() => markProofLoadError(deposit.id)}
                           />
                           {isPdfDeposit(deposit) && (
                             <div className="absolute bottom-0.5 right-0.5 bg-red-500 text-white text-[8px] px-1 rounded font-bold">

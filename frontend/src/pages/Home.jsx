@@ -1,16 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  Beef,
-  Drumstick,
-  Fish,
-  Flame,
-  Grip,
-  Sandwich,
-  Soup,
-  UtensilsCrossed,
-  Wheat,
-} from "lucide-react";
 import BottomNavbar from "../components/BottomNavbar";
 import {
   useAcknowledgeLaunchPromotionMutation,
@@ -45,18 +34,18 @@ const CATEGORY_LABEL_LOOKUP = new Map(
   CATEGORY_ORDER.map((label) => [label.toLowerCase(), label]),
 );
 
-const CATEGORY_ICON_BY_KEY = {
-  koththu: UtensilsCrossed,
-  "fried rice": Wheat,
-  biriyani: Drumstick,
-  bbq: Flame,
-  parotta: Sandwich,
-  "rice and curry": Soup,
-  curry: Beef,
-  "short eats": Grip,
-  dolphin: Fish,
-  "sea food": Fish,
-  others: UtensilsCrossed,
+const CATEGORY_IMAGE_BY_KEY = {
+  koththu: "/category-images/koththu.jpg",
+  "fried rice": "/category-images/fried-rice.jpg",
+  biriyani: "/category-images/biriyani.jpg",
+  bbq: "/category-images/bbq.jpg",
+  parotta: "/category-images/parotta.jpg",
+  "rice and curry": "/category-images/rice-and-curry.jpg",
+  curry: "/category-images/curry.jpg",
+  "short eats": "/category-images/short-eats.jpg",
+  dolphin: "/category-images/dolphin.jpg",
+  "sea food": "/category-images/sea-food.jpg",
+  others: "/category-images/others.jpg",
 };
 
 function normalizeCategoryLabel(value) {
@@ -68,10 +57,19 @@ function normalizeCategoryLabel(value) {
 
 function CategoryIcon({ category }) {
   const key = normalizeCategoryLabel(category).toLowerCase();
-  const Icon = CATEGORY_ICON_BY_KEY[key] || UtensilsCrossed;
+  const imagePath = CATEGORY_IMAGE_BY_KEY[key] || CATEGORY_IMAGE_BY_KEY.others;
   return (
-    <div className="w-14 h-14 rounded-full bg-green-100 border border-green-200 flex items-center justify-center">
-      <Icon className="w-7 h-7 text-[#06C168]" strokeWidth={2.2} />
+    <div className="relative w-14 h-14 rounded-full overflow-hidden border border-green-200 bg-green-50">
+      <img
+        src={imagePath}
+        alt={category}
+        className="w-full h-full object-cover"
+      />
+      <div className="absolute inset-x-0 bottom-0 bg-black/45 px-1 py-0.5 text-center">
+        <span className="text-[8px] font-semibold text-white leading-none block truncate">
+          {category}
+        </span>
+      </div>
     </div>
   );
 }

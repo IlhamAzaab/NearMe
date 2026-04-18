@@ -1,0 +1,250 @@
+Pages: 6
+
+===== PAGE 1 =====
+
+Page 1
+■ eCommerce Security Checklist
+  ■  SECURITY GUIDE  
+ eCommerce Website
+ Security Checklist
+ Everything you need to build a secure app — with explanations for each step.
+6
+Sections
+30+
+Checklist Items
+100%
+Free to Use
+■
+You can build a working eCommerce website in 5 minutes. But if you skip security, hackers will exploit it just as fast. Use this
+checklist on EVERY project you ship.
+1
+■■  Frontend Security
+■
+Never Store API Keys on the Frontend
+API keys placed in your frontend code or .env files with REACT_APP_ / VITE_ prefixes get bundled into the
+browser build — anyone can read them with DevTools. Always route sensitive API calls through your backend
+server.
+■
+Store JWT Tokens in HttpOnly Cookies — Not localStorage
+localStorage is accessible by any JavaScript on the page, making it easy to steal via XSS. HttpOnly Cookies are
+invisible to JavaScript entirely — the browser sends them automatically but JS cannot read them, blocking most
+token theft attacks.
+■■
+Add a Content Security Policy (CSP) Header
+CSP tells the browser which scripts, styles, and sources are trusted. It blocks injected scripts from running even if
+an attacker manages to inject malicious code into your page. Add it as an HTTP header: Content-Security-Policy:
+default-src 'self'; script-src 'self'
+■
+Sanitize All User Input with DOMPurify
+Never insert raw user-provided HTML into the DOM. An attacker can inject <script> tags that execute in your user's
+browser (XSS). Use DOMPurify: const clean = DOMPurify.sanitize(userInput) before rendering anything. Client-side
+validation alone is never enough — always validate on the backend too.
+■
+Add Subresource Integrity (SRI) to CDN Scripts
+When you load a library from a CDN, you're trusting that CDN forever. If the CDN is compromised, malicious code
+runs on your site. SRI adds a hash check: <script integrity='sha384-...' crossorigin='anonymous'> — the browser
+rejects the file if it doesn't match the expected hash.
+
+
+===== PAGE 2 =====
+
+Page 2
+■ eCommerce Security Checklist
+■
+Force HTTPS — Never Allow Plain HTTP
+HTTP traffic is unencrypted — anyone on the same network can read it (man-in-the-middle). In production, always
+redirect all HTTP requests to HTTPS. Most hosting platforms (Vercel, Netlify, Cloudflare) do this automatically.
+2
+■■  Backend Security
+■
+Authorization Must Always Happen on the Backend
+Checking userRole === 'admin' on the frontend is cosmetic only. Anyone can open Chrome DevTools, change that
+variable, and bypass your UI checks instantly. Every protected action must be verified server-side on every single
+request.
+■
+Use Parameterized Queries to Prevent SQL Injection
+SQL injection is one of the most common attacks. If you build queries like "SELECT * FROM users WHERE id = " +
+userId, an attacker can inject SQL commands to dump your entire database. Use parameterized queries or an
+ORM like Prisma or Sequelize — they handle escaping automatically.
+■■
+Set Rate Limiting on All Endpoints
+Without rate limiting, attackers can make thousands of requests per second — brute-forcing passwords,
+overwhelming your server, or scraping your data. Use express-rate-limit (Node.js) to cap requests per IP. Apply
+stricter limits to login, register, and password reset endpoints.
+■
+Configure CORS — Never Use Wildcard (*) in Production
+CORS controls which domains can call your API. Setting Access-Control-Allow-Origin: * allows ANY website to
+make requests to your backend. In production, explicitly list only your trusted frontend domains. Wildcard is fine for
+fully public APIs only.
+■
+Use Helmet.js to Set Security Headers Automatically
+Helmet.js is a Node.js middleware that sets 14+ HTTP security headers in one line: app.use(helmet()). It configures
+X-Frame-Options (prevents clickjacking), X-Content-Type-Options (prevents MIME sniffing),
+Strict-Transport-Security, and more — hardening your app against a wide range of common attacks.
+■
+Add CSRF Protection to All Forms
+Cross-Site Request Forgery tricks a logged-in user's browser into submitting a request to your server without their
+knowledge (e.g. transferring money). CSRF tokens are unique per-session values included in forms — your server
+rejects any request that doesn't include the correct token. Use csurf (Node.js).
+■■
+Return Generic Error Messages Only
+Error messages like 'User not found' or stack traces tell attackers exactly which usernames exist and how your
+code is structured. Always return generic messages: 'Something went wrong'. Log the real error server-side with
+Sentry or similar — never expose it to the client.
+■
+Validate File Uploads — Type, Size & Content
+Accepting file uploads without validation is extremely dangerous. Attackers can upload PHP/JS files disguised as
+images, or massive files to crash your server. Always validate MIME type, file extension, and file size. In
+production, consider virus scanning uploads with ClamAV or a cloud service.
+
+
+===== PAGE 3 =====
+
+Page 3
+■ eCommerce Security Checklist
+■
+Scan Dependencies for Vulnerabilities Regularly
+Your app's security is only as strong as its weakest dependency. Third-party packages can contain known
+vulnerabilities. Run npm audit weekly, or use Snyk for continuous automated monitoring. Keep packages updated
+and remove unused dependencies.
+3
+■  Authentication
+■
+Use a Battle-Tested Auth Library — Don't Build From Scratch
+JWT authentication has many subtle vulnerabilities: algorithm confusion, weak secret keys, missing expiry
+validation, and more. Libraries like Supabase Auth, NextAuth.js, and Auth0 are audited by security experts and
+handle all edge cases. Building your own is rarely worth the risk.
+■
+Use a Two-Token JWT System (Access + Refresh)
+A single long-lived JWT is dangerous — if stolen, it works forever. Use two tokens: an Access Token (short expiry,
+e.g. 15 mins) for API calls, and a Refresh Token (long expiry, stored in HttpOnly cookie) to issue new access
+tokens. If the access token is stolen, it expires quickly.
+■
+Hash All Passwords with bcrypt — Never Store Plain Text
+If your database is breached and passwords are stored in plain text or with weak hashing (MD5, SHA1), every user
+account is instantly compromised. bcrypt uses a salt and computational cost to make cracking infeasible. Use:
+const hash = await bcrypt.hash(password, 12)
+■
+Implement Multi-Factor Authentication (MFA)
+Even if a password is leaked, MFA requires a second proof of identity (TOTP app like Google Authenticator, SMS
+code, or hardware key). Offer MFA to all users and make it mandatory for admin accounts. Libraries: speakeasy
+(TOTP), or use Supabase/Auth0 built-in MFA.
+■
+Apply Strict Rate Limiting on Login Endpoints
+Without login rate limiting, attackers can try millions of password combinations (brute force) or try leaked passwords
+from other breaches (credential stuffing). After 5 failed attempts from one IP, add exponential delay or temporarily
+lock. Log and alert on unusual login patterns.
+■
+Implement RBAC — Role-Based Access Control
+Not all users should access all resources. RBAC assigns roles (User, Admin, Seller) and each role has specific
+permissions. Enforce role checks in backend middleware for EVERY protected endpoint. Never rely on the frontend
+to hide admin features — the API endpoint itself must reject unauthorized roles.
+4
+■  eCommerce-Specific Security
+■
+Never Store Raw Payment Data — Use Stripe / Razorpay
+Storing card numbers, CVV codes, or banking details yourself requires PCI DSS Level 1 compliance — an
+extremely costly and complex certification. Payment processors like Stripe and Razorpay handle all of this for you.
+They tokenize card data so your server never sees the raw numbers.
+
+
+===== PAGE 4 =====
+
+Page 4
+■ eCommerce Security Checklist
+■■
+PCI DSS violation fines range from $5,000 to $100,000 per month. A single breach exposing card data can end your business.
+Always delegate payment processing to a trusted gateway.
+■
+Validate Prices on the Backend — Not the Frontend
+If you calculate the order total on the frontend and send it to the backend, an attacker can intercept that request
+and change the price to $0.01. Your backend must ALWAYS fetch the current price from the database and
+recalculate the total server-side before processing any payment.
+■
+Validate Stock and Orders with Database Transactions
+Race conditions can allow two users to buy the last item simultaneously. Use database transactions with row-level
+locking when updating inventory. Always verify stock availability at the moment of purchase, not just when the user
+adds to cart. Return a clear error if stock runs out between steps.
+5
+■  Secrets Management
+■
+Store All Secrets in .env Files — Never Hardcode
+Hardcoding API keys, database URLs, or passwords directly in source code is a critical mistake. When that code is
+committed to Git, those secrets are exposed forever (even if deleted later — Git history is permanent). Store all
+secrets in .env files and access them via process.env.
+■
+Add ALL .env Files to .gitignore — Non-Negotiable
+Add these to your .gitignore immediately: .env / .env.local / .env.production / .env.development / .env.staging — If
+ANY of these are committed to a public repo, rotate all secrets immediately. Bots scan GitHub 24/7 for exposed
+credentials and exploit them within minutes.
+■
+Real incident: developers accidentally push .env files to public GitHub repos every day. Automated bots find and abuse these
+credentials within 2-3 minutes of the push.
+■
+Scan Every Commit for Leaked Secrets Before Pushing
+Even with .gitignore, it's easy to accidentally commit a secret. Use git-secrets or TruffleHog to scan every commit
+automatically before it's pushed. Set up a pre-commit hook so it runs every time: git-secrets --scan on every
+commit. If a key leaks, rotate it immediately.
+6
+■■  Infrastructure & Monitoring
+■
+Set Up Error Monitoring with Sentry
+You need to know when things break in production — before your users complain. Sentry captures frontend and
+backend errors with full stack traces, user context, and request data. It takes 10 minutes to set up and is free for
+small projects. Also consider PostHog for product analytics and user behavior tracking.
+
+
+===== PAGE 5 =====
+
+Page 5
+■ eCommerce Security Checklist
+■
+Use a Web Application Firewall (WAF) — Cloudflare Free Tier
+A WAF sits in front of your server and filters malicious traffic before it reaches you. Cloudflare's free tier includes
+DDoS protection, bot filtering, rate limiting, and a basic WAF. It also acts as a CDN for faster load times globally.
+Setup takes under 15 minutes — point your DNS to Cloudflare.
+■
+Set Up Automated Daily Database Backups
+Data loss from ransomware, accidental deletion, or provider outages can kill a business. Configure automated daily
+backups with at least 30-day retention. Critically: test your restore process regularly. A backup you've never
+restored is an untested backup. Enable point-in-time recovery for databases that support it.
+
+
+===== PAGE 6 =====
+
+Page 6
+■ eCommerce Security Checklist
+ ■ Quick Recap — Your Security Cheat Sheet
+ Bookmark this page. Reference it on every project.
+■■ Frontend
+→ API Keys → Backend only — never in browser code
+→ JWT → HttpOnly Cookies, never localStorage
+→ CSP Headers + DOMPurify for XSS protection
+→ SRI hashes on CDN scripts
+→ Force HTTPS in production
+■■ Backend
+→ Authorization always enforced server-side
+→ Parameterized queries or ORM (Prisma/Sequelize)
+→ Rate limiting on all endpoints
+→ CORS — no wildcards in production
+→ Helmet.js + CSRF tokens + generic errors
+■ Auth
+→ Use Supabase / NextAuth — don't build from scratch
+→ Access Token (15 min) + Refresh Token (HttpOnly)
+→ bcrypt for password hashing (cost: 12)
+→ MFA for all users, mandatory for admins
+→ RBAC on every protected endpoint
+■ eCommerce
+→ Payments via Stripe/Razorpay — never store card data
+→ Price validation ALWAYS on the backend
+→ DB transactions for inventory to prevent race conditions
+■ Secrets
+→ All secrets in .env — never hardcoded
+→ Every .env variant in .gitignore
+→ Scan commits with git-secrets before pushing
+■■ Infra
+→ Sentry for error monitoring
+→ Cloudflare free tier for WAF + DDoS protection
+→ Automated daily DB backups + test restores
+■  Follow this checklist and your app will be secure.
+■  Build Fast. Build Secure.

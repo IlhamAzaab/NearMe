@@ -1,7 +1,9 @@
 import cors from "cors";
+import cookieParser from "cookie-parser";
 import dotenv from "dotenv";
 import express from "express";
 import rateLimit from "express-rate-limit";
+import helmet from "helmet";
 import { createServer } from "http";
 import cron from "node-cron";
 import { supabaseAdmin } from "./supabaseAdmin.js";
@@ -125,13 +127,16 @@ import smsHookRoutes from "./routes/smsHookRoutes.js";
 
 const app = express();
 
+app.set("trust proxy", process.env.TRUST_PROXY === "false" ? 0 : 1);
+app.disable("x-powered-by");
+
 function captureAuthHookRawBody(req, res, buffer) {
   if (req.originalUrl === "/auth/send-sms-hook" && buffer?.length) {
     req.rawBody = buffer.toString("utf8");
   }
 }
 
-// --- CORS: only allow your own frontend origins ---
+// --- CORS: only allow trusted frontend origins ---
 const allowedOrigins = [
   process.env.FRONTEND_URL || "http://localhost:5173",
   "https://meezo.lk",
@@ -145,19 +150,77 @@ const allowedOrigins = [
   "http://localhost:5179",
 ];
 
-const normalizedAllowedOrigins = allowedOrigins.map((origin) =>
-  String(origin || "")
-    .trim()
-    .replace(/\/$/, ""),
+const normalizedAllowedOrigins = new Set(
+  allowedOrigins.map((origin) =>
+    String(origin || "")
+      .trim()
+      .replace(/\/$/, ""),
+  ),
 );
 
 // Add any extra allowed origins from environment (comma-separated)
 if (process.env.ALLOWED_ORIGINS) {
   process.env.ALLOWED_ORIGINS.split(",").forEach((o) => {
     const trimmed = o.trim().replace(/\/$/, "");
-    if (trimmed) normalizedAllowedOrigins.push(trimmed);
+    if (trimmed) normalizedAllowedOrigins.add(trimmed);
   });
 }
+
+const allowVercelPreviews =
+  process.env.NODE_ENV !== "production" ||
+  String(process.env.ALLOW_VERCEL_PREVIEWS || "")
+    .trim()
+    .toLowerCase() === "true";
+
+const enforceHttps =
+  process.env.NODE_ENV === "production" &&
+  String(process.env.ENFORCE_HTTPS || "true")
+    .trim()
+    .toLowerCase() !== "false";
+
+if (enforceHttps) {
+  app.use((req, res, next) => {
+    const forwardedProto = String(req.headers["x-forwarded-proto"] || "")
+      .split(",")[0]
+      .trim()
+      .toLowerCase();
+
+    if (forwardedProto && forwardedProto !== "https") {
+      return res.redirect(301, `https://${req.headers.host}${req.originalUrl}`);
+    }
+
+    return next();
+  });
+}
+
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      useDefaults: true,
+      directives: {
+        defaultSrc: ["'self'"],
+        baseUri: ["'self'"],
+        objectSrc: ["'none'"],
+        frameAncestors: ["'none'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+        fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
+        imgSrc: ["'self'", "data:", "https:"],
+        connectSrc: ["'self'", "https:", "wss:"],
+      },
+    },
+    crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+  }),
+);
+
+app.use((req, res, next) => {
+  res.setHeader(
+    "Permissions-Policy",
+    "camera=(), microphone=(), geolocation=()",
+  );
+  next();
+});
 
 app.use(
   cors({
@@ -165,11 +228,11 @@ app.use(
       // Allow requests with no origin (mobile apps, curl, server-to-server)
       if (!origin) return cb(null, true);
       const normalizedOrigin = origin.trim().replace(/\/$/, "");
-      // Exact match or match *.vercel.app deployments
-      if (
-        normalizedAllowedOrigins.includes(normalizedOrigin) ||
-        normalizedOrigin.endsWith(".vercel.app")
-      ) {
+      const isVercelPreview =
+        allowVercelPreviews && normalizedOrigin.endsWith(".vercel.app");
+
+      // Exact match or explicitly-enabled Vercel previews
+      if (normalizedAllowedOrigins.has(normalizedOrigin) || isVercelPreview) {
         return cb(null, true);
       }
       console.warn(`[CORS] Blocked origin: ${origin}`);
@@ -179,22 +242,8 @@ app.use(
   }),
 );
 
-// --- Security headers ---
-app.use((req, res, next) => {
-  // Prevent MIME type sniffing
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  // Prevent clickjacking
-  res.setHeader("X-Frame-Options", "DENY");
-  // XSS protection
-  res.setHeader("X-XSS-Protection", "1; mode=block");
-  // Prevent referrer leakage
-  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
-  // Remove Express fingerprint
-  res.removeHeader("X-Powered-By");
-  next();
-});
-
 // --- Body size limits (10MB for image uploads, not 50MB) ---
+app.use(cookieParser());
 app.use(express.json({ limit: "10mb", verify: captureAuthHookRawBody }));
 app.use(
   express.urlencoded({
@@ -269,7 +318,7 @@ app.get("/health", (req, res) => {
 app.get("/", (_req, res) => {
   res.json({
     status: "ok",
-    message: "Meezo backend is running"
+    message: "Meezo backend is running",
   });
 });
 // Routes

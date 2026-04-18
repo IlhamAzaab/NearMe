@@ -8,6 +8,13 @@ import {
   getValidatedAuthConfig,
   verifyJwtWithRotation,
 } from "../utils/authConfig.js";
+import {
+  clearAuthCookie,
+  extractTokenFromCookies,
+  parseDurationToMs,
+  setAuthCookie,
+  shouldUseCookieAuth,
+} from "../utils/authCookies.js";
 import { sendPushNotification } from "../utils/pushNotificationService.js";
 import { notifyManager } from "../utils/socketManager.js";
 
@@ -59,7 +66,7 @@ const FRONTEND_COMPLETE_PROFILE_URL =
 const FRONTEND_SIGNUP_URL =
   process.env.FRONTEND_SIGNUP_URL || `${DEFAULT_FRONTEND_ORIGIN}/signup`;
 const BACKEND_PUBLIC_URL =
-  process.env.BACKEND_PUBLIC_URL || "https://meezo-backend-d3gw.onrender.com";
+  process.env.BACKEND_PUBLIC_URL || "https://api.meezo.lk";
 const MOBILE_VERIFY_DEEPLINK_BASE =
   process.env.MOBILE_VERIFY_DEEPLINK_BASE || "nearmemobile://verify-email";
 
@@ -96,8 +103,14 @@ function getAccessTokenExpiry(req) {
   return WEB_ACCESS_TOKEN_EXPIRES_IN;
 }
 
-function issueAuthSession(req, payload, extra = {}) {
-  const token = signAccessToken(payload, getAccessTokenExpiry(req));
+function issueAuthSession(req, res, payload, extra = {}) {
+  const expiresIn = getAccessTokenExpiry(req);
+  const token = signAccessToken(payload, expiresIn);
+
+  if (shouldUseCookieAuth(req)) {
+    setAuthCookie(res, token, parseDurationToMs(expiresIn));
+  }
+
   return {
     token,
     role: payload.role,
@@ -205,8 +218,12 @@ function getBearerToken(req) {
   return auth.slice(7).trim();
 }
 
+function getRequestAccessToken(req) {
+  return getBearerToken(req) || extractTokenFromCookies(req);
+}
+
 async function resolveAuthUserId(req) {
-  const token = getBearerToken(req);
+  const token = getRequestAccessToken(req);
   if (!token) {
     return null;
   }
@@ -670,6 +687,7 @@ router.post("/session/exchange", async (req, res) => {
 
     const session = issueAuthSession(
       req,
+      res,
       { id: userRow.id, role: userRow.role },
       {
         userId: userRow.id,
@@ -838,7 +856,9 @@ router.post("/signup", async (req, res) => {
     console.log(
       `✅ Signup: ${email} registered (userId: ${authData.user.id}). Verification link ready.`,
     );
-    console.log(`📧 Verification link: ${verificationLink}`);
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`📧 Verification link: ${verificationLink}`);
+    }
 
     try {
       const emailResult = await sendVerificationEmail(email, verificationLink);
@@ -861,20 +881,23 @@ router.post("/signup", async (req, res) => {
       });
     }
 
-    // Fallback if RESEND_API_KEY not set — return token for manual testing
-    console.log(
-      "⚠️  RESEND_API_KEY not set. Email not sent. For testing, use this token manually.",
-    );
+    // Fallback if RESEND_API_KEY not set — expose test link only outside production.
+    console.log("⚠️  Verification email not sent by provider.");
 
-    res.status(201).json({
+    const responsePayload = {
       message:
         "Signup successful! Please check your email to verify your account.",
       userId: authData.user.id,
       email,
       emailSent: false,
       pendingLoginToken,
-      testVerificationLink: verificationLink, // For testing/development only
-    });
+    };
+
+    if (process.env.NODE_ENV !== "production") {
+      responsePayload.testVerificationLink = verificationLink;
+    }
+
+    res.status(201).json(responsePayload);
   } catch (error) {
     console.error("Signup error:", error.message);
     res.status(500).json({
@@ -1114,20 +1137,20 @@ router.get("/user-email", async (req, res) => {
     }
 
     // Require either a valid JWT (from authenticate) or a Supabase access_token
-    const auth = req.headers.authorization || "";
+    const token = getRequestAccessToken(req);
     let authorized = false;
 
-    if (auth.startsWith("Bearer ")) {
-      const token = auth.split(" ")[1];
+    if (token) {
       try {
-        // Try JWT first (for logged-in users)
-        const jwt = await import("jsonwebtoken");
+        // Try app JWT first (for logged-in users).
         verifyJwtWithRotation(token);
         authorized = true;
       } catch {
-        // Not a valid JWT — try as Supabase access_token
+        // Not a valid app JWT — try as Supabase access_token.
         const { data: tokenUser } = await supabaseAdmin.auth.getUser(token);
-        if (tokenUser?.user?.id === userId) authorized = true;
+        if (tokenUser?.user?.id === userId) {
+          authorized = true;
+        }
       }
     }
 
@@ -1334,12 +1357,10 @@ router.get("/customer-profile-status", async (req, res) => {
       return res.status(400).json({ message: "userId is required" });
     }
 
-    const auth = req.headers.authorization || "";
-    if (!auth.startsWith("Bearer ")) {
+    const token = getRequestAccessToken(req);
+    if (!token) {
       return auth401(res, "auth_token_missing", "Unauthorized");
     }
-
-    const token = auth.split(" ")[1];
     let tokenMatchesUser = false;
 
     try {
@@ -1416,7 +1437,11 @@ router.post("/login", async (req, res) => {
       await supabaseAuthOnly.auth.signInWithPassword(signInPayload);
 
     if (error) {
-      return auth401(res, "auth_invalid_credentials", error.message);
+      return auth401(
+        res,
+        "auth_invalid_credentials",
+        "Invalid email/phone or password",
+      );
     }
 
     const userId = data.user.id;
@@ -1569,6 +1594,7 @@ router.post("/login", async (req, res) => {
       return res.json(
         issueAuthSession(
           req,
+          res,
           { id: userId, role: roleData.role },
           {
             role: roleData.role,
@@ -1583,6 +1609,7 @@ router.post("/login", async (req, res) => {
     res.json(
       issueAuthSession(
         req,
+        res,
         { id: userId, role: roleData.role },
         {
           role: roleData.role,
@@ -1604,6 +1631,7 @@ router.post("/login", async (req, res) => {
  * Stateless logout endpoint; clients clear local token storage.
  */
 router.post("/logout", (req, res) => {
+  clearAuthCookie(res);
   res.json({ message: "Logged out" });
 });
 
@@ -1700,6 +1728,7 @@ router.post("/verify-email", async (req, res) => {
     return res.json(
       issueAuthSession(
         req,
+        res,
         verificationResult.sessionPayload,
         verificationResult.sessionExtra,
       ),
@@ -1820,6 +1849,7 @@ router.post("/complete-email-login", async (req, res) => {
     return res.json(
       issueAuthSession(
         req,
+        res,
         { id: userId, role: "customer" },
         {
           role: "customer",
@@ -1864,11 +1894,15 @@ router.get("/confirm-email", async (req, res) => {
 
     const authSession = issueAuthSession(
       req,
+      res,
       verificationResult.sessionPayload,
       verificationResult.sessionExtra,
     );
 
-    const redirectUrl = `${FRONTEND_COMPLETE_PROFILE_URL}?userId=${encodeURIComponent(authSession.userId)}&access_token=${encodeURIComponent(authSession.token)}`;
+    let redirectUrl = `${FRONTEND_COMPLETE_PROFILE_URL}?userId=${encodeURIComponent(authSession.userId)}`;
+    if (!shouldUseCookieAuth(req)) {
+      redirectUrl += `&access_token=${encodeURIComponent(authSession.token)}`;
+    }
     return res.redirect("302", redirectUrl);
   } catch (error) {
     console.error("confirm-email redirect error:", error);
@@ -1986,6 +2020,7 @@ router.post("/verify-otp", async (req, res) => {
     res.json(
       issueAuthSession(
         req,
+        res,
         { id: userId, role: user?.role || "customer" },
         {
           message: "Phone verified successfully!",
