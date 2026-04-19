@@ -308,6 +308,10 @@ router.post("/place", authenticate, async (req, res) => {
       .json({ message: "Valid payment method is required" });
   }
 
+  let cartLocked = false;
+  let pricingAdjusted = false;
+  let checkoutPricingSnapshot = null;
+
   try {
     // ========================================================================
     // STEP 1: Fetch and validate cart (with atomic check)
@@ -353,21 +357,8 @@ router.post("/place", authenticate, async (req, res) => {
       return res.status(400).json({ message: "Cart is not active" });
     }
 
-    // Immediately mark cart as completed to prevent duplicate orders
-    // This is the atomic lock - if another request tries to do the same,
-    // they'll fail because status is no longer 'active'
-    const { error: lockError } = await supabaseAdmin
-      .from("carts")
-      .update({ status: "completed", updated_at: new Date().toISOString() })
-      .eq("id", cartId)
-      .eq("status", "active"); // Only update if still active
-
-    if (lockError) {
-      console.error("Cart lock error:", lockError);
-      return res
-        .status(409)
-        .json({ message: "Order is being processed, please wait" });
-    }
+    // NOTE: Cart lock intentionally happens after all validations/pricing checks.
+    // This avoids leaving carts stuck as "completed" when validation fails.
 
     // ========================================================================
     // STEP 2: Fetch cart items with food details and commission info
@@ -711,6 +702,12 @@ router.post("/place", authenticate, async (req, res) => {
     const serverTotalAmount = Number(
       (serverSubtotal + serverServiceFee + serverDeliveryFee).toFixed(2),
     );
+    const serverPricingSnapshot = {
+      subtotal: serverSubtotal,
+      service_fee: serverServiceFee,
+      delivery_fee: serverDeliveryFee,
+      total_amount: serverTotalAmount,
+    };
 
     const hasCheckoutPricing =
       checkout_subtotal !== undefined &&
@@ -754,29 +751,44 @@ router.post("/place", authenticate, async (req, res) => {
         });
       }
 
-      const amountMismatch =
-        Math.abs(checkoutPricing.subtotal - serverSubtotal) > 0.01 ||
-        Math.abs(checkoutPricing.service_fee - serverServiceFee) > 0.01 ||
-        Math.abs(checkoutPricing.delivery_fee - serverDeliveryFee) > 0.01 ||
-        Math.abs(checkoutPricing.total_amount - serverTotalAmount) > 0.01;
+      checkoutPricingSnapshot = {
+        subtotal: Number(checkoutPricing.subtotal.toFixed(2)),
+        service_fee: Number(checkoutPricing.service_fee.toFixed(2)),
+        delivery_fee: Number(checkoutPricing.delivery_fee.toFixed(2)),
+        total_amount: Number(checkoutPricing.total_amount.toFixed(2)),
+      };
 
-      if (amountMismatch) {
+      const subtotalMismatch =
+        Math.abs(checkoutPricingSnapshot.subtotal - serverSubtotal) > 0.01;
+      const serviceFeeMismatch =
+        Math.abs(checkoutPricingSnapshot.service_fee - serverServiceFee) > 0.01;
+      const deliveryFeeMismatch =
+        Math.abs(checkoutPricingSnapshot.delivery_fee - serverDeliveryFee) >
+        0.01;
+      const totalMismatch =
+        Math.abs(checkoutPricingSnapshot.total_amount - serverTotalAmount) >
+        0.01;
+
+      // Subtotal mismatch is treated as a true pricing change (item price/cart drift).
+      if (subtotalMismatch) {
         return res.status(409).json({
           message:
             "Order amount changed while placing the order. Please review checkout and place again.",
           error_type: "price_mismatch",
-          checkout_pricing: {
-            subtotal: Number(checkoutPricing.subtotal.toFixed(2)),
-            service_fee: Number(checkoutPricing.service_fee.toFixed(2)),
-            delivery_fee: Number(checkoutPricing.delivery_fee.toFixed(2)),
-            total_amount: Number(checkoutPricing.total_amount.toFixed(2)),
-          },
-          server_pricing: {
-            subtotal: serverSubtotal,
-            service_fee: serverServiceFee,
-            delivery_fee: serverDeliveryFee,
-            total_amount: serverTotalAmount,
-          },
+          checkout_pricing: checkoutPricingSnapshot,
+          server_pricing: serverPricingSnapshot,
+        });
+      }
+
+      // Fee mismatches can happen due to route recalculation timing/config drift.
+      // Keep server pricing as source of truth and continue placing the order.
+      if (serviceFeeMismatch || deliveryFeeMismatch || totalMismatch) {
+        pricingAdjusted = true;
+        console.warn("[orders/place] Fee mismatch auto-adjusted", {
+          cartId,
+          customerId,
+          checkout_pricing: checkoutPricingSnapshot,
+          server_pricing: serverPricingSnapshot,
         });
       }
     }
@@ -787,12 +799,48 @@ router.post("/place", authenticate, async (req, res) => {
     const totalAmount = serverTotalAmount;
 
     // ========================================================================
-    // STEP 6: Generate order number
+    // STEP 6: Acquire cart lock (atomic idempotency gate)
+    // ========================================================================
+    const { data: lockedCart, error: lockError } = await supabaseAdmin
+      .from("carts")
+      .update({ status: "completed", updated_at: new Date().toISOString() })
+      .eq("id", cartId)
+      .eq("customer_id", customerId)
+      .eq("status", "active")
+      .select("id")
+      .maybeSingle();
+
+    if (lockError) {
+      console.error("Cart lock error:", lockError);
+      return res
+        .status(409)
+        .json({ message: "Order is being processed, please wait" });
+    }
+
+    if (!lockedCart) {
+      const { data: existingOrder } = await supabaseAdmin
+        .from("orders")
+        .select("id, order_number, status, total_amount, placed_at")
+        .eq("customer_id", customerId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single();
+
+      return res.status(409).json({
+        message: "This order has already been placed",
+        order: existingOrder || null,
+      });
+    }
+
+    cartLocked = true;
+
+    // ========================================================================
+    // STEP 7: Generate order number
     // ========================================================================
     const orderNumber = await generateOrderNumber();
 
     // ========================================================================
-    // STEP 7: Create order (atomic transaction using Supabase)
+    // STEP 8: Create order (atomic transaction using Supabase)
     // ========================================================================
 
     // Insert order
@@ -859,11 +907,12 @@ router.post("/place", authenticate, async (req, res) => {
         .from("carts")
         .update({ status: "active" })
         .eq("id", cartId);
+      cartLocked = false;
       return res.status(500).json({ message: "Failed to create order" });
     }
 
     // ========================================================================
-    // STEP 8: Insert order items with commission data (snapshot from cart)
+    // STEP 9: Insert order items with commission data (snapshot from cart)
     // ========================================================================
     const orderItems = processedItems.map((item) => ({
       order_id: order.id,
@@ -891,11 +940,12 @@ router.post("/place", authenticate, async (req, res) => {
         .from("carts")
         .update({ status: "active" })
         .eq("id", cartId);
+      cartLocked = false;
       return res.status(500).json({ message: "Failed to create order items" });
     }
 
     // ========================================================================
-    // STEP 9: Create delivery record
+    // STEP 10: Create delivery record
     // ========================================================================
     const { error: deliveryError } = await supabaseAdmin
       .from("deliveries")
@@ -910,7 +960,7 @@ router.post("/place", authenticate, async (req, res) => {
     }
 
     // ========================================================================
-    // STEP 10: Create notification for restaurant
+    // STEP 11: Create notification for restaurant
     // ========================================================================
 
     // Get restaurant admin IDs
@@ -1052,6 +1102,9 @@ router.post("/place", authenticate, async (req, res) => {
           normal_delivery_fee: Number(normalDeliveryFee.toFixed(2)),
           applied_delivery_fee: Number(serverDeliveryFee.toFixed(2)),
         },
+        pricing_adjusted: pricingAdjusted,
+        checkout_pricing: pricingAdjusted ? checkoutPricingSnapshot : null,
+        server_pricing: pricingAdjusted ? serverPricingSnapshot : null,
         payment_method: order.payment_method,
         estimated_duration_min: order.estimated_duration_min,
         placed_at: order.placed_at,
@@ -1059,6 +1112,21 @@ router.post("/place", authenticate, async (req, res) => {
     });
   } catch (error) {
     console.error("Place order error:", error);
+
+    if (cartLocked) {
+      try {
+        await supabaseAdmin
+          .from("carts")
+          .update({ status: "active" })
+          .eq("id", cartId);
+      } catch (rollbackError) {
+        console.error("Cart rollback error after place-order failure:", {
+          cartId,
+          rollbackError,
+        });
+      }
+    }
+
     return res.status(500).json({ message: "Server error placing order" });
   }
 });
