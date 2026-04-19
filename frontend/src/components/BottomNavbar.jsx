@@ -1,108 +1,184 @@
-import React, { useState, useEffect } from "react";
+import React, { useLayoutEffect, useRef, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 
 const BottomNavbar = ({ cartCount = 0 }) => {
   const navigate = useNavigate();
   const location = useLocation();
+  const navRef = useRef(null);
+  const [navHeight, setNavHeight] = useState(0);
+
+  const path = location.pathname || "/";
+  const shouldHideNavbar =
+    path === "/login" || path === "/signup" || path.startsWith("/auth/");
 
   // Determine active nav based on current path
   const getActiveNav = () => {
-    const path = location.pathname;
-    if (path === "/") return "home";
-    if (path === "/cart") return "cart";
-    if (path === "/orders") return "orders";
-    if (path === "/customer/profile" || path === "/profile") return "profile";
-    return null;
+    if (path.startsWith("/cart")) return "cart";
+    if (path.startsWith("/orders")) return "orders";
+    if (path.startsWith("/customer/profile") || path.startsWith("/profile")) {
+      return "account";
+    }
+    return "home";
   };
+
+  useLayoutEffect(() => {
+    if (shouldHideNavbar) {
+      setNavHeight(0);
+      document.documentElement.style.setProperty(
+        "--customer-bottom-nav-height",
+        "0px",
+      );
+      document.documentElement.style.setProperty(
+        "--customer-bottom-nav-offset",
+        "0px",
+      );
+      return;
+    }
+
+    const navElement = navRef.current;
+    if (!navElement) return;
+
+    const updateHeight = () => {
+      const nextHeight = navElement.offsetHeight || 0;
+      setNavHeight(nextHeight);
+      const cssHeight = `${nextHeight}px`;
+      document.documentElement.style.setProperty(
+        "--customer-bottom-nav-height",
+        cssHeight,
+      );
+      document.documentElement.style.setProperty(
+        "--customer-bottom-nav-offset",
+        cssHeight,
+      );
+    };
+
+    updateHeight();
+
+    let resizeObserver;
+    if (typeof ResizeObserver !== "undefined") {
+      resizeObserver = new ResizeObserver(updateHeight);
+      resizeObserver.observe(navElement);
+    }
+
+    window.addEventListener("resize", updateHeight);
+
+    return () => {
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+      window.removeEventListener("resize", updateHeight);
+      document.documentElement.style.setProperty(
+        "--customer-bottom-nav-height",
+        "0px",
+      );
+      document.documentElement.style.setProperty(
+        "--customer-bottom-nav-offset",
+        "0px",
+      );
+    };
+  }, [path, shouldHideNavbar]);
+
+  if (shouldHideNavbar) {
+    return null;
+  }
 
   const activeNav = getActiveNav();
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 py-2 px-4 shadow-2xl z-50">
-      <div className="flex justify-around items-center max-w-lg mx-auto">
-        <NavItem
-          icon={
-            <svg
-              className="w-6 h-6"
-              viewBox="0 0 24 24"
-              fill={activeNav === "home" ? "currentColor" : "none"}
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={activeNav === "home" ? 0 : 1.5}
-                d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
-              />
-            </svg>
-          }
-          label="Home"
-          active={activeNav === "home"}
-          onClick={() => navigate("/")}
-        />
-        <NavItem
-          icon={
-            <svg
-              className="w-6 h-6"
-              fill={activeNav === "cart" ? "currentColor" : "none"}
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={1.5}
-                d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"
-              />
-            </svg>
-          }
-          label="Cart"
-          active={activeNav === "cart"}
-          onClick={() => navigate("/cart")}
-          badge={cartCount > 0 ? cartCount : null}
-        />
-        <NavItem
-          icon={
-            <svg
-              className="w-6 h-6"
-              fill={activeNav === "orders" ? "currentColor" : "none"}
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={1.5}
-                d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"
-              />
-            </svg>
-          }
-          label="Orders"
-          active={activeNav === "orders"}
-          onClick={() => navigate("/orders")}
-        />
-        <NavItem
-          icon={
-            <svg
-              className="w-6 h-6"
-              fill={activeNav === "profile" ? "currentColor" : "none"}
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={1.5}
-                d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-              />
-            </svg>
-          }
-          label="Profile"
-          active={activeNav === "profile"}
-          onClick={() => navigate("/customer/profile")}
-        />
-      </div>
-    </nav>
+    <>
+      <div aria-hidden="true" style={{ height: navHeight }} />
+      <nav
+        ref={navRef}
+        className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 px-4 pt-2 shadow-2xl z-50"
+        style={{
+          paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 8px)",
+        }}
+      >
+        <div className="flex justify-around items-center max-w-lg mx-auto">
+          <NavItem
+            icon={
+              <svg
+                className="w-6 h-6"
+                viewBox="0 0 24 24"
+                fill={activeNav === "home" ? "currentColor" : "none"}
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={activeNav === "home" ? 0 : 1.5}
+                  d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
+                />
+              </svg>
+            }
+            label="Home"
+            active={activeNav === "home"}
+            onClick={() => navigate("/")}
+          />
+          <NavItem
+            icon={
+              <svg
+                className="w-6 h-6"
+                fill={activeNav === "orders" ? "currentColor" : "none"}
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={1.5}
+                  d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"
+                />
+              </svg>
+            }
+            label="Orders"
+            active={activeNav === "orders"}
+            onClick={() => navigate("/orders")}
+          />
+          <NavItem
+            icon={
+              <svg
+                className="w-6 h-6"
+                fill={activeNav === "cart" ? "currentColor" : "none"}
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={1.5}
+                  d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"
+                />
+              </svg>
+            }
+            label="Cart"
+            active={activeNav === "cart"}
+            onClick={() => navigate("/cart")}
+            badge={cartCount > 0 ? cartCount : null}
+          />
+          <NavItem
+            icon={
+              <svg
+                className="w-6 h-6"
+                fill={activeNav === "account" ? "currentColor" : "none"}
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={1.5}
+                  d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                />
+              </svg>
+            }
+            label="Account"
+            active={activeNav === "account"}
+            onClick={() => navigate("/customer/profile")}
+          />
+        </div>
+      </nav>
+    </>
   );
 };
 

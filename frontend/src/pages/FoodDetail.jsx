@@ -33,7 +33,8 @@ const FoodDetail = () => {
   const restaurant = restaurantQuery.data;
   const food = foodQuery.data;
   const loading = restaurantQuery.isLoading || foodQuery.isLoading;
-  const error = restaurantQuery.error?.message || foodQuery.error?.message || null;
+  const error =
+    restaurantQuery.error?.message || foodQuery.error?.message || null;
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -48,7 +49,6 @@ const FoodDetail = () => {
       const namePart = email.split("@")[0];
       setUserName(namePart.charAt(0).toUpperCase() + namePart.slice(1));
     }
-
   }, [restaurantId, foodId]);
 
   useEffect(() => {
@@ -115,10 +115,10 @@ const FoodDetail = () => {
       setAddingToCart(true);
 
       await addToCartMutation.mutateAsync({
-          restaurant_id: restaurantId,
-          food_id: foodId,
-          size: selectedSize,
-          quantity: quantity,
+        restaurant_id: restaurantId,
+        food_id: foodId,
+        size: selectedSize,
+        quantity: quantity,
       });
 
       if (goToCheckout) {
@@ -141,7 +141,7 @@ const FoodDetail = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 font-poppins pb-24 page-slide-up">
+    <div className="min-h-screen bg-gray-50 font-poppins page-slide-up">
       {/* Sticky Header */}
 
       <AnimatedAlert alert={alert} visible={visible} />

@@ -34,6 +34,7 @@ import {
 } from "../utils/availableDeliveriesLogic.js";
 import {
   broadcastDeliveryTaken,
+  notifyAdmin,
   notifyCustomer,
 } from "../utils/socketManager.js";
 import {
@@ -81,7 +82,10 @@ function calculateHaversineDistanceForProximity(lat1, lon1, lat2, lon2) {
   return R * c; // Distance in meters
 }
 
-function getRestaurantToCustomerRatePerKm(earningsConfig, restaurantToCustomerKm) {
+function getRestaurantToCustomerRatePerKm(
+  earningsConfig,
+  restaurantToCustomerKm,
+) {
   const distanceKm = Number(restaurantToCustomerKm) || 0;
   return distanceKm <= 5
     ? Number(
@@ -305,6 +309,37 @@ const driverOnly = (req, res, next) => {
 
 const SUSPENDED_DEPOSIT_MESSAGE =
   "Deposit the collected money to the Meezo platform before accepting new deliveries.";
+
+async function notifyRestaurantAdminsOrderStatus(restaurantId, payload) {
+  if (!restaurantId) return;
+
+  try {
+    const { data: admins, error } = await supabaseAdmin
+      .from("admins")
+      .select("id")
+      .eq("restaurant_id", restaurantId);
+
+    if (error) {
+      console.error(
+        "[Socket] Failed to fetch restaurant admins:",
+        error.message,
+      );
+      return;
+    }
+
+    (admins || []).forEach((admin) => {
+      notifyAdmin(admin.id, "order:status_changed", {
+        ...payload,
+        timestamp: Date.now(),
+      });
+    });
+  } catch (error) {
+    console.error(
+      "[Socket] Failed to notify restaurant admins about order status:",
+      error?.message || error,
+    );
+  }
+}
 
 // ============================================================================
 // GET /driver/deliveries/pending - Get all pending deliveries
@@ -812,8 +847,7 @@ router.post(
             earningsDistance.restaurantToCustomerKm,
           );
           const rtcEarnings =
-            earningsDistance.restaurantToCustomerKm *
-            rtcRatePerKm;
+            earningsDistance.restaurantToCustomerKm * rtcRatePerKm;
           const baseAmount = dtrEarnings + rtcEarnings;
           const totalDistKm =
             earningsDistance.driverToRestaurantKm +
@@ -968,10 +1002,7 @@ router.post(
           );
           const fallbackBase = Math.max(
             orderDistanceKm *
-              getRestaurantToCustomerRatePerKm(
-                earningsConfig,
-                orderDistanceKm,
-              ),
+              getRestaurantToCustomerRatePerKm(earningsConfig, orderDistanceKm),
             getRestaurantToCustomerRatePerKm(earningsConfig, orderDistanceKm),
           );
 
@@ -1294,6 +1325,16 @@ router.post(
           console.error("Push driver assigned error (non-fatal):", err),
         );
       }
+
+      await notifyRestaurantAdminsOrderStatus(updated.orders?.restaurant_id, {
+        type: "driver_assigned",
+        order_id: updated.order_id,
+        delivery_id: updated.id,
+        order_number: updated.orders?.order_number,
+        status: "accepted",
+        driver_id: req.user.id,
+        source: "driver_accept",
+      });
 
       // ======================================================================
       // 📡 BROADCAST: Notify all other drivers that this delivery is taken
@@ -1926,6 +1967,55 @@ const proximityNotifiedDeliveries = new Set();
 // ============================================================================
 const lastEtaBroadcast = new Map(); // driverId -> timestamp
 const ETA_BROADCAST_INTERVAL_MS = 30000; // 30 seconds
+const realtimeLocationEtaCache = new Map(); // deliveryId -> eta payload
+const lastRealtimeLocationEtaAt = new Map(); // deliveryId -> timestamp
+const REALTIME_LOCATION_ETA_INTERVAL_MS = 10000;
+
+async function getRealtimeEtaSnapshot(
+  orderId,
+  deliveryId,
+  driverLocation,
+  status,
+) {
+  const normalizedDeliveryId = String(deliveryId || "").trim();
+  if (!orderId || !normalizedDeliveryId || !driverLocation) {
+    return null;
+  }
+
+  const now = Date.now();
+  const lastAt = lastRealtimeLocationEtaAt.get(normalizedDeliveryId) || 0;
+
+  if (
+    now - lastAt < REALTIME_LOCATION_ETA_INTERVAL_MS &&
+    realtimeLocationEtaCache.has(normalizedDeliveryId)
+  ) {
+    return realtimeLocationEtaCache.get(normalizedDeliveryId);
+  }
+
+  try {
+    const eta = await calculateCustomerETA(orderId, driverLocation);
+    const etaPayload = eta
+      ? {
+          etaMinutes: eta.etaMinutes,
+          etaRangeMin: eta.etaRangeMin,
+          etaRangeMax: eta.etaRangeMax,
+          etaDisplay: eta.etaDisplay,
+          stopsBeforeCustomer: eta.stopsBeforeCustomer,
+          driverStatus: status || eta.driverStatus || null,
+          isExact: eta.isExact || false,
+        }
+      : null;
+
+    if (etaPayload) {
+      realtimeLocationEtaCache.set(normalizedDeliveryId, etaPayload);
+    }
+    lastRealtimeLocationEtaAt.set(normalizedDeliveryId, now);
+
+    return etaPayload;
+  } catch {
+    return realtimeLocationEtaCache.get(normalizedDeliveryId) || null;
+  }
+}
 
 // PATCH /driver/deliveries/:id/location - Update driver location
 // ============================================================================
@@ -1936,7 +2026,17 @@ router.patch(
   driverOnly,
   async (req, res) => {
     const deliveryId = req.params.id;
-    const { latitude, longitude } = req.body;
+    const { latitude, longitude, heading, speed, timestamp } = req.body;
+
+    const parsedLatitude = Number(latitude);
+    const parsedLongitude = Number(longitude);
+    const parsedHeading = Number(heading);
+    const parsedSpeed = Number(speed);
+
+    const locationTimestamp =
+      Number.isFinite(Number(timestamp)) && Number(timestamp) > 0
+        ? Number(timestamp)
+        : Date.now();
 
     if (latitude === undefined || longitude === undefined) {
       return res.status(400).json({ message: "Location coordinates required" });
@@ -1944,10 +2044,12 @@ router.patch(
 
     // Validate coordinates
     if (
-      latitude < -90 ||
-      latitude > 90 ||
-      longitude < -180 ||
-      longitude > 180
+      !Number.isFinite(parsedLatitude) ||
+      !Number.isFinite(parsedLongitude) ||
+      parsedLatitude < -90 ||
+      parsedLatitude > 90 ||
+      parsedLongitude < -180 ||
+      parsedLongitude > 180
     ) {
       return res.status(400).json({ message: "Invalid coordinates" });
     }
@@ -1986,8 +2088,8 @@ router.patch(
 
       // Check proximity to target stop (50m threshold)
       const updateData = {
-        current_latitude: latitude,
-        current_longitude: longitude,
+        current_latitude: parsedLatitude,
+        current_longitude: parsedLongitude,
         last_location_update: new Date().toISOString(),
       };
 
@@ -2001,8 +2103,8 @@ router.patch(
         const restaurantLat = parseFloat(delivery.orders.restaurant_latitude);
         const restaurantLng = parseFloat(delivery.orders.restaurant_longitude);
         const distanceToRestaurant = calculateHaversineDistanceForProximity(
-          latitude,
-          longitude,
+          parsedLatitude,
+          parsedLongitude,
           restaurantLat,
           restaurantLng,
         );
@@ -2028,8 +2130,8 @@ router.patch(
         const customerLat = parseFloat(delivery.orders.delivery_latitude);
         const customerLng = parseFloat(delivery.orders.delivery_longitude);
         const distanceToCustomer = calculateHaversineDistanceForProximity(
-          latitude,
-          longitude,
+          parsedLatitude,
+          parsedLongitude,
           customerLat,
           customerLng,
         );
@@ -2074,8 +2176,8 @@ router.patch(
         const customerLat = parseFloat(updated.orders.delivery_latitude);
         const customerLng = parseFloat(updated.orders.delivery_longitude);
         const distance = calculateHaversineDistanceForProximity(
-          latitude,
-          longitude,
+          parsedLatitude,
+          parsedLongitude,
           customerLat,
           customerLng,
         );
@@ -2114,7 +2216,10 @@ router.patch(
       ) {
         lastEtaBroadcast.set(driverId, now);
         // Fire-and-forget: don't block response
-        calculateAllCustomerETAs(driverId, { latitude, longitude })
+        calculateAllCustomerETAs(driverId, {
+          latitude: parsedLatitude,
+          longitude: parsedLongitude,
+        })
           .then((allETAs) => {
             for (const etaInfo of allETAs) {
               notifyCustomer(etaInfo.customer_id, "order:status_update", {
@@ -2135,12 +2240,67 @@ router.patch(
           .catch((e) => console.error("[ETA] Broadcast error:", e.message));
       }
 
+      const hasCustomerCoords =
+        Number.isFinite(Number(updated.orders?.delivery_latitude)) &&
+        Number.isFinite(Number(updated.orders?.delivery_longitude));
+
+      const distanceMeters = hasCustomerCoords
+        ? calculateHaversineDistanceForProximity(
+            parsedLatitude,
+            parsedLongitude,
+            Number(updated.orders.delivery_latitude),
+            Number(updated.orders.delivery_longitude),
+          )
+        : null;
+
+      const etaSnapshot = await getRealtimeEtaSnapshot(
+        updated.order_id,
+        updated.id,
+        {
+          latitude: parsedLatitude,
+          longitude: parsedLongitude,
+        },
+        updated.status,
+      );
+
+      if (updated.orders?.customer_id) {
+        notifyCustomer(updated.orders.customer_id, "order:driver_location", {
+          type: "driver_location_update",
+          order_id: updated.order_id,
+          order_number: updated.orders.order_number,
+          delivery_id: updated.id,
+          status: updated.status,
+          driver_location: {
+            latitude: parsedLatitude,
+            longitude: parsedLongitude,
+            heading: Number.isFinite(parsedHeading) ? parsedHeading : 0,
+            speed: Number.isFinite(parsedSpeed) ? parsedSpeed : null,
+            timestamp: locationTimestamp,
+            last_update: updateData.last_location_update,
+          },
+          distance_meters: Number.isFinite(distanceMeters)
+            ? Math.round(distanceMeters)
+            : null,
+          distance_km: Number.isFinite(distanceMeters)
+            ? Number((distanceMeters / 1000).toFixed(2))
+            : null,
+          eta: etaSnapshot,
+          source: "driver_location_patch",
+        });
+      }
+
       return res.json({
         message: "Location updated",
         delivery: {
           id: updated.id,
           status: updated.status,
-          location: { latitude, longitude },
+          location: {
+            latitude: parsedLatitude,
+            longitude: parsedLongitude,
+            heading: Number.isFinite(parsedHeading) ? parsedHeading : 0,
+            speed: Number.isFinite(parsedSpeed) ? parsedSpeed : null,
+            timestamp: locationTimestamp,
+          },
         },
       });
     } catch (error) {
@@ -2644,6 +2804,18 @@ router.patch(
         }
       }
 
+      await notifyRestaurantAdminsOrderStatus(
+        currentDelivery.orders?.restaurant_id,
+        {
+          type: "delivery_status_update",
+          order_id: delivery.order_id,
+          delivery_id: delivery.id,
+          order_number: currentDelivery.orders?.order_number,
+          status,
+          source: "driver_status_update",
+        },
+      );
+
       // Helper: promote the nearest picked_up delivery to on_the_way when no active on_the_way/at_customer exists
       const promoteNextPickedUp = async (referenceLat, referenceLng) => {
         const hasReference =
@@ -2793,6 +2965,15 @@ router.patch(
             });
           }
 
+          await notifyRestaurantAdminsOrderStatus(next.restaurant_id, {
+            type: "delivery_status_update",
+            order_id: promoted?.order_id || next.order_id,
+            delivery_id: promoted?.id || next.id,
+            order_number: next.order_number,
+            status: "on_the_way",
+            source: "driver_auto_promote",
+          });
+
           // Return promoted delivery info so frontend can update immediately
           return {
             id: promoted?.id || next.id,
@@ -2832,6 +3013,15 @@ router.patch(
             currentDelivery.current_longitude,
         );
         promotedDelivery = await promoteNextPickedUp(refLat, refLng);
+      }
+
+      if (["delivered", "failed", "cancelled"].includes(status)) {
+        const cacheKey = String(delivery.id || deliveryId || "").trim();
+        if (cacheKey) {
+          realtimeLocationEtaCache.delete(cacheKey);
+          lastRealtimeLocationEtaAt.delete(cacheKey);
+        }
+        proximityNotifiedDeliveries.delete(deliveryId);
       }
 
       return res.json({

@@ -129,7 +129,7 @@ const Cart = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 font-poppins pb-24 page-slide-up">
+    <div className="min-h-screen bg-gray-50 font-poppins page-slide-up">
       {/* Top Header */}
       <header className="sticky top-0 z-50 bg-white px-4 py-3 shadow-sm">
         <div className="max-w-6xl mx-auto">

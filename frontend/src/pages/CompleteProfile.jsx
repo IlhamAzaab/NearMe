@@ -272,7 +272,10 @@ export default function CompleteProfile() {
   };
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_20%_20%,#ffd9de_0%,transparent_35%),radial-gradient(circle_at_80%_0%,#ffe6cb_0%,transparent_32%),#fff7f4]">
+    <div
+      className="min-h-screen bg-[radial-gradient(circle_at_20%_20%,#ffd9de_0%,transparent_35%),radial-gradient(circle_at_80%_0%,#ffe6cb_0%,transparent_32%),#fff7f4]"
+      style={{ minHeight: "100dvh" }}
+    >
       <SiteHeader />
       <AnimatedAlert alert={alert} visible={visible} />
 

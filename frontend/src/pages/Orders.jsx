@@ -15,6 +15,7 @@ import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import supabaseClient from "../supabaseClient";
 import AnimatedAlert, { useAlert } from "../components/AnimatedAlert";
+import BottomNavbar from "../components/BottomNavbar";
 import { formatETAClockTime } from "../utils/etaFormatter";
 import {
   customerQueryKeys,
@@ -475,7 +476,7 @@ export default function Orders() {
       <MaterialSymbolsCSS />
 
       {/* Main Container */}
-      <div className="relative flex h-auto min-h-screen w-full flex-col max-w-[480px] mx-auto bg-white overflow-x-hidden shadow-2xl pb-24">
+      <div className="relative flex h-auto min-h-screen w-full flex-col max-w-[480px] mx-auto bg-white overflow-x-hidden shadow-2xl">
         {/* Top App Bar */}
         <header className="sticky top-0 z-50 flex items-center bg-white/90 backdrop-blur-sm p-4 border-b border-gray-100 justify-between">
           <button
@@ -901,58 +902,7 @@ export default function Orders() {
           )}
         </main>
 
-        {/* Bottom Navigation - Styled like the design */}
-        <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[480px] bg-white/95 backdrop-blur-md border-t border-gray-100 px-6 py-3 flex items-center justify-between z-50">
-          <button
-            onClick={() => navigate("/")}
-            className="flex flex-col items-center gap-1 text-gray-400"
-          >
-            <span className="material-symbols-outlined">home</span>
-            <span className="text-[10px] font-bold uppercase tracking-wide">
-              Home
-            </span>
-          </button>
-          <button
-            onClick={() => navigate("/cart")}
-            className="flex flex-col items-center gap-1 text-gray-400 relative"
-          >
-            <span className="material-symbols-outlined">shopping_cart</span>
-            {cartCount > 0 && (
-              <span className="absolute -top-1 -right-1 w-5 h-5 bg-[#13ec37] text-[#111812] text-xs font-bold rounded-full flex items-center justify-center">
-                {cartCount}
-              </span>
-            )}
-            <span className="text-[10px] font-bold uppercase tracking-wide">
-              Cart
-            </span>
-          </button>
-          <button
-            onClick={() => navigate("/orders")}
-            className="flex flex-col items-center gap-1 text-[#13ec37]"
-          >
-            <span
-              className="material-symbols-outlined"
-              style={{ fontVariationSettings: "'FILL' 1" }}
-            >
-              receipt_long
-            </span>
-            <span className="text-[10px] font-bold uppercase tracking-wide">
-              Orders
-            </span>
-          </button>
-          <button
-            onClick={() => navigate("/customer/profile")}
-            className="flex flex-col items-center gap-1 text-gray-400"
-          >
-            <span className="material-symbols-outlined">person</span>
-            <span className="text-[10px] font-bold uppercase tracking-wide">
-              Profile
-            </span>
-          </button>
-        </nav>
-
-        {/* iOS Home Indicator Area */}
-        <div className="fixed bottom-0 left-0 right-0 h-5 bg-white/95 pointer-events-none"></div>
+        <BottomNavbar cartCount={cartCount} />
       </div>
     </div>
   );

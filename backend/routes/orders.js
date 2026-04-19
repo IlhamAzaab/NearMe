@@ -14,6 +14,7 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
+import crypto from "crypto";
 import express from "express";
 import { authenticate } from "../middleware/authenticate.js";
 import { supabaseAdmin } from "../supabaseAdmin.js";
@@ -266,6 +267,593 @@ const VALID_DELIVERY_TRANSITIONS = {
   ready: ["pending", "failed", "cancelled"], // ready for driver assignment
 };
 
+const ORDER_QUOTE_VERSION = 1;
+const ORDER_QUOTE_DEFAULT_TTL_MS = 5 * 60 * 1000;
+const ORDER_QUOTE_TTL_MS = Math.max(
+  60 * 1000,
+  Number.parseInt(
+    process.env.ORDER_QUOTE_TTL_MS || `${ORDER_QUOTE_DEFAULT_TTL_MS}`,
+    10,
+  ) || ORDER_QUOTE_DEFAULT_TTL_MS,
+);
+
+function getOrderQuoteSigningSecret() {
+  return (
+    process.env.ORDER_QUOTE_SECRET ||
+    process.env.JWT_SECRET ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    ""
+  );
+}
+
+function roundMoney(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return Number(n.toFixed(2));
+}
+
+function buildCartFingerprint(cartItems = []) {
+  const normalized = cartItems
+    .map((item) => {
+      const size = String(item?.size || "regular").toLowerCase();
+      return `${String(item?.id || "")}:${String(item?.food_id || "")}:${size}:${Number(item?.quantity || 0)}`;
+    })
+    .sort()
+    .join("|");
+
+  return crypto.createHash("sha256").update(normalized).digest("hex");
+}
+
+function signOrderQuotePayload(encodedPayload) {
+  const secret = getOrderQuoteSigningSecret();
+  if (!secret) {
+    throw new Error(
+      "ORDER_QUOTE_SECRET (or JWT_SECRET) is required for quote signing",
+    );
+  }
+
+  return crypto
+    .createHmac("sha256", secret)
+    .update(encodedPayload)
+    .digest("base64url");
+}
+
+function createOrderQuoteToken(payload) {
+  const encodedPayload = Buffer.from(JSON.stringify(payload), "utf8").toString(
+    "base64url",
+  );
+  const signature = signOrderQuotePayload(encodedPayload);
+  return `${encodedPayload}.${signature}`;
+}
+
+function verifyOrderQuoteToken(token) {
+  if (!token || typeof token !== "string") {
+    return { valid: false, error_type: "quote_invalid" };
+  }
+
+  const parts = token.split(".");
+  if (parts.length !== 2 || !parts[0] || !parts[1]) {
+    return { valid: false, error_type: "quote_invalid" };
+  }
+
+  const [encodedPayload, providedSignature] = parts;
+
+  try {
+    const expectedSignature = signOrderQuotePayload(encodedPayload);
+    const providedBuffer = Buffer.from(providedSignature);
+    const expectedBuffer = Buffer.from(expectedSignature);
+
+    if (
+      providedBuffer.length !== expectedBuffer.length ||
+      !crypto.timingSafeEqual(providedBuffer, expectedBuffer)
+    ) {
+      return { valid: false, error_type: "quote_invalid" };
+    }
+
+    const parsedPayload = JSON.parse(
+      Buffer.from(encodedPayload, "base64url").toString("utf8"),
+    );
+
+    if (Number(parsedPayload?.version) !== ORDER_QUOTE_VERSION) {
+      return { valid: false, error_type: "quote_invalid" };
+    }
+
+    const expiresAtMs = Date.parse(parsedPayload?.expires_at || "");
+    if (!Number.isFinite(expiresAtMs)) {
+      return { valid: false, error_type: "quote_invalid" };
+    }
+
+    if (Date.now() > expiresAtMs) {
+      return {
+        valid: false,
+        error_type: "quote_expired",
+        payload: parsedPayload,
+      };
+    }
+
+    return { valid: true, payload: parsedPayload };
+  } catch (error) {
+    console.error("Quote token verification error:", error);
+    return { valid: false, error_type: "quote_invalid" };
+  }
+}
+
+function mapProcessedItemToQuoteItem(item) {
+  return {
+    food_id: item.food_id,
+    food_name: item.food_name,
+    food_image_url: item.food_image_url || null,
+    size: item.size || "regular",
+    quantity: Number(item.quantity || 1),
+    customer_unit_price: roundMoney(item.customer_unit_price),
+    customer_total_price: roundMoney(item.customer_total_price),
+    admin_unit_price: roundMoney(item.admin_unit_price),
+    admin_total_price: roundMoney(item.admin_total_price),
+    commission_per_item: roundMoney(item.commission_per_item),
+  };
+}
+
+// ============================================================================
+// POST /orders/quote - Create server-side checkout quote snapshot
+// ============================================================================
+
+router.post("/quote", authenticate, async (req, res) => {
+  if (req.user.role !== "customer") {
+    return res.status(403).json({ message: "Only customers can get quotes" });
+  }
+
+  const customerId = req.user.id;
+  let {
+    cartId,
+    delivery_latitude,
+    delivery_longitude,
+    delivery_address,
+    delivery_city,
+    payment_method,
+  } = req.body;
+
+  if (!cartId) {
+    return res.status(400).json({ message: "Cart ID is required" });
+  }
+
+  if (!payment_method) {
+    payment_method = "cash";
+  }
+
+  if (!["cash", "card"].includes(payment_method)) {
+    return res
+      .status(400)
+      .json({ message: "Valid payment method is required" });
+  }
+
+  try {
+    const { data: cart, error: cartError } = await supabaseAdmin
+      .from("carts")
+      .select(
+        `
+        id,
+        customer_id,
+        restaurant_id,
+        status
+      `,
+      )
+      .eq("id", cartId)
+      .eq("customer_id", customerId)
+      .single();
+
+    if (cartError || !cart) {
+      return res.status(404).json({ message: "Cart not found" });
+    }
+
+    if (cart.status === "completed") {
+      const { data: existingOrder } = await supabaseAdmin
+        .from("orders")
+        .select("id, order_number, status, total_amount, placed_at")
+        .eq("customer_id", customerId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single();
+
+      return res.status(409).json({
+        message: "This order has already been placed",
+        order: existingOrder || null,
+      });
+    }
+
+    if (cart.status !== "active") {
+      return res.status(400).json({ message: "Cart is not active" });
+    }
+
+    const { data: cartItems, error: itemsError } = await supabaseAdmin
+      .from("cart_items")
+      .select(
+        `
+        id,
+        food_id,
+        food_name,
+        food_image_url,
+        size,
+        quantity,
+        unit_price,
+        total_price,
+        admin_unit_price,
+        admin_total_price,
+        commission_per_item,
+        foods (
+          id,
+          regular_price,
+          offer_price,
+          extra_price,
+          extra_offer_price,
+          is_available
+        )
+      `,
+      )
+      .eq("cart_id", cartId);
+
+    if (itemsError) {
+      console.error("Cart items fetch error:", itemsError);
+      return res.status(500).json({ message: "Failed to fetch cart items" });
+    }
+
+    if (!cartItems || cartItems.length === 0) {
+      return res.status(400).json({ message: "Cart is empty" });
+    }
+
+    const unavailableFoodIds = cartItems
+      .filter((item) => item.foods && !item.foods.is_available)
+      .map((item) => item.food_name);
+    if (unavailableFoodIds.length > 0) {
+      return res.status(400).json({
+        message: `Cannot place order. The following item(s) are currently unavailable: ${unavailableFoodIds.join(", ")}. Please remove them from your cart first.`,
+        unavailable_items: unavailableFoodIds,
+      });
+    }
+
+    const { data: restaurant, error: restaurantError } = await supabaseAdmin
+      .from("restaurants")
+      .select(
+        `
+        id,
+        restaurant_name,
+        address,
+        city,
+        latitude,
+        longitude
+      `,
+      )
+      .eq("id", cart.restaurant_id)
+      .single();
+
+    if (restaurantError || !restaurant) {
+      console.error("Restaurant fetch error:", restaurantError);
+      return res.status(404).json({ message: "Restaurant not found" });
+    }
+
+    const { data: customer, error: customerError } = await supabaseAdmin
+      .from("customers")
+      .select(
+        "id, username, phone, email, address, city, latitude, longitude, launch_promo_acknowledged, launch_promo_acknowledged_at",
+      )
+      .eq("id", customerId)
+      .single();
+
+    if (customerError || !customer) {
+      console.error("Customer fetch error:", customerError);
+      return res.status(404).json({ message: "Customer not found" });
+    }
+
+    const { count: previousOrdersCount, error: previousOrdersError } =
+      await supabaseAdmin
+        .from("orders")
+        .select("id", { count: "exact", head: true })
+        .eq("customer_id", customerId);
+
+    if (previousOrdersError) {
+      console.error("Previous orders count error:", previousOrdersError);
+    }
+
+    const isFirstOrder = (previousOrdersCount || 0) === 0;
+
+    const parsedDeliveryLat = Number(delivery_latitude);
+    const parsedDeliveryLng = Number(delivery_longitude);
+    const hasProvidedCoords =
+      Number.isFinite(parsedDeliveryLat) && Number.isFinite(parsedDeliveryLng);
+
+    const parsedCustomerLat = Number(customer.latitude);
+    const parsedCustomerLng = Number(customer.longitude);
+    const hasStoredCoords =
+      Number.isFinite(parsedCustomerLat) && Number.isFinite(parsedCustomerLng);
+
+    const payloadAddress = String(delivery_address || "").trim();
+    const payloadCity = String(delivery_city || "").trim();
+    const storedAddress = String(customer.address || "").trim();
+    const storedCity = String(customer.city || "").trim();
+
+    if (isFirstOrder) {
+      if (!hasProvidedCoords || !payloadAddress || !payloadCity) {
+        return res.status(400).json({
+          message:
+            "For your first order, delivery location, address, and city are required.",
+          error_type: "first_order_location_required",
+        });
+      }
+    }
+
+    if (hasProvidedCoords) {
+      delivery_latitude = parsedDeliveryLat;
+      delivery_longitude = parsedDeliveryLng;
+    } else if (hasStoredCoords) {
+      delivery_latitude = parsedCustomerLat;
+      delivery_longitude = parsedCustomerLng;
+    } else {
+      return res.status(400).json({
+        message:
+          "Delivery location is required. Please set your location before placing the order.",
+        error_type: "location_required",
+      });
+    }
+
+    if (
+      !Number.isFinite(delivery_latitude) ||
+      !Number.isFinite(delivery_longitude) ||
+      delivery_latitude < -90 ||
+      delivery_latitude > 90 ||
+      delivery_longitude < -180 ||
+      delivery_longitude > 180
+    ) {
+      return res.status(400).json({
+        message: "Valid delivery coordinates are required",
+        error_type: "invalid_delivery_coordinates",
+      });
+    }
+
+    delivery_address = payloadAddress || storedAddress;
+    delivery_city = payloadCity || storedCity;
+
+    if (!delivery_address) {
+      return res.status(400).json({
+        message: "Delivery address is required",
+        error_type: "address_required",
+      });
+    }
+
+    if (!delivery_city) {
+      return res.status(400).json({
+        message: "Delivery city is required",
+        error_type: "city_required",
+      });
+    }
+
+    const routeResult = await calculateRouteDistanceWithRetry(
+      delivery_latitude,
+      delivery_longitude,
+      parseFloat(restaurant.latitude),
+      parseFloat(restaurant.longitude),
+    );
+
+    if (!routeResult.success) {
+      return res.status(503).json({
+        message:
+          "Unable to calculate accurate road distance right now. Please retry in a few seconds.",
+        error: routeResult.error || "OSRM routing unavailable",
+        retry: true,
+      });
+    }
+
+    const distanceKm = Number(routeResult.distance);
+    const estimatedDurationMin = Number(routeResult.duration);
+
+    let customerSubtotal = 0;
+    let adminSubtotal = 0;
+    let commissionTotal = 0;
+    const processedItems = [];
+
+    for (const item of cartItems) {
+      const food = item.foods;
+      let adminPrice;
+      let customerPrice;
+      let commission;
+
+      if (food) {
+        const prices = await getCartItemPrices(food, item.size);
+        adminPrice = prices.adminPrice;
+        customerPrice = prices.customerPrice;
+        commission = prices.commission;
+      } else {
+        adminPrice = parseFloat(item.admin_unit_price || item.unit_price);
+        customerPrice = parseFloat(item.unit_price);
+        commission = parseFloat(item.commission_per_item || 0);
+      }
+
+      const adminTotal = adminPrice * item.quantity;
+      const customerTotal = customerPrice * item.quantity;
+      const itemCommission = commission * item.quantity;
+
+      adminSubtotal += adminTotal;
+      customerSubtotal += customerTotal;
+      commissionTotal += itemCommission;
+
+      processedItems.push({
+        ...item,
+        admin_unit_price: adminPrice,
+        admin_total_price: adminTotal,
+        customer_unit_price: customerPrice,
+        customer_total_price: customerTotal,
+        commission_per_item: commission,
+        total_commission: itemCommission,
+      });
+    }
+
+    const subtotal = customerSubtotal;
+
+    const config = await getSystemConfig();
+    let orderDistanceConstraints;
+    try {
+      orderDistanceConstraints =
+        typeof config.order_distance_constraints === "string"
+          ? JSON.parse(config.order_distance_constraints)
+          : config.order_distance_constraints || [];
+    } catch {
+      orderDistanceConstraints = [
+        { min_km: 0, max_km: 5, min_subtotal: 300 },
+        { min_km: 5, max_km: 10, min_subtotal: 1000 },
+        { min_km: 10, max_km: 15, min_subtotal: 2000 },
+        { min_km: 15, max_km: 25, min_subtotal: 3000 },
+      ];
+    }
+    const maxOrderDistanceKm = parseFloat(config.max_order_distance_km || 25);
+
+    if (distanceKm > maxOrderDistanceKm) {
+      return res.status(400).json({
+        message: `Restaurant is too far away (${distanceKm.toFixed(1)} km). Maximum ordering distance is ${maxOrderDistanceKm} km.`,
+        error_type: "distance_exceeded",
+        distance_km: parseFloat(distanceKm.toFixed(2)),
+        max_distance_km: maxOrderDistanceKm,
+      });
+    }
+
+    const sortedConstraints = [...orderDistanceConstraints].sort(
+      (a, b) => a.min_km - b.min_km,
+    );
+    let requiredMinSubtotal = 300;
+    for (const constraint of sortedConstraints) {
+      if (distanceKm >= constraint.min_km && distanceKm <= constraint.max_km) {
+        requiredMinSubtotal = constraint.min_subtotal;
+        break;
+      }
+    }
+
+    if (subtotal < requiredMinSubtotal) {
+      return res.status(400).json({
+        message: `Minimum order amount is Rs. ${requiredMinSubtotal} for distance ${distanceKm.toFixed(1)} km`,
+        error_type: "min_subtotal",
+        required_subtotal: requiredMinSubtotal,
+        current_subtotal: parseFloat(subtotal.toFixed(2)),
+        distance_km: parseFloat(distanceKm.toFixed(2)),
+      });
+    }
+
+    const serviceFee = await calculateServiceFee(subtotal);
+    const normalDeliveryFee = await calculateDeliveryFee(distanceKm);
+
+    if (!Number.isFinite(Number(normalDeliveryFee))) {
+      return res.status(503).json({
+        message:
+          "Unable to calculate delivery fee right now. Please retry in a few seconds.",
+        error_type: "delivery_fee_unavailable",
+      });
+    }
+
+    const launchPromoConfig = getLaunchPromoConfig(config);
+    const launchPromoEligible =
+      launchPromoConfig.enabled &&
+      isFirstOrder &&
+      Boolean(customer.launch_promo_acknowledged);
+
+    let deliveryFee = normalDeliveryFee;
+    let launchPromoApplied = false;
+    let launchPromoDiscount = 0;
+
+    if (launchPromoEligible) {
+      const promoDeliveryFee = calculateLaunchPromoDeliveryFee(
+        distanceKm,
+        launchPromoConfig,
+      );
+      if (promoDeliveryFee !== null && Number.isFinite(promoDeliveryFee)) {
+        deliveryFee = promoDeliveryFee;
+        launchPromoApplied = true;
+        launchPromoDiscount = Number(
+          Math.max(0, normalDeliveryFee - promoDeliveryFee).toFixed(2),
+        );
+      }
+    }
+
+    const subtotalAmount = Number(subtotal.toFixed(2));
+    const serviceFeeAmount = Number(serviceFee.toFixed(2));
+    const deliveryFeeAmount = Number(deliveryFee.toFixed(2));
+    const totalAmount = Number(
+      (subtotalAmount + serviceFeeAmount + deliveryFeeAmount).toFixed(2),
+    );
+
+    const quoteItems = processedItems.map(mapProcessedItemToQuoteItem);
+    const generatedAt = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + ORDER_QUOTE_TTL_MS).toISOString();
+    const quoteId = crypto.randomUUID();
+    const cartFingerprint = buildCartFingerprint(cartItems);
+
+    const quotePayload = {
+      version: ORDER_QUOTE_VERSION,
+      quote_id: quoteId,
+      generated_at: generatedAt,
+      expires_at: expiresAt,
+      customer_id: customerId,
+      cart_id: String(cart.id),
+      restaurant_id: String(restaurant.id),
+      payment_method,
+      cart_fingerprint: cartFingerprint,
+      delivery: {
+        latitude: Number(delivery_latitude),
+        longitude: Number(delivery_longitude),
+        address: delivery_address,
+        city: delivery_city,
+      },
+      route: {
+        distance_km: Number(distanceKm.toFixed(2)),
+        estimated_duration_min: Math.ceil(estimatedDurationMin),
+      },
+      pricing: {
+        subtotal: subtotalAmount,
+        admin_subtotal: Number(adminSubtotal.toFixed(2)),
+        commission_total: Number(commissionTotal.toFixed(2)),
+        service_fee: serviceFeeAmount,
+        delivery_fee: deliveryFeeAmount,
+        total_amount: totalAmount,
+        normal_delivery_fee: Number(normalDeliveryFee.toFixed(2)),
+        launch_promo_applied: launchPromoApplied,
+        launch_promo_discount: Number(launchPromoDiscount.toFixed(2)),
+      },
+      items: quoteItems,
+    };
+
+    const quoteToken = createOrderQuoteToken(quotePayload);
+
+    return res.json({
+      message: "Checkout quote generated",
+      quote: {
+        quote_id: quoteId,
+        quote_token: quoteToken,
+        generated_at: generatedAt,
+        expires_at: expiresAt,
+        payment_method,
+        distance_km: quotePayload.route.distance_km,
+        estimated_duration_min: quotePayload.route.estimated_duration_min,
+        delivery: quotePayload.delivery,
+        pricing: {
+          subtotal: subtotalAmount,
+          service_fee: serviceFeeAmount,
+          delivery_fee: deliveryFeeAmount,
+          total_amount: totalAmount,
+          admin_subtotal: Number(adminSubtotal.toFixed(2)),
+          commission_total: Number(commissionTotal.toFixed(2)),
+        },
+        required_min_subtotal: requiredMinSubtotal,
+        launch_promo: {
+          applied: launchPromoApplied,
+          discount_amount: Number(launchPromoDiscount.toFixed(2)),
+          normal_delivery_fee: Number(normalDeliveryFee.toFixed(2)),
+          applied_delivery_fee: deliveryFeeAmount,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Quote generation error:", error);
+    return res
+      .status(500)
+      .json({ message: "Server error generating checkout quote" });
+  }
+});
+
 // ============================================================================
 // POST /orders/place - Place a new order
 // ============================================================================
@@ -290,6 +878,7 @@ router.post("/place", authenticate, async (req, res) => {
     checkout_service_fee,
     checkout_delivery_fee,
     checkout_total_amount,
+    quote_token,
   } = req.body;
 
   // Validate required fields
@@ -306,6 +895,25 @@ router.post("/place", authenticate, async (req, res) => {
     return res
       .status(400)
       .json({ message: "Valid payment method is required" });
+  }
+
+  let validatedQuote = null;
+  if (typeof quote_token === "string" && quote_token.trim()) {
+    const quoteVerification = verifyOrderQuoteToken(quote_token.trim());
+    if (!quoteVerification.valid) {
+      const errorType = quoteVerification.error_type || "quote_invalid";
+      const message =
+        errorType === "quote_expired"
+          ? "Checkout quote expired. Please refresh checkout and place again."
+          : "Checkout quote is invalid. Please refresh checkout and try again.";
+
+      return res.status(409).json({
+        message,
+        error_type: errorType,
+      });
+    }
+
+    validatedQuote = quoteVerification.payload;
   }
 
   let cartLocked = false;
@@ -355,6 +963,533 @@ router.post("/place", authenticate, async (req, res) => {
 
     if (cart.status !== "active") {
       return res.status(400).json({ message: "Cart is not active" });
+    }
+
+    if (validatedQuote) {
+      if (String(validatedQuote.customer_id) !== String(customerId)) {
+        return res.status(403).json({
+          message: "Quote does not belong to this customer",
+          error_type: "quote_invalid",
+        });
+      }
+
+      if (String(validatedQuote.cart_id) !== String(cartId)) {
+        return res.status(400).json({
+          message: "Quote does not match the selected cart",
+          error_type: "quote_invalid",
+        });
+      }
+
+      if (String(validatedQuote.restaurant_id) !== String(cart.restaurant_id)) {
+        return res.status(409).json({
+          message: "Quote is stale. Please refresh checkout and try again.",
+          error_type: "quote_invalid",
+        });
+      }
+
+      if (
+        validatedQuote.payment_method &&
+        String(validatedQuote.payment_method) !== String(payment_method)
+      ) {
+        return res.status(400).json({
+          message:
+            "Payment method changed after quote generation. Please refresh checkout.",
+          error_type: "quote_invalid",
+        });
+      }
+
+      const { data: currentCartItems, error: currentItemsError } =
+        await supabaseAdmin
+          .from("cart_items")
+          .select(
+            `
+            id,
+            food_id,
+            food_name,
+            food_image_url,
+            size,
+            quantity,
+            foods (
+              id,
+              is_available
+            )
+          `,
+          )
+          .eq("cart_id", cartId);
+
+      if (currentItemsError) {
+        console.error("Current cart items fetch error:", currentItemsError);
+        return res.status(500).json({ message: "Failed to fetch cart items" });
+      }
+
+      if (!currentCartItems || currentCartItems.length === 0) {
+        return res.status(400).json({ message: "Cart is empty" });
+      }
+
+      const unavailableFoodIds = currentCartItems
+        .filter((item) => item.foods && !item.foods.is_available)
+        .map((item) => item.food_name);
+      if (unavailableFoodIds.length > 0) {
+        return res.status(400).json({
+          message: `Cannot place order. The following item(s) are currently unavailable: ${unavailableFoodIds.join(", ")}. Please remove them from your cart first.`,
+          unavailable_items: unavailableFoodIds,
+        });
+      }
+
+      const currentCartFingerprint = buildCartFingerprint(currentCartItems);
+      if (
+        !validatedQuote.cart_fingerprint ||
+        validatedQuote.cart_fingerprint !== currentCartFingerprint
+      ) {
+        return res.status(409).json({
+          message:
+            "Your cart changed after the quote was generated. Please review checkout and place again.",
+          error_type: "quote_cart_changed",
+        });
+      }
+
+      const quoteDelivery = validatedQuote.delivery || {};
+      const quotedLat = Number(quoteDelivery.latitude);
+      const quotedLng = Number(quoteDelivery.longitude);
+      const quotedAddress = String(quoteDelivery.address || "").trim();
+      const quotedCity = String(quoteDelivery.city || "").trim();
+
+      if (
+        !Number.isFinite(quotedLat) ||
+        !Number.isFinite(quotedLng) ||
+        quotedLat < -90 ||
+        quotedLat > 90 ||
+        quotedLng < -180 ||
+        quotedLng > 180 ||
+        !quotedAddress ||
+        !quotedCity
+      ) {
+        return res.status(409).json({
+          message: "Checkout quote is invalid. Please refresh checkout.",
+          error_type: "quote_invalid",
+        });
+      }
+
+      const quoteRoute = validatedQuote.route || {};
+      const quotedDistanceKm = Number(quoteRoute.distance_km);
+      const quotedEtaMin = Number(quoteRoute.estimated_duration_min);
+      if (
+        !Number.isFinite(quotedDistanceKm) ||
+        quotedDistanceKm < 0 ||
+        !Number.isFinite(quotedEtaMin) ||
+        quotedEtaMin < 0
+      ) {
+        return res.status(409).json({
+          message: "Checkout quote is invalid. Please refresh checkout.",
+          error_type: "quote_invalid",
+        });
+      }
+
+      const quoteItemsRaw = Array.isArray(validatedQuote.items)
+        ? validatedQuote.items
+        : [];
+      if (quoteItemsRaw.length === 0) {
+        return res.status(409).json({
+          message: "Checkout quote is invalid. Please refresh checkout.",
+          error_type: "quote_invalid",
+        });
+      }
+
+      const processedItems = quoteItemsRaw.map((item) => {
+        const quantity = Number(item.quantity || 1);
+        const customerUnitPrice = roundMoney(item.customer_unit_price);
+        const adminUnitPrice = roundMoney(item.admin_unit_price);
+        const customerTotalPrice = roundMoney(
+          item.customer_total_price ?? customerUnitPrice * quantity,
+        );
+        const adminTotalPrice = roundMoney(
+          item.admin_total_price ?? adminUnitPrice * quantity,
+        );
+        const commissionPerItem = roundMoney(
+          item.commission_per_item ?? customerUnitPrice - adminUnitPrice,
+        );
+
+        return {
+          food_id: item.food_id,
+          food_name: String(item.food_name || "Item"),
+          food_image_url: item.food_image_url || null,
+          size: item.size || "regular",
+          quantity,
+          customer_unit_price: customerUnitPrice,
+          customer_total_price: customerTotalPrice,
+          admin_unit_price: adminUnitPrice,
+          admin_total_price: adminTotalPrice,
+          commission_per_item: commissionPerItem,
+        };
+      });
+
+      const hasInvalidQuoteItems = processedItems.some(
+        (item) =>
+          !item.food_id ||
+          !Number.isFinite(item.quantity) ||
+          item.quantity < 1 ||
+          !Number.isFinite(item.customer_unit_price) ||
+          !Number.isFinite(item.customer_total_price) ||
+          !Number.isFinite(item.admin_unit_price) ||
+          !Number.isFinite(item.admin_total_price) ||
+          !Number.isFinite(item.commission_per_item),
+      );
+
+      if (hasInvalidQuoteItems) {
+        return res.status(409).json({
+          message: "Checkout quote is invalid. Please refresh checkout.",
+          error_type: "quote_invalid",
+        });
+      }
+
+      const computedCustomerSubtotal = roundMoney(
+        processedItems.reduce(
+          (sum, item) => sum + item.customer_total_price,
+          0,
+        ),
+      );
+      const computedAdminSubtotal = roundMoney(
+        processedItems.reduce((sum, item) => sum + item.admin_total_price, 0),
+      );
+      const computedCommissionTotal = roundMoney(
+        processedItems.reduce(
+          (sum, item) => sum + item.commission_per_item * item.quantity,
+          0,
+        ),
+      );
+
+      const quotePricing = validatedQuote.pricing || {};
+      const subtotalAmount = roundMoney(quotePricing.subtotal);
+      const adminSubtotal = roundMoney(
+        quotePricing.admin_subtotal ?? computedAdminSubtotal,
+      );
+      const commissionTotal = roundMoney(
+        quotePricing.commission_total ?? computedCommissionTotal,
+      );
+      const serviceFeeAmount = roundMoney(quotePricing.service_fee);
+      const deliveryFeeAmount = roundMoney(quotePricing.delivery_fee);
+      const totalAmount = roundMoney(quotePricing.total_amount);
+
+      if (
+        !Number.isFinite(subtotalAmount) ||
+        !Number.isFinite(adminSubtotal) ||
+        !Number.isFinite(commissionTotal) ||
+        !Number.isFinite(serviceFeeAmount) ||
+        !Number.isFinite(deliveryFeeAmount) ||
+        !Number.isFinite(totalAmount)
+      ) {
+        return res.status(409).json({
+          message: "Checkout quote is invalid. Please refresh checkout.",
+          error_type: "quote_invalid",
+        });
+      }
+
+      const computedTotalFromPricing = roundMoney(
+        subtotalAmount + serviceFeeAmount + deliveryFeeAmount,
+      );
+      if (
+        Math.abs(subtotalAmount - computedCustomerSubtotal) > 0.05 ||
+        Math.abs(adminSubtotal - computedAdminSubtotal) > 0.05 ||
+        Math.abs(commissionTotal - computedCommissionTotal) > 0.05 ||
+        Math.abs(totalAmount - computedTotalFromPricing) > 0.05
+      ) {
+        return res.status(409).json({
+          message: "Checkout quote is invalid. Please refresh checkout.",
+          error_type: "quote_invalid",
+        });
+      }
+
+      const launchPromoApplied = Boolean(quotePricing.launch_promo_applied);
+      const launchPromoDiscount = roundMoney(
+        quotePricing.launch_promo_discount || 0,
+      );
+      const normalDeliveryFee = roundMoney(
+        quotePricing.normal_delivery_fee ?? deliveryFeeAmount,
+      );
+
+      if (
+        !Number.isFinite(launchPromoDiscount) ||
+        !Number.isFinite(normalDeliveryFee)
+      ) {
+        return res.status(409).json({
+          message: "Checkout quote is invalid. Please refresh checkout.",
+          error_type: "quote_invalid",
+        });
+      }
+
+      const { data: restaurant, error: restaurantError } = await supabaseAdmin
+        .from("restaurants")
+        .select(
+          `
+          id,
+          restaurant_name,
+          address,
+          city,
+          latitude,
+          longitude
+        `,
+        )
+        .eq("id", cart.restaurant_id)
+        .single();
+
+      if (restaurantError || !restaurant) {
+        console.error("Restaurant fetch error:", restaurantError);
+        return res.status(404).json({ message: "Restaurant not found" });
+      }
+
+      const { data: customer, error: customerError } = await supabaseAdmin
+        .from("customers")
+        .select(
+          "id, username, phone, email, address, city, latitude, longitude",
+        )
+        .eq("id", customerId)
+        .single();
+
+      if (customerError || !customer) {
+        console.error("Customer fetch error:", customerError);
+        return res.status(404).json({ message: "Customer not found" });
+      }
+
+      const { data: lockedCart, error: lockError } = await supabaseAdmin
+        .from("carts")
+        .update({ status: "completed", updated_at: new Date().toISOString() })
+        .eq("id", cartId)
+        .eq("customer_id", customerId)
+        .eq("status", "active")
+        .select("id")
+        .maybeSingle();
+
+      if (lockError) {
+        console.error("Cart lock error:", lockError);
+        return res
+          .status(409)
+          .json({ message: "Order is being processed, please wait" });
+      }
+
+      if (!lockedCart) {
+        const { data: existingOrder } = await supabaseAdmin
+          .from("orders")
+          .select("id, order_number, status, total_amount, placed_at")
+          .eq("customer_id", customerId)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .single();
+
+        return res.status(409).json({
+          message: "This order has already been placed",
+          order: existingOrder || null,
+        });
+      }
+
+      cartLocked = true;
+
+      const orderNumber = await generateOrderNumber();
+
+      delivery_latitude = quotedLat;
+      delivery_longitude = quotedLng;
+      delivery_address = quotedAddress;
+      delivery_city = quotedCity;
+      distance_km = quotedDistanceKm;
+      estimated_duration_min = quotedEtaMin;
+
+      const baseOrderPayload = {
+        order_number: orderNumber,
+        customer_id: customerId,
+        customer_name: customer.username || "Customer",
+        customer_phone: customer.phone || "",
+        customer_email: customer.email,
+        restaurant_id: restaurant.id,
+        restaurant_name: restaurant.restaurant_name,
+        restaurant_address: restaurant.address,
+        restaurant_latitude: restaurant.latitude,
+        restaurant_longitude: restaurant.longitude,
+        delivery_address: delivery_address,
+        delivery_city: delivery_city || "",
+        delivery_latitude: delivery_latitude,
+        delivery_longitude: delivery_longitude,
+        subtotal: subtotalAmount.toFixed(2),
+        admin_subtotal: adminSubtotal.toFixed(2),
+        commission_total: commissionTotal.toFixed(2),
+        delivery_fee: deliveryFeeAmount.toFixed(2),
+        service_fee: serviceFeeAmount.toFixed(2),
+        total_amount: totalAmount.toFixed(2),
+        distance_km: distance_km.toFixed(2),
+        estimated_duration_min: Math.ceil(estimated_duration_min),
+        payment_method: payment_method,
+        payment_status: payment_method === "cash" ? "pending" : "pending",
+        placed_at: new Date().toISOString(),
+      };
+
+      const orderPayloadWithPromo = {
+        ...baseOrderPayload,
+        launch_promo_applied: launchPromoApplied,
+        launch_promo_discount: launchPromoDiscount.toFixed(2),
+        launch_promo_delivery_fee: launchPromoApplied
+          ? deliveryFeeAmount.toFixed(2)
+          : null,
+      };
+
+      let orderInsertResult = await supabaseAdmin
+        .from("orders")
+        .insert(orderPayloadWithPromo)
+        .select()
+        .single();
+
+      if (isMissingLaunchPromoOrderColumnError(orderInsertResult.error)) {
+        orderInsertResult = await supabaseAdmin
+          .from("orders")
+          .insert(baseOrderPayload)
+          .select()
+          .single();
+      }
+
+      const { data: order, error: orderError } = orderInsertResult;
+
+      if (orderError) {
+        console.error("Order insert error:", orderError);
+        await supabaseAdmin
+          .from("carts")
+          .update({ status: "active" })
+          .eq("id", cartId);
+        cartLocked = false;
+        return res.status(500).json({ message: "Failed to create order" });
+      }
+
+      const orderItems = processedItems.map((item) => ({
+        order_id: order.id,
+        food_id: item.food_id,
+        food_name: item.food_name,
+        food_image_url: item.food_image_url,
+        size: item.size || "regular",
+        quantity: item.quantity,
+        unit_price: item.customer_unit_price,
+        total_price: item.customer_total_price,
+        admin_unit_price: item.admin_unit_price,
+        admin_total_price: item.admin_total_price,
+        commission_per_item: item.commission_per_item,
+      }));
+
+      const { error: itemsInsertError } = await supabaseAdmin
+        .from("order_items")
+        .insert(orderItems);
+
+      if (itemsInsertError) {
+        console.error("Order items insert error:", itemsInsertError);
+        await supabaseAdmin.from("orders").delete().eq("id", order.id);
+        await supabaseAdmin
+          .from("carts")
+          .update({ status: "active" })
+          .eq("id", cartId);
+        cartLocked = false;
+        return res
+          .status(500)
+          .json({ message: "Failed to create order items" });
+      }
+
+      const { error: deliveryError } = await supabaseAdmin
+        .from("deliveries")
+        .insert({
+          order_id: order.id,
+          status: "placed",
+        });
+
+      if (deliveryError) {
+        console.error("Delivery insert error:", deliveryError);
+      }
+
+      const { data: admins } = await supabaseAdmin
+        .from("admins")
+        .select("id")
+        .eq("restaurant_id", restaurant.id);
+
+      if (admins && admins.length > 0) {
+        const itemsSummary = processedItems
+          .map((item) => {
+            const size =
+              item.size && item.size !== "regular" ? ` (${item.size})` : "";
+            return `${item.quantity}x ${item.food_name}${size}`;
+          })
+          .join(", ");
+
+        const itemDetails = processedItems.map((item) => ({
+          food_name: item.food_name,
+          size: item.size || "regular",
+          quantity: Number(item.quantity || 1),
+          unit_price: Number(item.admin_unit_price || 0),
+          total_price: Number(item.admin_total_price || 0),
+          food_image: item.food_image_url || null,
+        }));
+
+        const firstItemImage = processedItems[0]?.food_image_url || null;
+        const firstItemSize = processedItems[0]?.size || "regular";
+
+        for (const admin of admins) {
+          notifyAdmin(admin.id, "order:new_order", {
+            type: "new_order",
+            title: "New Order Arrived!",
+            message: itemsSummary,
+            order_id: order.id,
+            order_number: orderNumber,
+            items_summary: itemsSummary,
+            items_count: processedItems.length,
+            items_details: itemDetails,
+            first_item_size: firstItemSize,
+            restaurant_total: parseFloat(adminSubtotal || 0),
+            total_amount: totalAmount,
+            customer_name: customer.username,
+            food_image: firstItemImage,
+            restaurant_id: restaurant.id,
+          });
+        }
+
+        const adminIds = admins.map((a) => a.id);
+        try {
+          const pushResult = await sendNewOrderNotification(
+            restaurant.id,
+            {
+              orderId: order.id,
+              orderNumber,
+              customerName: customer.username,
+              itemsCount: processedItems.length,
+              totalAmount,
+              restaurantAmount: adminSubtotal,
+              itemsSummary,
+            },
+            adminIds,
+          );
+          console.log("Push notification result:", JSON.stringify(pushResult));
+        } catch (err) {
+          console.error("Push notify error (non-fatal):", err);
+        }
+      }
+
+      return res.status(201).json({
+        message: "Order placed successfully",
+        order: {
+          id: order.id,
+          order_number: order.order_number,
+          restaurant_name: restaurant.restaurant_name,
+          items_count: processedItems.length,
+          subtotal: parseFloat(order.subtotal),
+          delivery_fee: parseFloat(order.delivery_fee),
+          service_fee: parseFloat(order.service_fee),
+          total_amount: parseFloat(order.total_amount),
+          launch_promo: {
+            applied: launchPromoApplied,
+            discount_amount: launchPromoDiscount,
+            normal_delivery_fee: Number(normalDeliveryFee.toFixed(2)),
+            applied_delivery_fee: Number(deliveryFeeAmount.toFixed(2)),
+          },
+          pricing_source: "quote",
+          quote_id: validatedQuote.quote_id || null,
+          pricing_adjusted: false,
+          checkout_pricing: null,
+          server_pricing: null,
+          payment_method: order.payment_method,
+          estimated_duration_min: order.estimated_duration_min,
+          placed_at: order.placed_at,
+        },
+      });
     }
 
     // NOTE: Cart lock intentionally happens after all validations/pricing checks.
@@ -1058,25 +2193,27 @@ router.post("/place", authenticate, async (req, res) => {
         "admins:",
         adminIds,
       );
-      sendNewOrderNotification(
-        restaurant.id,
-        {
-          orderId: order.id,
-          orderNumber,
-          customerName: customer.username,
-          itemsCount: processedItems.length,
-          totalAmount,
-          restaurantAmount: adminSubtotal, // restaurant's share (excl. commission/fees)
-          itemsSummary,
-        },
-        adminIds,
-      )
-        .then((result) => {
-          console.log("G�� Push notification result:", JSON.stringify(result));
-        })
-        .catch((err) => {
-          console.error("G�� Push notify error (non-fatal):", err);
-        });
+      try {
+        const pushResult = await sendNewOrderNotification(
+          restaurant.id,
+          {
+            orderId: order.id,
+            orderNumber,
+            customerName: customer.username,
+            itemsCount: processedItems.length,
+            totalAmount,
+            restaurantAmount: adminSubtotal, // restaurant's share (excl. commission/fees)
+            itemsSummary,
+          },
+          adminIds,
+        );
+        console.log(
+          "G�� Push notification result:",
+          JSON.stringify(pushResult),
+        );
+      } catch (err) {
+        console.error("G�� Push notify error (non-fatal):", err);
+      }
     } else {
       console.log("G��n+� No admins found for restaurant");
     }
@@ -1334,6 +2471,13 @@ router.get("/:id/delivery-status", authenticate, async (req, res) => {
   const orderId = req.params.id;
   const userId = req.user.id;
   const userRole = req.user.role;
+
+  res.set(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate",
+  );
+  res.set("Pragma", "no-cache");
+  res.set("Expires", "0");
 
   try {
     // Fetch order with delivery info including driver location
@@ -1805,6 +2949,39 @@ router.patch(
       console.log(
         `G�� Delivery ${deliveryId} status updated: ${currentDeliveryStatus} G�� ${targetDeliveryStatus}`,
       );
+
+      try {
+        const { data: restaurantAdmins, error: restaurantAdminsError } =
+          await supabaseAdmin
+            .from("admins")
+            .select("id")
+            .eq("restaurant_id", admin.restaurant_id);
+
+        if (restaurantAdminsError) {
+          console.error(
+            "Failed to fetch restaurant admins for realtime status event:",
+            restaurantAdminsError,
+          );
+        } else {
+          (restaurantAdmins || []).forEach((restaurantAdmin) => {
+            notifyAdmin(restaurantAdmin.id, "order:status_changed", {
+              type: "order_status_update",
+              order_id: orderId,
+              delivery_id: deliveryId,
+              order_number: order.order_number,
+              status: targetDeliveryStatus,
+              previous_status: currentDeliveryStatus,
+              reason: reason || null,
+              source: "admin_status_update",
+            });
+          });
+        }
+      } catch (emitError) {
+        console.error(
+          "Failed to emit realtime order status event to admins:",
+          emitError,
+        );
+      }
 
       // Create notification for customer
       // Map back to user-friendly status names

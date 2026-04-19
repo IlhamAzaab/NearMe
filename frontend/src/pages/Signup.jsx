@@ -262,6 +262,7 @@ export default function Signup() {
     <div
       className="min-h-screen flex items-center justify-center p-4 overflow-hidden relative"
       style={{
+        minHeight: "100dvh",
         background:
           "linear-gradient(155deg, #04753E 0%, #059B52 55%, #06C168 100%)",
       }}
@@ -272,7 +273,10 @@ export default function Signup() {
       <div className="absolute -bottom-24 -left-16 w-80 h-80 bg-emerald-300/35 rounded-full blur-3xl animate-blob animation-delay-2000" />
 
       {isTransitioning && (
-        <div className="fixed inset-0 z-50" style={{ background: "rgba(0,0,0,0.55)" }}>
+        <div
+          className="fixed inset-0 z-50"
+          style={{ background: "rgba(0,0,0,0.55)" }}
+        >
           <div className="absolute inset-0 flex flex-col items-center justify-center">
             <div className="relative w-32 h-32 mb-8">
               <div className="absolute inset-0 rounded-full border-4 border-white/20 animate-pulse" />
@@ -306,7 +310,8 @@ export default function Signup() {
         <div
           className="relative px-6 pt-8 pb-5 text-center overflow-hidden"
           style={{
-            background: "linear-gradient(180deg, #04753E 0%, #059B52 55%, #06C168 100%)",
+            background:
+              "linear-gradient(180deg, #04753E 0%, #059B52 55%, #06C168 100%)",
           }}
         >
           <div className="absolute -top-16 -right-10 w-48 h-48 rounded-full bg-white/10" />
@@ -322,7 +327,11 @@ export default function Signup() {
         </div>
 
         <div className="bg-white -mt-px">
-          <svg viewBox="0 0 500 48" preserveAspectRatio="none" className="w-full h-10">
+          <svg
+            viewBox="0 0 500 48"
+            preserveAspectRatio="none"
+            className="w-full h-10"
+          >
             <path d="M0 0 C120 60 380 -30 500 18 L500 0 Z" fill="#06C168" />
           </svg>
         </div>
@@ -371,7 +380,8 @@ export default function Signup() {
                 disabled={loading}
                 className="w-full mt-6 px-6 py-3 text-white font-bold rounded-xl transition-all duration-300 shadow-lg hover:shadow-2xl hover:shadow-emerald-300/50 hover:scale-[1.02] active:scale-95 disabled:opacity-75 flex items-center justify-center gap-2 animate-fade-in animation-delay-400 group relative overflow-hidden"
                 style={{
-                  background: "linear-gradient(to right, #06C168, #059B52, #04753E)",
+                  background:
+                    "linear-gradient(to right, #06C168, #059B52, #04753E)",
                 }}
               >
                 <div className="absolute inset-0 bg-white/20 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700" />
@@ -445,11 +455,14 @@ export default function Signup() {
                 </p>
                 {otpContext.expiresAt && (
                   <p className="text-xs text-gray-400 mt-1">
-                    Expires at {new Date(otpContext.expiresAt).toLocaleTimeString()}
+                    Expires at{" "}
+                    {new Date(otpContext.expiresAt).toLocaleTimeString()}
                   </p>
                 )}
                 {otpContext.devOtp && (
-                  <p className="text-xs text-emerald-600 mt-2">Dev OTP: {otpContext.devOtp}</p>
+                  <p className="text-xs text-emerald-600 mt-2">
+                    Dev OTP: {otpContext.devOtp}
+                  </p>
                 )}
               </div>
 
@@ -465,7 +478,9 @@ export default function Signup() {
                     autoComplete={index === 0 ? "one-time-code" : "off"}
                     maxLength={1}
                     value={digit}
-                    onChange={(event) => handleOtpChange(index, event.target.value)}
+                    onChange={(event) =>
+                      handleOtpChange(index, event.target.value)
+                    }
                     onKeyDown={(event) => handleOtpKeyDown(index, event)}
                     className="h-12 w-12 text-center text-lg font-semibold rounded-xl border border-gray-200 bg-gray-50 focus:outline-none focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100"
                   />
@@ -478,7 +493,8 @@ export default function Signup() {
                 onClick={handleVerifyOtp}
                 className="w-full mt-2 px-6 py-3 text-white font-bold rounded-xl transition-all duration-300 shadow-lg hover:shadow-2xl hover:shadow-emerald-300/50 hover:scale-[1.02] active:scale-95 disabled:opacity-75 flex items-center justify-center gap-2 relative overflow-hidden"
                 style={{
-                  background: "linear-gradient(to right, #06C168, #059B52, #04753E)",
+                  background:
+                    "linear-gradient(to right, #06C168, #059B52, #04753E)",
                 }}
               >
                 {otpLoading ? "Verifying OTP..." : "Verify OTP"}

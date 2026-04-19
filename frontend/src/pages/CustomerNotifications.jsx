@@ -56,18 +56,21 @@ export default function CustomerNotifications() {
         (payload) => {
           console.log("🆕 New customer notification received:", payload.new);
           const newNotif = payload.new;
-          queryClient.setQueryData(customerQueryKeys.notifications, (prev = []) => [
-            {
-              id: newNotif.id,
-              title: newNotif.title,
-              body: newNotif.body,
-              data: newNotif.data || {},
-              status: newNotif.status,
-              created_at: newNotif.sent_at || newNotif.created_at,
-              source: "notification_log",
-            },
-            ...prev,
-          ]);
+          queryClient.setQueryData(
+            customerQueryKeys.notifications,
+            (prev = []) => [
+              {
+                id: newNotif.id,
+                title: newNotif.title,
+                body: newNotif.body,
+                data: newNotif.data || {},
+                status: newNotif.status,
+                created_at: newNotif.sent_at || newNotif.created_at,
+                source: "notification_log",
+              },
+              ...prev,
+            ],
+          );
         },
       )
       .subscribe((status) => {
@@ -113,7 +116,7 @@ export default function CustomerNotifications() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 font-poppins pb-24 page-slide-up">
+    <div className="min-h-screen bg-gray-50 font-poppins page-slide-up">
       {/* Sticky Header */}
       <header className="sticky top-0 z-50 bg-white px-4 py-3 shadow-sm">
         <div className="max-w-6xl mx-auto">

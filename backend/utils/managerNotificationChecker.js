@@ -550,7 +550,7 @@ async function checkAdminOrderReminders() {
           Number(item.admin_unit_price || item.unit_price || 0),
       }));
 
-      const adminIds = adminsByRestaura
+      const adminIds = adminsByRestaura;
       nt[order.restaurant_id] || [];
       for (const adminId of adminIds) {
         const reminderKey = `${adminId}:${order.id}`;
@@ -605,7 +605,7 @@ async function checkAdminOrderReminders() {
         await sendPushNotification(adminId, {
           title: "⏰ Order Waiting Alert",
           body: `Order #${order.order_number || order.id?.slice(-6)} waiting ${waitingMinutes} mins: ${shortItemsSummary}`,
-          sound: "alarm",
+          sound: "alarm.mp3",
           channelId: "urgent_orders",
           sticky: true,
           data: {

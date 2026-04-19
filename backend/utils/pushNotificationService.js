@@ -16,6 +16,8 @@ import { supabaseAdmin } from "../supabaseAdmin.js";
 import { getEligibleDriverIdsForDeliveryNotifications } from "./driverNotificationEligibility.js";
 
 const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
+const ADMIN_ORDER_ALERT_SOUND = "alarm.mp3";
+const ADMIN_ORDER_ALERT_CHANNEL = "urgent_orders";
 
 /**
  * Send push notification via Expo Push API
@@ -577,8 +579,8 @@ export async function sendNewOrderNotification(
     const notification = {
       title: "New Order Received",
       body: `Order #${orderInfo.orderNumber} · Rs. ${Number(orderInfo.restaurantAmount ?? orderInfo.totalAmount).toFixed(2)} · ${itemsText}`,
-      sound: "default",
-      channelId: "urgent_orders",
+      sound: ADMIN_ORDER_ALERT_SOUND,
+      channelId: ADMIN_ORDER_ALERT_CHANNEL,
       sticky: true,
       data: {
         type: "new_order",
@@ -589,7 +591,7 @@ export async function sendNewOrderNotification(
         itemsSummary: orderInfo.itemsSummary || "",
         itemsCount: String(orderInfo.itemsCount || 0),
         screen: "AdminOrders",
-        channelId: "urgent_orders",
+        channelId: ADMIN_ORDER_ALERT_CHANNEL,
       },
     };
 
@@ -826,11 +828,12 @@ export async function sendDeliveryStatusToAdmin(restaurantId, info) {
       await sendPushNotification(admin.id, {
         title: "Delivery Update",
         body: msg,
+        sound: ADMIN_ORDER_ALERT_SOUND,
         data: {
           type: "delivery_status_update",
           orderNumber: info.orderNumber,
           status: info.status,
-          channelId: "orders",
+          channelId: ADMIN_ORDER_ALERT_CHANNEL,
         },
       });
     }

@@ -103,7 +103,9 @@ const Home = () => {
     enabled: isLoggedIn,
   });
   const cartCountQuery = useCustomerCartCount({ enabled: isLoggedIn });
-  const launchPromoQuery = useLaunchPromotionStatusQuery({ enabled: isLoggedIn });
+  const launchPromoQuery = useLaunchPromotionStatusQuery({
+    enabled: isLoggedIn,
+  });
   const acknowledgePromoMutation = useAcknowledgeLaunchPromotionMutation();
 
   const unreadCount = notificationsCountQuery.data || 0;
@@ -256,7 +258,7 @@ const Home = () => {
   const featuredRestaurant = restaurants[0];
 
   return (
-    <div className="min-h-screen bg-gray-50 font-poppins pb-24 page-slide-up">
+    <div className="min-h-screen bg-gray-50 font-poppins page-slide-up">
       {showLaunchPromoModal && launchPromo?.promotion && (
         <div className="fixed inset-0 z-70 bg-black/50 backdrop-blur-[1px] flex items-end sm:items-center justify-center p-4">
           <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden">
@@ -272,11 +274,11 @@ const Home = () => {
             <div className="p-5 space-y-3">
               <div className="bg-green-50 border border-green-100 rounded-xl p-3">
                 <p className="text-sm text-gray-700">
-                  Rs. {launchPromo.promotion.first_km_rate} per 1km up to {" "}
+                  Rs. {launchPromo.promotion.first_km_rate} per 1km up to{" "}
                   {launchPromo.promotion.max_km}km
                 </p>
                 <p className="text-xs text-gray-500 mt-1">
-                  Beyond {launchPromo.promotion.max_km}km: Rs. {" "}
+                  Beyond {launchPromo.promotion.max_km}km: Rs.{" "}
                   {launchPromo.promotion.beyond_km_rate} per 1km
                 </p>
               </div>
@@ -417,22 +419,22 @@ const Home = () => {
               <button
                 key={category.id}
                 onClick={() => {
-                      setSelectedCategory(category.name);
+                  setSelectedCategory(category.name);
                   setActiveTab("food");
                   setSearchQuery(category.name);
-                      setDebouncedSearch(category.name);
+                  setDebouncedSearch(category.name);
                 }}
                 className={`flex-shrink-0 flex flex-col items-center gap-2 p-4 rounded-2xl transition-all hover:-translate-y-1 min-w-[90px] ${
-                      selectedCategory === category.name
+                  selectedCategory === category.name
                     ? "bg-[#06C168] shadow-lg shadow-green-200"
                     : "bg-green-50 hover:shadow-md"
                 }`}
               >
                 <div className="w-14 h-14 flex items-center justify-center">
-                      <CategoryIcon category={category.name} />
+                  <CategoryIcon category={category.name} />
                 </div>
                 <span
-                      className={`text-sm font-medium ${selectedCategory === category.name ? "text-white" : "text-[#06C168]"}`}
+                  className={`text-sm font-medium ${selectedCategory === category.name ? "text-white" : "text-[#06C168]"}`}
                 >
                   {category.name}
                 </span>
@@ -993,7 +995,10 @@ const Home = () => {
       {cartCount > 0 && (
         <button
           onClick={() => navigate("/cart")}
-          className="fixed bottom-24 right-4 bg-[#06C168] text-white px-5 py-3 rounded-full shadow-xl shadow-green-300/40 flex items-center gap-2 hover:bg-green-600 transition-all z-50 hover:-translate-y-1"
+          className="fixed right-4 bg-[#06C168] text-white px-5 py-3 rounded-full shadow-xl shadow-green-300/40 flex items-center gap-2 hover:bg-green-600 transition-all z-50 hover:-translate-y-1"
+          style={{
+            bottom: "calc(var(--customer-bottom-nav-offset, 0px) + 16px)",
+          }}
         >
           <svg
             className="w-5 h-5"

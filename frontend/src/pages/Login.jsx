@@ -97,6 +97,7 @@ export default function Login() {
     <div
       className="min-h-screen flex items-center justify-center p-4 overflow-hidden relative"
       style={{
+        minHeight: "100dvh",
         background:
           "linear-gradient(155deg, #04753E 0%, #059B52 55%, #06C168 100%)",
       }}
@@ -107,7 +108,10 @@ export default function Login() {
 
       {/* Success transition overlay */}
       {isTransitioning && (
-        <div className="fixed inset-0 z-50" style={{ background: "rgba(0,0,0,0.55)" }}>
+        <div
+          className="fixed inset-0 z-50"
+          style={{ background: "rgba(0,0,0,0.55)" }}
+        >
           {/* Animated success checkmark */}
           <div className="absolute inset-0 flex flex-col items-center justify-center">
             <div className="relative w-32 h-32 mb-8">
@@ -144,7 +148,8 @@ export default function Login() {
         <div
           className="relative px-6 pt-8 pb-5 text-center overflow-hidden"
           style={{
-            background: "linear-gradient(180deg, #04753E 0%, #059B52 55%, #06C168 100%)",
+            background:
+              "linear-gradient(180deg, #04753E 0%, #059B52 55%, #06C168 100%)",
           }}
         >
           <div className="absolute -top-16 -right-10 w-48 h-48 rounded-full bg-white/10" />
@@ -161,7 +166,11 @@ export default function Login() {
 
         {/* Wave separator */}
         <div className="bg-white -mt-px">
-          <svg viewBox="0 0 500 48" preserveAspectRatio="none" className="w-full h-10">
+          <svg
+            viewBox="0 0 500 48"
+            preserveAspectRatio="none"
+            className="w-full h-10"
+          >
             <path d="M0 0 C120 60 380 -30 500 18 L500 0 Z" fill="#06C168" />
           </svg>
         </div>
@@ -169,7 +178,6 @@ export default function Login() {
         {/* Card content */}
         <div className="px-6 md:px-8 pb-8 bg-white">
           <div className="text-center mb-8">
-            
             <p className="text-sm text-gray-500 animate-fade-in animation-delay-200">
               Please sign in to continue
             </p>
@@ -244,7 +252,8 @@ export default function Login() {
               disabled={isLoading}
               className="w-full mt-6 px-6 py-3 text-white font-bold rounded-xl transition-all duration-300 shadow-lg hover:shadow-2xl hover:shadow-emerald-300/50 hover:scale-[1.02] active:scale-95 disabled:opacity-75 flex items-center justify-center gap-2 animate-fade-in animation-delay-400 group relative overflow-hidden"
               style={{
-                background: "linear-gradient(to right, #06C168, #059B52, #04753E)",
+                background:
+                  "linear-gradient(to right, #06C168, #059B52, #04753E)",
               }}
             >
               <div className="absolute inset-0 bg-white/20 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>

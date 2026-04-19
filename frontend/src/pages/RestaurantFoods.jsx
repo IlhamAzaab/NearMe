@@ -39,9 +39,13 @@ const RestaurantFoods = () => {
   });
   const addToCartMutation = useAddToCartMutation();
   const restaurantQuery = usePublicRestaurantQuery(restaurantId);
-  const foodsQuery = usePublicRestaurantFoodsQuery(restaurantId, debouncedSearch, {
-    enabled: Boolean(restaurantId),
-  });
+  const foodsQuery = usePublicRestaurantFoodsQuery(
+    restaurantId,
+    debouncedSearch,
+    {
+      enabled: Boolean(restaurantId),
+    },
+  );
 
   const restaurant = restaurantQuery.data;
   const foods = foodsQuery.data || [];
@@ -155,10 +159,10 @@ const RestaurantFoods = () => {
       setAddingToCart(food.id);
 
       await addToCartMutation.mutateAsync({
-          restaurant_id: restaurantId,
-          food_id: food.id,
-          size: "regular",
-          quantity: 1,
+        restaurant_id: restaurantId,
+        food_id: food.id,
+        size: "regular",
+        quantity: 1,
       });
 
       showSuccess("Added to cart!");
@@ -205,10 +209,10 @@ const RestaurantFoods = () => {
       setAddingToCart(food.id);
 
       await addToCartMutation.mutateAsync({
-          restaurant_id: restaurantId,
-          food_id: food.id,
-          size: "regular",
-          quantity: 1,
+        restaurant_id: restaurantId,
+        food_id: food.id,
+        size: "regular",
+        quantity: 1,
       });
 
       navigate("/cart");
@@ -221,7 +225,7 @@ const RestaurantFoods = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 font-poppins pb-24 page-slide-up">
+    <div className="min-h-screen bg-gray-50 font-poppins page-slide-up">
       {/* Top Header */}
       <header className="sticky top-0 z-50 bg-white px-4 py-3 shadow-sm">
         <div className="max-w-6xl mx-auto">
@@ -748,7 +752,10 @@ const RestaurantFoods = () => {
       {cartCount > 0 && (
         <button
           onClick={() => navigate("/cart")}
-          className="fixed bottom-24 right-4 bg-[#06C168] text-white px-5 py-3 rounded-full shadow-xl shadow-green-300/40 flex items-center gap-2 hover:bg-green-600 transition-all z-50 hover:-translate-y-1"
+          className="fixed right-4 bg-[#06C168] text-white px-5 py-3 rounded-full shadow-xl shadow-green-300/40 flex items-center gap-2 hover:bg-green-600 transition-all z-50 hover:-translate-y-1"
+          style={{
+            bottom: "calc(var(--customer-bottom-nav-offset, 0px) + 16px)",
+          }}
         >
           <svg
             className="w-5 h-5"

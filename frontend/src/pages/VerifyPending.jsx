@@ -148,7 +148,10 @@ export default function VerifyPending() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-green-50 px-4">
+    <div
+      className="min-h-screen flex items-center justify-center bg-green-50 px-4"
+      style={{ minHeight: "100dvh" }}
+    >
       {showLoginSuccess ? (
         <div className="fixed inset-0 bg-linear-to-br from-green-500 to-emerald-600 flex items-center justify-center z-50">
           <div className="text-center text-white">

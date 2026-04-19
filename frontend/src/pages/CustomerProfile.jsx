@@ -37,7 +37,7 @@ export default function CustomerProfile() {
   // Not logged in view
   if (!isLoggedIn && !loading) {
     return (
-      <div className="min-h-screen bg-gray-50 font-poppins pb-24 page-slide-up">
+      <div className="min-h-screen bg-gray-50 font-poppins page-slide-up">
         {/* Sticky Header */}
         <header className="sticky top-0 z-50 bg-white px-4 py-3 shadow-sm">
           <div className="max-w-6xl mx-auto">
@@ -118,7 +118,7 @@ export default function CustomerProfile() {
 
   // Logged in view
   return (
-    <div className="min-h-screen bg-gray-50 font-poppins pb-24 page-slide-up">
+    <div className="min-h-screen bg-gray-50 font-poppins page-slide-up">
       {/* Sticky Header */}
       <header className="sticky top-0 z-50 bg-white px-4 py-3 shadow-sm">
         <div className="max-w-6xl mx-auto">
