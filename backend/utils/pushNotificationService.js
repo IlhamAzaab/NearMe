@@ -149,6 +149,24 @@ export async function registerPushToken(
       };
     }
 
+    // For manager role, enforce single active device per manager user.
+    // This prevents stale previously logged-in devices from receiving alerts.
+    if (userType === "manager") {
+      const { error: deactivateError } = await supabaseAdmin
+        .from("push_notification_tokens")
+        .update({
+          is_active: false,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("user_id", userId)
+        .eq("user_type", "manager")
+        .neq("device_id", deviceId || "");
+
+      if (deactivateError) {
+        console.error("Error deactivating old manager device tokens:", deactivateError);
+      }
+    }
+
     const { data, error } = await supabaseAdmin
       .from("push_notification_tokens")
       .upsert(
@@ -940,7 +958,8 @@ export async function sendDriverPaymentNotification(driverId, paymentInfo) {
 export async function sendUnassignedDeliveryAlertToManagers(deliveryInfo) {
   try {
     console.log("🚨 sendUnassignedDeliveryAlertToManagers:", deliveryInfo);
-    return await sendBroadcastNotification("manager", {
+
+    const notification = {
       title: "Critical Alert: Unassigned Delivery",
       body: `Order #${deliveryInfo.orderNumber} from ${deliveryInfo.restaurantName} has no driver for ${deliveryInfo.waitingMinutes} minutes!`,
       sound: "default",
@@ -955,7 +974,39 @@ export async function sendUnassignedDeliveryAlertToManagers(deliveryInfo) {
         screen: "ManagerPendingDeliveries",
         channelId: "alerts",
       },
-    });
+    };
+
+    // Send only to the current active manager device (most recently updated active token).
+    // If no active manager device exists, do not send any push notification.
+    const { data: tokenRow, error: tokenError } = await supabaseAdmin
+      .from("push_notification_tokens")
+      .select("expo_push_token, user_id")
+      .eq("user_type", "manager")
+      .eq("is_active", true)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (tokenError) {
+      console.error("Error fetching active manager token:", tokenError);
+      return { success: false, error: tokenError.message || "Token lookup failed" };
+    }
+
+    if (!tokenRow?.expo_push_token) {
+      console.log("No active manager device found; skipping unassigned delivery push alert");
+      return { success: true, skipped: "no active manager device" };
+    }
+
+    const result = await sendExpoPushNotification(
+      [tokenRow.expo_push_token],
+      notification,
+    );
+
+    if (tokenRow.user_id) {
+      await logNotification(tokenRow.user_id, "manager", notification, result);
+    }
+
+    return result;
   } catch (error) {
     console.error("sendUnassignedDeliveryAlertToManagers error:", error);
     return { success: false, error: error.message };
