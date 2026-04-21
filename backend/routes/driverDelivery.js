@@ -2340,7 +2340,7 @@ router.patch(
       const { data: currentDelivery, error: fetchError } = await supabaseAdmin
         .from("deliveries")
         .select(
-          "status, order_id, current_latitude, current_longitude, orders (customer_id, restaurant_id, order_number, restaurant_latitude, restaurant_longitude, delivery_latitude, delivery_longitude)",
+          "status, order_id, picked_up_at, on_the_way_at, arrived_customer_at, current_latitude, current_longitude, orders (customer_id, restaurant_id, order_number, restaurant_latitude, restaurant_longitude, delivery_latitude, delivery_longitude)",
         )
         .eq("id", deliveryId)
         .eq("driver_id", req.user.id)
@@ -2365,8 +2365,8 @@ router.patch(
       // Validate state transitions
       const validTransitions = {
         accepted: ["picked_up"],
-        picked_up: ["on_the_way"],
-        on_the_way: ["at_customer"],
+        picked_up: ["on_the_way", "at_customer", "delivered"],
+        on_the_way: ["at_customer", "delivered"],
         at_customer: ["delivered"],
       };
 
@@ -2397,6 +2397,14 @@ router.patch(
       } else if (status === "at_customer") {
         updateData.arrived_customer_at = timestamp;
       } else if (status === "delivered") {
+        // Allow mobile fast-finish flow: if intermediate states were skipped,
+        // stamp them so timeline data remains complete.
+        if (!currentDelivery.on_the_way_at) {
+          updateData.on_the_way_at = timestamp;
+        }
+        if (!currentDelivery.arrived_customer_at) {
+          updateData.arrived_customer_at = timestamp;
+        }
         updateData.delivered_at = timestamp;
       }
 
@@ -3469,6 +3477,8 @@ router.get("/stats", authenticate, driverOnly, async (req, res) => {
 const availableDeliveriesCache = new Map();
 const AVAILABLE_CACHE_TTL_MS = 30 * 1000; // 30 seconds
 const AVAILABLE_CACHE_MOVE_THRESHOLD_M = 200; // Only recalculate if driver moved 200m+
+const AVAILABLE_RECALCULATION_TIMEOUT_MS = 15000;
+const AVAILABLE_STALE_FALLBACK_TTL_MS = 10 * 60 * 1000;
 
 const ACTIVE_DELIVERY_STATUSES = [
   "accepted",
@@ -3509,6 +3519,21 @@ function haversineDistanceSimple(lat1, lng1, lat2, lng2) {
       Math.sin(dLng / 2) *
       Math.sin(dLng / 2);
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function withComputationTimeout(promise, timeoutMs, timeoutMessage) {
+  let timeoutId;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      const timeoutError = new Error(timeoutMessage || "Computation timed out");
+      timeoutError.name = "ComputationTimeout";
+      reject(timeoutError);
+    }, timeoutMs);
+  });
+
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    clearTimeout(timeoutId);
+  });
 }
 
 router.get(
@@ -3632,24 +3657,28 @@ router.get(
     console.log(`${"=".repeat(100)}`);
 
     try {
-      const availableDeliveries = await getAvailableDeliveriesForDriver(
-        driverId,
-        lat,
-        lng,
-        getRouteDistance, // Pass the OSRM helper function
-        {
-          trigger: {
-            pendingSignature,
-            activeSignature,
-            reason: normalizedTriggerReason,
-            forceRecalculateAll:
-              forceFullRecalculationByTrigger ||
-              (cached && lat && lng
-                ? haversineDistanceSimple(cached.lat, cached.lng, lat, lng) >=
-                  AVAILABLE_CACHE_MOVE_THRESHOLD_M
-                : false),
+      const availableDeliveries = await withComputationTimeout(
+        getAvailableDeliveriesForDriver(
+          driverId,
+          lat,
+          lng,
+          getRouteDistance, // Pass the OSRM helper function
+          {
+            trigger: {
+              pendingSignature,
+              activeSignature,
+              reason: normalizedTriggerReason,
+              forceRecalculateAll:
+                forceFullRecalculationByTrigger ||
+                (cached && lat && lng
+                  ? haversineDistanceSimple(cached.lat, cached.lng, lat, lng) >=
+                    AVAILABLE_CACHE_MOVE_THRESHOLD_M
+                  : false),
+            },
           },
-        },
+        ),
+        AVAILABLE_RECALCULATION_TIMEOUT_MS,
+        "Available deliveries computation timed out",
       );
 
       // Store in cache
@@ -3684,6 +3713,56 @@ router.get(
     } catch (error) {
       console.error(`[ENDPOINT] ❌ Error: ${error.message}`);
       console.error(error.stack);
+
+      const cachedAge = cached ? Date.now() - cached.timestamp : null;
+      const canServeStaleCache =
+        cached &&
+        cached.result &&
+        typeof cachedAge === "number" &&
+        cachedAge < AVAILABLE_STALE_FALLBACK_TTL_MS;
+
+      if (canServeStaleCache) {
+        console.warn(
+          `[ENDPOINT] ⚠️ Serving stale available deliveries cache (age=${Math.round(cachedAge / 1000)}s) due to error: ${error.message}`,
+        );
+        return res.json({
+          ...cached.result,
+          telemetry: {
+            ...(cached.result?.telemetry || {}),
+            trigger_reason: normalizedTriggerReason || "none",
+            cache_hit: true,
+            stale_cache: true,
+            fallback_reason: error.message,
+            cache_age_seconds: Math.round(cachedAge / 1000),
+          },
+        });
+      }
+
+      if (error?.name === "ComputationTimeout") {
+        return res.json({
+          available_deliveries: [],
+          total_available: 0,
+          driver_location:
+            Number.isFinite(lat) && Number.isFinite(lng)
+              ? {
+                  latitude: lat,
+                  longitude: lng,
+                }
+              : null,
+          current_route: {
+            total_stops: 0,
+            active_deliveries: 0,
+          },
+          message: "Temporarily unable to recalculate available deliveries",
+          telemetry: {
+            trigger_reason: normalizedTriggerReason || "none",
+            cache_hit: false,
+            degraded_mode: true,
+            fallback_reason: error.message,
+          },
+        });
+      }
+
       return res.status(500).json({
         message: "Failed to fetch available deliveries",
         error: error.message,
