@@ -94,6 +94,93 @@ function pickBestPhoneMatch(users, candidates) {
   )[0];
 }
 
+function normalizeEmailIdentifier(rawValue) {
+  const normalizedEmail = String(rawValue || "")
+    .trim()
+    .toLowerCase();
+  return normalizedEmail || null;
+}
+
+function isDuplicateAuthEmailError(error) {
+  const message = String(error?.message || "").toLowerCase();
+  const code = String(error?.code || "").toLowerCase();
+
+  return (
+    message.includes("already been registered") ||
+    message.includes("already registered") ||
+    message.includes("already in use") ||
+    code.includes("email_exists")
+  );
+}
+
+async function isEmailRegisteredInAuthUsers(email, { excludeUserId } = {}) {
+  const normalizedEmail = normalizeEmailIdentifier(email);
+  if (!normalizedEmail) {
+    return {
+      registered: false,
+      normalizedEmail: null,
+      userId: null,
+    };
+  }
+
+  let page = 1;
+  const perPage = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers({
+      page,
+      perPage,
+    });
+
+    if (error) {
+      throw appError(
+        500,
+        "Failed to validate email against auth users",
+        "AUTH_USERS_EMAIL_LOOKUP_FAILED",
+        {
+          providerMessage: error.message,
+          providerStatus: error.status || null,
+          providerCode: error.code || null,
+        },
+      );
+    }
+
+    const users = data?.users || [];
+    const matchedUser = users.find((user) => {
+      const candidateEmail = normalizeEmailIdentifier(user?.email);
+      if (!candidateEmail || candidateEmail !== normalizedEmail) {
+        return false;
+      }
+
+      if (excludeUserId && String(user?.id || "") === String(excludeUserId)) {
+        return false;
+      }
+
+      return true;
+    });
+
+    if (matchedUser) {
+      return {
+        registered: true,
+        normalizedEmail,
+        userId: matchedUser.id,
+      };
+    }
+
+    if (users.length < perPage) {
+      break;
+    }
+
+    page += 1;
+  }
+
+  return {
+    registered: false,
+    normalizedEmail,
+    userId: null,
+  };
+}
+
 async function canonicalizeUserPhone(userId, normalizedPhone) {
   const { error } = await supabaseAdmin
     .from("users")
@@ -552,7 +639,10 @@ export async function completeCustomerProfile({
   longitude,
 }) {
   const normalizedName = String(name || "").trim();
-  const normalizedEmail = email.toLowerCase().trim();
+  const normalizedEmail = normalizeEmailIdentifier(email);
+  if (!normalizedEmail) {
+    throw appError(400, "Email is required", "EMAIL_REQUIRED");
+  }
   const normalizedPassword = String(password || "");
   const normalizedCity =
     typeof city === "string" && city.trim() ? city.trim() : null;
@@ -648,11 +738,44 @@ export async function completeCustomerProfile({
     );
   }
 
+  const authUsersEmailState = await isEmailRegisteredInAuthUsers(
+    normalizedEmail,
+    {
+      excludeUserId: userId,
+    },
+  );
+  if (authUsersEmailState.registered) {
+    throw appError(409, "Email is already in use", "DUPLICATE_EMAIL");
+  }
+
+  const { data: duplicateLegacyUserEmail, error: duplicateLegacyUserError } =
+    await supabaseAdmin
+      .from("users")
+      .select("id")
+      .ilike("email", normalizedEmail)
+      .neq("id", userId)
+      .limit(1)
+      .maybeSingle();
+
+  if (duplicateLegacyUserError) {
+    throw appError(500, "Failed to validate email", "DB_QUERY_FAILED", {
+      dbMessage: duplicateLegacyUserError.message,
+      dbHint: duplicateLegacyUserError.hint || null,
+      dbDetails: duplicateLegacyUserError.details || null,
+      dbCode: duplicateLegacyUserError.code || null,
+    });
+  }
+
+  if (duplicateLegacyUserEmail) {
+    throw appError(409, "Email is already in use", "DUPLICATE_EMAIL");
+  }
+
   const { data: duplicateEmail, error: duplicateError } = await supabaseAdmin
     .from("customers")
     .select("id")
-    .eq("email", normalizedEmail)
+    .ilike("email", normalizedEmail)
     .neq("id", userId)
+    .limit(1)
     .maybeSingle();
 
   if (duplicateError) {
@@ -677,6 +800,10 @@ export async function completeCustomerProfile({
     });
 
   if (authCredsUpdateError) {
+    if (isDuplicateAuthEmailError(authCredsUpdateError)) {
+      throw appError(409, "Email is already in use", "DUPLICATE_EMAIL");
+    }
+
     throw appError(
       500,
       "Failed to update auth credentials",
