@@ -2320,7 +2320,10 @@ router.patch(
   driverOnly,
   async (req, res) => {
     const deliveryId = req.params.id;
-    const { status, latitude, longitude } = req.body || {};
+    const requestedStatus = String(req.body?.status || "")
+      .trim()
+      .toLowerCase();
+    const { latitude, longitude } = req.body || {};
 
     const validStatuses = [
       "picked_up",
@@ -2329,7 +2332,7 @@ router.patch(
       "delivered",
     ];
 
-    if (!status || !validStatuses.includes(status)) {
+    if (!requestedStatus || !validStatuses.includes(requestedStatus)) {
       return res.status(400).json({
         message: `Invalid status. Must be one of: ${validStatuses.join(", ")}`,
       });
@@ -2350,13 +2353,17 @@ router.patch(
         return res.status(404).json({ message: "Delivery not found" });
       }
 
+      const currentStatus = String(currentDelivery.status || "")
+        .trim()
+        .toLowerCase();
+
       // Idempotent success: duplicate updates can happen on touch/mouse gesture retries.
-      if (currentDelivery.status === status) {
+      if (currentStatus === requestedStatus) {
         return res.json({
           message: "Status already up to date",
           delivery: {
             id: deliveryId,
-            status: currentDelivery.status,
+            status: currentStatus,
           },
           promotedDelivery: null,
         });
@@ -2365,19 +2372,19 @@ router.patch(
       // Validate state transitions
       const validTransitions = {
         accepted: ["picked_up"],
-        picked_up: ["on_the_way", "at_customer", "delivered"],
-        on_the_way: ["at_customer", "delivered"],
+        picked_up: ["on_the_way", "delivered"],
+        on_the_way: ["delivered"],
         at_customer: ["delivered"],
       };
 
-      const allowedNextStates = validTransitions[currentDelivery.status] || [];
-      if (!allowedNextStates.includes(status)) {
+      const allowedNextStates = validTransitions[currentStatus] || [];
+      if (!allowedNextStates.includes(requestedStatus)) {
         return res.status(400).json({
-          message: `Cannot transition from '${currentDelivery.status}' to '${status}'`,
+          message: `Cannot transition from '${currentStatus}' to '${requestedStatus}'`,
         });
       }
 
-      const updateData = { status };
+      const updateData = { status: requestedStatus };
 
       // If the driver sent a fresh location with the status update, persist it for routing
       const hasLat = Number.isFinite(Number(latitude));
@@ -2390,20 +2397,17 @@ router.patch(
 
       // Set timestamps for status transitions
       const timestamp = new Date().toISOString();
-      if (status === "picked_up") {
+      if (requestedStatus === "picked_up") {
         updateData.picked_up_at = timestamp;
-      } else if (status === "on_the_way") {
+      } else if (requestedStatus === "on_the_way") {
         updateData.on_the_way_at = timestamp;
-      } else if (status === "at_customer") {
+      } else if (requestedStatus === "at_customer") {
         updateData.arrived_customer_at = timestamp;
-      } else if (status === "delivered") {
+      } else if (requestedStatus === "delivered") {
         // Allow mobile fast-finish flow: if intermediate states were skipped,
         // stamp them so timeline data remains complete.
         if (!currentDelivery.on_the_way_at) {
           updateData.on_the_way_at = timestamp;
-        }
-        if (!currentDelivery.arrived_customer_at) {
-          updateData.arrived_customer_at = timestamp;
         }
         updateData.delivered_at = timestamp;
       }
@@ -2427,7 +2431,7 @@ router.patch(
       }
 
       // Update order payment status when delivered
-      if (status === "delivered") {
+      if (requestedStatus === "delivered") {
         await supabaseAdmin
           .from("orders")
           .update({
@@ -2665,7 +2669,7 @@ router.patch(
         },
       };
 
-      const messages = statusMessages[status];
+      const messages = statusMessages[requestedStatus];
       if (messages && currentDelivery.orders) {
         if (currentDelivery.orders.customer_id) {
           notifications.push({
@@ -2676,7 +2680,7 @@ router.patch(
             metadata: JSON.stringify({
               order_id: delivery.order_id,
               delivery_id: delivery.id,
-              status,
+              status: requestedStatus,
               order_number: currentDelivery.orders.order_number,
             }),
           });
@@ -2690,7 +2694,7 @@ router.patch(
             metadata: JSON.stringify({
               order_id: delivery.order_id,
               delivery_id: delivery.id,
-              status,
+              status: requestedStatus,
               order_number: currentDelivery.orders.order_number,
             }),
           });
@@ -2714,7 +2718,7 @@ router.patch(
 
         // Calculate updated ETA on status change
         let etaData = null;
-        if (status !== "delivered") {
+        if (requestedStatus !== "delivered") {
           const dLat = hasLat
             ? Number(latitude)
             : parseFloat(currentDelivery.current_latitude);
@@ -2739,7 +2743,7 @@ router.patch(
             order_id: delivery.order_id,
             delivery_id: delivery.id,
             order_number: currentDelivery.orders.order_number,
-            status: status,
+            status: requestedStatus,
             eta: etaData
               ? {
                   etaMinutes: etaData.etaMinutes,
@@ -2753,7 +2757,7 @@ router.patch(
         );
 
         // Also broadcast updated ETAs to ALL customers of this driver
-        if (status !== "delivered") {
+        if (requestedStatus !== "delivered") {
           const dLat2 = hasLat
             ? Number(latitude)
             : parseFloat(currentDelivery.current_latitude);
@@ -2793,19 +2797,19 @@ router.patch(
         sendDeliveryStatusNotification(currentDelivery.orders.customer_id, {
           orderId: delivery.order_id,
           orderNumber: currentDelivery.orders.order_number,
-          status,
+          status: requestedStatus,
         }).catch((err) =>
           console.error("Push delivery status error (non-fatal):", err),
         );
 
         // 📱 PUSH: Also notify restaurant admin of key delivery events
         if (
-          ["picked_up", "delivered"].includes(status) &&
+          ["picked_up", "delivered"].includes(requestedStatus) &&
           currentDelivery.orders.restaurant_id
         ) {
           sendDeliveryStatusToAdmin(currentDelivery.orders.restaurant_id, {
             orderNumber: currentDelivery.orders.order_number,
-            status,
+            status: requestedStatus,
           }).catch((err) =>
             console.error("Push admin delivery error (non-fatal):", err),
           );
@@ -2819,7 +2823,7 @@ router.patch(
           order_id: delivery.order_id,
           delivery_id: delivery.id,
           order_number: currentDelivery.orders?.order_number,
-          status,
+          status: requestedStatus,
           source: "driver_status_update",
         },
       );
@@ -2995,7 +2999,7 @@ router.patch(
 
       // Auto-promote cases
       let promotedDelivery = null;
-      if (status === "delivered") {
+      if (requestedStatus === "delivered") {
         const refLat = hasLat
           ? Number(latitude)
           : Number.parseFloat(
@@ -3011,7 +3015,7 @@ router.patch(
         promotedDelivery = await promoteNextPickedUp(refLat, refLng);
       }
 
-      if (status === "picked_up") {
+      if (requestedStatus === "picked_up") {
         const refLat = Number.parseFloat(
           currentDelivery.orders.restaurant_latitude ||
             currentDelivery.current_latitude,
@@ -3023,7 +3027,7 @@ router.patch(
         promotedDelivery = await promoteNextPickedUp(refLat, refLng);
       }
 
-      if (["delivered", "failed", "cancelled"].includes(status)) {
+      if (["delivered", "failed", "cancelled"].includes(requestedStatus)) {
         const cacheKey = String(delivery.id || deliveryId || "").trim();
         if (cacheKey) {
           realtimeLocationEtaCache.delete(cacheKey);
