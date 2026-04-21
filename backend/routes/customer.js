@@ -228,19 +228,42 @@ router.put("/address", authenticate, async (req, res) => {
     const customerId = req.user.id;
     const { address, city, latitude, longitude } = req.body;
 
-    if (!address) {
-      return res.status(400).json({ message: "Address is required" });
+    const trimmedAddress =
+      typeof address === "string" ? address.trim() : undefined;
+    const trimmedCity = typeof city === "string" ? city.trim() : undefined;
+
+    const hasAddress = Boolean(trimmedAddress);
+    const hasCoordinates =
+      latitude !== undefined &&
+      longitude !== undefined &&
+      Number.isFinite(Number(latitude)) &&
+      Number.isFinite(Number(longitude));
+
+    if (!hasAddress && !hasCoordinates) {
+      return res.status(400).json({
+        message: "Address or valid coordinates are required",
+      });
     }
 
-    const updateData = {
-      address,
-      city: city || null,
-    };
+    if (
+      (latitude !== undefined && longitude === undefined) ||
+      (latitude === undefined && longitude !== undefined)
+    ) {
+      return res.status(400).json({
+        message: "Delivery location is required. Pin on the map",
+      });
+    }
 
-    // Include coordinates if provided
-    if (latitude !== undefined && longitude !== undefined) {
-      updateData.latitude = latitude;
-      updateData.longitude = longitude;
+    const updateData = {};
+
+    if (hasAddress) {
+      updateData.address = trimmedAddress;
+      updateData.city = trimmedCity || null;
+    }
+
+    if (hasCoordinates) {
+      updateData.latitude = Number(latitude);
+      updateData.longitude = Number(longitude);
     }
 
     const { data: customer, error } = await supabaseAdmin
