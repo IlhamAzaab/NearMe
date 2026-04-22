@@ -30,6 +30,9 @@ const connectedAdmins = new Map(); // adminId -> { socketId, connectedAt }
 
 // Track connected managers with their socket IDs
 const connectedManagers = new Map(); // managerId -> { socketId, connectedAt }
+const driverLiveLocationCache = new Map(); // driverId -> { latitude, longitude, heading, speed, accuracy, timestamp }
+const driverActiveDeliveriesCache = new Map(); // driverId -> { fetchedAt, deliveries }
+const DRIVER_ACTIVE_DELIVERIES_CACHE_TTL_MS = 10000;
 
 /**
  * Verify JWT token from socket auth
@@ -237,6 +240,115 @@ export function initializeSocket(server) {
       });
     });
 
+    socket.on("driver:location", async (payload = {}) => {
+      const authenticatedDriverId = String(socket.userId || "").trim();
+      const isAuthenticatedDriver =
+        socket.userRole === "driver" && authenticatedDriverId.length > 0;
+
+      if (!isAuthenticatedDriver) {
+        return;
+      }
+
+      const latitude = Number(payload?.lat ?? payload?.latitude);
+      const longitude = Number(payload?.lng ?? payload?.longitude);
+      const heading = Number(payload?.heading);
+      const speed = Number(payload?.speed);
+      const accuracy = Number(payload?.accuracy);
+      const timestamp =
+        Number.isFinite(Number(payload?.timestamp)) &&
+        Number(payload?.timestamp) > 0
+          ? Number(payload.timestamp)
+          : Date.now();
+
+      if (
+        !Number.isFinite(latitude) ||
+        !Number.isFinite(longitude) ||
+        latitude < -90 ||
+        latitude > 90 ||
+        longitude < -180 ||
+        longitude > 180
+      ) {
+        return;
+      }
+
+      driverLiveLocationCache.set(authenticatedDriverId, {
+        latitude,
+        longitude,
+        heading: Number.isFinite(heading) ? heading : 0,
+        speed: Number.isFinite(speed) ? speed : null,
+        accuracy: Number.isFinite(accuracy) ? accuracy : null,
+        timestamp,
+        updatedAt: Date.now(),
+      });
+
+      try {
+        const now = Date.now();
+        const cached = driverActiveDeliveriesCache.get(authenticatedDriverId);
+        let activeDeliveries =
+          cached &&
+          now - Number(cached.fetchedAt || 0) <=
+            DRIVER_ACTIVE_DELIVERIES_CACHE_TTL_MS
+            ? cached.deliveries
+            : null;
+
+        if (!Array.isArray(activeDeliveries)) {
+          const { data, error } = await supabaseAdmin
+            .from("deliveries")
+            .select(
+              "id, order_id, status, orders (customer_id, order_number, delivery_latitude, delivery_longitude)",
+            )
+            .eq("driver_id", authenticatedDriverId)
+            .in("status", [
+              "accepted",
+              "picked_up",
+              "on_the_way",
+              "at_customer",
+            ]);
+
+          if (error) {
+            console.error(
+              `[Socket] Failed to fetch active deliveries for live location stream (${authenticatedDriverId}):`,
+              error.message,
+            );
+            return;
+          }
+
+          activeDeliveries = Array.isArray(data) ? data : [];
+          driverActiveDeliveriesCache.set(authenticatedDriverId, {
+            fetchedAt: now,
+            deliveries: activeDeliveries,
+          });
+        }
+
+        for (const delivery of activeDeliveries) {
+          const customerId = delivery?.orders?.customer_id;
+          if (!customerId) continue;
+
+          io.to(`customer:${customerId}`).emit("order:driver_location", {
+            type: "driver_location_stream",
+            source: "socket_driver_stream",
+            order_id: delivery?.order_id,
+            order_number: delivery?.orders?.order_number,
+            delivery_id: delivery?.id,
+            status: delivery?.status,
+            driver_location: {
+              latitude,
+              longitude,
+              heading: Number.isFinite(heading) ? heading : 0,
+              speed: Number.isFinite(speed) ? speed : null,
+              accuracy: Number.isFinite(accuracy) ? accuracy : null,
+              timestamp,
+            },
+          });
+        }
+      } catch (error) {
+        console.error(
+          `[Socket] driver:location fan-out failed for driver ${authenticatedDriverId}:`,
+          error.message,
+        );
+      }
+    });
+
     // Customer joins and registers their customer ID
     socket.on("customer:register", (customerId) => {
       if (!customerId) {
@@ -361,6 +473,8 @@ export function initializeSocket(server) {
         connectedDrivers.delete(driverId);
         socket.leave("all-drivers");
         socket.leave(`driver:${driverId}`);
+        driverLiveLocationCache.delete(String(driverId));
+        driverActiveDeliveriesCache.delete(String(driverId));
         console.log(`📴 Driver ${driverId} went offline`);
         console.log(`📊 Total online drivers: ${connectedDrivers.size}`);
       }
@@ -372,6 +486,8 @@ export function initializeSocket(server) {
       for (const [driverId, data] of connectedDrivers.entries()) {
         if (data.socketId === socket.id) {
           connectedDrivers.delete(driverId);
+          driverLiveLocationCache.delete(String(driverId));
+          driverActiveDeliveriesCache.delete(String(driverId));
           console.log(`❌ Driver ${driverId} disconnected (reason: ${reason})`);
           break;
         }

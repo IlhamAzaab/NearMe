@@ -164,11 +164,18 @@ export function validateCompleteProfile(body) {
     );
   }
 
-  const cityRaw = typeof body?.city === "string" ? body.city.trim() : "";
-  const addressRaw =
-    typeof body?.address === "string" ? body.address.trim() : "";
+  const cityRaw = ensureNonEmptyString(
+    body?.city,
+    "City is required",
+    "CITY_REQUIRED",
+  );
+  const addressRaw = ensureNonEmptyString(
+    body?.address,
+    "Address is required",
+    "ADDRESS_REQUIRED",
+  );
 
-  if (cityRaw && (cityRaw.length < 2 || cityRaw.length > 80)) {
+  if (cityRaw.length < 2 || cityRaw.length > 80) {
     throw appError(
       400,
       "City must be between 2 and 80 characters",
@@ -176,7 +183,7 @@ export function validateCompleteProfile(body) {
     );
   }
 
-  if (addressRaw && (addressRaw.length < 5 || addressRaw.length > 255)) {
+  if (addressRaw.length < 5 || addressRaw.length > 255) {
     throw appError(
       400,
       "Address must be between 5 and 255 characters",
@@ -221,8 +228,8 @@ export function validateCompleteProfile(body) {
     name,
     email,
     password,
-    city: cityRaw || null,
-    address: addressRaw || null,
+    city: cityRaw,
+    address: addressRaw,
     latitude,
     longitude,
   };
