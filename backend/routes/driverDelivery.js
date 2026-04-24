@@ -635,6 +635,12 @@ router.post(
   async (req, res) => {
     const deliveryId = req.params.id;
     const { driver_latitude, driver_longitude, earnings_data } = req.body;
+    let acceptedDriverLat = driver_latitude
+      ? parseFloat(driver_latitude)
+      : null;
+    let acceptedDriverLng = driver_longitude
+      ? parseFloat(driver_longitude)
+      : null;
 
     console.log(`\n${"=".repeat(80)}`);
     console.log(`[ACCEPT DELIVERY] ✅ Accepting delivery: ${deliveryId}`);
@@ -767,8 +773,12 @@ router.post(
       // Always calculate server-side first so persisted earnings are authoritative.
       try {
         // Determine driver location (from request body or DB fallback)
-        let driverLat = driver_latitude ? parseFloat(driver_latitude) : null;
-        let driverLng = driver_longitude ? parseFloat(driver_longitude) : null;
+        let driverLat = Number.isFinite(acceptedDriverLat)
+          ? acceptedDriverLat
+          : null;
+        let driverLng = Number.isFinite(acceptedDriverLng)
+          ? acceptedDriverLng
+          : null;
 
         if (!driverLat || !driverLng) {
           const { data: lastLoc } = await supabaseAdmin
@@ -793,6 +803,13 @@ router.post(
           driverLat = driverProfile?.current_latitude || 8.5017;
           driverLng = driverProfile?.current_longitude || 81.186;
         }
+
+        acceptedDriverLat = Number.isFinite(Number(driverLat))
+          ? Number(driverLat)
+          : acceptedDriverLat;
+        acceptedDriverLng = Number.isFinite(Number(driverLng))
+          ? Number(driverLng)
+          : acceptedDriverLng;
 
         const restaurantLat = parseFloat(
           deliveryRecord?.orders?.restaurant_latitude,
@@ -1121,8 +1138,12 @@ router.post(
           driver_id: req.user.id,
           status: "accepted",
           accepted_at: new Date().toISOString(), // Driver acceptance timestamp
-          current_latitude: driver_latitude || null,
-          current_longitude: driver_longitude || null,
+          current_latitude: Number.isFinite(acceptedDriverLat)
+            ? acceptedDriverLat
+            : null,
+          current_longitude: Number.isFinite(acceptedDriverLng)
+            ? acceptedDriverLng
+            : null,
           last_location_update: new Date().toISOString(),
           ...earningsFields,
         })
@@ -1263,10 +1284,13 @@ router.post(
       if (updated.orders?.customer_id) {
         // Calculate initial ETA for customer
         let etaData = null;
-        if (driver_latitude && driver_longitude) {
+        if (
+          Number.isFinite(acceptedDriverLat) &&
+          Number.isFinite(acceptedDriverLng)
+        ) {
           etaData = await calculateCustomerETA(updated.order_id, {
-            latitude: parseFloat(driver_latitude),
-            longitude: parseFloat(driver_longitude),
+            latitude: acceptedDriverLat,
+            longitude: acceptedDriverLng,
           });
         }
 
@@ -1290,10 +1314,14 @@ router.post(
         });
 
         // If driver has other active deliveries, update those customers' ETAs too
-        if (serverDeliverySequence > 1 && driver_latitude && driver_longitude) {
+        if (
+          serverDeliverySequence > 1 &&
+          Number.isFinite(acceptedDriverLat) &&
+          Number.isFinite(acceptedDriverLng)
+        ) {
           const allETAs = await calculateAllCustomerETAs(req.user.id, {
-            latitude: parseFloat(driver_latitude),
-            longitude: parseFloat(driver_longitude),
+            latitude: acceptedDriverLat,
+            longitude: acceptedDriverLng,
           });
           for (const etaInfo of allETAs) {
             if (etaInfo.customer_id !== updated.orders.customer_id) {

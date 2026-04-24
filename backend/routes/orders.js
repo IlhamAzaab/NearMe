@@ -27,6 +27,7 @@ import {
 } from "../utils/pushNotificationService.js";
 import {
   broadcastNewDelivery,
+  getLatestDriverLiveLocation,
   notifyAdmin,
   notifyCustomer,
 } from "../utils/socketManager.js";
@@ -2558,11 +2559,14 @@ router.get("/:id/delivery-status", authenticate, async (req, res) => {
 
     // Fetch driver info if driver is assigned
     let driverInfo = null;
+    let fallbackDriverLocation = null;
     if (delivery?.driver_id) {
       // Get driver details
       const { data: driver } = await supabaseAdmin
         .from("drivers")
-        .select("id, full_name, phone, driver_type, profile_photo_url")
+        .select(
+          "id, full_name, phone, driver_type, profile_photo_url, current_latitude, current_longitude, last_location_update",
+        )
         .eq("id", delivery.driver_id)
         .single();
 
@@ -2584,12 +2588,46 @@ router.get("/:id/delivery-status", authenticate, async (req, res) => {
           vehicle_type: vehicle?.vehicle_type || driver.driver_type,
           vehicle_model: vehicle?.vehicle_model || null,
         };
+
+        const driverLat = Number(driver.current_latitude);
+        const driverLng = Number(driver.current_longitude);
+        if (Number.isFinite(driverLat) && Number.isFinite(driverLng)) {
+          fallbackDriverLocation = {
+            latitude: driverLat,
+            longitude: driverLng,
+            lastUpdate: driver.last_location_update || null,
+          };
+        }
       }
     }
 
-    const hasDriverCoords =
+    const socketLiveDriverLocation = delivery?.driver_id
+      ? getLatestDriverLiveLocation(delivery.driver_id)
+      : null;
+
+    const hasSocketDriverCoords =
+      Number.isFinite(Number(socketLiveDriverLocation?.latitude)) &&
+      Number.isFinite(Number(socketLiveDriverLocation?.longitude));
+
+    const hasDeliveryDriverCoords =
       Number.isFinite(Number(delivery?.current_latitude)) &&
       Number.isFinite(Number(delivery?.current_longitude));
+
+    const resolvedDriverLocation = hasSocketDriverCoords
+      ? {
+          latitude: Number(socketLiveDriverLocation.latitude),
+          longitude: Number(socketLiveDriverLocation.longitude),
+          lastUpdate: socketLiveDriverLocation.timestamp || null,
+        }
+      : hasDeliveryDriverCoords
+        ? {
+            latitude: parseFloat(delivery.current_latitude),
+            longitude: parseFloat(delivery.current_longitude),
+            lastUpdate: delivery.last_location_update || null,
+          }
+        : fallbackDriverLocation;
+
+    const hasDriverCoords = Boolean(resolvedDriverLocation);
 
     // Calculate dynamic ETA for customer
     let eta = null;
@@ -2601,8 +2639,8 @@ router.get("/:id/delivery-status", authenticate, async (req, res) => {
     ) {
       const driverLoc = hasDriverCoords
         ? {
-            latitude: parseFloat(delivery.current_latitude),
-            longitude: parseFloat(delivery.current_longitude),
+            latitude: resolvedDriverLocation.latitude,
+            longitude: resolvedDriverLocation.longitude,
           }
         : null;
       eta = await calculateCustomerETA(orderId, driverLoc);
@@ -2633,9 +2671,9 @@ router.get("/:id/delivery-status", authenticate, async (req, res) => {
       // Location data for live tracking
       driverLocation: hasDriverCoords
         ? {
-            latitude: parseFloat(delivery.current_latitude),
-            longitude: parseFloat(delivery.current_longitude),
-            lastUpdate: delivery.last_location_update,
+            latitude: resolvedDriverLocation.latitude,
+            longitude: resolvedDriverLocation.longitude,
+            lastUpdate: resolvedDriverLocation.lastUpdate,
           }
         : null,
       customerLocation: {

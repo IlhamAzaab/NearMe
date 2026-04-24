@@ -10,6 +10,7 @@ import dotenv from "dotenv";
 import { getValidatedAuthConfig, verifyJwtWithRotation } from "./authConfig.js";
 import { getEligibleDriverIdsForDeliveryNotifications } from "./driverNotificationEligibility.js";
 import { supabaseAdmin } from "../supabaseAdmin.js";
+import { calculateCustomerETA } from "./etaCalculator.js";
 
 if (process.env.NODE_ENV !== "production") {
   dotenv.config({ path: "../.env" });
@@ -33,6 +34,8 @@ const connectedManagers = new Map(); // managerId -> { socketId, connectedAt }
 const driverLiveLocationCache = new Map(); // driverId -> { latitude, longitude, heading, speed, accuracy, timestamp }
 const driverActiveDeliveriesCache = new Map(); // driverId -> { fetchedAt, deliveries }
 const DRIVER_ACTIVE_DELIVERIES_CACHE_TTL_MS = 10000;
+const driverStreamEtaCache = new Map(); // deliveryId -> { fetchedAt, payload }
+const DRIVER_STREAM_ETA_CACHE_TTL_MS = 10000;
 
 /**
  * Verify JWT token from socket auth
@@ -324,6 +327,41 @@ export function initializeSocket(server) {
           const customerId = delivery?.orders?.customer_id;
           if (!customerId) continue;
 
+          const deliveryId = String(delivery?.id || "").trim();
+          let etaPayload = null;
+          if (deliveryId && delivery?.order_id) {
+            const cachedEta = driverStreamEtaCache.get(deliveryId);
+            if (
+              cachedEta &&
+              now - Number(cachedEta.fetchedAt || 0) <=
+                DRIVER_STREAM_ETA_CACHE_TTL_MS
+            ) {
+              etaPayload = cachedEta.payload || null;
+            } else {
+              const eta = await calculateCustomerETA(delivery.order_id, {
+                latitude,
+                longitude,
+              });
+
+              etaPayload = eta
+                ? {
+                    etaMinutes: eta.etaMinutes,
+                    etaRangeMin: eta.etaRangeMin,
+                    etaRangeMax: eta.etaRangeMax,
+                    etaDisplay: eta.etaDisplay,
+                    stopsBeforeCustomer: eta.stopsBeforeCustomer,
+                    driverStatus: eta.driverStatus,
+                    isExact: Boolean(eta.isExact),
+                  }
+                : null;
+
+              driverStreamEtaCache.set(deliveryId, {
+                fetchedAt: now,
+                payload: etaPayload,
+              });
+            }
+          }
+
           io.to(`customer:${customerId}`).emit("order:driver_location", {
             type: "driver_location_stream",
             source: "socket_driver_stream",
@@ -339,6 +377,7 @@ export function initializeSocket(server) {
               accuracy: Number.isFinite(accuracy) ? accuracy : null,
               timestamp,
             },
+            eta: etaPayload,
           });
         }
       } catch (error) {
@@ -873,6 +912,12 @@ export function getOnlineManagerCount() {
   return connectedManagers.size;
 }
 
+export function getLatestDriverLiveLocation(driverId) {
+  const key = String(driverId || "").trim();
+  if (!key) return null;
+  return driverLiveLocationCache.get(key) || null;
+}
+
 export default {
   initializeSocket,
   getIO,
@@ -890,4 +935,5 @@ export default {
   broadcastToManagers,
   notifyManager,
   getOnlineManagerCount,
+  getLatestDriverLiveLocation,
 };

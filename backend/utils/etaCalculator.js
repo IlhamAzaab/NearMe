@@ -11,13 +11,13 @@
  * - This gives best of both: shortest route + accurate bike ETA
  *
  * CUSTOMER ETA RULES:
- * - Each stop (restaurant or customer) gets a 5-minute base wait allocation
+ * - Restaurant stops get a 10-minute base wait allocation
+ * - Customer stops keep a 5-minute base wait allocation
  * - OSRM DRIVING profile provides realistic bike travel time between stops
- * - Total ETA = sum of all OSRM travel segments + 5 min per stop before customer
+ * - Total ETA = sum of OSRM travel segments + wait allocation per stop before customer
+ * - If any driver→stop leg is very short (<300m and <=5 min), add extra +5 min buffer
  * - Displayed as range: X min — (X+10) min
- * - As driver completes stops, deduct the 5-min allocation from remaining ETA
- * - If stop takes < 5 min, deduct the full 5 min (saving time)
- * - If driver stays > 5 min at a stop, add another 5 min instantly
+ * - If driver stays beyond base wait at a stop, add overtime in stop-sized blocks
  *
  * DRIVER ETA RULES:
  * - Only show OSRM travel time (no stop wait times)
@@ -36,9 +36,26 @@ const OSRM_PRIMARY_URL =
 const OSRM_BACKUP_URL = "https://router.project-osrm.org"; // Use same for ETA (driving mode)
 
 // Constants
-const STOP_WAIT_TIME_SEC = 300; // 5 minutes in seconds
-const STOP_OVERTIME_THRESHOLD_SEC = 300; // After 5 min at stop, add more time
+const RESTAURANT_STOP_WAIT_TIME_SEC = 600; // 10 minutes in seconds
+const CUSTOMER_STOP_WAIT_TIME_SEC = 300; // 5 minutes in seconds
+const RESTAURANT_STOP_OVERTIME_THRESHOLD_SEC = 600; // +10 min blocks after base restaurant wait
+const CUSTOMER_STOP_OVERTIME_THRESHOLD_SEC = 300; // +5 min blocks after base customer wait
+const SHORT_PICKUP_LEG_DISTANCE_THRESHOLD_M = 300;
+const SHORT_PICKUP_LEG_DURATION_THRESHOLD_SEC = 300;
+const SHORT_PICKUP_EXTRA_BUFFER_SEC = 300;
 const ETA_RANGE_BUFFER_MIN = 10; // Display range: X to X+10
+
+function getBaseStopWaitSeconds(stopType) {
+  return stopType === "restaurant"
+    ? RESTAURANT_STOP_WAIT_TIME_SEC
+    : CUSTOMER_STOP_WAIT_TIME_SEC;
+}
+
+function getStopOvertimeThresholdSeconds(stopType) {
+  return stopType === "restaurant"
+    ? RESTAURANT_STOP_OVERTIME_THRESHOLD_SEC
+    : CUSTOMER_STOP_OVERTIME_THRESHOLD_SEC;
+}
 
 /**
  * Haversine distance - ONLY for proximity detection (<50m) and internal sorting.
@@ -285,16 +302,16 @@ async function getDeliveryStopSequence(driverId, driverLocation = null) {
  * Returns 0 if not arrived or within the base 5 min.
  * Returns additional seconds beyond the first 5 min (in 5-min increments).
  */
-function getStopOvertimeSeconds(arrivedAt) {
+function getStopOvertimeSeconds(arrivedAt, stopType) {
   if (!arrivedAt) return 0;
+  const baseWaitSec = getBaseStopWaitSeconds(stopType);
+  const overtimeThresholdSec = getStopOvertimeThresholdSeconds(stopType);
   const elapsed = (Date.now() - new Date(arrivedAt).getTime()) / 1000;
-  if (elapsed <= STOP_WAIT_TIME_SEC) return 0;
+  if (elapsed <= baseWaitSec) return 0;
 
-  // Add +5 min immediately after crossing base wait, then +5 for each
-  // additional 5-min overtime window.
-  const overtime = elapsed - STOP_WAIT_TIME_SEC;
-  const extraBlocks = Math.ceil(overtime / STOP_OVERTIME_THRESHOLD_SEC);
-  return extraBlocks * STOP_WAIT_TIME_SEC;
+  const overtime = elapsed - baseWaitSec;
+  const extraBlocks = Math.ceil(overtime / overtimeThresholdSec);
+  return extraBlocks * baseWaitSec;
 }
 
 /**
@@ -509,16 +526,34 @@ export async function calculateCustomerETA(orderId, driverLocation = null) {
         distance_m: Math.round(travelDistance),
       });
 
+      if (
+        !stop.arrived_at &&
+        Number.isFinite(Number(travelDistance)) &&
+        Number.isFinite(Number(travelDuration)) &&
+        travelDistance > 0 &&
+        travelDuration > 0 &&
+        travelDistance < SHORT_PICKUP_LEG_DISTANCE_THRESHOLD_M &&
+        travelDuration <= SHORT_PICKUP_LEG_DURATION_THRESHOLD_SEC
+      ) {
+        totalETASeconds += SHORT_PICKUP_EXTRA_BUFFER_SEC;
+        segmentDetails.push({
+          type: "short_leg_buffer",
+          stop_type: stop.stop_type,
+          delivery_id: stop.delivery_id,
+          order_number: stop.order_number,
+          duration_sec: SHORT_PICKUP_EXTRA_BUFFER_SEC,
+          reason: "short_driver_to_stop_leg",
+        });
+      }
+
       // Stop wait time (remaining from 5 min base + overtime if applicable)
       // Don't add wait time for the final customer stop (that's the destination)
       if (i < targetIdx) {
-        // STRICT ALLOCATION: every pending intermediate stop contributes
-        // a full 5-minute wait budget, then overtime blocks if stop exceeds 5 minutes.
-        // We do NOT count down this wait while a stop is in progress.
+        const baseWaitSec = getBaseStopWaitSeconds(stop.stop_type);
         const overtime = stop.arrived_at
-          ? getStopOvertimeSeconds(stop.arrived_at)
+          ? getStopOvertimeSeconds(stop.arrived_at, stop.stop_type)
           : 0;
-        const waitTime = STOP_WAIT_TIME_SEC + overtime;
+        const waitTime = baseWaitSec + overtime;
 
         const elapsedWaitSec = stop.arrived_at
           ? Math.max(0, (new Date() - new Date(stop.arrived_at)) / 1000)
@@ -531,9 +566,9 @@ export async function calculateCustomerETA(orderId, driverLocation = null) {
           stop_type: stop.stop_type,
           delivery_id: stop.delivery_id,
           order_number: stop.order_number,
-          base_wait_sec: STOP_WAIT_TIME_SEC,
+          base_wait_sec: baseWaitSec,
           elapsed_wait_sec: Math.round(elapsedWaitSec),
-          remaining_base_wait_sec: STOP_WAIT_TIME_SEC,
+          remaining_base_wait_sec: baseWaitSec,
           overtime_sec: overtime,
           total_wait_sec: Math.round(waitTime),
         });
@@ -657,7 +692,7 @@ export async function calculateExtraDeliveryTime(driverId, newDelivery) {
     // The new stops would be appended after current last stop
     const lastStop = stops[stops.length - 1];
 
-    // Calculate: lastStop → newRestaurant + newRestaurant → newCustomer + 5 min wait at restaurant
+    // Calculate: lastStop → newRestaurant + newRestaurant → newCustomer + stop waits
     const [toNewRes, newResToCus] = await Promise.all([
       getOSRMDuration(
         lastStop.lat,
@@ -675,10 +710,10 @@ export async function calculateExtraDeliveryTime(driverId, newDelivery) {
 
     const extraSeconds =
       toNewRes.duration +
-      STOP_WAIT_TIME_SEC +
+      RESTAURANT_STOP_WAIT_TIME_SEC +
       newResToCus.duration +
-      STOP_WAIT_TIME_SEC;
-    // +5min for new restaurant + 5min at new customer (for preceding customers' ETA)
+      CUSTOMER_STOP_WAIT_TIME_SEC;
+    // +10min for new restaurant +5min at new customer (for preceding customers' ETA)
 
     return {
       extraMinutes: Math.ceil(extraSeconds / 60),
@@ -730,10 +765,12 @@ export async function calculateAllCustomerETAs(driverId, driverLocation) {
       // Travel time from previous point
       // If driver has already arrived at this stop, use 0 travel time
       let travelDuration = 0;
+      let travelDistance = 0;
 
       if (stop.arrived_at) {
         // Driver is already at this stop - no travel time
         travelDuration = 0;
+        travelDistance = 0;
       } else {
         // Driver hasn't arrived yet - calculate OSRM travel time
         const travel = await getOSRMDuration(
@@ -743,9 +780,22 @@ export async function calculateAllCustomerETAs(driverId, driverLocation) {
           stop.lng,
         );
         travelDuration = travel.duration;
+        travelDistance = travel.distance;
       }
 
       cumulativeSeconds += travelDuration;
+
+      if (
+        !stop.arrived_at &&
+        Number.isFinite(Number(travelDistance)) &&
+        Number.isFinite(Number(travelDuration)) &&
+        travelDistance > 0 &&
+        travelDuration > 0 &&
+        travelDistance < SHORT_PICKUP_LEG_DISTANCE_THRESHOLD_M &&
+        travelDuration <= SHORT_PICKUP_LEG_DURATION_THRESHOLD_SEC
+      ) {
+        cumulativeSeconds += SHORT_PICKUP_EXTRA_BUFFER_SEC;
+      }
 
       // If this is a customer stop, record the ETA
       if (stop.stop_type === "customer") {
@@ -810,14 +860,13 @@ export async function calculateAllCustomerETAs(driverId, driverLocation) {
         }
       }
 
-      // Add wait time for non-final stops (restaurant stops, intermediate customer stops)
+      // Add stop-specific wait time for non-final stops.
       if (i < stops.length - 1) {
-        // Keep all-customer ETA consistent with single-customer ETA:
-        // full 5-minute wait per pending intermediate stop + overtime blocks.
+        const baseWaitSec = getBaseStopWaitSeconds(stop.stop_type);
         const overtime = stop.arrived_at
-          ? getStopOvertimeSeconds(stop.arrived_at)
+          ? getStopOvertimeSeconds(stop.arrived_at, stop.stop_type)
           : 0;
-        const waitTime = STOP_WAIT_TIME_SEC + overtime;
+        const waitTime = baseWaitSec + overtime;
 
         cumulativeSeconds += waitTime;
       }
@@ -838,6 +887,7 @@ export default {
   calculateDriverETA,
   calculateExtraDeliveryTime,
   calculateAllCustomerETAs,
-  STOP_WAIT_TIME_SEC,
+  RESTAURANT_STOP_WAIT_TIME_SEC,
+  CUSTOMER_STOP_WAIT_TIME_SEC,
   ETA_RANGE_BUFFER_MIN,
 };
