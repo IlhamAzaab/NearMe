@@ -128,7 +128,7 @@ router.get("/contract", authenticate, async (req, res) => {
         "id, driver_id, contract_version, accepted_at, ip_address, user_agent, contract_html, created_at",
       )
       .eq("driver_id", driverId)
-      .order("accepted_at", { ascending: false })
+      .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
 
@@ -144,6 +144,200 @@ router.get("/contract", authenticate, async (req, res) => {
     return res.json({ contract });
   } catch (e) {
     console.error("/driver/contract error:", e);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
+/**
+ * GET /driver/documents
+ * Return uploaded documents for logged-in driver.
+ */
+router.get("/documents", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "driver") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const driverId = req.user.id;
+    const { data: documents, error } = await supabaseAdmin
+      .from("driver_documents")
+      .select(
+        "id, driver_id, document_type, document_url, uploaded_at, verified, verified_at, rejection_reason",
+      )
+      .eq("driver_id", driverId)
+      .order("uploaded_at", { ascending: false });
+
+    if (error) {
+      console.error("/driver/documents fetch error:", error);
+      return res.status(500).json({ message: "Failed to load documents" });
+    }
+
+    return res.json({ documents: documents || [] });
+  } catch (e) {
+    console.error("/driver/documents error:", e);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
+/**
+ * POST /driver/documents
+ * Upsert a single driver document record.
+ */
+router.post("/documents", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "driver") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const driverId = req.user.id;
+    const { documentType, documentUrl } = req.body || {};
+
+    const allowedTypes = new Set([
+      "license_front",
+      "license_back",
+      "insurance",
+      "revenue_license",
+    ]);
+
+    if (!allowedTypes.has(String(documentType || "").trim())) {
+      return res.status(400).json({
+        message:
+          "Invalid document type. Allowed values: license_front, license_back, insurance, revenue_license",
+      });
+    }
+
+    if (!documentUrl || typeof documentUrl !== "string") {
+      return res.status(400).json({ message: "documentUrl is required" });
+    }
+
+    const payload = {
+      driver_id: driverId,
+      document_type: String(documentType).trim(),
+      document_url: documentUrl.trim(),
+      uploaded_at: new Date().toISOString(),
+      verified: false,
+      verified_at: null,
+      rejection_reason: null,
+    };
+
+    const { data, error } = await supabaseAdmin
+      .from("driver_documents")
+      .upsert(payload, { onConflict: "driver_id,document_type" })
+      .select(
+        "id, driver_id, document_type, document_url, uploaded_at, verified, verified_at, rejection_reason",
+      )
+      .maybeSingle();
+
+    if (error) {
+      console.error("/driver/documents upsert error:", error);
+      return res.status(500).json({ message: "Failed to save document" });
+    }
+
+    return res.json({
+      message: "Document saved successfully",
+      document: data,
+    });
+  } catch (e) {
+    console.error("/driver/documents error:", e);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
+/**
+ * PUT /driver/vehicle-expiry
+ * Update vehicle-related expiry dates for logged-in driver.
+ */
+router.put("/vehicle-expiry", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "driver") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const driverId = req.user.id;
+    const { insuranceExpiry, vehicleLicenseExpiry, licenseExpiryDate } =
+      req.body || {};
+
+    if (!insuranceExpiry || !vehicleLicenseExpiry || !licenseExpiryDate) {
+      return res.status(400).json({
+        message:
+          "insuranceExpiry, vehicleLicenseExpiry and licenseExpiryDate are required",
+      });
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const insuranceDate = new Date(insuranceExpiry);
+    const vehicleLicenseDate = new Date(vehicleLicenseExpiry);
+    const drivingLicenseDate = new Date(licenseExpiryDate);
+
+    if (
+      Number.isNaN(insuranceDate.getTime()) ||
+      Number.isNaN(vehicleLicenseDate.getTime()) ||
+      Number.isNaN(drivingLicenseDate.getTime())
+    ) {
+      return res.status(400).json({
+        message: "Invalid date format. Use YYYY-MM-DD",
+      });
+    }
+
+    if (insuranceDate < today) {
+      return res
+        .status(400)
+        .json({ message: "Insurance expiry cannot be in the past" });
+    }
+    if (vehicleLicenseDate < today) {
+      return res
+        .status(400)
+        .json({ message: "Vehicle license expiry cannot be in the past" });
+    }
+    if (drivingLicenseDate < today) {
+      return res
+        .status(400)
+        .json({ message: "Driving license expiry cannot be in the past" });
+    }
+
+    const { data: currentVehicle, error: fetchError } = await supabaseAdmin
+      .from("driver_vehicle_license")
+      .select("driver_id")
+      .eq("driver_id", driverId)
+      .maybeSingle();
+
+    if (fetchError) {
+      console.error("/driver/vehicle-expiry fetch error:", fetchError);
+      return res.status(500).json({ message: "Failed to load vehicle details" });
+    }
+
+    if (!currentVehicle) {
+      return res.status(404).json({
+        message: "Vehicle details not found for this driver",
+      });
+    }
+
+    const { data: vehicleDetails, error: updateError } = await supabaseAdmin
+      .from("driver_vehicle_license")
+      .update({
+        insurance_expiry: insuranceExpiry,
+        vehicle_license_expiry: vehicleLicenseExpiry,
+        license_expiry_date: licenseExpiryDate,
+      })
+      .eq("driver_id", driverId)
+      .select(
+        "driver_id, vehicle_number, vehicle_type, vehicle_model, insurance_expiry, vehicle_license_expiry, driving_license_number, license_expiry_date",
+      )
+      .maybeSingle();
+
+    if (updateError) {
+      console.error("/driver/vehicle-expiry update error:", updateError);
+      return res.status(500).json({ message: "Failed to update expiry dates" });
+    }
+
+    return res.json({
+      message: "Expiry dates updated successfully",
+      vehicle: vehicleDetails,
+    });
+  } catch (e) {
+    console.error("/driver/vehicle-expiry error:", e);
     return res.status(500).json({ message: "Server error" });
   }
 });
