@@ -97,6 +97,19 @@ function isSchemaVariantError(error) {
   );
 }
 
+function isMissingRelationError(error, relationName) {
+  const message = String(error?.message || "").toLowerCase();
+  const details = String(error?.details || "").toLowerCase();
+  const target = String(relationName || "").toLowerCase();
+
+  return (
+    error?.code === "42P01" ||
+    message.includes("does not exist") ||
+    message.includes(target) ||
+    details.includes(target)
+  );
+}
+
 function getUsernameFromEmail(email) {
   const localPart = String(email || "").split("@")[0] || "admin";
   return localPart.slice(0, 64);
@@ -1032,6 +1045,212 @@ router.get("/driver-details/:driverId", authenticate, async (req, res) => {
     return res.status(500).json({ message: "Server error" });
   }
 });
+
+/**
+ * GET /manager/renewed-documents
+ * List renewed document submissions from drivers for manager review.
+ */
+router.get("/renewed-documents", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "manager") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const requestedStatus = String(
+      req.query?.status || "pending",
+    ).toLowerCase();
+    const allowedStatuses = new Set(["pending", "approved", "rejected", "all"]);
+    const effectiveStatus = allowedStatuses.has(requestedStatus)
+      ? requestedStatus
+      : "pending";
+
+    let query = supabaseAdmin
+      .from("driver_document_renewals")
+      .select(
+        "id, driver_id, document_type, proposed_document_url, status, submitted_at, reviewed_at, reviewed_by, review_reason",
+      )
+      .order("submitted_at", { ascending: false });
+
+    if (effectiveStatus !== "all") {
+      query = query.eq("status", effectiveStatus);
+    }
+
+    const { data: renewals, error } = await query;
+
+    if (error) {
+      console.error("/manager/renewed-documents fetch error:", error);
+      if (isMissingRelationError(error, "driver_document_renewals")) {
+        return res.status(500).json({
+          message:
+            "Renewed document workflow table is missing. Please run the latest database migration.",
+        });
+      }
+
+      return res
+        .status(500)
+        .json({ message: "Failed to load renewed documents" });
+    }
+
+    const renewalList = renewals || [];
+    const driverIds = [
+      ...new Set(renewalList.map((item) => item.driver_id).filter(Boolean)),
+    ];
+
+    let driverMap = new Map();
+    if (driverIds.length > 0) {
+      const { data: drivers, error: driversError } = await supabaseAdmin
+        .from("drivers")
+        .select("id, full_name, email, phone")
+        .in("id", driverIds);
+
+      if (driversError) {
+        console.error(
+          "/manager/renewed-documents drivers fetch error:",
+          driversError,
+        );
+        return res
+          .status(500)
+          .json({ message: "Failed to load renewed document owners" });
+      }
+
+      driverMap = new Map((drivers || []).map((driver) => [driver.id, driver]));
+    }
+
+    const items = renewalList.map((item) => ({
+      ...item,
+      driver: driverMap.get(item.driver_id)
+        ? {
+            id: driverMap.get(item.driver_id).id,
+            full_name: driverMap.get(item.driver_id).full_name,
+            email: driverMap.get(item.driver_id).email,
+            phone: driverMap.get(item.driver_id).phone,
+          }
+        : null,
+    }));
+
+    return res.json({ renewedDocuments: items });
+  } catch (e) {
+    console.error("/manager/renewed-documents error:", e);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
+/**
+ * POST /manager/renewed-documents/:renewalId/review
+ * Approve/reject a renewed document request.
+ * On approval, replace the current driver document_url with proposed_document_url.
+ */
+router.post(
+  "/renewed-documents/:renewalId/review",
+  authenticate,
+  async (req, res) => {
+    try {
+      if (req.user.role !== "manager") {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
+      const { renewalId } = req.params;
+      const { action, reason } = req.body || {};
+      const normalizedAction = String(action || "").toLowerCase();
+
+      if (!["approve", "reject"].includes(normalizedAction)) {
+        return res.status(400).json({
+          message: "Invalid action. Must be 'approve' or 'reject'",
+        });
+      }
+
+      const { data: renewal, error: renewalError } = await supabaseAdmin
+        .from("driver_document_renewals")
+        .select(
+          "id, driver_id, document_type, proposed_document_url, status, submitted_at",
+        )
+        .eq("id", renewalId)
+        .maybeSingle();
+
+      if (renewalError) {
+        console.error(
+          "/manager/renewed-documents review fetch error:",
+          renewalError,
+        );
+        return res
+          .status(500)
+          .json({ message: "Failed to load renewal request" });
+      }
+
+      if (!renewal) {
+        return res.status(404).json({ message: "Renewal request not found" });
+      }
+
+      if (renewal.status !== "pending") {
+        return res.status(400).json({
+          message: `Renewal request is already ${renewal.status}`,
+        });
+      }
+
+      const reviewTimestamp = new Date().toISOString();
+
+      if (normalizedAction === "approve") {
+        const documentPayload = {
+          driver_id: renewal.driver_id,
+          document_type: renewal.document_type,
+          document_url: renewal.proposed_document_url,
+          uploaded_at: reviewTimestamp,
+          verified: true,
+          verified_at: reviewTimestamp,
+          verified_by: req.user.id,
+          rejection_reason: null,
+        };
+
+        const { error: replaceError } = await supabaseAdmin
+          .from("driver_documents")
+          .upsert(documentPayload, { onConflict: "driver_id,document_type" });
+
+        if (replaceError) {
+          console.error(
+            "/manager/renewed-documents document replace error:",
+            replaceError,
+          );
+          return res
+            .status(500)
+            .json({ message: "Failed to replace driver document" });
+        }
+      }
+
+      const { error: reviewError } = await supabaseAdmin
+        .from("driver_document_renewals")
+        .update({
+          status: normalizedAction === "approve" ? "approved" : "rejected",
+          reviewed_at: reviewTimestamp,
+          reviewed_by: req.user.id,
+          review_reason:
+            normalizedAction === "reject"
+              ? String(reason || "").trim() || null
+              : null,
+        })
+        .eq("id", renewalId);
+
+      if (reviewError) {
+        console.error(
+          "/manager/renewed-documents review update error:",
+          reviewError,
+        );
+        return res
+          .status(500)
+          .json({ message: "Failed to update renewal request status" });
+      }
+
+      return res.json({
+        message:
+          normalizedAction === "approve"
+            ? "Renewed document approved and live document replaced"
+            : "Renewed document rejected",
+      });
+    } catch (e) {
+      console.error("/manager/renewed-documents review error:", e);
+      return res.status(500).json({ message: "Server error" });
+    }
+  },
+);
 
 /**
  * POST /manager/verify-driver/:driverId

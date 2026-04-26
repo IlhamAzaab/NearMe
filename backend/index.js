@@ -466,13 +466,16 @@ const server = httpServer.listen(PORT, () => {
   console.log(`🍽️ Food availability scheduler active (runs every 60s)`);
 
   // ============================================================================
-  // NOTIFICATION LOG CLEANUP — Auto-delete records older than 24 hours
+  // NOTIFICATION + PAYMENT/DEPOSIT CLEANUP
+  // - notification_log: older than 24h
+  // - scheduled_notifications(sent): older than 72h
+  // - driver_deposits, driver_payments, admin_payments: older than 10 days
   // Runs every hour at minute 0
   // ============================================================================
   cron.schedule(
     "0 * * * *",
     async () => {
-      console.log(`\n[CRON] 🧹 Running notification cleanup`);
+      console.log(`\n[CRON] 🧹 Running notification/payment/deposit cleanup`);
       try {
         // 1) Delete notification_log records older than 24 hours
         const logCutoff = new Date(
@@ -520,8 +523,37 @@ const server = httpServer.listen(PORT, () => {
             `[CRON] ✅ scheduled_notifications cleanup: ${schedCount} old record(s) deleted (cutoff: ${schedCutoff})`,
           );
         }
+
+        // 3) Delete payment/deposit records older than 10 days
+        const financeCutoff = new Date(
+          Date.now() - 10 * 24 * 60 * 60 * 1000,
+        ).toISOString();
+
+        const financeTables = [
+          { table: "driver_deposits", timestamp: "created_at" },
+          { table: "driver_payments", timestamp: "created_at" },
+          { table: "admin_payments", timestamp: "created_at" },
+        ];
+
+        for (const { table, timestamp } of financeTables) {
+          const { data: deletedRows, error } = await supabaseAdmin
+            .from(table)
+            .delete()
+            .lt(timestamp, financeCutoff)
+            .select("id", { count: "exact" });
+
+          if (error) {
+            console.error(`[CRON] ❌ ${table} cleanup error:`, error.message);
+            continue;
+          }
+
+          const deletedCount = deletedRows?.length || 0;
+          console.log(
+            `[CRON] ✅ ${table} cleanup: ${deletedCount} old record(s) deleted (cutoff: ${financeCutoff})`,
+          );
+        }
       } catch (err) {
-        console.error(`[CRON] ❌ Notification cleanup failed:`, err.message);
+        console.error(`[CRON] ❌ Cleanup failed:`, err.message);
       }
     },
     {
@@ -530,7 +562,7 @@ const server = httpServer.listen(PORT, () => {
     },
   );
   console.log(
-    `🧹 Notification cleanup active (runs hourly — notification_log: 24h, scheduled_notifications: 72h)`,
+    `🧹 Cleanup active (runs hourly — notification_log: 24h, scheduled_notifications: 72h, payments/deposits: 10d)`,
   );
 
   // On startup, check if we missed a snapshot and create one if needed

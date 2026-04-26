@@ -36,6 +36,8 @@ const driverActiveDeliveriesCache = new Map(); // driverId -> { fetchedAt, deliv
 const DRIVER_ACTIVE_DELIVERIES_CACHE_TTL_MS = 10000;
 const driverStreamEtaCache = new Map(); // deliveryId -> { fetchedAt, payload }
 const DRIVER_STREAM_ETA_CACHE_TTL_MS = 10000;
+const driverDbUpdateLastAt = new Map(); // driverId -> timestamp
+const DRIVER_DB_UPDATE_THROTTLE_MS = 30000; // Only write to drivers table every 30s
 
 /**
  * Verify JWT token from socket auth
@@ -283,6 +285,30 @@ export function initializeSocket(server) {
         timestamp,
         updatedAt: Date.now(),
       });
+
+      // Throttled write to drivers table so delivery-status fallback is fresh
+      const now = Date.now();
+      const lastDbWrite = driverDbUpdateLastAt.get(authenticatedDriverId) || 0;
+      if (now - lastDbWrite >= DRIVER_DB_UPDATE_THROTTLE_MS) {
+        driverDbUpdateLastAt.set(authenticatedDriverId, now);
+        supabaseAdmin
+          .from("drivers")
+          .update({
+            current_latitude: latitude,
+            current_longitude: longitude,
+            last_location_update: new Date().toISOString(),
+          })
+          .eq("id", authenticatedDriverId)
+          .then(({ error: dbErr }) => {
+            if (dbErr) {
+              console.error(
+                `[Socket] drivers table update failed for ${authenticatedDriverId}:`,
+                dbErr.message,
+              );
+            }
+          })
+          .catch(() => {});
+      }
 
       try {
         const now = Date.now();

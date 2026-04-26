@@ -43,6 +43,30 @@ const CUSTOMER_STOP_OVERTIME_THRESHOLD_SEC = 300; // +5 min blocks after base cu
 const SHORT_PICKUP_LEG_DISTANCE_THRESHOLD_M = 300;
 const SHORT_PICKUP_LEG_DURATION_THRESHOLD_SEC = 300;
 const SHORT_PICKUP_EXTRA_BUFFER_SEC = 300;
+
+// ============================================================================
+// Last-known ETA cache — orderId → last successfully computed ETA result
+// When OSRM is unavailable, we return the stale cached value so the customer
+// always sees a number rather than a blank/NaN ETA.
+// ============================================================================
+const etaLastKnownCache = new Map(); // orderId -> { result, cachedAt }
+const ETA_STALE_TTL_MS = 10 * 60 * 1000; // 10 minutes — discard after 10 min of staleness
+
+function getLastKnownETA(orderId) {
+  const cached = etaLastKnownCache.get(orderId);
+  if (!cached) return null;
+  // Expire stale cache after 10 minutes so we don't show very old ETAs
+  if (Date.now() - cached.cachedAt > ETA_STALE_TTL_MS) {
+    etaLastKnownCache.delete(orderId);
+    return null;
+  }
+  return { ...cached.result, isStale: true };
+}
+
+function setLastKnownETA(orderId, result) {
+  if (!orderId || !result) return;
+  etaLastKnownCache.set(orderId, { result, cachedAt: Date.now() });
+}
 const ETA_RANGE_BUFFER_MIN = 10; // Display range: X to X+10
 
 function getBaseStopWaitSeconds(stopType) {
@@ -430,12 +454,18 @@ export async function calculateCustomerETA(orderId, driverLocation = null) {
             customerLat,
             customerLng,
           );
+          // If OSRM is unavailable, return last-known ETA so customer doesn’t see blank
+          if (directTravel.isUnavailable || !Number.isFinite(directTravel.duration)) {
+            const stale = getLastKnownETA(orderId);
+            if (stale) return stale;
+            return null;
+          }
           exactSeconds = directTravel.duration;
         }
 
         const exactMinutes = Math.max(1, Math.ceil(exactSeconds / 60));
 
-        return {
+        const result = {
           etaMinutes: exactMinutes,
           etaRangeMin: exactMinutes,
           etaRangeMax: exactMinutes, // Same — no range buffer
@@ -454,6 +484,8 @@ export async function calculateCustomerETA(orderId, driverLocation = null) {
           driverStatus: delivery.status,
           isExact: true,
         };
+        setLastKnownETA(orderId, result);
+        return result;
       }
       // If NOT first stop, fall through to normal multi-stop calculation below
     }
@@ -510,8 +542,14 @@ export async function calculateCustomerETA(orderId, driverLocation = null) {
           stop.lat,
           stop.lng,
         );
+        // If OSRM is unavailable, return last-known ETA so customer doesn’t see blank
+        if (travel.isUnavailable || !Number.isFinite(travel.duration)) {
+          const stale = getLastKnownETA(orderId);
+          if (stale) return stale;
+          return null;
+        }
         travelDuration = travel.duration;
-        travelDistance = travel.distance;
+        travelDistance = Number.isFinite(travel.distance) ? travel.distance : 0;
       }
 
       totalETASeconds += travelDuration;
@@ -582,7 +620,7 @@ export async function calculateCustomerETA(orderId, driverLocation = null) {
     const etaRangeMin = etaMinutes;
     const etaRangeMax = etaMinutes + ETA_RANGE_BUFFER_MIN;
 
-    return {
+    const result = {
       etaMinutes,
       etaRangeMin,
       etaRangeMax,
@@ -593,8 +631,13 @@ export async function calculateCustomerETA(orderId, driverLocation = null) {
       driverStatus: delivery.status,
       isExact: false,
     };
+    setLastKnownETA(orderId, result);
+    return result;
   } catch (e) {
     console.error("[ETA] calculateCustomerETA error:", e.message);
+    // Return stale cached value if available so customer sees last known ETA
+    const stale = getLastKnownETA(orderId);
+    if (stale) return stale;
     return null;
   }
 }
@@ -641,6 +684,9 @@ export async function calculateDriverETA(params) {
         nextStopLat,
         nextStopLng,
       );
+      if (route.isUnavailable || !Number.isFinite(route.duration)) {
+        return { totalMinutes: 0, totalSeconds: 0, isUnavailable: true };
+      }
       return {
         totalMinutes: Math.ceil(route.duration / 60),
         totalSeconds: Math.round(route.duration),
@@ -654,13 +700,18 @@ export async function calculateDriverETA(params) {
       getOSRMDuration(restaurantLat, restaurantLng, customerLat, customerLng),
     ]);
 
+    const dToRDuration = Number.isFinite(dToR.duration) ? dToR.duration : 0;
+    const rToCDuration = Number.isFinite(rToC.duration) ? rToC.duration : 0;
+    const isUnavailable = dToR.isUnavailable || rToC.isUnavailable;
+
     return {
-      totalMinutes: Math.ceil((dToR.duration + rToC.duration) / 60),
-      totalSeconds: Math.round(dToR.duration + rToC.duration),
-      driverToRestaurantMin: Math.ceil(dToR.duration / 60),
-      restaurantToCustomerMin: Math.ceil(rToC.duration / 60),
-      driverToRestaurantSec: Math.round(dToR.duration),
-      restaurantToCustomerSec: Math.round(rToC.duration),
+      totalMinutes: Math.ceil((dToRDuration + rToCDuration) / 60),
+      totalSeconds: Math.round(dToRDuration + rToCDuration),
+      driverToRestaurantMin: Math.ceil(dToRDuration / 60),
+      restaurantToCustomerMin: Math.ceil(rToCDuration / 60),
+      driverToRestaurantSec: Math.round(dToRDuration),
+      restaurantToCustomerSec: Math.round(rToCDuration),
+      isUnavailable,
     };
   } catch (e) {
     console.error("[ETA] calculateDriverETA error:", e.message);
@@ -708,10 +759,13 @@ export async function calculateExtraDeliveryTime(driverId, newDelivery) {
       ),
     ]);
 
+    const toNewResDuration = Number.isFinite(toNewRes.duration) ? toNewRes.duration : 0;
+    const newResToCusDuration = Number.isFinite(newResToCus.duration) ? newResToCus.duration : 0;
+
     const extraSeconds =
-      toNewRes.duration +
+      toNewResDuration +
       RESTAURANT_STOP_WAIT_TIME_SEC +
-      newResToCus.duration +
+      newResToCusDuration +
       CUSTOMER_STOP_WAIT_TIME_SEC;
     // +10min for new restaurant +5min at new customer (for preceding customers' ETA)
 
@@ -779,8 +833,12 @@ export async function calculateAllCustomerETAs(driverId, driverLocation) {
           stop.lat,
           stop.lng,
         );
+        // If OSRM is unavailable, skip this stop's ETA (will show stale or fallback)
+        if (travel.isUnavailable || !Number.isFinite(travel.duration)) {
+          continue;
+        }
         travelDuration = travel.duration;
-        travelDistance = travel.distance;
+        travelDistance = Number.isFinite(travel.distance) ? travel.distance : 0;
       }
 
       cumulativeSeconds += travelDuration;
@@ -826,6 +884,10 @@ export async function calculateAllCustomerETAs(driverId, driverLocation) {
               stop.lat,
               stop.lng,
             );
+            if (directTravel.isUnavailable || !Number.isFinite(directTravel.duration)) {
+              // Can't calculate — skip this customer's ETA
+              continue;
+            }
             exactSeconds = directTravel.duration;
           }
           const exactMins = Math.max(1, Math.ceil(exactSeconds / 60));

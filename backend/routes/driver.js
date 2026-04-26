@@ -9,6 +9,26 @@ import {
 
 const router = express.Router();
 
+const RENEWABLE_DOCUMENT_TYPES = new Set([
+  "license_front",
+  "license_back",
+  "insurance",
+  "revenue_license",
+]);
+
+function isMissingRelationError(error, relationName) {
+  const message = String(error?.message || "").toLowerCase();
+  const details = String(error?.details || "").toLowerCase();
+  const target = String(relationName || "").toLowerCase();
+
+  return (
+    error?.code === "42P01" ||
+    message.includes("does not exist") ||
+    message.includes(target) ||
+    details.includes(target)
+  );
+}
+
 /**
  * GET /driver/me
  * Get driver profile
@@ -122,15 +142,35 @@ router.get("/contract", authenticate, async (req, res) => {
     }
 
     const driverId = req.user.id;
-    const { data: contract, error } = await supabaseAdmin
+    const contractSelect =
+      "id, driver_id, contract_version, accepted_at, ip_address, user_agent, contract_html, created_at";
+
+    let contract = null;
+    let error = null;
+
+    const primaryQuery = await supabaseAdmin
       .from("driver_contracts")
-      .select(
-        "id, driver_id, contract_version, accepted_at, ip_address, user_agent, contract_html, created_at",
-      )
+      .select(contractSelect)
       .eq("driver_id", driverId)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
+
+    contract = primaryQuery.data;
+    error = primaryQuery.error;
+
+    if (error && isMissingRelationError(error, "driver_contracts")) {
+      const fallbackQuery = await supabaseAdmin
+        .from("driver_contract")
+        .select(contractSelect)
+        .eq("driver_id", driverId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      contract = fallbackQuery.data;
+      error = fallbackQuery.error;
+    }
 
     if (error) {
       console.error("/driver/contract fetch error:", error);
@@ -172,7 +212,30 @@ router.get("/documents", authenticate, async (req, res) => {
       return res.status(500).json({ message: "Failed to load documents" });
     }
 
-    return res.json({ documents: documents || [] });
+    let renewalRequests = [];
+    const { data: renewals, error: renewalsError } = await supabaseAdmin
+      .from("driver_document_renewals")
+      .select(
+        "id, driver_id, document_type, proposed_document_url, status, submitted_at, reviewed_at, review_reason",
+      )
+      .eq("driver_id", driverId)
+      .order("submitted_at", { ascending: false });
+
+    if (renewalsError) {
+      if (!isMissingRelationError(renewalsError, "driver_document_renewals")) {
+        console.error("/driver/documents renewals fetch error:", renewalsError);
+        return res
+          .status(500)
+          .json({ message: "Failed to load renewal requests" });
+      }
+    } else {
+      renewalRequests = renewals || [];
+    }
+
+    return res.json({
+      documents: documents || [],
+      renewalRequests,
+    });
   } catch (e) {
     console.error("/driver/documents error:", e);
     return res.status(500).json({ message: "Server error" });
@@ -192,14 +255,7 @@ router.post("/documents", authenticate, async (req, res) => {
     const driverId = req.user.id;
     const { documentType, documentUrl } = req.body || {};
 
-    const allowedTypes = new Set([
-      "license_front",
-      "license_back",
-      "insurance",
-      "revenue_license",
-    ]);
-
-    if (!allowedTypes.has(String(documentType || "").trim())) {
+    if (!RENEWABLE_DOCUMENT_TYPES.has(String(documentType || "").trim())) {
       return res.status(400).json({
         message:
           "Invalid document type. Allowed values: license_front, license_back, insurance, revenue_license",
@@ -210,10 +266,99 @@ router.post("/documents", authenticate, async (req, res) => {
       return res.status(400).json({ message: "documentUrl is required" });
     }
 
+    const normalizedType = String(documentType).trim();
+    const normalizedUrl = documentUrl.trim();
+
+    const { data: existingDoc, error: existingDocError } = await supabaseAdmin
+      .from("driver_documents")
+      .select("id, document_url")
+      .eq("driver_id", driverId)
+      .eq("document_type", normalizedType)
+      .maybeSingle();
+
+    if (existingDocError) {
+      console.error(
+        "/driver/documents existing document fetch error:",
+        existingDocError,
+      );
+      return res
+        .status(500)
+        .json({ message: "Failed to validate existing document" });
+    }
+
+    // If a verified document already exists, submit a renewal request for manager review.
+    if (existingDoc) {
+      const submittedAt = new Date().toISOString();
+
+      const { error: clearPendingError } = await supabaseAdmin
+        .from("driver_document_renewals")
+        .update({
+          status: "rejected",
+          reviewed_at: submittedAt,
+          reviewed_by: req.user.id,
+          review_reason: "Superseded by a newer renewal submission",
+        })
+        .eq("driver_id", driverId)
+        .eq("document_type", normalizedType)
+        .eq("status", "pending");
+
+      if (
+        clearPendingError &&
+        !isMissingRelationError(clearPendingError, "driver_document_renewals")
+      ) {
+        console.error(
+          "/driver/documents clear pending renewal error:",
+          clearPendingError,
+        );
+        return res
+          .status(500)
+          .json({ message: "Failed to process existing renewal requests" });
+      }
+
+      const renewalPayload = {
+        driver_id: driverId,
+        document_type: normalizedType,
+        proposed_document_url: normalizedUrl,
+        status: "pending",
+        submitted_at: submittedAt,
+        reviewed_at: null,
+        reviewed_by: null,
+        review_reason: null,
+      };
+
+      const { data: renewalRequest, error: renewalError } = await supabaseAdmin
+        .from("driver_document_renewals")
+        .insert(renewalPayload)
+        .select(
+          "id, driver_id, document_type, proposed_document_url, status, submitted_at, reviewed_at, review_reason",
+        )
+        .maybeSingle();
+
+      if (renewalError) {
+        console.error("/driver/documents renewal insert error:", renewalError);
+        if (isMissingRelationError(renewalError, "driver_document_renewals")) {
+          return res.status(500).json({
+            message:
+              "Renewal workflow table is missing. Please run the latest database migration.",
+          });
+        }
+
+        return res
+          .status(500)
+          .json({ message: "Failed to submit renewal request" });
+      }
+
+      return res.json({
+        message:
+          "Renewal request submitted successfully. Manager approval is required before the live document is updated.",
+        renewalRequest,
+      });
+    }
+
     const payload = {
       driver_id: driverId,
-      document_type: String(documentType).trim(),
-      document_url: documentUrl.trim(),
+      document_type: normalizedType,
+      document_url: normalizedUrl,
       uploaded_at: new Date().toISOString(),
       verified: false,
       verified_at: null,
@@ -305,7 +450,9 @@ router.put("/vehicle-expiry", authenticate, async (req, res) => {
 
     if (fetchError) {
       console.error("/driver/vehicle-expiry fetch error:", fetchError);
-      return res.status(500).json({ message: "Failed to load vehicle details" });
+      return res
+        .status(500)
+        .json({ message: "Failed to load vehicle details" });
     }
 
     if (!currentVehicle) {

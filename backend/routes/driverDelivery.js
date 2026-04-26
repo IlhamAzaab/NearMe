@@ -203,7 +203,8 @@ async function fetchWithTimeout(
 // ============================================================================
 const OSRM_PRIMARY = "https://router.project-osrm.org";
 const OSRM_BACKUP = "https://routing.openstreetmap.de/routed-foot";
-const OSRM_PROFILES = ["foot"]; // Foot-only mode for shortest distance calculations
+const OSRM_PROFILES = ["foot"]; // Foot profile: shortest path distance for earnings calculations
+// NOTE: ETA calculations (travel time) use "driving" profile in etaCalculator.js
 
 async function getRouteDistance(
   startLng,
@@ -2193,6 +2194,27 @@ router.patch(
           .status(404)
           .json({ message: "Delivery not found or not assigned to you" });
       }
+
+      // Also update the drivers table so fallback location chain stays fresh
+      // (fire-and-forget — don't block the response)
+      // Column names confirmed: drivers table uses current_latitude / current_longitude
+      supabaseAdmin
+        .from("drivers")
+        .update({
+          current_latitude: parsedLatitude,
+          current_longitude: parsedLongitude,
+          last_location_update: updateData.last_location_update,
+        })
+        .eq("id", req.user.id)
+        .then(({ error: driverUpdateError }) => {
+          if (driverUpdateError) {
+            console.error(
+              "[Location] drivers table update error (non-fatal):",
+              driverUpdateError.message,
+            );
+          }
+        })
+        .catch(() => {});
 
       // 📡 Check proximity to customer and notify if < 100m
       if (
