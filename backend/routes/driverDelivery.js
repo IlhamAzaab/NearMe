@@ -221,16 +221,15 @@ async function getRouteDistance(
     return cached;
   }
 
-  // Circuit breaker: skip OSRM entirely when it's consistently failing
+  // Circuit breaker: instead of blocking, reset and retry fresh.
+  // If OSRM is consistently failing we still try every call rather than
+  // returning null distance values that break earnings calculations.
   if (!isOsrmAvailable()) {
-    console.log("[OSRM] Circuit breaker open - returning unavailable state");
-    return {
-      distance: null,
-      duration: null,
-      geometry: null,
-      isUnavailable: true,
-      unavailableReason: "OSRM circuit breaker active",
-    };
+    console.log("[OSRM] Circuit breaker was open — resetting and retrying fresh");
+    osrmCircuitOpen = false;
+    osrmConsecutiveFailures = 0;
+    osrmLastFailTime = 0;
+    // Continue into the retry loop below
   }
 
   // OSRM-only retry strategy: try multiple servers and profiles

@@ -245,6 +245,124 @@ async function calculateRouteDistanceWithRetry(lat1, lon1, lat2, lon2) {
   return { success: false, error: lastError };
 }
 
+const CHECKOUT_OSRM_TIMEOUT_MS = Math.max(
+  5000,
+  Number.parseInt(process.env.CHECKOUT_OSRM_TIMEOUT_MS || "12000", 10) || 12000,
+);
+
+function withTimeout(promise, timeoutMs, timeoutMessage) {
+  let timeoutId;
+  const timeoutPromise = new Promise((resolve) => {
+    timeoutId = setTimeout(
+      () =>
+        resolve({
+          success: false,
+          error: timeoutMessage || `Timed out after ${timeoutMs}ms`,
+          timedOut: true,
+        }),
+      timeoutMs,
+    );
+  });
+
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId);
+  });
+}
+
+function haversineDistanceKm(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+function resolveDurationFromDistance(distanceKm, durationHintMin = null) {
+  const parsedHint = Number(durationHintMin);
+  if (Number.isFinite(parsedHint) && parsedHint > 0) {
+    return Math.max(1, Math.ceil(parsedHint));
+  }
+
+  const parsedDistance = Number(distanceKm);
+  if (!Number.isFinite(parsedDistance) || parsedDistance <= 0) {
+    return 10;
+  }
+
+  const minutes = (parsedDistance / 24) * 60;
+  return Math.max(5, Math.ceil(minutes));
+}
+
+async function resolveCheckoutRouteMetrics({
+  deliveryLat,
+  deliveryLng,
+  restaurantLat,
+  restaurantLng,
+  clientDistanceHintKm,
+  clientDurationHintMin,
+}) {
+  const geodesicKm = haversineDistanceKm(
+    deliveryLat,
+    deliveryLng,
+    restaurantLat,
+    restaurantLng,
+  );
+  const parsedClientDistance = Number(clientDistanceHintKm);
+
+  // Never trust a lower-than-geodesic client hint.
+  const fallbackDistanceKm = Number(
+    (Number.isFinite(parsedClientDistance) && parsedClientDistance > 0
+      ? Math.max(parsedClientDistance, geodesicKm)
+      : geodesicKm
+    ).toFixed(2),
+  );
+  const fallbackDurationMin = resolveDurationFromDistance(
+    fallbackDistanceKm,
+    clientDurationHintMin,
+  );
+
+  const routeResult = await withTimeout(
+    calculateRouteDistanceWithRetry(
+      deliveryLat,
+      deliveryLng,
+      restaurantLat,
+      restaurantLng,
+    ),
+    CHECKOUT_OSRM_TIMEOUT_MS,
+    "OSRM timeout",
+  );
+
+  if (
+    routeResult?.success &&
+    Number.isFinite(Number(routeResult.distance)) &&
+    Number.isFinite(Number(routeResult.duration))
+  ) {
+    return {
+      distanceKm: Number(Number(routeResult.distance).toFixed(2)),
+      durationMin: Math.max(1, Math.ceil(Number(routeResult.duration))),
+      source: "osrm",
+      fallbackUsed: false,
+    };
+  }
+
+  console.warn(
+    `[orders] Route fallback used (${routeResult?.error || "unknown error"})`,
+  );
+
+  return {
+    distanceKm: fallbackDistanceKm,
+    durationMin: fallbackDurationMin,
+    source: "fallback",
+    fallbackUsed: true,
+    fallbackReason: routeResult?.error || "osrm_unavailable",
+  };
+}
+
 /**
  * Valid delivery status transitions (deliveries table is source of truth)
  * Timestamp meanings:
@@ -626,24 +744,17 @@ router.post("/quote", authenticate, async (req, res) => {
       });
     }
 
-    const routeResult = await calculateRouteDistanceWithRetry(
-      delivery_latitude,
-      delivery_longitude,
-      parseFloat(restaurant.latitude),
-      parseFloat(restaurant.longitude),
-    );
+    const routeMetrics = await resolveCheckoutRouteMetrics({
+      deliveryLat: delivery_latitude,
+      deliveryLng: delivery_longitude,
+      restaurantLat: Number(restaurant.latitude),
+      restaurantLng: Number(restaurant.longitude),
+      clientDistanceHintKm: null,
+      clientDurationHintMin: null,
+    });
 
-    if (!routeResult.success) {
-      return res.status(503).json({
-        message:
-          "Unable to calculate accurate road distance right now. Please retry in a few seconds.",
-        error: routeResult.error || "OSRM routing unavailable",
-        retry: true,
-      });
-    }
-
-    const distanceKm = Number(routeResult.distance);
-    const estimatedDurationMin = Number(routeResult.duration);
+    const distanceKm = Number(routeMetrics.distanceKm);
+    const estimatedDurationMin = Number(routeMetrics.durationMin);
 
     let customerSubtotal = 0;
     let adminSubtotal = 0;
@@ -829,6 +940,7 @@ router.post("/quote", authenticate, async (req, res) => {
         payment_method,
         distance_km: quotePayload.route.distance_km,
         estimated_duration_min: quotePayload.route.estimated_duration_min,
+        route_source: routeMetrics.source,
         delivery: quotePayload.delivery,
         pricing: {
           subtotal: subtotalAmount,
@@ -920,6 +1032,7 @@ router.post("/place", authenticate, async (req, res) => {
   let cartLocked = false;
   let pricingAdjusted = false;
   let checkoutPricingSnapshot = null;
+  let serverPricingSnapshot = null;
 
   try {
     // ========================================================================
@@ -1685,29 +1798,20 @@ router.post("/place", authenticate, async (req, res) => {
       );
     }
 
-    const routeResult = await calculateRouteDistanceWithRetry(
-      delivery_latitude,
-      delivery_longitude,
-      parseFloat(restaurant.latitude),
-      parseFloat(restaurant.longitude),
-    );
+    const routeMetrics = await resolveCheckoutRouteMetrics({
+      deliveryLat: delivery_latitude,
+      deliveryLng: delivery_longitude,
+      restaurantLat: Number(restaurant.latitude),
+      restaurantLng: Number(restaurant.longitude),
+      clientDistanceHintKm: clientDistanceHint,
+      clientDurationHintMin: Number(estimated_duration_min),
+    });
 
-    if (!routeResult.success) {
-      return res.status(503).json({
-        message:
-          "Unable to calculate accurate road distance right now. Please retry in a few seconds.",
-        error: routeResult.error || "OSRM routing unavailable",
-        retry: true,
-      });
-    }
-
-    distance_km = Number(routeResult.distance);
-    estimated_duration_min = Number(routeResult.duration);
+    distance_km = Number(routeMetrics.distanceKm);
+    estimated_duration_min = Number(routeMetrics.durationMin);
     console.log(
-      `[orders/place] Server-computed route: ${distance_km.toFixed(2)} km, ${estimated_duration_min.toFixed(1)} min`,
+      `[orders/place] Route (${routeMetrics.source}): ${distance_km.toFixed(2)} km, ${estimated_duration_min.toFixed(1)} min`,
     );
-
-
 
     // ========================================================================
     // STEP 5: Compute item commissions + fees entirely server-side
@@ -1844,12 +1948,19 @@ router.post("/place", authenticate, async (req, res) => {
       (subtotalAmount + serviceFeeAmount + deliveryFeeAmount).toFixed(2),
     );
 
+    serverPricingSnapshot = {
+      subtotal: subtotalAmount,
+      service_fee: serviceFeeAmount,
+      delivery_fee: deliveryFeeAmount,
+      total_amount: totalAmount,
+      distance_km: Number(distance_km.toFixed(2)),
+      estimated_duration_min: Math.ceil(estimated_duration_min),
+      route_source: routeMetrics.source,
+    };
+
     console.log(
       `[orders/place] Server-computed amounts: subtotal=${subtotalAmount}, service=${serviceFeeAmount}, delivery=${deliveryFeeAmount}, total=${totalAmount}`,
     );
-
-
-
 
     // ========================================================================
     // STEP 6: Acquire cart lock (atomic idempotency gate)
@@ -1930,7 +2041,7 @@ router.post("/place", authenticate, async (req, res) => {
       launch_promo_applied: launchPromoApplied,
       launch_promo_discount: launchPromoDiscount.toFixed(2),
       launch_promo_delivery_fee: launchPromoApplied
-        ? serverDeliveryFee.toFixed(2)
+        ? deliveryFeeAmount.toFixed(2)
         : null,
     };
 
@@ -2155,7 +2266,7 @@ router.post("/place", authenticate, async (req, res) => {
           applied: launchPromoApplied,
           discount_amount: launchPromoDiscount,
           normal_delivery_fee: Number(normalDeliveryFee.toFixed(2)),
-          applied_delivery_fee: Number(serverDeliveryFee.toFixed(2)),
+          applied_delivery_fee: Number(deliveryFeeAmount.toFixed(2)),
         },
         pricing_adjusted: pricingAdjusted,
         checkout_pricing: pricingAdjusted ? checkoutPricingSnapshot : null,
@@ -2192,7 +2303,9 @@ router.post("/place", authenticate, async (req, res) => {
 
 router.post("/:orderId/cancel", authenticate, async (req, res) => {
   if (req.user.role !== "customer") {
-    return res.status(403).json({ message: "Only customers can cancel orders" });
+    return res
+      .status(403)
+      .json({ message: "Only customers can cancel orders" });
   }
 
   const customerId = req.user.id;
@@ -2221,13 +2334,17 @@ router.post("/:orderId/cancel", authenticate, async (req, res) => {
     }
 
     if (!delivery) {
-      return res.status(404).json({ message: "Order delivery record not found" });
+      return res
+        .status(404)
+        .json({ message: "Order delivery record not found" });
     }
 
     // Step 2: Verify the order belongs to this customer
     const { data: order, error: orderFetchError } = await supabaseAdmin
       .from("orders")
-      .select("id, customer_id, order_number, status, total_amount, restaurant_id")
+      .select(
+        "id, customer_id, order_number, status, total_amount, restaurant_id",
+      )
       .eq("id", orderId)
       .eq("customer_id", customerId)
       .single();
@@ -2241,7 +2358,8 @@ router.post("/:orderId/cancel", authenticate, async (req, res) => {
     const allowedCancelStatuses = ["placed"];
     if (!allowedCancelStatuses.includes(delivery.status)) {
       return res.status(409).json({
-        message: "This order can no longer be cancelled. The restaurant has already accepted it.",
+        message:
+          "This order can no longer be cancelled. The restaurant has already accepted it.",
         current_status: delivery.status,
       });
     }
@@ -2269,7 +2387,8 @@ router.post("/:orderId/cancel", authenticate, async (req, res) => {
     if (!updatedDelivery) {
       // The status changed between our check and update (admin accepted)
       return res.status(409).json({
-        message: "This order can no longer be cancelled. The restaurant has already accepted it.",
+        message:
+          "This order can no longer be cancelled. The restaurant has already accepted it.",
       });
     }
 
@@ -2312,7 +2431,9 @@ router.post("/:orderId/cancel", authenticate, async (req, res) => {
       status: "cancelled",
     });
 
-    console.log(`✅ Order ${orderId} cancelled by customer ${customerId}: ${cancelled_reason}`);
+    console.log(
+      `✅ Order ${orderId} cancelled by customer ${customerId}: ${cancelled_reason}`,
+    );
 
     return res.status(200).json({
       message: "Order cancelled successfully",
@@ -2328,7 +2449,6 @@ router.post("/:orderId/cancel", authenticate, async (req, res) => {
 // ============================================================================
 // GET /orders/my-orders - Get customer's orders
 // ============================================================================
-
 
 router.get("/my-orders", authenticate, async (req, res) => {
   if (req.user.role !== "customer") {
