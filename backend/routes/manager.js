@@ -2495,6 +2495,262 @@ router.get("/restaurant-payouts", authenticate, async (req, res) => {
 });
 
 // ============================================================================
+// MANAGER EARNINGS
+// ============================================================================
+
+/**
+ * GET /manager/earnings/summary
+ * Period-filtered earnings summary for the Manager Earnings screen.
+ * Query: period = daily | yesterday | weekly | monthly | all
+ */
+router.get("/earnings/summary", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "manager") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const period = req.query.period || "daily";
+    const now = new Date();
+    let start, end;
+
+    if (period === "daily") {
+      const range = getSriLankaDayRange(now);
+      start = range.start;
+      end = range.end;
+    } else if (period === "yesterday") {
+      const yesterday = new Date(now);
+      yesterday.setDate(yesterday.getDate() - 1);
+      const range = getSriLankaDayRange(yesterday);
+      start = range.start;
+      end = range.end;
+    } else if (period === "weekly") {
+      const weekAgo = new Date(now);
+      weekAgo.setDate(weekAgo.getDate() - 7);
+      start = getSriLankaDayRange(weekAgo).start;
+      end = getSriLankaDayRange(now).end;
+    } else if (period === "monthly") {
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      start = getSriLankaDayRange(monthStart).start;
+      end = getSriLankaDayRange(now).end;
+    } else {
+      // "all" — no date filter
+      start = null;
+      end = null;
+    }
+
+    // Fetch delivered deliveries
+    let delQuery = supabaseAdmin
+      .from("deliveries")
+      .select(
+        "order_id, driver_earnings, base_amount, extra_earnings, bonus_amount, tip_amount, status, delivered_at",
+      )
+      .eq("status", "delivered");
+
+    if (start) delQuery = delQuery.gte("delivered_at", start);
+    if (end) delQuery = delQuery.lte("delivered_at", end);
+
+    const { data: deliveries, error: delErr } = await delQuery;
+    if (delErr) {
+      console.error("Earnings summary deliveries error:", delErr);
+      return res.status(500).json({ message: "Failed to fetch deliveries" });
+    }
+
+    const getFinalDriverEarnings = (d) => {
+      const stored = parseFloat(d.driver_earnings || 0);
+      if (stored > 0) return stored;
+      return (
+        parseFloat(d.base_amount || 0) +
+        parseFloat(d.extra_earnings || 0) +
+        parseFloat(d.bonus_amount || 0) +
+        parseFloat(d.tip_amount || 0)
+      );
+    };
+
+    const orderIds = (deliveries || []).map((d) => d.order_id);
+    const deliveriesMap = {};
+    for (const d of deliveries || []) {
+      deliveriesMap[d.order_id] = {
+        driver_earnings: getFinalDriverEarnings(d),
+      };
+    }
+
+    // Fetch orders
+    let orders = [];
+    if (orderIds.length > 0) {
+      const { data: ordersData } = await supabaseAdmin
+        .from("orders")
+        .select(
+          "id, subtotal, admin_subtotal, commission_total, delivery_fee, service_fee, total_amount",
+        )
+        .in("id", orderIds);
+      orders = ordersData || [];
+    }
+
+    // Calculate totals
+    let totalCollected = 0;
+    let totalDriverEarnings = 0;
+    let adminTotal = 0;
+    let foodCommission = 0;
+
+    for (const order of orders) {
+      const collected = parseFloat(order.total_amount || 0);
+      const restaurantPay = parseFloat(order.admin_subtotal || 0);
+      const driverPay = deliveriesMap[order.id]?.driver_earnings || 0;
+      const commission = parseFloat(order.commission_total || 0);
+
+      totalCollected += collected;
+      adminTotal += restaurantPay;
+      totalDriverEarnings += driverPay;
+      foodCommission += commission;
+    }
+
+    const totalEarning = totalCollected - adminTotal - totalDriverEarnings;
+
+    return res.json({
+      summary: {
+        total_earning: totalEarning,
+        total_collected: totalCollected,
+        total_driver_earnings: totalDriverEarnings,
+        admin_total: adminTotal,
+        food_commission: foodCommission,
+        total_orders: orderIds.length,
+        delivered_orders: orderIds.length,
+      },
+    });
+  } catch (err) {
+    console.error("Earnings summary error:", err);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+/**
+ * GET /manager/earnings/orders
+ * Period-filtered individual order earnings for the Manager Earnings screen.
+ * Query: from, to (ISO strings), limit
+ */
+router.get("/earnings/orders", authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== "manager") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const { from, to, limit = 100 } = req.query;
+
+    let delQuery = supabaseAdmin
+      .from("deliveries")
+      .select(
+        "order_id, driver_earnings, base_amount, extra_earnings, bonus_amount, tip_amount, status, delivered_at, driver_id",
+      )
+      .eq("status", "delivered")
+      .order("delivered_at", { ascending: false })
+      .limit(parseInt(limit));
+
+    if (from) delQuery = delQuery.gte("delivered_at", from);
+    if (to) delQuery = delQuery.lte("delivered_at", to);
+
+    const { data: deliveries, error: delErr } = await delQuery;
+    if (delErr) {
+      console.error("Earnings orders deliveries error:", delErr);
+      return res.status(500).json({ message: "Failed to fetch deliveries" });
+    }
+
+    const getFinalDriverEarnings = (d) => {
+      const stored = parseFloat(d.driver_earnings || 0);
+      if (stored > 0) return stored;
+      return (
+        parseFloat(d.base_amount || 0) +
+        parseFloat(d.extra_earnings || 0) +
+        parseFloat(d.bonus_amount || 0) +
+        parseFloat(d.tip_amount || 0)
+      );
+    };
+
+    const orderIds = (deliveries || []).map((d) => d.order_id);
+    const deliveriesMap = {};
+    for (const d of deliveries || []) {
+      deliveriesMap[d.order_id] = {
+        driver_earnings: getFinalDriverEarnings(d),
+        driver_id: d.driver_id,
+        delivered_at: d.delivered_at,
+      };
+    }
+
+    let orders = [];
+    if (orderIds.length > 0) {
+      const { data: ordersData } = await supabaseAdmin
+        .from("orders")
+        .select(
+          "id, order_number, subtotal, admin_subtotal, commission_total, delivery_fee, service_fee, total_amount, placed_at, restaurant_name, customer_id, status",
+        )
+        .in("id", orderIds);
+      orders = ordersData || [];
+    }
+
+    // Get customer names
+    const customerIds = [...new Set(orders.map((o) => o.customer_id).filter(Boolean))];
+    const customerMap = {};
+    if (customerIds.length > 0) {
+      const { data: customers } = await supabaseAdmin
+        .from("customers")
+        .select("id, username")
+        .in("id", customerIds);
+      for (const c of customers || []) {
+        customerMap[c.id] = c.username;
+      }
+    }
+
+    // Get driver names
+    const driverIds = [...new Set(Object.values(deliveriesMap).map((d) => d.driver_id).filter(Boolean))];
+    const driverMap = {};
+    if (driverIds.length > 0) {
+      const { data: drivers } = await supabaseAdmin
+        .from("drivers")
+        .select("id, full_name, phone")
+        .in("id", driverIds);
+      for (const d of drivers || []) {
+        driverMap[d.id] = { name: d.full_name, phone: d.phone };
+      }
+    }
+
+    const enrichedOrders = orders.map((order) => {
+      const delInfo = deliveriesMap[order.id] || {};
+      const collected = parseFloat(order.total_amount || 0);
+      const restaurantPay = parseFloat(order.admin_subtotal || 0);
+      const driverPay = delInfo.driver_earnings || 0;
+      const managerEarning = collected - restaurantPay - driverPay;
+      const driverInfo = driverMap[delInfo.driver_id] || {};
+
+      return {
+        id: order.id,
+        order_number: order.order_number,
+        status: "delivered",
+        subtotal: order.subtotal,
+        delivery_fee: order.delivery_fee,
+        service_fee: order.service_fee,
+        total_amount: order.total_amount,
+        restaurant_name: order.restaurant_name,
+        restaurant_payout: restaurantPay,
+        driver_earning: driverPay,
+        manager_earning: managerEarning,
+        customer_name: customerMap[order.customer_id] || null,
+        driver_name: driverInfo.name || null,
+        driver_phone: driverInfo.phone || null,
+        placed_at: order.placed_at,
+        delivered_at: delInfo.delivered_at,
+      };
+    });
+
+    // Sort by delivered_at descending
+    enrichedOrders.sort((a, b) => new Date(b.delivered_at) - new Date(a.delivered_at));
+
+    return res.json({ orders: enrichedOrders });
+  } catch (err) {
+    console.error("Earnings orders error:", err);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+// ============================================================================
 // PENDING DELIVERIES (no driver accepted > 10 min after restaurant accepted)
 // ============================================================================
 

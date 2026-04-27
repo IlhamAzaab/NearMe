@@ -423,7 +423,25 @@ export function initializeSocket(server) {
         return;
       }
 
-      // Store customer connection
+      // If this customer was already connected on a different socket (e.g.
+      // logged in on another phone), kick the old socket out of the room
+      // so only the current device receives order updates.
+      const existingConnection = connectedCustomers.get(customerId);
+      if (existingConnection && existingConnection.socketId !== socket.id) {
+        const oldSocketId = existingConnection.socketId;
+        const oldSocket = io.sockets.sockets.get(oldSocketId);
+        if (oldSocket) {
+          oldSocket.leave(`customer:${customerId}`);
+          oldSocket.emit("customer:session_replaced", {
+            message: "You have been logged in on another device.",
+          });
+          console.log(
+            `🔄 Customer ${customerId}: kicked old socket ${oldSocketId} from room`,
+          );
+        }
+      }
+
+      // Store customer connection (replaces old entry in map)
       connectedCustomers.set(customerId, {
         socketId: socket.id,
         connectedAt: new Date(),

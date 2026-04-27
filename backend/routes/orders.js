@@ -1672,8 +1672,19 @@ router.post("/place", authenticate, async (req, res) => {
     }
 
     // ========================================================================
-    // STEP 4.6: Always calculate distance and duration server-side via OSRM
+    // STEP 4.6: Server-side OSRM distance calculation (non-quote path only)
+    // NOTE: When quote_token is provided (handled above), distance already comes
+    // from the signed JWT — execution never reaches this point.
+    // For the non-quote fallback we ALWAYS call OSRM server-side.
+    // Client-sent distance_km is logged only for debugging, never trusted.
     // ========================================================================
+    const clientDistanceHint = Number(distance_km);
+    if (Number.isFinite(clientDistanceHint) && clientDistanceHint > 0) {
+      console.log(
+        `[orders/place] Client distance hint: ${clientDistanceHint.toFixed(2)} km (not trusted, computing server-side)`,
+      );
+    }
+
     const routeResult = await calculateRouteDistanceWithRetry(
       delivery_latitude,
       delivery_longitude,
@@ -1681,20 +1692,7 @@ router.post("/place", authenticate, async (req, res) => {
       parseFloat(restaurant.longitude),
     );
 
-    if (routeResult.success) {
-      const clientDistanceKm = Number(distance_km);
-      distance_km = Number(routeResult.distance);
-      estimated_duration_min = Number(routeResult.duration);
-
-      if (
-        Number.isFinite(clientDistanceKm) &&
-        Math.abs(clientDistanceKm - distance_km) > 1
-      ) {
-        console.warn(
-          `[orders/place] Client/server distance mismatch: client=${clientDistanceKm.toFixed(2)} km, server=${distance_km.toFixed(2)} km`,
-        );
-      }
-    } else {
+    if (!routeResult.success) {
       return res.status(503).json({
         message:
           "Unable to calculate accurate road distance right now. Please retry in a few seconds.",
@@ -1703,11 +1701,22 @@ router.post("/place", authenticate, async (req, res) => {
       });
     }
 
+    distance_km = Number(routeResult.distance);
+    estimated_duration_min = Number(routeResult.duration);
+    console.log(
+      `[orders/place] Server-computed route: ${distance_km.toFixed(2)} km, ${estimated_duration_min.toFixed(1)} min`,
+    );
+
+
+
     // ========================================================================
-    // STEP 5: Calculate pricing with commission (server-side validation)
+    // STEP 5: Compute item commissions + fees entirely server-side
+    // Financial amounts are NEVER trusted from the client.
+    // The quote_token path (above) already handled secure cases with signed pricing.
+    // This fallback path computes everything from scratch on the server.
     // ========================================================================
 
-    // Recalculate prices with commission from current food prices
+    // Re-compute item prices from current food prices (prevents price tampering)
     let customerSubtotal = 0;
     let adminSubtotal = 0;
     let commissionTotal = 0;
@@ -1718,13 +1727,11 @@ router.post("/place", authenticate, async (req, res) => {
       let adminPrice, customerPrice, commission;
 
       if (food) {
-        // Recalculate from current food prices
         const prices = await getCartItemPrices(food, item.size);
         adminPrice = prices.adminPrice;
         customerPrice = prices.customerPrice;
         commission = prices.commission;
       } else {
-        // Fallback to stored values
         adminPrice = parseFloat(item.admin_unit_price || item.unit_price);
         customerPrice = parseFloat(item.unit_price);
         commission = parseFloat(item.commission_per_item || 0);
@@ -1749,9 +1756,9 @@ router.post("/place", authenticate, async (req, res) => {
       });
     }
 
-    const subtotal = customerSubtotal; // Customer subtotal includes commission
+    const subtotal = customerSubtotal;
 
-    // Validate distance and minimum order based on distance constraints from config
+    // Validate distance constraints
     const config = await getSystemConfig();
     let orderDistanceConstraints;
     try {
@@ -1769,7 +1776,6 @@ router.post("/place", authenticate, async (req, res) => {
     }
     const maxOrderDistanceKm = parseFloat(config.max_order_distance_km || 25);
 
-    // Check if restaurant is too far
     if (distance_km > maxOrderDistanceKm) {
       return res.status(400).json({
         message: `Restaurant is too far away (${distance_km.toFixed(1)} km). Maximum ordering distance is ${maxOrderDistanceKm} km.`,
@@ -1779,11 +1785,10 @@ router.post("/place", authenticate, async (req, res) => {
       });
     }
 
-    // Find the matching constraint tier for this distance
     const sortedConstraints = [...orderDistanceConstraints].sort(
       (a, b) => a.min_km - b.min_km,
     );
-    let requiredMinSubtotal = 300; // default fallback
+    let requiredMinSubtotal = 300;
     for (const constraint of sortedConstraints) {
       if (
         distance_km >= constraint.min_km &&
@@ -1804,10 +1809,10 @@ router.post("/place", authenticate, async (req, res) => {
       });
     }
 
+    // Compute all fees server-side — client-sent pricing values are ignored entirely
     const serviceFee = await calculateServiceFee(subtotal);
     const normalDeliveryFee = await calculateDeliveryFee(distance_km);
 
-    // Launch promotion: apply only for first-ever order when customer acknowledged popup.
     const launchPromoConfig = getLaunchPromoConfig(config);
     const launchPromoEligible =
       launchPromoConfig.enabled &&
@@ -1832,107 +1837,19 @@ router.post("/place", authenticate, async (req, res) => {
       }
     }
 
-    const serverSubtotal = Number(subtotal.toFixed(2));
-    const serverServiceFee = Number(serviceFee.toFixed(2));
-    const serverDeliveryFee = Number(deliveryFee.toFixed(2));
-    const serverTotalAmount = Number(
-      (serverSubtotal + serverServiceFee + serverDeliveryFee).toFixed(2),
+    const subtotalAmount = Number(subtotal.toFixed(2));
+    const serviceFeeAmount = Number(serviceFee.toFixed(2));
+    const deliveryFeeAmount = Number(deliveryFee.toFixed(2));
+    const totalAmount = Number(
+      (subtotalAmount + serviceFeeAmount + deliveryFeeAmount).toFixed(2),
     );
-    const serverPricingSnapshot = {
-      subtotal: serverSubtotal,
-      service_fee: serverServiceFee,
-      delivery_fee: serverDeliveryFee,
-      total_amount: serverTotalAmount,
-    };
 
-    const hasCheckoutPricing =
-      checkout_subtotal !== undefined &&
-      checkout_service_fee !== undefined &&
-      checkout_delivery_fee !== undefined &&
-      checkout_total_amount !== undefined;
+    console.log(
+      `[orders/place] Server-computed amounts: subtotal=${subtotalAmount}, service=${serviceFeeAmount}, delivery=${deliveryFeeAmount}, total=${totalAmount}`,
+    );
 
-    if (hasCheckoutPricing) {
-      const checkoutPricing = {
-        subtotal: Number(checkout_subtotal),
-        service_fee: Number(checkout_service_fee),
-        delivery_fee: Number(checkout_delivery_fee),
-        total_amount: Number(checkout_total_amount),
-      };
 
-      const hasInvalidCheckoutPricing = Object.values(checkoutPricing).some(
-        (value) => !Number.isFinite(value),
-      );
 
-      if (hasInvalidCheckoutPricing) {
-        return res.status(400).json({
-          message: "Invalid checkout pricing values",
-          error_type: "invalid_checkout_pricing",
-        });
-      }
-
-      const normalizedCheckoutTotal = Number(
-        (
-          checkoutPricing.subtotal +
-          checkoutPricing.service_fee +
-          checkoutPricing.delivery_fee
-        ).toFixed(2),
-      );
-
-      if (
-        Math.abs(normalizedCheckoutTotal - checkoutPricing.total_amount) > 0.01
-      ) {
-        return res.status(400).json({
-          message: "Checkout total is invalid. Please try again.",
-          error_type: "invalid_checkout_total",
-        });
-      }
-
-      checkoutPricingSnapshot = {
-        subtotal: Number(checkoutPricing.subtotal.toFixed(2)),
-        service_fee: Number(checkoutPricing.service_fee.toFixed(2)),
-        delivery_fee: Number(checkoutPricing.delivery_fee.toFixed(2)),
-        total_amount: Number(checkoutPricing.total_amount.toFixed(2)),
-      };
-
-      const subtotalMismatch =
-        Math.abs(checkoutPricingSnapshot.subtotal - serverSubtotal) > 0.01;
-      const serviceFeeMismatch =
-        Math.abs(checkoutPricingSnapshot.service_fee - serverServiceFee) > 0.01;
-      const deliveryFeeMismatch =
-        Math.abs(checkoutPricingSnapshot.delivery_fee - serverDeliveryFee) >
-        0.01;
-      const totalMismatch =
-        Math.abs(checkoutPricingSnapshot.total_amount - serverTotalAmount) >
-        0.01;
-
-      // Subtotal mismatch is treated as a true pricing change (item price/cart drift).
-      if (subtotalMismatch) {
-        return res.status(409).json({
-          message:
-            "Order amount changed while placing the order. Please review checkout and place again.",
-          error_type: "price_mismatch",
-          checkout_pricing: checkoutPricingSnapshot,
-          server_pricing: serverPricingSnapshot,
-        });
-      }
-
-      // Fee mismatches can happen due to route recalculation timing/config drift.
-      // Keep server pricing as source of truth and continue placing the order.
-      if (serviceFeeMismatch || deliveryFeeMismatch || totalMismatch) {
-        pricingAdjusted = true;
-        console.warn("[orders/place] Fee mismatch auto-adjusted", {
-          cartId,
-          customerId,
-          checkout_pricing: checkoutPricingSnapshot,
-          server_pricing: serverPricingSnapshot,
-        });
-      }
-    }
-
-    const subtotalAmount = serverSubtotal;
-    const serviceFeeAmount = serverServiceFee;
-    const deliveryFeeAmount = serverDeliveryFee;
-    const totalAmount = serverTotalAmount;
 
     // ========================================================================
     // STEP 6: Acquire cart lock (atomic idempotency gate)
@@ -2270,8 +2187,148 @@ router.post("/place", authenticate, async (req, res) => {
 });
 
 // ============================================================================
+// POST /orders/:orderId/cancel - Customer cancels order before admin accepts
+// ============================================================================
+
+router.post("/:orderId/cancel", authenticate, async (req, res) => {
+  if (req.user.role !== "customer") {
+    return res.status(403).json({ message: "Only customers can cancel orders" });
+  }
+
+  const customerId = req.user.id;
+  const { orderId } = req.params;
+  const { cancelled_reason } = req.body;
+
+  if (!orderId) {
+    return res.status(400).json({ message: "Order ID is required" });
+  }
+
+  if (!cancelled_reason || !String(cancelled_reason).trim()) {
+    return res.status(400).json({ message: "Cancellation reason is required" });
+  }
+
+  try {
+    // Step 1: Fetch the delivery record to check current status
+    const { data: delivery, error: deliveryFetchError } = await supabaseAdmin
+      .from("deliveries")
+      .select("id, order_id, status, driver_id")
+      .eq("order_id", orderId)
+      .maybeSingle();
+
+    if (deliveryFetchError) {
+      console.error("Cancel order - delivery fetch error:", deliveryFetchError);
+      return res.status(500).json({ message: "Failed to check order status" });
+    }
+
+    if (!delivery) {
+      return res.status(404).json({ message: "Order delivery record not found" });
+    }
+
+    // Step 2: Verify the order belongs to this customer
+    const { data: order, error: orderFetchError } = await supabaseAdmin
+      .from("orders")
+      .select("id, customer_id, order_number, status, total_amount, restaurant_id")
+      .eq("id", orderId)
+      .eq("customer_id", customerId)
+      .single();
+
+    if (orderFetchError || !order) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    // Step 3: Only allow cancellation if status is 'placed' (not yet accepted)
+    // Use atomic update with status check to prevent race condition with admin accept
+    const allowedCancelStatuses = ["placed"];
+    if (!allowedCancelStatuses.includes(delivery.status)) {
+      return res.status(409).json({
+        message: "This order can no longer be cancelled. The restaurant has already accepted it.",
+        current_status: delivery.status,
+      });
+    }
+
+    // Step 4: Atomically update delivery status to 'cancelled'
+    // The .eq("status", "placed") acts as an optimistic lock — if admin
+    // accepted between our check and this update, the update will match 0 rows.
+    const { data: updatedDelivery, error: updateError } = await supabaseAdmin
+      .from("deliveries")
+      .update({
+        status: "cancelled",
+        cancelled_reason: String(cancelled_reason).trim(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("order_id", orderId)
+      .eq("status", "placed")
+      .select("id, status")
+      .maybeSingle();
+
+    if (updateError) {
+      console.error("Cancel order - delivery update error:", updateError);
+      return res.status(500).json({ message: "Failed to cancel order" });
+    }
+
+    if (!updatedDelivery) {
+      // The status changed between our check and update (admin accepted)
+      return res.status(409).json({
+        message: "This order can no longer be cancelled. The restaurant has already accepted it.",
+      });
+    }
+
+    // Step 5: Update order status too
+    await supabaseAdmin
+      .from("orders")
+      .update({
+        status: "cancelled",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", orderId);
+
+    // Step 6: Notify the restaurant admin that order was cancelled
+    const { data: admins } = await supabaseAdmin
+      .from("admins")
+      .select("id")
+      .eq("restaurant_id", order.restaurant_id || "");
+
+    if (admins && admins.length > 0) {
+      for (const admin of admins) {
+        notifyAdmin(admin.id, "order:status_update", {
+          type: "order_cancelled",
+          title: "Order Cancelled",
+          message: `Order #${order.order_number} was cancelled by the customer.`,
+          order_id: orderId,
+          order_number: order.order_number,
+          status: "cancelled",
+          cancelled_reason: String(cancelled_reason).trim(),
+        });
+      }
+    }
+
+    // Step 7: Notify the customer via socket
+    notifyCustomer(customerId, "order:status_update", {
+      type: "order_cancelled",
+      title: "Order Cancelled",
+      message: "Your order has been cancelled.",
+      order_id: orderId,
+      order_number: order.order_number,
+      status: "cancelled",
+    });
+
+    console.log(`✅ Order ${orderId} cancelled by customer ${customerId}: ${cancelled_reason}`);
+
+    return res.status(200).json({
+      message: "Order cancelled successfully",
+      order_id: orderId,
+      status: "cancelled",
+    });
+  } catch (error) {
+    console.error("Cancel order error:", error);
+    return res.status(500).json({ message: "Server error cancelling order" });
+  }
+});
+
+// ============================================================================
 // GET /orders/my-orders - Get customer's orders
 // ============================================================================
+
 
 router.get("/my-orders", authenticate, async (req, res) => {
   if (req.user.role !== "customer") {

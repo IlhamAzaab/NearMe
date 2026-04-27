@@ -16,6 +16,8 @@ TRUNCATE TABLE
   scheduled_notifications
 RESTART IDENTITY CASCADE;
 
+#npx eas-cli build --platform android --profile preview --non-interactive 2>&1
+
 SELECT create_daily_deposit_snapshot();
 SELECT * FROM daily_deposit_snapshots ORDER BY snapshot_date DESC;
 

@@ -149,9 +149,10 @@ export async function registerPushToken(
       };
     }
 
-    // For manager role, enforce single active device per manager user.
-    // This prevents stale previously logged-in devices from receiving alerts.
-    if (userType === "manager") {
+    // Enforce single active device per user for all roles.
+    // Deactivate tokens on any OTHER device so only the currently logged-in
+    // device receives push notifications.
+    if (deviceId) {
       const { error: deactivateError } = await supabaseAdmin
         .from("push_notification_tokens")
         .update({
@@ -159,11 +160,13 @@ export async function registerPushToken(
           updated_at: new Date().toISOString(),
         })
         .eq("user_id", userId)
-        .eq("user_type", "manager")
-        .neq("device_id", deviceId || "");
+        .eq("user_type", userType)
+        .neq("device_id", deviceId);
 
       if (deactivateError) {
-        console.error("Error deactivating old manager device tokens:", deactivateError);
+        console.error(`Error deactivating old ${userType} device tokens:`, deactivateError);
+      } else {
+        console.log(`[PUSH] Deactivated old tokens for ${userType} ${userId} (keeping device: ${deviceId})`);
       }
     }
 
