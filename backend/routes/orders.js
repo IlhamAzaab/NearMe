@@ -2311,8 +2311,9 @@ router.post("/:orderId/cancel", authenticate, async (req, res) => {
   const customerId = req.user.id;
   const { orderId } = req.params;
   const { cancelled_reason } = req.body;
+  const normalizedOrderIdentifier = String(orderId || "").trim();
 
-  if (!orderId) {
+  if (!normalizedOrderIdentifier) {
     return res.status(400).json({ message: "Order ID is required" });
   }
 
@@ -2321,11 +2322,53 @@ router.post("/:orderId/cancel", authenticate, async (req, res) => {
   }
 
   try {
-    // Step 1: Fetch the delivery record to check current status
+    // Step 1: Resolve order by customer + identifier.
+    // Accept both DB order id and business order_number to support mixed app flows.
+    let order = null;
+    let orderFetchError = null;
+
+    const orderByIdResult = await supabaseAdmin
+      .from("orders")
+      .select(
+        "id, customer_id, order_number, status, total_amount, restaurant_id",
+      )
+      .eq("id", normalizedOrderIdentifier)
+      .eq("customer_id", customerId)
+      .maybeSingle();
+
+    order = orderByIdResult.data || null;
+    orderFetchError = orderByIdResult.error || null;
+
+    if (!order) {
+      const orderByNumberResult = await supabaseAdmin
+        .from("orders")
+        .select(
+          "id, customer_id, order_number, status, total_amount, restaurant_id",
+        )
+        .eq("order_number", normalizedOrderIdentifier)
+        .eq("customer_id", customerId)
+        .maybeSingle();
+
+      order = orderByNumberResult.data || null;
+      orderFetchError = orderByNumberResult.error || orderFetchError;
+    }
+
+    if (orderFetchError) {
+      console.error("Cancel order - order fetch error:", orderFetchError);
+      return res.status(500).json({ message: "Failed to check order" });
+    }
+
+    if (!order) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    const canonicalOrderId = String(order.id);
+
+    // Step 2: Fetch the delivery record to check current status
     const { data: delivery, error: deliveryFetchError } = await supabaseAdmin
       .from("deliveries")
       .select("id, order_id, status, driver_id")
-      .eq("order_id", orderId)
+      .eq("order_id", canonicalOrderId)
       .maybeSingle();
 
     if (deliveryFetchError) {
@@ -2337,20 +2380,6 @@ router.post("/:orderId/cancel", authenticate, async (req, res) => {
       return res
         .status(404)
         .json({ message: "Order delivery record not found" });
-    }
-
-    // Step 2: Verify the order belongs to this customer
-    const { data: order, error: orderFetchError } = await supabaseAdmin
-      .from("orders")
-      .select(
-        "id, customer_id, order_number, status, total_amount, restaurant_id",
-      )
-      .eq("id", orderId)
-      .eq("customer_id", customerId)
-      .single();
-
-    if (orderFetchError || !order) {
-      return res.status(404).json({ message: "Order not found" });
     }
 
     // Step 3: Only allow cancellation if status is 'placed' (not yet accepted)
@@ -2374,7 +2403,7 @@ router.post("/:orderId/cancel", authenticate, async (req, res) => {
         cancelled_reason: String(cancelled_reason).trim(),
         updated_at: new Date().toISOString(),
       })
-      .eq("order_id", orderId)
+      .eq("order_id", canonicalOrderId)
       .eq("status", "placed")
       .select("id, status")
       .maybeSingle();
@@ -2399,7 +2428,7 @@ router.post("/:orderId/cancel", authenticate, async (req, res) => {
         status: "cancelled",
         updated_at: new Date().toISOString(),
       })
-      .eq("id", orderId);
+      .eq("id", canonicalOrderId);
 
     // Step 6: Notify the restaurant admin that order was cancelled
     const { data: admins } = await supabaseAdmin
@@ -2413,7 +2442,7 @@ router.post("/:orderId/cancel", authenticate, async (req, res) => {
           type: "order_cancelled",
           title: "Order Cancelled",
           message: `Order #${order.order_number} was cancelled by the customer.`,
-          order_id: orderId,
+          order_id: canonicalOrderId,
           order_number: order.order_number,
           status: "cancelled",
           cancelled_reason: String(cancelled_reason).trim(),
@@ -2426,18 +2455,18 @@ router.post("/:orderId/cancel", authenticate, async (req, res) => {
       type: "order_cancelled",
       title: "Order Cancelled",
       message: "Your order has been cancelled.",
-      order_id: orderId,
+      order_id: canonicalOrderId,
       order_number: order.order_number,
       status: "cancelled",
     });
 
     console.log(
-      `✅ Order ${orderId} cancelled by customer ${customerId}: ${cancelled_reason}`,
+      `✅ Order ${canonicalOrderId} cancelled by customer ${customerId}: ${cancelled_reason}`,
     );
 
     return res.status(200).json({
       message: "Order cancelled successfully",
-      order_id: orderId,
+      order_id: canonicalOrderId,
       status: "cancelled",
     });
   } catch (error) {
