@@ -2298,183 +2298,141 @@ router.post("/place", authenticate, async (req, res) => {
 });
 
 // ============================================================================
-// POST /orders/:orderId/cancel - Customer cancels order before admin accepts
+// POST /orders/:id/cancel - Cancel a customer order
 // ============================================================================
 
-router.post("/:orderId/cancel", authenticate, async (req, res) => {
-  if (req.user.role !== "customer") {
-    return res
-      .status(403)
-      .json({ message: "Only customers can cancel orders" });
-  }
-
-  const customerId = req.user.id;
-  const { orderId } = req.params;
+router.post("/:id/cancel", authenticate, async (req, res) => {
+  const orderId = req.params.id;
+  const userId = req.user.id;
+  const userRole = req.user.role;
   const { cancelled_reason } = req.body;
-  const normalizedOrderIdentifier = String(orderId || "").trim();
 
-  if (!normalizedOrderIdentifier) {
-    return res.status(400).json({ message: "Order ID is required" });
+  if (userRole !== "customer") {
+    return res.status(403).json({ message: "Only customers can cancel orders" });
   }
 
-  if (!cancelled_reason || !String(cancelled_reason).trim()) {
-    return res.status(400).json({ message: "Cancellation reason is required" });
+  if (!orderId || !cancelled_reason?.trim()) {
+    return res.status(400).json({
+      message: "Order ID and cancelled_reason are required",
+    });
   }
 
   try {
-    // Step 1: Resolve order by customer + identifier.
-    // Accept both DB order id and business order_number to support mixed app flows.
-    let order = null;
-    let orderFetchError = null;
-
-    const orderByIdResult = await supabaseAdmin
+    const { data: order, error: orderError } = await supabaseAdmin
       .from("orders")
       .select(
-        "id, customer_id, order_number, status, total_amount, restaurant_id",
-      )
-      .eq("id", normalizedOrderIdentifier)
-      .eq("customer_id", customerId)
-      .maybeSingle();
-
-    order = orderByIdResult.data || null;
-    orderFetchError = orderByIdResult.error || null;
-
-    if (!order) {
-      const orderByNumberResult = await supabaseAdmin
-        .from("orders")
-        .select(
-          "id, customer_id, order_number, status, total_amount, restaurant_id",
+        `
+        id,
+        order_number,
+        customer_id,
+        restaurant_id,
+        cancelled_at,
+        cancellation_reason,
+        deliveries (
+          id,
+          status,
+          driver_id,
+          cancelled_at,
+          cancelled_reason
         )
-        .eq("order_number", normalizedOrderIdentifier)
-        .eq("customer_id", customerId)
-        .maybeSingle();
+      `,
+      )
+      .eq("id", orderId)
+      .single();
 
-      order = orderByNumberResult.data || null;
-      orderFetchError = orderByNumberResult.error || orderFetchError;
-    }
-
-    if (orderFetchError) {
-      console.error("Cancel order - order fetch error:", orderFetchError);
-      return res.status(500).json({ message: "Failed to check order" });
-    }
-
-    if (!order) {
+    if (orderError || !order) {
       return res.status(404).json({ message: "Order not found" });
     }
 
-    const canonicalOrderId = String(order.id);
-
-    // Step 2: Fetch the delivery record to check current status
-    const { data: delivery, error: deliveryFetchError } = await supabaseAdmin
-      .from("deliveries")
-      .select("id, order_id, status, driver_id")
-      .eq("order_id", canonicalOrderId)
-      .maybeSingle();
-
-    if (deliveryFetchError) {
-      console.error("Cancel order - delivery fetch error:", deliveryFetchError);
-      return res.status(500).json({ message: "Failed to check order status" });
+    if (order.customer_id !== userId) {
+      return res.status(403).json({ message: "Access denied" });
     }
 
+    const delivery = order.deliveries?.[0] || order.deliveries;
     if (!delivery) {
-      return res
-        .status(404)
-        .json({ message: "Order delivery record not found" });
+      return res.status(400).json({ message: "Order has no delivery record" });
     }
 
-    // Step 3: Only allow cancellation if status is 'placed' (not yet accepted)
-    // Use atomic update with status check to prevent race condition with admin accept
-    const allowedCancelStatuses = ["placed"];
-    if (!allowedCancelStatuses.includes(delivery.status)) {
+    if (order.cancelled_at || delivery.cancelled_at || delivery.status === "cancelled") {
+      return res.status(409).json({ message: "This order has already been cancelled" });
+    }
+
+    const cancellableStatuses = new Set(["placed", "pending"]);
+    if (!cancellableStatuses.has(delivery.status)) {
       return res.status(409).json({
-        message:
-          "This order can no longer be cancelled. The restaurant has already accepted it.",
-        current_status: delivery.status,
+        message: `Cannot cancel order in ${delivery.status} status`,
       });
     }
 
-    // Step 4: Atomically update delivery status to 'cancelled'
-    // The .eq("status", "placed") acts as an optimistic lock — if admin
-    // accepted between our check and this update, the update will match 0 rows.
-    const { data: updatedDelivery, error: updateError } = await supabaseAdmin
-      .from("deliveries")
-      .update({
-        status: "cancelled",
-        cancelled_reason: String(cancelled_reason).trim(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq("order_id", canonicalOrderId)
-      .eq("status", "placed")
-      .select("id, status")
-      .maybeSingle();
+    const now = new Date().toISOString();
+    const cleanReason = cancelled_reason.trim();
 
-    if (updateError) {
-      console.error("Cancel order - delivery update error:", updateError);
+    const { error: orderUpdateError } = await supabaseAdmin
+      .from("orders")
+      .update({
+        cancelled_at: now,
+        cancellation_reason: cleanReason,
+        updated_at: now,
+      })
+      .eq("id", orderId);
+
+    if (orderUpdateError) {
+      console.error("Order cancel update error:", orderUpdateError);
       return res.status(500).json({ message: "Failed to cancel order" });
     }
 
-    if (!updatedDelivery) {
-      // The status changed between our check and update (admin accepted)
-      return res.status(409).json({
-        message:
-          "This order can no longer be cancelled. The restaurant has already accepted it.",
-      });
-    }
-
-    // Step 5: Update order status too
-    await supabaseAdmin
-      .from("orders")
+    const { error: deliveryUpdateError } = await supabaseAdmin
+      .from("deliveries")
       .update({
         status: "cancelled",
-        updated_at: new Date().toISOString(),
+        cancelled_at: now,
+        cancelled_reason: cleanReason,
+        updated_at: now,
       })
-      .eq("id", canonicalOrderId);
+      .eq("id", delivery.id);
 
-    // Step 6: Notify the restaurant admin that order was cancelled
+    if (deliveryUpdateError) {
+      console.error("Delivery cancel update error:", deliveryUpdateError);
+      return res.status(500).json({ message: "Failed to cancel order" });
+    }
+
     const { data: admins } = await supabaseAdmin
       .from("admins")
       .select("id")
-      .eq("restaurant_id", order.restaurant_id || "");
+      .eq("restaurant_id", order.restaurant_id);
 
     if (admins && admins.length > 0) {
-      for (const admin of admins) {
+      admins.forEach((admin) => {
         notifyAdmin(admin.id, "order:status_update", {
           type: "order_cancelled",
           title: "Order Cancelled",
-          message: `Order #${order.order_number} was cancelled by the customer.`,
-          order_id: canonicalOrderId,
+          message: `Order ${order.order_number} was cancelled by the customer.`,
+          order_id: orderId,
           order_number: order.order_number,
           status: "cancelled",
-          cancelled_reason: String(cancelled_reason).trim(),
+          reason: cleanReason,
+          customer_id: userId,
+          restaurant_id: order.restaurant_id,
         });
-      }
+      });
     }
 
-    // Step 7: Notify the customer via socket
-    notifyCustomer(customerId, "order:status_update", {
-      type: "order_cancelled",
-      title: "Order Cancelled",
-      message: "Your order has been cancelled.",
-      order_id: canonicalOrderId,
-      order_number: order.order_number,
-      status: "cancelled",
-    });
-
-    console.log(
-      `✅ Order ${canonicalOrderId} cancelled by customer ${customerId}: ${cancelled_reason}`,
-    );
-
     return res.status(200).json({
+      success: true,
       message: "Order cancelled successfully",
-      order_id: canonicalOrderId,
-      status: "cancelled",
+      order: {
+        id: orderId,
+        order_number: order.order_number,
+        status: "cancelled",
+        cancelled_at: now,
+        cancellation_reason: cleanReason,
+      },
     });
   } catch (error) {
-    console.error("Cancel order error:", error);
-    return res.status(500).json({ message: "Server error cancelling order" });
+    console.error("Order cancel error:", error);
+    return res.status(500).json({ message: "Server error" });
   }
 });
-
 // ============================================================================
 // GET /orders/my-orders - Get customer's orders
 // ============================================================================
