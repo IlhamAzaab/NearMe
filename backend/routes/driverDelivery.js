@@ -2787,7 +2787,7 @@ router.patch(
           "order:status_update",
           {
             type: "delivery_status_update",
-            title: wsStatusTitles[status] || "Order Update",
+            title: wsStatusTitles[requestedStatus] || "Order Update",
             message: messages.customer,
             order_id: delivery.order_id,
             delivery_id: delivery.id,
@@ -2839,7 +2839,7 @@ router.patch(
         }
 
         console.log(
-          `📡 WebSocket: Customer ${currentDelivery.orders.customer_id} notified of status: ${status}`,
+          `📡 WebSocket: Customer ${currentDelivery.orders.customer_id} notified of status: ${requestedStatus}`,
         );
 
         // 📱 PUSH: Reach customer even when app is closed/phone locked
@@ -2877,32 +2877,55 @@ router.patch(
         },
       );
 
-      // Helper: promote the nearest picked_up delivery to on_the_way when no active on_the_way/at_customer exists
+      // Helper: promote the next picked_up delivery to on_the_way
+      // Business logic:
+      // 1 active delivery only:
+      //   accepted -> picked_up -> on_the_way immediately
+      // Multiple active deliveries:
+      //   accepted pickups all must be completed first
+      //   after last restaurant pickup, first/nearest picked_up customer delivery becomes on_the_way
       const promoteNextPickedUp = async (referenceLat, referenceLng) => {
         const hasReference =
-          Number.isFinite(referenceLat) && Number.isFinite(referenceLng);
+          Number.isFinite(Number(referenceLat)) &&
+          Number.isFinite(Number(referenceLng));
 
-        // If there's already an active on_the_way or at_customer, skip
-        const { data: hasActive } = await supabaseAdmin
+        // If there is already an active customer delivery, do not promote another one.
+        const { data: hasActive, error: activeCheckError } = await supabaseAdmin
           .from("deliveries")
           .select("id")
           .eq("driver_id", req.user.id)
           .in("status", ["on_the_way", "at_customer"])
           .limit(1);
-        if (hasActive && hasActive.length > 0) return null;
 
-        // Check if there are still deliveries to pick up (accepted status)
-        // Business logic: delivery should only start after ALL orders are picked up
-        const { data: hasAccepted } = await supabaseAdmin
+        if (activeCheckError) {
+          console.error("[AUTO PROMOTE] Active check error:", activeCheckError);
+        }
+
+        if (hasActive && hasActive.length > 0) {
+          console.log("[AUTO PROMOTE] Skipped: already has on_the_way/at_customer");
+          return null;
+        }
+
+        // If any accepted pickup remains, driver is still in pickup mode.
+        // Do not start customer delivery until all restaurant pickups are done.
+        const { data: hasAccepted, error: acceptedCheckError } = await supabaseAdmin
           .from("deliveries")
           .select("id")
           .eq("driver_id", req.user.id)
           .eq("status", "accepted")
           .limit(1);
-        if (hasAccepted && hasAccepted.length > 0) return null;
 
-        // Find remaining picked_up deliveries
-        const { data: nextList } = await supabaseAdmin
+        if (acceptedCheckError) {
+          console.error("[AUTO PROMOTE] Accepted check error:", acceptedCheckError);
+        }
+
+        if (hasAccepted && hasAccepted.length > 0) {
+          console.log("[AUTO PROMOTE] Skipped: accepted pickups still remaining");
+          return null;
+        }
+
+        // Find all picked_up deliveries waiting for customer delivery.
+        const { data: nextList, error: nextListError } = await supabaseAdmin
           .from("deliveries")
           .select(
             `
@@ -2923,127 +2946,154 @@ router.patch(
           .eq("status", "picked_up")
           .order("picked_up_at", { ascending: true });
 
-        if (!nextList || nextList.length === 0) return null;
+        if (nextListError) {
+          console.error("[AUTO PROMOTE] Fetch picked_up list error:", nextListError);
+          return null;
+        }
 
-        // If we have a valid reference point, pick the nearest customer; otherwise fall back to oldest picked_up
-        let next;
+        if (!nextList || nextList.length === 0) {
+          console.log("[AUTO PROMOTE] Skipped: no picked_up deliveries found");
+          return null;
+        }
+
+        let next = null;
+
+        // Prefer nearest customer if location + OSRM works.
         if (hasReference) {
-          const routes = await Promise.all(
-            nextList.map(async (n) => {
-              const cLat = parseFloat(n.orders.delivery_latitude);
-              const cLng = parseFloat(n.orders.delivery_longitude);
-              const route = await getRouteDistance(
-                referenceLng,
-                referenceLat,
-                cLng,
-                cLat,
-                "false",
-              );
-              return {
-                id: n.id,
-                order_id: n.order_id,
-                distance: route?.distance || Number.POSITIVE_INFINITY,
-                customer_id: n.orders.customer_id,
-                restaurant_id: n.orders.restaurant_id,
-                order_number: n.orders.order_number,
-              };
-            }),
-          );
+          try {
+            const routes = await Promise.all(
+              nextList.map(async (n) => {
+                const cLat = Number.parseFloat(n.orders?.delivery_latitude);
+                const cLng = Number.parseFloat(n.orders?.delivery_longitude);
 
-          routes.sort((a, b) => a.distance - b.distance);
-          next = routes[0];
-        } else {
-          // No coordinates to compare; use earliest picked_up as a safe default
+                if (!Number.isFinite(cLat) || !Number.isFinite(cLng)) {
+                  return {
+                    id: n.id,
+                    order_id: n.order_id,
+                    distance: Number.POSITIVE_INFINITY,
+                    customer_id: n.orders?.customer_id,
+                    restaurant_id: n.orders?.restaurant_id,
+                    order_number: n.orders?.order_number,
+                  };
+                }
+
+                const route = await getRouteDistance(
+                  Number(referenceLng),
+                  Number(referenceLat),
+                  cLng,
+                  cLat,
+                  "false",
+                );
+
+                return {
+                  id: n.id,
+                  order_id: n.order_id,
+                  distance: Number.isFinite(Number(route?.distance))
+                    ? Number(route.distance)
+                    : Number.POSITIVE_INFINITY,
+                  customer_id: n.orders?.customer_id,
+                  restaurant_id: n.orders?.restaurant_id,
+                  order_number: n.orders?.order_number,
+                };
+              }),
+            );
+
+            routes.sort((a, b) => a.distance - b.distance);
+            next = routes[0] || null;
+          } catch (routeError) {
+            console.error(
+              "[AUTO PROMOTE] OSRM route sort failed, falling back to oldest picked_up:",
+              routeError?.message || routeError,
+            );
+            next = null;
+          }
+        }
+
+        // Fallback: OSRM failed or no reference location.
+        // Use earliest picked_up delivery. This prevents picked_up from getting stuck forever.
+        if (!next) {
           const first = nextList[0];
           next = {
             id: first.id,
             order_id: first.order_id,
-            distance: 0,
-            customer_id: first.orders.customer_id,
-            restaurant_id: first.orders.restaurant_id,
-            order_number: first.orders.order_number,
+            distance: null,
+            customer_id: first.orders?.customer_id,
+            restaurant_id: first.orders?.restaurant_id,
+            order_number: first.orders?.order_number,
           };
         }
 
-        if (next && isFinite(next.distance)) {
-          const ts = new Date().toISOString();
-          const { data: promoted } = await supabaseAdmin
-            .from("deliveries")
-            .update({ status: "on_the_way", on_the_way_at: ts })
-            .eq("id", next.id)
-            .eq("driver_id", req.user.id)
-            .select("id, order_id")
-            .maybeSingle();
+        if (!next?.id) {
+          console.log("[AUTO PROMOTE] Skipped: next delivery could not be resolved");
+          return null;
+        }
 
-          const nextMsgs = statusMessages["on_the_way"];
-          const followups = [];
-          if (nextMsgs) {
-            if (next.customer_id) {
-              followups.push({
-                recipient_id: next.customer_id,
-                type: "delivery_status_update",
-                title: "Order Update",
-                message: nextMsgs.customer,
-                metadata: JSON.stringify({
-                  order_id: promoted?.order_id || next.order_id,
-                  delivery_id: promoted?.id || next.id,
-                  status: "on_the_way",
-                  order_number: next.order_number,
-                }),
-              });
-            }
-            if (next.restaurant_id) {
-              followups.push({
-                recipient_id: next.restaurant_id,
-                type: "delivery_status_update",
-                title: "Delivery Update",
-                message: nextMsgs.restaurant,
-                metadata: JSON.stringify({
-                  order_id: promoted?.order_id || next.order_id,
-                  delivery_id: promoted?.id || next.id,
-                  status: "on_the_way",
-                  order_number: next.order_number,
-                }),
-              });
-            }
-          }
-          // Notifications are now handled by push notification service
-          // which automatically logs to notification_log table
-          // if (followups.length > 0) {
-          //   await supabaseAdmin.from("notifications").insert(followups);
-          // }
+        const ts = new Date().toISOString();
 
-          // 📡 REAL-TIME WEBSOCKET: Notify customer of auto-promoted delivery
-          if (next.customer_id) {
-            notifyCustomer(next.customer_id, "order:status_update", {
-              type: "delivery_status_update",
-              title: "Driver On The Way!",
-              message: nextMsgs.customer,
-              order_id: promoted?.order_id || next.order_id,
-              delivery_id: promoted?.id || next.id,
-              order_number: next.order_number,
-              status: "on_the_way",
-            });
-          }
+        const { data: promoted, error: promoteError } = await supabaseAdmin
+          .from("deliveries")
+          .update({
+            status: "on_the_way",
+            on_the_way_at: ts,
+          })
+          .eq("id", next.id)
+          .eq("driver_id", req.user.id)
+          .eq("status", "picked_up")
+          .select("id, order_id, status")
+          .maybeSingle();
 
-          await notifyRestaurantAdminsOrderStatus(next.restaurant_id, {
+        if (promoteError) {
+          console.error("[AUTO PROMOTE] Promotion DB error:", promoteError);
+          return null;
+        }
+
+        if (!promoted) {
+          console.log("[AUTO PROMOTE] Promotion skipped: delivery already changed");
+          return null;
+        }
+
+        const nextMsgs = statusMessages["on_the_way"];
+
+        // Notify customer
+        if (next.customer_id) {
+          notifyCustomer(next.customer_id, "order:status_update", {
             type: "delivery_status_update",
-            order_id: promoted?.order_id || next.order_id,
-            delivery_id: promoted?.id || next.id,
+            title: "Driver On The Way!",
+            message: nextMsgs?.customer || "Driver is on the way to your location",
+            order_id: promoted.order_id || next.order_id,
+            delivery_id: promoted.id || next.id,
             order_number: next.order_number,
             status: "on_the_way",
-            source: "driver_auto_promote",
           });
 
-          // Return promoted delivery info so frontend can update immediately
-          return {
-            id: promoted?.id || next.id,
-            order_id: promoted?.order_id || next.order_id,
+          sendDeliveryStatusNotification(next.customer_id, {
+            orderId: promoted.order_id || next.order_id,
+            orderNumber: next.order_number,
             status: "on_the_way",
-          };
+          }).catch((err) =>
+            console.error("Push auto on_the_way error (non-fatal):", err),
+          );
         }
 
-        return null;
+        // Notify restaurant admins
+        await notifyRestaurantAdminsOrderStatus(next.restaurant_id, {
+          type: "delivery_status_update",
+          order_id: promoted.order_id || next.order_id,
+          delivery_id: promoted.id || next.id,
+          order_number: next.order_number,
+          status: "on_the_way",
+          source: "driver_auto_promote",
+        });
+
+        console.log(
+          `[AUTO PROMOTE] ✅ Delivery ${promoted.id} promoted to on_the_way`,
+        );
+
+        return {
+          id: promoted.id,
+          order_id: promoted.order_id,
+          status: "on_the_way",
+        };
       };
 
       // Auto-promote cases
@@ -3256,7 +3306,7 @@ router.get("/deliveries/:id", authenticate, driverOnly, async (req, res) => {
       )
       .eq("id", deliveryId)
       .eq("driver_id", driverId)
-      .eq("status", "accepted")
+      .in("status", ["accepted", "picked_up", "on_the_way", "at_customer"])
       .single();
 
     if (error || !data) {
