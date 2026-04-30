@@ -513,20 +513,50 @@ function buildDeliveriesFromStops(stops = []) {
   return deliveries;
 }
 
-async function sumRtcDistanceKm(deliveries, context = "") {
-  let totalKm = 0;
-
-  for (const delivery of deliveries) {
-    const rtcResult = await getRestaurantToCustomerDistance(
-      delivery.restaurant,
-      delivery.customer,
-      context,
-    );
-    totalKm += Number(rtcResult.restaurantToCustomerKm || 0);
+async function calculateCustomerRouteDistanceKm(
+  deliveries,
+  driverLocation,
+  context = "",
+) {
+  if (!Array.isArray(deliveries) || deliveries.length === 0) {
+    return 0;
   }
 
+  const startLocation = driverLocation || deliveries[0].restaurant;
+  const restaurants = deliveries.map((delivery) => delivery.restaurant);
+  const orderedRestaurants = getOptimizedRestaurantOrderStatic(
+    startLocation,
+    restaurants,
+  );
+  const lastRestaurant =
+    orderedRestaurants[orderedRestaurants.length - 1] || restaurants[0];
+
+  const customers = deliveries.map((delivery) => delivery.customer);
+  const orderedCustomers = getOptimizedCustomerOrderStatic(
+    lastRestaurant,
+    customers,
+  );
+
+  let totalMeters = 0;
+  let previous = lastRestaurant;
+
+  for (const customer of orderedCustomers) {
+    const segmentRoute = await getOSRMRoute(
+      [previous, customer],
+      context
+        ? `${context}: ${previous.label} → ${customer.label}`
+        : `${previous.label} → ${customer.label}`,
+    );
+
+    const segmentDistance = Number(segmentRoute?.distance || 0);
+    totalMeters += Number.isFinite(segmentDistance) ? segmentDistance : 0;
+    previous = customer;
+  }
+
+  const totalKm = totalMeters / 1000;
+
   if (context) {
-    console.log(`[RTC-SUM] ${context}: ${totalKm.toFixed(3)} km`);
+    console.log(`[CUSTOMER-ROUTE] ${context}: ${totalKm.toFixed(3)} km`);
   }
 
   return totalKm;
@@ -1309,11 +1339,27 @@ async function evaluateAvailableDeliveryOptimized(
       Number(rtcResult.restaurantToCustomerKm) || 0,
     );
 
+    const driverLocation = routeContext?.driver_location
+      ? {
+          lat: routeContext.driver_location.latitude,
+          lng: routeContext.driver_location.longitude,
+          label: "Driver",
+        }
+      : newRestaurant;
+
     const r0DistanceKm = preCalculatedR0?.distanceKm
       ? Number(preCalculatedR0.distanceKm)
-      : await sumRtcDistanceKm(currentDeliveries, "R0 RTC Sum");
+      : await calculateCustomerRouteDistanceKm(
+          currentDeliveries,
+          driverLocation,
+          "R0 Customer Route",
+        );
 
-    const r1DistanceKm = r0DistanceKm + rtcDistanceKm;
+    const r1DistanceKm = await calculateCustomerRouteDistanceKm(
+      [...currentDeliveries, { restaurant: newRestaurant, customer: newCustomer }],
+      driverLocation,
+      "R1 Customer Route",
+    );
     const extraDistanceKm = Math.max(0, r1DistanceKm - r0DistanceKm);
     const extraTimeMinutes = Math.max(
       0,
@@ -1567,64 +1613,30 @@ export async function getAvailableDeliveriesForDriver(
       routeContext.stops.length > 0
     ) {
       console.log(`[AVAILABLE DELIVERIES]   Pre-calculating R0 route...`);
-      const driverLocation = {
-        lat: routeContext.driver_location.latitude,
-        lng: routeContext.driver_location.longitude,
-        label: "A (Driver)",
-      };
 
-      // Build current deliveries from route context
-      const currentDeliveries = [];
-      const processedIds = new Set();
-      for (const stop of routeContext.stops) {
-        if (!processedIds.has(stop.delivery_id)) {
-          const restaurantStop = routeContext.stops.find(
-            (s) =>
-              s.delivery_id === stop.delivery_id &&
-              s.stop_type === "restaurant",
-          );
-          const customerStop = routeContext.stops.find(
-            (s) =>
-              s.delivery_id === stop.delivery_id && s.stop_type === "customer",
-          );
-          if (restaurantStop && customerStop) {
-            currentDeliveries.push({
-              restaurant: {
-                lat: restaurantStop.latitude,
-                lng: restaurantStop.longitude,
-                label: `R${currentDeliveries.length + 1}`,
-              },
-              customer: {
-                lat: customerStop.latitude,
-                lng: customerStop.longitude,
-                label: `C${currentDeliveries.length + 1}`,
-              },
-            });
-            processedIds.add(stop.delivery_id);
+      const driverLocation = routeContext?.driver_location
+        ? {
+            lat: routeContext.driver_location.latitude,
+            lng: routeContext.driver_location.longitude,
+            label: "Driver",
           }
-        }
-      }
+        : null;
+
+      const currentDeliveries = buildDeliveriesFromStops(routeContext.stops);
 
       if (currentDeliveries.length > 0) {
-        const currentRestaurants = currentDeliveries.map((d) => d.restaurant);
-        const currentCustomers = currentDeliveries.map((d) => d.customer);
-
-        // Use SEGMENT-BY-SEGMENT calculation for R0 (FAIR calculation)
-        const r0SegmentRoute = await calculateSegmentBySegmentRouteDistance(
+        const r0DistanceKm = await calculateCustomerRouteDistanceKm(
+          currentDeliveries,
           driverLocation,
-          currentRestaurants,
-          currentCustomers,
-          "R0 - Pre-calculated (Segment-by-Segment)",
+          "R0 Pre-calc",
         );
 
         preCalculatedR0 = {
-          distance: r0SegmentRoute.totalDistance,
-          duration: r0SegmentRoute.totalDuration,
-          distanceKm: r0SegmentRoute.totalDistanceKm,
-          segments: r0SegmentRoute.segments,
+          distanceKm: r0DistanceKm,
         };
+
         console.log(
-          `[AVAILABLE DELIVERIES]   G�� R0 pre-calculated: ${(preCalculatedR0.distance / 1000).toFixed(2)} km`,
+          `[AVAILABLE DELIVERIES]   G�� R0 pre-calculated: ${r0DistanceKm.toFixed(2)} km`,
         );
       }
     }
