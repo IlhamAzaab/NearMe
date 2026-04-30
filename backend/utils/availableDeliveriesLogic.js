@@ -79,9 +79,7 @@ async function getRestaurantToCustomerDistance(
 function calculateRTCEarnings(distanceKm, earningsConfig = DRIVER_EARNINGS) {
   const km = Math.max(0, Number(distanceKm) || 0);
   const belowRate = Number(
-    earningsConfig?.RTC_RATE_BELOW_5KM ??
-      earningsConfig?.RATE_PER_KM ??
-      40,
+    earningsConfig?.RTC_RATE_BELOW_5KM ?? earningsConfig?.RATE_PER_KM ?? 40,
   );
   const aboveRate = Number(earningsConfig?.RTC_RATE_ABOVE_5KM ?? 35);
 
@@ -733,7 +731,9 @@ async function calculateSegmentBySegmentRouteDistance(
   }
 
   const totalDistanceKm = totalDistance / 1000;
-  console.log(`[SEGMENT-ROUTE]   G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��`);
+  console.log(
+    `[SEGMENT-ROUTE]   G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��`,
+  );
   console.log(
     `[SEGMENT-ROUTE]   =�Ʀ TOTAL DISTANCE (sum of segments): ${totalDistanceKm.toFixed(3)} km`,
   );
@@ -780,7 +780,9 @@ async function getCompleteOptimizedRoute(
   );
 
   // Step 2: Calculate restaurant-to-customer options and find best
-  console.log(`[COMPLETE-ROUTE] G�� Evaluating restaurant-to-customer options:`);
+  console.log(
+    `[COMPLETE-ROUTE] G�� Evaluating restaurant-to-customer options:`,
+  );
 
   // Option 1: Direct restaurant to customer
   const directRoute = await getOSRMRoute(
@@ -1359,7 +1361,8 @@ async function evaluateAvailableDeliveryOptimized(
         ? "FIRST_DELIVERY (RTC only)"
         : "R1 - R0 (RTC only)",
       restaurant_to_customer_route: {
-        coordinates: rtcResult.restaurantToCustomerGeometry?.coordinates || null,
+        coordinates:
+          rtcResult.restaurantToCustomerGeometry?.coordinates || null,
         encoded_polyline: rtcResult.restaurantToCustomerPolyline || null,
       },
       restaurant_to_customer_km: parseFloat(rtcDistanceKm.toFixed(3)),
@@ -1777,9 +1780,7 @@ export async function getAvailableDeliveriesForDriver(
 
       const firstHasRoutes =
         !isFirstDelivery ||
-        Boolean(
-          delivery.restaurant_to_customer_route?.coordinates?.length,
-        );
+        Boolean(delivery.restaurant_to_customer_route?.coordinates?.length);
 
       const hasValidEarnings = isFirstDelivery
         ? baseAmount > 0 && totalTripEarnings > 0

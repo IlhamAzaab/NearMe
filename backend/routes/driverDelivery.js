@@ -29,8 +29,7 @@ import {
   getAvailableDeliveriesForDriver,
   DRIVER_EARNINGS,
   loadConfigConstants,
-  calculateSegmentBySegmentRouteDistance,
-  getFirstDeliveryEarningsDistance,
+  calculateRTCEarnings,
 } from "../utils/availableDeliveriesLogic.js";
 import {
   broadcastDeliveryTaken,
@@ -82,19 +81,58 @@ function calculateHaversineDistanceForProximity(lat1, lon1, lat2, lon2) {
   return R * c; // Distance in meters
 }
 
-function getRestaurantToCustomerRatePerKm(
-  earningsConfig,
-  restaurantToCustomerKm,
-) {
-  const distanceKm = Number(restaurantToCustomerKm) || 0;
-  return distanceKm <= 5
-    ? Number(
-        earningsConfig?.RTC_RATE_BELOW_5KM ?? earningsConfig?.RATE_PER_KM ?? 40,
-      )
-    : Number(
-        earningsConfig?.RTC_RATE_ABOVE_5KM ?? earningsConfig?.RATE_PER_KM ?? 40,
-      );
-}
+const buildDeliveriesFromStops = (stops = []) => {
+  const deliveries = new Map();
+
+  for (const stop of stops || []) {
+    if (!stop?.delivery_id) continue;
+    if (!deliveries.has(stop.delivery_id)) {
+      deliveries.set(stop.delivery_id, { delivery_id: stop.delivery_id });
+    }
+
+    const entry = deliveries.get(stop.delivery_id);
+    if (stop.stop_type === "restaurant") {
+      entry.restaurant = {
+        lat: stop.latitude,
+        lng: stop.longitude,
+      };
+    }
+    if (stop.stop_type === "customer") {
+      entry.customer = {
+        lat: stop.latitude,
+        lng: stop.longitude,
+      };
+    }
+  }
+
+  return Array.from(deliveries.values()).filter(
+    (delivery) => delivery.restaurant && delivery.customer,
+  );
+};
+
+const sumRtcDistanceKm = async (deliveries = [], label = "RTC") => {
+  let totalKm = 0;
+
+  for (const delivery of deliveries) {
+    const route = await getRouteDistance(
+      delivery.restaurant.lng,
+      delivery.restaurant.lat,
+      delivery.customer.lng,
+      delivery.customer.lat,
+      "false",
+    );
+
+    const km = Number.isFinite(route.distance) ? route.distance / 1000 : 0;
+
+    totalKm += km;
+  }
+
+  if (label) {
+    console.log(`[RTC] ${label}: ${totalKm.toFixed(3)} km`);
+  }
+
+  return totalKm;
+};
 
 // ============================================================================
 // Helper: Simple in-memory cache for OSRM responses (avoid duplicate calls)
@@ -225,7 +263,9 @@ async function getRouteDistance(
   // If OSRM is consistently failing we still try every call rather than
   // returning null distance values that break earnings calculations.
   if (!isOsrmAvailable()) {
-    console.log("[OSRM] Circuit breaker was open — resetting and retrying fresh");
+    console.log(
+      "[OSRM] Circuit breaker was open — resetting and retrying fresh",
+    );
     osrmCircuitOpen = false;
     osrmConsecutiveFailures = 0;
     osrmLastFailTime = 0;
@@ -825,50 +865,26 @@ router.post(
         );
 
         if (isFirstDelivery) {
-          // ═══ FIRST DELIVERY: DTR + RTC earnings ═══
+          // ═══ FIRST DELIVERY: RTC-only earnings ═══
           console.log(
             `[ACCEPT DELIVERY]   🚗 Calculating FIRST delivery earnings server-side`,
           );
 
-          const driverLocation = {
-            lat: driverLat,
-            lng: driverLng,
-            label: "Driver",
-          };
-          const restaurant = {
-            lat: restaurantLat,
-            lng: restaurantLng,
-            label: "Restaurant",
-          };
-          const customer = {
-            lat: customerLat,
-            lng: customerLng,
-            label: "Customer",
-          };
-
-          const earningsDistance = await getFirstDeliveryEarningsDistance(
-            driverLocation,
-            restaurant,
-            customer,
-            "Accept - Server Calc",
+          const rtcRoute = await getRouteDistance(
+            restaurantLng,
+            restaurantLat,
+            customerLng,
+            customerLat,
+            "false",
           );
-
-          const paidDTR = Math.min(
-            earningsDistance.driverToRestaurantKm,
-            earningsConfig.MAX_DRIVER_TO_RESTAURANT_KM,
-          );
-          const dtrEarnings =
-            paidDTR * earningsConfig.MAX_DRIVER_TO_RESTAURANT_AMOUNT;
-          const rtcRatePerKm = getRestaurantToCustomerRatePerKm(
+          const rtcDistanceKm = Number.isFinite(rtcRoute.distance)
+            ? rtcRoute.distance / 1000
+            : 0;
+          const baseAmount = calculateRTCEarnings(
+            rtcDistanceKm,
             earningsConfig,
-            earningsDistance.restaurantToCustomerKm,
           );
-          const rtcEarnings =
-            earningsDistance.restaurantToCustomerKm * rtcRatePerKm;
-          const baseAmount = dtrEarnings + rtcEarnings;
-          const totalDistKm =
-            earningsDistance.driverToRestaurantKm +
-            earningsDistance.restaurantToCustomerKm;
+          const totalDistKm = rtcDistanceKm;
 
           earningsData = {
             delivery_sequence: serverDeliverySequence,
@@ -897,79 +913,32 @@ router.post(
             driverLng,
           );
 
-          const driverLocation = {
-            lat: driverLat,
-            lng: driverLng,
-            label: "Driver",
-          };
-          const currentRestaurants = [];
-          const currentCustomers = [];
-          const processedIds = new Set();
+          const currentDeliveries = buildDeliveriesFromStops(
+            routeContext.stops,
+          );
 
-          for (const stop of routeContext.stops || []) {
-            if (!processedIds.has(stop.delivery_id)) {
-              const rStop = routeContext.stops.find(
-                (s) =>
-                  s.delivery_id === stop.delivery_id &&
-                  s.stop_type === "restaurant",
-              );
-              const cStop = routeContext.stops.find(
-                (s) =>
-                  s.delivery_id === stop.delivery_id &&
-                  s.stop_type === "customer",
-              );
-              if (rStop && cStop) {
-                currentRestaurants.push({
-                  lat: rStop.latitude,
-                  lng: rStop.longitude,
-                  label: `R${currentRestaurants.length + 1}`,
-                });
-                currentCustomers.push({
-                  lat: cStop.latitude,
-                  lng: cStop.longitude,
-                  label: `C${currentCustomers.length + 1}`,
-                });
-                processedIds.add(stop.delivery_id);
-              }
-            }
-          }
+          const r0DistanceKm = await sumRtcDistanceKm(
+            currentDeliveries,
+            "R0 - Accept Server Calc",
+          );
 
-          // Calculate R0 (current route without new delivery)
-          let r0Distance = 0;
-          if (currentRestaurants.length > 0) {
-            const r0Result = await calculateSegmentBySegmentRouteDistance(
-              driverLocation,
-              currentRestaurants,
-              currentCustomers,
-              "R0 - Accept Server Calc",
-            );
-            r0Distance = r0Result.totalDistance;
-          }
-
-          // Calculate R1 (combined route with new delivery)
-          const newRestaurant = {
-            lat: restaurantLat,
-            lng: restaurantLng,
-            label: "New R",
-          };
-          const newCustomer = {
-            lat: customerLat,
-            lng: customerLng,
-            label: "New C",
-          };
-          const allRestaurants = [...currentRestaurants, newRestaurant];
-          const allCustomers = [...currentCustomers, newCustomer];
-
-          const r1Result = await calculateSegmentBySegmentRouteDistance(
-            driverLocation,
-            allRestaurants,
-            allCustomers,
+          const r1DistanceKm = await sumRtcDistanceKm(
+            [
+              ...currentDeliveries,
+              {
+                delivery_id: deliveryId,
+                restaurant: { lat: restaurantLat, lng: restaurantLng },
+                customer: { lat: customerLat, lng: customerLng },
+              },
+            ],
             "R1 - Accept Server Calc",
           );
-          const r1Distance = r1Result.totalDistance;
 
-          const extraDistanceKm = Math.max(0, (r1Distance - r0Distance) / 1000);
-          const extraEarnings = extraDistanceKm * earningsConfig.RATE_PER_KM;
+          const extraDistanceKm = Math.max(0, r1DistanceKm - r0DistanceKm);
+          const extraEarnings = calculateRTCEarnings(
+            extraDistanceKm,
+            earningsConfig,
+          );
 
           let bonusAmount = 0;
           if (serverDeliverySequence === 2) {
@@ -983,10 +952,10 @@ router.post(
             base_amount: 0,
             extra_earnings: extraEarnings,
             bonus_amount: bonusAmount,
-            r0_distance_km: r0Distance / 1000,
-            r1_distance_km: r1Distance / 1000,
+            r0_distance_km: r0DistanceKm,
+            r1_distance_km: r1DistanceKm,
             extra_distance_km: extraDistanceKm,
-            total_distance_km: r1Distance / 1000,
+            total_distance_km: extraDistanceKm,
           };
 
           console.log(
@@ -1018,9 +987,7 @@ router.post(
             parseFloat(deliveryRecord?.orders?.distance_km || 0),
           );
           const fallbackBase = Math.max(
-            orderDistanceKm *
-              getRestaurantToCustomerRatePerKm(earningsConfig, orderDistanceKm),
-            getRestaurantToCustomerRatePerKm(earningsConfig, orderDistanceKm),
+            calculateRTCEarnings(orderDistanceKm, earningsConfig),
           );
 
           earningsData = {
@@ -2581,15 +2548,7 @@ router.patch(
                 );
                 fallbackBase = Math.max(
                   fallbackBase,
-                  orderDistanceKm *
-                    getRestaurantToCustomerRatePerKm(
-                      earningsConfig,
-                      orderDistanceKm,
-                    ),
-                  getRestaurantToCustomerRatePerKm(
-                    earningsConfig,
-                    orderDistanceKm,
-                  ),
+                  calculateRTCEarnings(orderDistanceKm, earningsConfig),
                 );
                 fallbackExtra = 0;
                 fallbackBonus = 0;
@@ -2902,25 +2861,33 @@ router.patch(
         }
 
         if (hasActive && hasActive.length > 0) {
-          console.log("[AUTO PROMOTE] Skipped: already has on_the_way/at_customer");
+          console.log(
+            "[AUTO PROMOTE] Skipped: already has on_the_way/at_customer",
+          );
           return null;
         }
 
         // If any accepted pickup remains, driver is still in pickup mode.
         // Do not start customer delivery until all restaurant pickups are done.
-        const { data: hasAccepted, error: acceptedCheckError } = await supabaseAdmin
-          .from("deliveries")
-          .select("id")
-          .eq("driver_id", req.user.id)
-          .eq("status", "accepted")
-          .limit(1);
+        const { data: hasAccepted, error: acceptedCheckError } =
+          await supabaseAdmin
+            .from("deliveries")
+            .select("id")
+            .eq("driver_id", req.user.id)
+            .eq("status", "accepted")
+            .limit(1);
 
         if (acceptedCheckError) {
-          console.error("[AUTO PROMOTE] Accepted check error:", acceptedCheckError);
+          console.error(
+            "[AUTO PROMOTE] Accepted check error:",
+            acceptedCheckError,
+          );
         }
 
         if (hasAccepted && hasAccepted.length > 0) {
-          console.log("[AUTO PROMOTE] Skipped: accepted pickups still remaining");
+          console.log(
+            "[AUTO PROMOTE] Skipped: accepted pickups still remaining",
+          );
           return null;
         }
 
@@ -2947,7 +2914,10 @@ router.patch(
           .order("picked_up_at", { ascending: true });
 
         if (nextListError) {
-          console.error("[AUTO PROMOTE] Fetch picked_up list error:", nextListError);
+          console.error(
+            "[AUTO PROMOTE] Fetch picked_up list error:",
+            nextListError,
+          );
           return null;
         }
 
@@ -3024,7 +2994,9 @@ router.patch(
         }
 
         if (!next?.id) {
-          console.log("[AUTO PROMOTE] Skipped: next delivery could not be resolved");
+          console.log(
+            "[AUTO PROMOTE] Skipped: next delivery could not be resolved",
+          );
           return null;
         }
 
@@ -3048,7 +3020,9 @@ router.patch(
         }
 
         if (!promoted) {
-          console.log("[AUTO PROMOTE] Promotion skipped: delivery already changed");
+          console.log(
+            "[AUTO PROMOTE] Promotion skipped: delivery already changed",
+          );
           return null;
         }
 
@@ -3059,7 +3033,8 @@ router.patch(
           notifyCustomer(next.customer_id, "order:status_update", {
             type: "delivery_status_update",
             title: "Driver On The Way!",
-            message: nextMsgs?.customer || "Driver is on the way to your location",
+            message:
+              nextMsgs?.customer || "Driver is on the way to your location",
             order_id: promoted.order_id || next.order_id,
             delivery_id: promoted.id || next.id,
             order_number: next.order_number,
