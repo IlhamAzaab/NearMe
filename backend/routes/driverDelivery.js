@@ -350,6 +350,35 @@ const driverOnly = (req, res, next) => {
 const SUSPENDED_DEPOSIT_MESSAGE =
   "Deposit the collected money to the Meezo platform before accepting new deliveries.";
 
+const normalizeDriverStatus = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase();
+
+const ACTIVE_DRIVER_STATUSES = new Set(["active", "approved", "online"]);
+const BLOCKED_DRIVER_STATUSES = new Set([
+  "suspended",
+  "rejected",
+  "pending",
+  "inactive",
+  "disabled",
+]);
+
+const resolveDriverStatus = (driverData) => {
+  const normalized = normalizeDriverStatus(
+    driverData?.driver_status || driverData?.status,
+  );
+
+  return {
+    normalizedStatus: normalized || null,
+    isActive: Boolean(normalized && ACTIVE_DRIVER_STATUSES.has(normalized)),
+    isBlocked:
+      Boolean(normalized) &&
+      (BLOCKED_DRIVER_STATUSES.has(normalized) ||
+        !ACTIVE_DRIVER_STATUSES.has(normalized)),
+  };
+};
+
 async function notifyRestaurantAdminsOrderStatus(restaurantId, payload) {
   if (!restaurantId) return;
 
@@ -405,7 +434,7 @@ router.get(
       // Check if driver is active before showing pending deliveries
       const { data: driverData, error: driverError } = await supabaseAdmin
         .from("drivers")
-        .select("driver_status, working_time")
+        .select("driver_status, status, working_time")
         .eq("id", req.user.id)
         .single();
 
@@ -425,16 +454,17 @@ router.get(
         });
       }
 
-      // Only show deliveries if driver_status is 'active'
-      if (driverData.driver_status !== "active") {
-        const suspended =
-          String(driverData.driver_status || "").toLowerCase() === "suspended";
+      // Only show deliveries if driver status is active/approved/online
+      const statusInfo = resolveDriverStatus(driverData);
+      if (statusInfo.isBlocked) {
+        const suspended = statusInfo.normalizedStatus === "suspended";
         return res.json({
           deliveries: [],
           message: suspended
             ? SUSPENDED_DEPOSIT_MESSAGE
             : "You must be online (active) to see available deliveries",
-          driver_status: driverData.driver_status,
+          driver_status:
+            statusInfo.normalizedStatus || driverData.driver_status,
           working_time: driverData.working_time || "full_time",
         });
       }
@@ -693,7 +723,7 @@ router.post(
       console.log(`[ACCEPT DELIVERY] → Step 0: Check if driver is active`);
       const { data: driverData, error: driverError } = await supabaseAdmin
         .from("drivers")
-        .select("driver_status, working_time")
+        .select("driver_status, status, working_time")
         .eq("id", req.user.id)
         .single();
 
@@ -701,17 +731,18 @@ router.post(
         return res.status(404).json({ message: "Driver not found" });
       }
 
-      if (driverData.driver_status !== "active") {
-        const suspended =
-          String(driverData.driver_status || "").toLowerCase() === "suspended";
+      const statusInfo = resolveDriverStatus(driverData);
+      if (statusInfo.isBlocked) {
+        const suspended = statusInfo.normalizedStatus === "suspended";
         console.log(
-          `[ACCEPT DELIVERY]   ⚠️  Driver is not active (status: ${driverData.driver_status})`,
+          `[ACCEPT DELIVERY]   ⚠️  Driver is not active (status: ${statusInfo.normalizedStatus || driverData.driver_status})`,
         );
         return res.status(403).json({
           message: suspended
             ? SUSPENDED_DEPOSIT_MESSAGE
             : "You must be online (active) to accept deliveries",
-          driver_status: driverData.driver_status,
+          driver_status:
+            statusInfo.normalizedStatus || driverData.driver_status,
           hint: suspended
             ? "Settle the pending collected amount and ask manager to reactivate your account."
             : "Go online from the dashboard to accept deliveries",
@@ -3634,7 +3665,7 @@ router.get(
     // Check driver status first: suspended/rejected/pending drivers should not receive new requests.
     const { data: driverData, error: driverError } = await supabaseAdmin
       .from("drivers")
-      .select("driver_status, working_time")
+      .select("driver_status, status, working_time")
       .eq("id", driverId)
       .single();
 
@@ -3644,9 +3675,9 @@ router.get(
       });
     }
 
-    if (driverData.driver_status !== "active") {
-      const suspended =
-        String(driverData.driver_status || "").toLowerCase() === "suspended";
+    const statusInfo = resolveDriverStatus(driverData);
+    if (statusInfo.isBlocked) {
+      const suspended = statusInfo.normalizedStatus === "suspended";
       return res.json({
         available_deliveries: [],
         total_available: 0,
@@ -3657,7 +3688,7 @@ router.get(
         message: suspended
           ? SUSPENDED_DEPOSIT_MESSAGE
           : "You must be online (active) to see available deliveries",
-        driver_status: driverData.driver_status,
+        driver_status: statusInfo.normalizedStatus || driverData.driver_status,
         working_time: driverData.working_time || "full_time",
       });
     }
