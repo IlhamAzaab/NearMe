@@ -97,12 +97,35 @@ async function getDriverDisplayInfo(driverId) {
     );
   }
 
-  if (!driver && !vehicle) {
+  let authUser = null;
+  if (!driver?.phone || !driver?.full_name) {
+    try {
+      const { data: authData, error: authError } =
+        await supabaseAdmin.auth.admin.getUserById(driverId);
+      if (authError) {
+        console.warn(
+          "[DriverInfo] Failed to fetch auth user:",
+          authError.message,
+        );
+      } else {
+        authUser = authData?.user || null;
+      }
+    } catch (error) {
+      console.warn("[DriverInfo] Auth user lookup failed:", error?.message);
+    }
+  }
+
+  if (!driver && !vehicle && !authUser) {
     return null;
   }
 
-  const fullName = driver?.full_name || "";
-  const phone = driver?.phone || "";
+  const fullName =
+    driver?.full_name ||
+    driver?.user_name ||
+    authUser?.user_metadata?.full_name ||
+    authUser?.user_metadata?.name ||
+    "";
+  const phone = driver?.phone || authUser?.phone || "";
   const photoUrl = driver?.profile_photo_url || "";
   const vehicleType = vehicle?.vehicle_type || driver?.driver_type || "";
   const vehicleModel = vehicle?.vehicle_model || "";
