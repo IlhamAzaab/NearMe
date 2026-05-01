@@ -65,36 +65,113 @@ function getSupabaseClient(userToken) {
 
 // ============================================================================
 // HELPER FUNCTIONS
-// ============================================================================
+//
+function isMissingColumnError(error, columnName) {
+  const message = String(error?.message || "").toLowerCase();
+  const details = String(error?.details || "").toLowerCase();
+  const hint = String(error?.hint || "").toLowerCase();
+  const target = String(columnName || "").toLowerCase();
+
+  if (!target) {
+    return false;
+  }
+
+  return (
+    error?.code === "42703" ||
+    message.includes(`column ${target}`) ||
+    message.includes(`'${target}'`) ||
+    details.includes(target) ||
+    hint.includes(target)
+  );
+}
 
 async function getDriverDisplayInfo(driverId) {
   if (!driverId) return null;
 
-  const [
-    { data: driver, error: driverError },
-    { data: vehicle, error: vehicleError },
-  ] = await Promise.all([
-    supabaseAdmin
-      .from("drivers")
-      .select("id, full_name, phone, profile_photo_url, driver_type")
-      .eq("id", driverId)
-      .maybeSingle(),
-    supabaseAdmin
-      .from("driver_vehicle_license")
-      .select("driver_id, vehicle_number, vehicle_type, vehicle_model")
-      .eq("driver_id", driverId)
-      .maybeSingle(),
-  ]);
+  let driver = null;
+  let vehicle = null;
 
-  if (driverError) {
-    console.error("[DriverInfo] Failed to fetch driver:", driverError.message);
+  const baseDriverSelect =
+    "id, full_name, phone, profile_photo_url, driver_type";
+  const baseVehicleSelect =
+    "driver_id, vehicle_number, vehicle_type, vehicle_model";
+
+  const { data: driverById, error: driverByIdError } = await supabaseAdmin
+    .from("drivers")
+    .select(baseDriverSelect)
+    .eq("id", driverId)
+    .maybeSingle();
+
+  if (driverByIdError && !isMissingColumnError(driverByIdError, "id")) {
+    console.error(
+      "[DriverInfo] Failed to fetch driver by id:",
+      driverByIdError.message,
+    );
   }
 
-  if (vehicleError) {
+  driver = driverById || null;
+
+  if (!driver) {
+    const { data: driverByUserId, error: driverByUserIdError } =
+      await supabaseAdmin
+        .from("drivers")
+        .select(baseDriverSelect)
+        .eq("user_id", driverId)
+        .maybeSingle();
+
+    if (
+      driverByUserIdError &&
+      !isMissingColumnError(driverByUserIdError, "user_id")
+    ) {
+      console.warn(
+        "[DriverInfo] Failed to fetch driver by user_id:",
+        driverByUserIdError.message,
+      );
+    }
+
+    driver = driverByUserId || null;
+  }
+
+  const resolvedDriverId = driver?.id || driverId;
+
+  const { data: vehicleByDriverId, error: vehicleByDriverIdError } =
+    await supabaseAdmin
+      .from("driver_vehicle_license")
+      .select(baseVehicleSelect)
+      .eq("driver_id", resolvedDriverId)
+      .maybeSingle();
+
+  if (
+    vehicleByDriverIdError &&
+    !isMissingColumnError(vehicleByDriverIdError, "driver_id")
+  ) {
     console.warn(
-      "[DriverInfo] Failed to fetch vehicle info:",
-      vehicleError.message,
+      "[DriverInfo] Failed to fetch vehicle info by driver_id:",
+      vehicleByDriverIdError.message,
     );
+  }
+
+  vehicle = vehicleByDriverId || null;
+
+  if (!vehicle && resolvedDriverId !== driverId) {
+    const { data: vehicleByUserId, error: vehicleByUserIdError } =
+      await supabaseAdmin
+        .from("driver_vehicle_license")
+        .select(baseVehicleSelect)
+        .eq("user_id", driverId)
+        .maybeSingle();
+
+    if (
+      vehicleByUserIdError &&
+      !isMissingColumnError(vehicleByUserIdError, "user_id")
+    ) {
+      console.warn(
+        "[DriverInfo] Failed to fetch vehicle info by user_id:",
+        vehicleByUserIdError.message,
+      );
+    }
+
+    vehicle = vehicleByUserId || null;
   }
 
   let authUser = null;
