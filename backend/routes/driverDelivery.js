@@ -61,6 +61,97 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
+async function getDriverDisplayInfo(driverId) {
+  if (!driverId) return null;
+
+  const [
+    { data: driver, error: driverError },
+    { data: vehicle, error: vehicleError },
+  ] = await Promise.all([
+    supabaseAdmin
+      .from("drivers")
+      .select(
+        `
+            id,
+            full_name,
+            phone,
+            profile_photo_url,
+            driver_type,
+            current_latitude,
+            current_longitude
+          `,
+      )
+      .eq("id", driverId)
+      .maybeSingle(),
+
+    supabaseAdmin
+      .from("driver_vehicle_license")
+      .select(
+        `
+            driver_id,
+            vehicle_number,
+            vehicle_type,
+            vehicle_model
+          `,
+      )
+      .eq("driver_id", driverId)
+      .maybeSingle(),
+  ]);
+
+  if (driverError) {
+    console.error("[DriverInfo] Failed to fetch driver:", driverError.message);
+  }
+
+  if (vehicleError) {
+    console.warn(
+      "[DriverInfo] Failed to fetch vehicle info:",
+      vehicleError.message,
+    );
+  }
+
+  if (!driver && !vehicle) {
+    return {
+      driver_id: driverId,
+      id: driverId,
+      full_name: "Assigned Driver",
+      driver_name: "Assigned Driver",
+      phone: "",
+      driver_phone: "",
+      photo_url: "",
+      profile_photo_url: "",
+      driver_photo: "",
+      vehicle_number: "",
+      vehicle_type: "",
+      vehicle_model: "",
+    };
+  }
+
+  const fullName = driver?.full_name || "Assigned Driver";
+  const phone = driver?.phone || "";
+  const photoUrl = driver?.profile_photo_url || "";
+  const vehicleType = vehicle?.vehicle_type || driver?.driver_type || "";
+  const vehicleModel = vehicle?.vehicle_model || "";
+  const vehicleNumber = vehicle?.vehicle_number || "";
+
+  return {
+    id: driverId,
+    driver_id: driverId,
+    full_name: fullName,
+    phone,
+    photo_url: photoUrl,
+    profile_photo_url: photoUrl,
+    vehicle_type: vehicleType,
+    vehicle_model: vehicleModel,
+    vehicle_number: vehicleNumber,
+    driver_name: fullName,
+    driver_phone: phone,
+    driver_photo: photoUrl,
+    driver_vehicle_type: vehicleType,
+    driver_vehicle_model: vehicleModel,
+    driver_vehicle_number: vehicleNumber,
+  };
+}
+
 // ============================================================================
 // Helper: Calculate distance using Haversine formula
 // IMPORTANT: This is ONLY for geometric proximity detection (50m/100m thresholds)
@@ -1171,11 +1262,9 @@ router.post(
           full_name,
           phone,
           profile_photo_url,
-          vehicle_type,
-          vehicle_model,
-          vehicle_number,
-          vehicle_color,
-          rating
+          driver_type,
+          current_latitude,
+          current_longitude
         )`,
         )
         .maybeSingle();
@@ -1248,22 +1337,7 @@ router.post(
       console.log(`[ACCEPT DELIVERY] → Step 4: Send notifications`);
 
       const notifications = [];
-      const driverInfo = {
-        driver_id: req.user.id,
-        id: req.user.id,
-        driver_name: updated.drivers?.full_name || "Assigned Driver",
-        full_name: updated.drivers?.full_name || "Assigned Driver",
-        driver_phone: updated.drivers?.phone || "",
-        phone: updated.drivers?.phone || "",
-        driver_photo: updated.drivers?.profile_photo_url || "",
-        photo_url: updated.drivers?.profile_photo_url || "",
-        profile_photo_url: updated.drivers?.profile_photo_url || "",
-        vehicle_type: updated.drivers?.vehicle_type || "",
-        vehicle_model: updated.drivers?.vehicle_model || "",
-        vehicle_number: updated.drivers?.vehicle_number || "",
-        vehicle_color: updated.drivers?.vehicle_color || "",
-        rating: updated.drivers?.rating || null,
-      };
+      const driverInfo = await getDriverDisplayInfo(req.user.id);
 
       if (updated.orders?.customer_id) {
         notifications.push({

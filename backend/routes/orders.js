@@ -67,6 +67,99 @@ function getSupabaseClient(userToken) {
 // HELPER FUNCTIONS
 // ============================================================================
 
+async function getDriverDisplayInfo(driverId) {
+  if (!driverId) return null;
+
+  const [
+    { data: driver, error: driverError },
+    { data: vehicle, error: vehicleError },
+  ] = await Promise.all([
+    supabaseAdmin
+      .from("drivers")
+      .select(
+        `
+            id,
+            full_name,
+            phone,
+            profile_photo_url,
+            driver_type,
+            current_latitude,
+            current_longitude
+          `,
+      )
+      .eq("id", driverId)
+      .maybeSingle(),
+
+    supabaseAdmin
+      .from("driver_vehicle_license")
+      .select(
+        `
+            driver_id,
+            vehicle_number,
+            vehicle_type,
+            vehicle_model
+          `,
+      )
+      .eq("driver_id", driverId)
+      .maybeSingle(),
+  ]);
+
+  if (driverError) {
+    console.error("[DriverInfo] Failed to fetch driver:", driverError.message);
+  }
+
+  if (vehicleError) {
+    console.warn(
+      "[DriverInfo] Failed to fetch vehicle info:",
+      vehicleError.message,
+    );
+  }
+
+  if (!driver && !vehicle) {
+    return {
+      driver_id: driverId,
+      id: driverId,
+      full_name: "Assigned Driver",
+      driver_name: "Assigned Driver",
+      phone: "",
+      driver_phone: "",
+      photo_url: "",
+      profile_photo_url: "",
+      driver_photo: "",
+      vehicle_number: "",
+      vehicle_type: "",
+      vehicle_model: "",
+    };
+  }
+
+  const fullName = driver?.full_name || "Assigned Driver";
+  const phone = driver?.phone || "";
+  const photoUrl = driver?.profile_photo_url || "";
+  const vehicleType = vehicle?.vehicle_type || driver?.driver_type || "";
+  const vehicleModel = vehicle?.vehicle_model || "";
+  const vehicleNumber = vehicle?.vehicle_number || "";
+
+  return {
+    id: driverId,
+    driver_id: driverId,
+
+    full_name: fullName,
+    phone,
+    photo_url: photoUrl,
+    profile_photo_url: photoUrl,
+    vehicle_type: vehicleType,
+    vehicle_model: vehicleModel,
+    vehicle_number: vehicleNumber,
+
+    driver_name: fullName,
+    driver_phone: phone,
+    driver_photo: photoUrl,
+    driver_vehicle_type: vehicleType,
+    driver_vehicle_model: vehicleModel,
+    driver_vehicle_number: vehicleNumber,
+  };
+}
+
 /**
  * Calculate service fee based on subtotal
  * Uses DB config tiers, falls back to hardcoded defaults
@@ -2710,21 +2803,7 @@ router.get("/:id/delivery-status", authenticate, async (req, res) => {
         last_location_update,
         accepted_at,
         picked_up_at,
-        delivered_at,
-        drivers!driver_id (
-          id,
-          full_name,
-          phone,
-          profile_photo_url,
-          vehicle_type,
-          vehicle_model,
-          vehicle_number,
-          vehicle_color,
-          rating,
-          current_latitude,
-          current_longitude,
-          last_location_update
-        )
+        delivered_at
       `,
       )
       .eq("order_id", orderId)
@@ -2760,41 +2839,11 @@ router.get("/:id/delivery-status", authenticate, async (req, res) => {
       restaurantLogo = restaurant?.logo_url || null;
     }
 
-    const driverRecord = Array.isArray(delivery?.drivers)
-      ? delivery.drivers[0]
-      : delivery?.drivers;
-
     const driverInfo = delivery?.driver_id
-      ? {
-          driver_id: delivery.driver_id,
-          id: delivery.driver_id,
-          driver_name: driverRecord?.full_name || "Assigned Driver",
-          full_name: driverRecord?.full_name || "Assigned Driver",
-          driver_phone: driverRecord?.phone || "",
-          phone: driverRecord?.phone || "",
-          driver_photo: driverRecord?.profile_photo_url || "",
-          photo_url: driverRecord?.profile_photo_url || "",
-          profile_photo_url: driverRecord?.profile_photo_url || "",
-          vehicle_type: driverRecord?.vehicle_type || "",
-          vehicle_model: driverRecord?.vehicle_model || "",
-          vehicle_number: driverRecord?.vehicle_number || "",
-          vehicle_color: driverRecord?.vehicle_color || "",
-          rating: driverRecord?.rating || null,
-        }
+      ? await getDriverDisplayInfo(delivery.driver_id)
       : null;
 
-    let fallbackDriverLocation = null;
-    if (driverRecord) {
-      const driverLat = Number(driverRecord.current_latitude);
-      const driverLng = Number(driverRecord.current_longitude);
-      if (Number.isFinite(driverLat) && Number.isFinite(driverLng)) {
-        fallbackDriverLocation = {
-          latitude: driverLat,
-          longitude: driverLng,
-          lastUpdate: driverRecord.last_location_update || null,
-        };
-      }
-    }
+    const fallbackDriverLocation = null;
 
     const socketLiveDriverLocation = delivery?.driver_id
       ? getLatestDriverLiveLocation(delivery.driver_id)
@@ -2859,15 +2908,16 @@ router.get("/:id/delivery-status", authenticate, async (req, res) => {
       orderId: order.id,
       orderStatus: deliveryStatus,
       status: deliveryStatus,
-      driverId: delivery?.driver_id || null,
+      driverId: driverInfo?.driver_id || delivery?.driver_id || null,
       pickedUpAt: delivery?.picked_up_at || null,
       deliveredAt: delivery?.delivered_at || null,
       driver: driverInfo,
       driver_info: driverInfo,
-      driver_id: delivery?.driver_id || null,
-      driver_name: driverInfo?.driver_name || null,
-      driver_phone: driverInfo?.driver_phone || null,
-      driver_photo: driverInfo?.driver_photo || null,
+      driverInfo: driverInfo,
+      driver_id: driverInfo?.driver_id || delivery?.driver_id || null,
+      driver_name: driverInfo?.full_name || null,
+      driver_phone: driverInfo?.phone || null,
+      driver_photo: driverInfo?.photo_url || null,
       vehicle_number: driverInfo?.vehicle_number || null,
       vehicle_model: driverInfo?.vehicle_model || null,
       vehicle_type: driverInfo?.vehicle_type || null,
