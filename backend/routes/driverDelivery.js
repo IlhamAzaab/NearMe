@@ -1166,7 +1166,17 @@ router.post(
           customer_name,
           customer_phone,
           restaurant_id
-        ), drivers!driver_id (full_name, phone, profile_photo_url)`,
+        ), drivers!driver_id (
+          id,
+          full_name,
+          phone,
+          profile_photo_url,
+          vehicle_type,
+          vehicle_model,
+          vehicle_number,
+          vehicle_color,
+          rating
+        )`,
         )
         .maybeSingle();
 
@@ -1240,9 +1250,19 @@ router.post(
       const notifications = [];
       const driverInfo = {
         driver_id: req.user.id,
-        driver_name: updated.drivers?.full_name || "Driver",
-        driver_phone: updated.drivers?.phone,
-        driver_photo: updated.drivers?.profile_photo_url,
+        id: req.user.id,
+        driver_name: updated.drivers?.full_name || "Assigned Driver",
+        full_name: updated.drivers?.full_name || "Assigned Driver",
+        driver_phone: updated.drivers?.phone || "",
+        phone: updated.drivers?.phone || "",
+        driver_photo: updated.drivers?.profile_photo_url || "",
+        photo_url: updated.drivers?.profile_photo_url || "",
+        profile_photo_url: updated.drivers?.profile_photo_url || "",
+        vehicle_type: updated.drivers?.vehicle_type || "",
+        vehicle_model: updated.drivers?.vehicle_model || "",
+        vehicle_number: updated.drivers?.vehicle_number || "",
+        vehicle_color: updated.drivers?.vehicle_color || "",
+        rating: updated.drivers?.rating || null,
       };
 
       if (updated.orders?.customer_id) {

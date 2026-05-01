@@ -2668,16 +2668,6 @@ router.get("/:id/delivery-status", authenticate, async (req, res) => {
         delivery_latitude,
         delivery_longitude,
         estimated_duration_min,
-        deliveries (
-          id,
-          status,
-          driver_id,
-          current_latitude,
-          current_longitude,
-          last_location_update,
-          picked_up_at,
-          delivered_at
-        ),
         restaurants (
           logo_url
         )
@@ -2707,16 +2697,55 @@ router.get("/:id/delivery-status", authenticate, async (req, res) => {
       }
     }
 
+    const { data: delivery, error: deliveryError } = await supabaseAdmin
+      .from("deliveries")
+      .select(
+        `
+        id,
+        order_id,
+        driver_id,
+        status,
+        current_latitude,
+        current_longitude,
+        last_location_update,
+        accepted_at,
+        picked_up_at,
+        delivered_at,
+        drivers:driver_id (
+          id,
+          full_name,
+          phone,
+          profile_photo_url,
+          vehicle_type,
+          vehicle_model,
+          vehicle_number,
+          vehicle_color,
+          rating,
+          current_latitude,
+          current_longitude,
+          last_location_update
+        )
+      `,
+      )
+      .eq("order_id", orderId)
+      .not("status", "in", "(cancelled,failed)")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (deliveryError) {
+      console.error("Get delivery status error:", deliveryError);
+      return res.status(500).json({ message: "Server error" });
+    }
+
     // Driver can only track deliveries assigned to them
     if (userRole === "driver") {
-      const delivery = order.deliveries?.[0] || order.deliveries;
       if (!delivery || delivery.driver_id !== userId) {
         return res.status(403).json({ message: "Access denied" });
       }
     }
 
     // Get delivery status
-    const delivery = order.deliveries?.[0] || order.deliveries;
     const deliveryStatus = delivery?.status || "placed";
 
     // Fetch restaurant logo if not included in the join
@@ -2731,47 +2760,35 @@ router.get("/:id/delivery-status", authenticate, async (req, res) => {
       restaurantLogo = restaurant?.logo_url || null;
     }
 
-    // Fetch driver info if driver is assigned
-    let driverInfo = null;
-    let fallbackDriverLocation = null;
-    if (delivery?.driver_id) {
-      // Get driver details
-      const { data: driver } = await supabaseAdmin
-        .from("drivers")
-        .select(
-          "id, full_name, phone, driver_type, profile_photo_url, current_latitude, current_longitude, last_location_update",
-        )
-        .eq("id", delivery.driver_id)
-        .single();
-
-      if (driver) {
-        // Get vehicle info
-        const { data: vehicle } = await supabaseAdmin
-          .from("driver_vehicle_license")
-          .select("vehicle_number, vehicle_type, vehicle_model")
-          .eq("driver_id", delivery.driver_id)
-          .single();
-
-        driverInfo = {
-          id: driver.id,
-          full_name: driver.full_name,
-          phone: driver.phone,
-          driver_type: driver.driver_type,
-          profile_photo_url: driver.profile_photo_url,
-          vehicle_number: vehicle?.vehicle_number || null,
-          vehicle_type: vehicle?.vehicle_type || driver.driver_type,
-          vehicle_model: vehicle?.vehicle_model || null,
-        };
-
-        const driverLat = Number(driver.current_latitude);
-        const driverLng = Number(driver.current_longitude);
-        if (Number.isFinite(driverLat) && Number.isFinite(driverLng)) {
-          fallbackDriverLocation = {
-            latitude: driverLat,
-            longitude: driverLng,
-            lastUpdate: driver.last_location_update || null,
-          };
+    const driverInfo = delivery?.driver_id
+      ? {
+          driver_id: delivery.driver_id,
+          id: delivery.driver_id,
+          driver_name: delivery.drivers?.full_name || "Assigned Driver",
+          full_name: delivery.drivers?.full_name || "Assigned Driver",
+          driver_phone: delivery.drivers?.phone || "",
+          phone: delivery.drivers?.phone || "",
+          driver_photo: delivery.drivers?.profile_photo_url || "",
+          photo_url: delivery.drivers?.profile_photo_url || "",
+          profile_photo_url: delivery.drivers?.profile_photo_url || "",
+          vehicle_type: delivery.drivers?.vehicle_type || "",
+          vehicle_model: delivery.drivers?.vehicle_model || "",
+          vehicle_number: delivery.drivers?.vehicle_number || "",
+          vehicle_color: delivery.drivers?.vehicle_color || "",
+          rating: delivery.drivers?.rating || null,
         }
+      : null;
+
+    let fallbackDriverLocation = null;
+    if (delivery?.drivers) {
+      const driverLat = Number(delivery.drivers.current_latitude);
+      const driverLng = Number(delivery.drivers.current_longitude);
+      if (Number.isFinite(driverLat) && Number.isFinite(driverLng)) {
+        fallbackDriverLocation = {
+          latitude: driverLat,
+          longitude: driverLng,
+          lastUpdate: delivery.drivers.last_location_update || null,
+        };
       }
     }
 
@@ -2842,6 +2859,15 @@ router.get("/:id/delivery-status", authenticate, async (req, res) => {
       pickedUpAt: delivery?.picked_up_at || null,
       deliveredAt: delivery?.delivered_at || null,
       driver: driverInfo,
+      driver_info: driverInfo,
+      driver_id: delivery?.driver_id || null,
+      driver_name: driverInfo?.driver_name || null,
+      driver_phone: driverInfo?.driver_phone || null,
+      driver_photo: driverInfo?.driver_photo || null,
+      vehicle_number: driverInfo?.vehicle_number || null,
+      vehicle_model: driverInfo?.vehicle_model || null,
+      vehicle_type: driverInfo?.vehicle_type || null,
+      vehicle_color: driverInfo?.vehicle_color || null,
       // Location data for live tracking
       driverLocation: hasDriverCoords
         ? {
