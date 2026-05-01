@@ -76,30 +76,12 @@ async function getDriverDisplayInfo(driverId) {
   ] = await Promise.all([
     supabaseAdmin
       .from("drivers")
-      .select(
-        `
-            id,
-            full_name,
-            phone,
-            profile_photo_url,
-            driver_type,
-            current_latitude,
-            current_longitude
-          `,
-      )
+      .select("id, full_name, phone, profile_photo_url, driver_type")
       .eq("id", driverId)
       .maybeSingle(),
-
     supabaseAdmin
       .from("driver_vehicle_license")
-      .select(
-        `
-            driver_id,
-            vehicle_number,
-            vehicle_type,
-            vehicle_model
-          `,
-      )
+      .select("driver_id, vehicle_number, vehicle_type, vehicle_model")
       .eq("driver_id", driverId)
       .maybeSingle(),
   ]);
@@ -116,23 +98,10 @@ async function getDriverDisplayInfo(driverId) {
   }
 
   if (!driver && !vehicle) {
-    return {
-      driver_id: driverId,
-      id: driverId,
-      full_name: "Assigned Driver",
-      driver_name: "Assigned Driver",
-      phone: "",
-      driver_phone: "",
-      photo_url: "",
-      profile_photo_url: "",
-      driver_photo: "",
-      vehicle_number: "",
-      vehicle_type: "",
-      vehicle_model: "",
-    };
+    return null;
   }
 
-  const fullName = driver?.full_name || "Assigned Driver";
+  const fullName = driver?.full_name || "";
   const phone = driver?.phone || "";
   const photoUrl = driver?.profile_photo_url || "";
   const vehicleType = vehicle?.vehicle_type || driver?.driver_type || "";
@@ -142,7 +111,6 @@ async function getDriverDisplayInfo(driverId) {
   return {
     id: driverId,
     driver_id: driverId,
-
     full_name: fullName,
     phone,
     photo_url: photoUrl,
@@ -151,6 +119,7 @@ async function getDriverDisplayInfo(driverId) {
     vehicle_model: vehicleModel,
     vehicle_number: vehicleNumber,
 
+    // Backwards-compatible aliases used by older clients
     driver_name: fullName,
     driver_phone: phone,
     driver_photo: photoUrl,

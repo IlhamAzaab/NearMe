@@ -212,7 +212,7 @@ const OrderPickedUp = () => {
         {/* Driver Info */}
         <div className="driver-info">
           <h3 className="driver-name">{driverInfo?.full_name || "Driver"}</h3>
-          {driverInfo?.driverInfo?.license_plate && (
+          {(driverInfo?.vehicle_number || driverInfo?.license_plate) && (
             <div className="driver-vehicle-number">
               <svg
                 viewBox="0 0 24 24"
@@ -305,6 +305,12 @@ const OrderPickedUp = () => {
             <span className="vehicle-label">Vehicle</span>
             <span className="vehicle-value">
               {driverInfo?.vehicle_type || "Motorbike"}
+            </span>
+          </div>
+          <div className="vehicle-row">
+            <span className="vehicle-label">Model</span>
+            <span className="vehicle-value">
+              {driverInfo?.vehicle_model || "---"}
             </span>
           </div>
           <div className="vehicle-row">

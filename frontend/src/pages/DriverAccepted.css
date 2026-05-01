@@ -334,6 +334,13 @@
   margin-top: 4px;
 }
 
+.driver-vehicle-meta {
+  font-size: 12px;
+  font-weight: 500;
+  color: #6b7280;
+  margin-top: 4px;
+}
+
 .driver-phone svg {
   width: 14px;
   height: 14px;

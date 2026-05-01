@@ -481,6 +481,14 @@ const OrderOnTheWay = () => {
                 </span>
               </div>
             )}
+            {(driverInfo?.vehicle_type || driverInfo?.vehicle_model) && (
+              <div className="driver-vehicle-meta">
+                {driverInfo?.vehicle_type || "Vehicle"}
+                {driverInfo?.vehicle_model
+                  ? ` - ${driverInfo.vehicle_model}`
+                  : ""}
+              </div>
+            )}
             {driverInfo?.phone && (
               <div className="driver-phone">
                 <svg
