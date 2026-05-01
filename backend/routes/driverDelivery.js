@@ -3818,6 +3818,12 @@ router.get(
       console.log(
         `[ENDPOINT] ✅ Returning ${availableDeliveries.available_deliveries?.length || 0} available deliveries | trigger=${responseWithTelemetry.telemetry.trigger_reason} | cache_hit=${responseWithTelemetry.telemetry.cache_hit} | reused=${responseWithTelemetry.telemetry.reused_evaluations_count || 0} | new=${responseWithTelemetry.telemetry.new_evaluations_count || 0}`,
       );
+      console.log("[ENDPOINT] Available deliveries debug:", {
+        candidate_count: responseWithTelemetry.telemetry?.candidate_count,
+        returned_count: responseWithTelemetry.available_deliveries?.length || 0,
+        total_available: responseWithTelemetry.total_available,
+        current_route: responseWithTelemetry.current_route,
+      });
       return res.json(responseWithTelemetry);
     } catch (error) {
       console.error(`[ENDPOINT] ❌ Error: ${error.message}`);

@@ -1766,49 +1766,143 @@ export async function getAvailableDeliveriesForDriver(
         };
       });
 
-    const stableAcceptedDeliveries = acceptedDeliveries.filter((delivery) => {
-      const distanceKm = Number.parseFloat(
-        delivery.total_delivery_distance_km || 0,
-      );
-      const etaMinutes = Number.parseFloat(
-        delivery.estimated_time_minutes || 0,
-      );
-      const routeImpact = delivery.route_impact || {};
-      const pricing = delivery.pricing || {};
-      const isFirstDelivery = Boolean(routeImpact.is_first_delivery);
+    const toPositiveNumber = (value, fallback = 0) => {
+      const number = Number.parseFloat(value);
+      return Number.isFinite(number) && number > 0 ? number : fallback;
+    };
 
-      const baseAmount = Number.parseFloat(
-        routeImpact.base_amount || pricing.base_amount || 0,
-      );
-      const extraEarnings = Number.parseFloat(
-        routeImpact.extra_earnings || pricing.extra_earnings || 0,
-      );
-      const bonusAmount = Number.parseFloat(
-        routeImpact.bonus_amount || pricing.bonus_amount || 0,
-      );
-      const totalTripEarnings = Number.parseFloat(
-        routeImpact.total_trip_earnings || pricing.total_trip_earnings || 0,
-      );
+    const getFallbackRtcDistanceKm = (delivery) => {
+      const restaurantLat = Number.parseFloat(delivery.restaurant?.latitude);
+      const restaurantLng = Number.parseFloat(delivery.restaurant?.longitude);
+      const customerLat = Number.parseFloat(delivery.customer?.latitude);
+      const customerLng = Number.parseFloat(delivery.customer?.longitude);
 
-      const firstHasRoutes =
-        !isFirstDelivery ||
-        Boolean(delivery.restaurant_to_customer_route?.coordinates?.length);
-
-      const hasValidEarnings = isFirstDelivery
-        ? baseAmount > 0 && totalTripEarnings > 0
-        : totalTripEarnings > 0 && extraEarnings + bonusAmount > 0;
-
-      const isStable =
-        distanceKm > 0 && etaMinutes > 0 && firstHasRoutes && hasValidEarnings;
-
-      if (!isStable) {
-        console.warn(
-          `[AVAILABLE DELIVERIES] G��n+� Dropped unstable delivery ${delivery.delivery_id}: distance=${distanceKm}, eta=${etaMinutes}, first=${isFirstDelivery}, earnings(total=${totalTripEarnings}, base=${baseAmount}, extra=${extraEarnings}, bonus=${bonusAmount})`,
+      if (
+        Number.isFinite(restaurantLat) &&
+        Number.isFinite(restaurantLng) &&
+        Number.isFinite(customerLat) &&
+        Number.isFinite(customerLng)
+      ) {
+        return (
+          haversineDistance(
+            restaurantLat,
+            restaurantLng,
+            customerLat,
+            customerLng,
+          ) / 1000
         );
       }
 
-      return isStable;
-    });
+      return 0;
+    };
+
+    const stableAcceptedDeliveries = acceptedDeliveries
+      .map((delivery) => {
+        const routeImpact = delivery.route_impact || {};
+        const pricing = delivery.pricing || {};
+        const isFirstDelivery = Boolean(routeImpact.is_first_delivery);
+
+        const originalDistanceKm = toPositiveNumber(
+          delivery.total_delivery_distance_km,
+          0,
+        );
+
+        const rtcDistanceKm = toPositiveNumber(
+          routeImpact.restaurant_to_customer_km,
+          0,
+        );
+
+        const fallbackRtcKm = getFallbackRtcDistanceKm(delivery);
+
+        const safeDistanceKm =
+          originalDistanceKm || rtcDistanceKm || fallbackRtcKm || 0;
+
+        const originalEtaMinutes = toPositiveNumber(
+          delivery.estimated_time_minutes,
+          0,
+        );
+
+        // Fallback ETA: assume around 25km/h average. Minimum 1 minute.
+        const safeEtaMinutes =
+          originalEtaMinutes ||
+          (safeDistanceKm > 0
+            ? Math.max(1, Math.ceil((safeDistanceKm / 25) * 60))
+            : 0);
+
+        let baseAmount = toPositiveNumber(
+          routeImpact.base_amount || pricing.base_amount,
+          0,
+        );
+
+        let extraEarnings = toPositiveNumber(
+          routeImpact.extra_earnings || pricing.extra_earnings,
+          0,
+        );
+
+        const bonusAmount = toPositiveNumber(
+          routeImpact.bonus_amount || pricing.bonus_amount,
+          0,
+        );
+
+        let totalTripEarnings = toPositiveNumber(
+          routeImpact.total_trip_earnings || pricing.total_trip_earnings,
+          0,
+        );
+
+        // First delivery should not disappear just because OSRM geometry failed.
+        // Calculate base earnings from RTC distance fallback.
+        if (isFirstDelivery && baseAmount <= 0 && safeDistanceKm > 0) {
+          baseAmount = calculateRTCEarnings(safeDistanceKm);
+        }
+
+        // 2nd+ delivery should still show if bonus exists, even if extra distance becomes 0.
+        if (!isFirstDelivery && extraEarnings <= 0 && safeDistanceKm > 0) {
+          extraEarnings = calculateRTCEarnings(safeDistanceKm);
+        }
+
+        if (totalTripEarnings <= 0) {
+          totalTripEarnings = isFirstDelivery
+            ? baseAmount
+            : extraEarnings + bonusAmount;
+        }
+
+        const hasValidMinimumData =
+          safeDistanceKm > 0 && safeEtaMinutes > 0 && totalTripEarnings > 0;
+
+        if (!hasValidMinimumData) {
+          console.warn(
+            `[AVAILABLE DELIVERIES] ⚠️ Still dropping delivery ${delivery.delivery_id}: distance=${safeDistanceKm}, eta=${safeEtaMinutes}, earnings=${totalTripEarnings}`,
+          );
+          return null;
+        }
+
+        return {
+          ...delivery,
+          total_delivery_distance_km: Number(safeDistanceKm.toFixed(2)),
+          estimated_time_minutes: Number(safeEtaMinutes),
+          pricing: {
+            ...pricing,
+            base_amount: Number(baseAmount.toFixed(2)),
+            extra_earnings: Number(extraEarnings.toFixed(2)),
+            bonus_amount: Number(bonusAmount.toFixed(2)),
+            total_trip_earnings: Number(totalTripEarnings.toFixed(2)),
+          },
+          route_impact: {
+            ...routeImpact,
+            base_amount: Number(baseAmount.toFixed(2)),
+            extra_earnings: Number(extraEarnings.toFixed(2)),
+            bonus_amount: Number(bonusAmount.toFixed(2)),
+            total_trip_earnings: Number(totalTripEarnings.toFixed(2)),
+            restaurant_to_customer_km: Number(
+              toPositiveNumber(
+                routeImpact.restaurant_to_customer_km,
+                safeDistanceKm,
+              ).toFixed(2),
+            ),
+          },
+        };
+      })
+      .filter(Boolean);
 
     const rejectedDeliveries = evaluationResults
       .filter((result) => !result.can_accept)
