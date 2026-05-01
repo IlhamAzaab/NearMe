@@ -2310,7 +2310,9 @@ router.post("/:id/cancel", authenticate, async (req, res) => {
   const { cancelled_reason } = req.body;
 
   if (userRole !== "customer") {
-    return res.status(403).json({ message: "Only customers can cancel orders" });
+    return res
+      .status(403)
+      .json({ message: "Only customers can cancel orders" });
   }
 
   if (!orderId || !cancelled_reason?.trim()) {
@@ -2355,8 +2357,14 @@ router.post("/:id/cancel", authenticate, async (req, res) => {
       return res.status(400).json({ message: "Order has no delivery record" });
     }
 
-    if (order.cancelled_at || delivery.cancelled_at || delivery.status === "cancelled") {
-      return res.status(409).json({ message: "This order has already been cancelled" });
+    if (
+      order.cancelled_at ||
+      delivery.cancelled_at ||
+      delivery.status === "cancelled"
+    ) {
+      return res
+        .status(409)
+        .json({ message: "This order has already been cancelled" });
     }
 
     const cancellableStatuses = new Set(["placed", "pending"]);
