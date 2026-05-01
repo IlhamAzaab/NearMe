@@ -2711,7 +2711,7 @@ router.get("/:id/delivery-status", authenticate, async (req, res) => {
         accepted_at,
         picked_up_at,
         delivered_at,
-        drivers:driver_id (
+        drivers!driver_id (
           id,
           full_name,
           phone,
@@ -2760,34 +2760,38 @@ router.get("/:id/delivery-status", authenticate, async (req, res) => {
       restaurantLogo = restaurant?.logo_url || null;
     }
 
+    const driverRecord = Array.isArray(delivery?.drivers)
+      ? delivery.drivers[0]
+      : delivery?.drivers;
+
     const driverInfo = delivery?.driver_id
       ? {
           driver_id: delivery.driver_id,
           id: delivery.driver_id,
-          driver_name: delivery.drivers?.full_name || "Assigned Driver",
-          full_name: delivery.drivers?.full_name || "Assigned Driver",
-          driver_phone: delivery.drivers?.phone || "",
-          phone: delivery.drivers?.phone || "",
-          driver_photo: delivery.drivers?.profile_photo_url || "",
-          photo_url: delivery.drivers?.profile_photo_url || "",
-          profile_photo_url: delivery.drivers?.profile_photo_url || "",
-          vehicle_type: delivery.drivers?.vehicle_type || "",
-          vehicle_model: delivery.drivers?.vehicle_model || "",
-          vehicle_number: delivery.drivers?.vehicle_number || "",
-          vehicle_color: delivery.drivers?.vehicle_color || "",
-          rating: delivery.drivers?.rating || null,
+          driver_name: driverRecord?.full_name || "Assigned Driver",
+          full_name: driverRecord?.full_name || "Assigned Driver",
+          driver_phone: driverRecord?.phone || "",
+          phone: driverRecord?.phone || "",
+          driver_photo: driverRecord?.profile_photo_url || "",
+          photo_url: driverRecord?.profile_photo_url || "",
+          profile_photo_url: driverRecord?.profile_photo_url || "",
+          vehicle_type: driverRecord?.vehicle_type || "",
+          vehicle_model: driverRecord?.vehicle_model || "",
+          vehicle_number: driverRecord?.vehicle_number || "",
+          vehicle_color: driverRecord?.vehicle_color || "",
+          rating: driverRecord?.rating || null,
         }
       : null;
 
     let fallbackDriverLocation = null;
-    if (delivery?.drivers) {
-      const driverLat = Number(delivery.drivers.current_latitude);
-      const driverLng = Number(delivery.drivers.current_longitude);
+    if (driverRecord) {
+      const driverLat = Number(driverRecord.current_latitude);
+      const driverLng = Number(driverRecord.current_longitude);
       if (Number.isFinite(driverLat) && Number.isFinite(driverLng)) {
         fallbackDriverLocation = {
           latitude: driverLat,
           longitude: driverLng,
-          lastUpdate: delivery.drivers.last_location_update || null,
+          lastUpdate: driverRecord.last_location_update || null,
         };
       }
     }
