@@ -1407,6 +1407,7 @@ router.post("/place", authenticate, async (req, res) => {
       estimated_duration_min = quotedEtaMin;
 
       const baseOrderPayload = {
+        cart_id: cartId,
         order_number: orderNumber,
         customer_id: customerId,
         customer_name: customer.username || "Customer",
@@ -2009,6 +2010,7 @@ router.post("/place", authenticate, async (req, res) => {
 
     // Insert order
     const baseOrderPayload = {
+      cart_id: cartId,
       order_number: orderNumber,
       customer_id: customerId,
       customer_name: customer.username || "Customer",
