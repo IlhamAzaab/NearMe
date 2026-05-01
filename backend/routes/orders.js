@@ -86,131 +86,107 @@ function isMissingColumnError(error, columnName) {
 }
 
 async function getDriverDisplayInfo(driverId) {
-  if (!driverId) return null;
+  const cleanDriverId = String(driverId || "").trim();
+  if (!cleanDriverId) return null;
 
-  let driver = null;
-  let vehicle = null;
+  const [
+    { data: driver, error: driverError },
+    { data: vehicle, error: vehicleError },
+  ] = await Promise.all([
+    supabaseAdmin
+      .from("drivers")
+      .select(
+        `
+          id,
+          full_name,
+          phone,
+          profile_photo_url,
+          driver_type,
+          current_latitude,
+          current_longitude
+        `,
+      )
+      .eq("id", cleanDriverId)
+      .maybeSingle(),
 
-  const baseDriverSelect =
-    "id, full_name, phone, profile_photo_url, driver_type";
-  const baseVehicleSelect =
-    "driver_id, vehicle_number, vehicle_type, vehicle_model";
-
-  const { data: driverById, error: driverByIdError } = await supabaseAdmin
-    .from("drivers")
-    .select(baseDriverSelect)
-    .eq("id", driverId)
-    .maybeSingle();
-
-  if (driverByIdError && !isMissingColumnError(driverByIdError, "id")) {
-    console.error(
-      "[DriverInfo] Failed to fetch driver by id:",
-      driverByIdError.message,
-    );
-  }
-
-  driver = driverById || null;
-
-  if (!driver) {
-    const { data: driverByUserId, error: driverByUserIdError } =
-      await supabaseAdmin
-        .from("drivers")
-        .select(baseDriverSelect)
-        .eq("user_id", driverId)
-        .maybeSingle();
-
-    if (
-      driverByUserIdError &&
-      !isMissingColumnError(driverByUserIdError, "user_id")
-    ) {
-      console.warn(
-        "[DriverInfo] Failed to fetch driver by user_id:",
-        driverByUserIdError.message,
-      );
-    }
-
-    driver = driverByUserId || null;
-  }
-
-  const resolvedDriverId = driver?.id || driverId;
-
-  const { data: vehicleByDriverId, error: vehicleByDriverIdError } =
-    await supabaseAdmin
+    supabaseAdmin
       .from("driver_vehicle_license")
-      .select(baseVehicleSelect)
-      .eq("driver_id", resolvedDriverId)
-      .maybeSingle();
+      .select(
+        `
+          driver_id,
+          vehicle_number,
+          vehicle_type,
+          vehicle_model
+        `,
+      )
+      .eq("driver_id", cleanDriverId)
+      .maybeSingle(),
+  ]);
 
-  if (
-    vehicleByDriverIdError &&
-    !isMissingColumnError(vehicleByDriverIdError, "driver_id")
-  ) {
-    console.warn(
-      "[DriverInfo] Failed to fetch vehicle info by driver_id:",
-      vehicleByDriverIdError.message,
-    );
+  if (driverError) {
+    console.error("[DriverInfo] drivers fetch failed:", {
+      driverId: cleanDriverId,
+      message: driverError.message,
+      code: driverError.code,
+      details: driverError.details,
+    });
   }
 
-  vehicle = vehicleByDriverId || null;
-
-  if (!vehicle && resolvedDriverId !== driverId) {
-    const { data: vehicleByUserId, error: vehicleByUserIdError } =
-      await supabaseAdmin
-        .from("driver_vehicle_license")
-        .select(baseVehicleSelect)
-        .eq("user_id", driverId)
-        .maybeSingle();
-
-    if (
-      vehicleByUserIdError &&
-      !isMissingColumnError(vehicleByUserIdError, "user_id")
-    ) {
-      console.warn(
-        "[DriverInfo] Failed to fetch vehicle info by user_id:",
-        vehicleByUserIdError.message,
-      );
-    }
-
-    vehicle = vehicleByUserId || null;
+  if (vehicleError) {
+    console.error("[DriverInfo] vehicle fetch failed:", {
+      driverId: cleanDriverId,
+      message: vehicleError.message,
+      code: vehicleError.code,
+      details: vehicleError.details,
+    });
   }
 
   let authUser = null;
-  if (!driver?.phone || !driver?.full_name) {
+
+  if (!driver?.full_name || !driver?.phone) {
     try {
       const { data: authData, error: authError } =
-        await supabaseAdmin.auth.admin.getUserById(driverId);
+        await supabaseAdmin.auth.admin.getUserById(cleanDriverId);
+
       if (authError) {
-        console.warn(
-          "[DriverInfo] Failed to fetch auth user:",
-          authError.message,
-        );
+        console.warn("[DriverInfo] auth user fetch failed:", {
+          driverId: cleanDriverId,
+          message: authError.message,
+        });
       } else {
         authUser = authData?.user || null;
       }
     } catch (error) {
-      console.warn("[DriverInfo] Auth user lookup failed:", error?.message);
+      console.warn("[DriverInfo] auth lookup exception:", error?.message);
     }
   }
 
-  if (!driver && !vehicle && !authUser) {
-    return null;
-  }
-
+  // Important:
+  // If driver_id exists in deliveries, NEVER return null.
+  // Return at least fallback object so frontend can display assigned driver state.
   const fullName =
     driver?.full_name ||
-    driver?.user_name ||
     authUser?.user_metadata?.full_name ||
     authUser?.user_metadata?.name ||
-    "";
+    authUser?.email ||
+    "Assigned Driver";
+
   const phone = driver?.phone || authUser?.phone || "";
   const photoUrl = driver?.profile_photo_url || "";
-  const vehicleType = vehicle?.vehicle_type || driver?.driver_type || "";
+
+  const vehicleType =
+    vehicle?.vehicle_type ||
+    driver?.driver_type ||
+    "";
+
   const vehicleModel = vehicle?.vehicle_model || "";
   const vehicleNumber = vehicle?.vehicle_number || "";
 
-  return {
-    id: driverId,
-    driver_id: driverId,
+  const driverInfo = {
+    id: cleanDriverId,
+    driver_id: cleanDriverId,
+
+    // Main frontend fields
     full_name: fullName,
     phone,
     photo_url: photoUrl,
@@ -219,14 +195,31 @@ async function getDriverDisplayInfo(driverId) {
     vehicle_model: vehicleModel,
     vehicle_number: vehicleNumber,
 
-    // Backwards-compatible aliases used by older clients
+    // Backward-compatible aliases
     driver_name: fullName,
     driver_phone: phone,
     driver_photo: photoUrl,
     driver_vehicle_type: vehicleType,
     driver_vehicle_model: vehicleModel,
     driver_vehicle_number: vehicleNumber,
+
+    // Debug-safe availability flags
+    has_driver_profile: Boolean(driver),
+    has_vehicle_profile: Boolean(vehicle),
   };
+
+  console.log("[DriverInfo] Resolved driver display info:", {
+    driverId: cleanDriverId,
+    full_name: driverInfo.full_name,
+    phone_present: Boolean(driverInfo.phone),
+    vehicle_number: driverInfo.vehicle_number,
+    vehicle_type: driverInfo.vehicle_type,
+    vehicle_model: driverInfo.vehicle_model,
+    has_driver_profile: driverInfo.has_driver_profile,
+    has_vehicle_profile: driverInfo.has_vehicle_profile,
+  });
+
+  return driverInfo;
 }
 
 /**
@@ -2817,103 +2810,139 @@ router.get("/:id/delivery-status", authenticate, async (req, res) => {
   res.set("Expires", "0");
 
   try {
-    // Fetch order with delivery info including driver location
+    // 1) Fetch order without depending on nested driver joins
     const { data: order, error: orderError } = await supabaseAdmin
       .from("orders")
       .select(
         `
-        id,
-        customer_id,
-        restaurant_id,
-        restaurant_name,
-        delivery_address,
-        delivery_latitude,
-        delivery_longitude,
-        estimated_duration_min,
-        restaurants (
-          logo_url
-        )
-      `,
+          id,
+          customer_id,
+          restaurant_id,
+          order_number,
+          restaurant_name,
+          restaurant_latitude,
+          restaurant_longitude,
+          delivery_address,
+          delivery_city,
+          delivery_latitude,
+          delivery_longitude,
+          estimated_duration_min
+        `,
       )
       .eq("id", orderId)
-      .single();
+      .maybeSingle();
 
-    if (orderError || !order) {
+    if (orderError) {
+      console.error("[DELIVERY STATUS] Order fetch error:", {
+        orderId,
+        message: orderError.message,
+        code: orderError.code,
+        details: orderError.details,
+      });
+      return res.status(500).json({ message: "Failed to fetch order" });
+    }
+
+    if (!order) {
       return res.status(404).json({ message: "Order not found" });
     }
 
-    // Verify access - customer can only see their own orders
-    if (userRole === "customer" && order.customer_id !== userId) {
+    // 2) Access control
+    if (userRole === "customer" && String(order.customer_id) !== String(userId)) {
       return res.status(403).json({ message: "Access denied" });
     }
 
-    // Admin can only see their own restaurant's orders
     if (userRole === "admin") {
-      const { data: adminData } = await supabaseAdmin
+      const { data: admin, error: adminError } = await supabaseAdmin
         .from("admins")
         .select("restaurant_id")
         .eq("id", userId)
-        .single();
-      if (!adminData || adminData.restaurant_id !== order.restaurant_id) {
+        .maybeSingle();
+
+      if (adminError) {
+        console.error("[DELIVERY STATUS] Admin fetch error:", adminError.message);
+        return res.status(500).json({ message: "Failed to verify admin" });
+      }
+
+      if (!admin || String(admin.restaurant_id) !== String(order.restaurant_id)) {
         return res.status(403).json({ message: "Access denied" });
       }
     }
 
+    // 3) Fetch delivery directly from deliveries table
     const { data: delivery, error: deliveryError } = await supabaseAdmin
       .from("deliveries")
       .select(
         `
-        id,
-        order_id,
-        driver_id,
-        status,
-        current_latitude,
-        current_longitude,
-        last_location_update,
-        accepted_at,
-        picked_up_at,
-        delivered_at
-      `,
+          id,
+          order_id,
+          driver_id,
+          status,
+          accepted_at,
+          picked_up_at,
+          on_the_way_at,
+          arrived_customer_at,
+          delivered_at,
+          current_latitude,
+          current_longitude,
+          last_location_update
+        `,
       )
       .eq("order_id", orderId)
-      .not("status", "in", "(cancelled,failed)")
-      .order("created_at", { ascending: false })
-      .limit(1)
       .maybeSingle();
 
     if (deliveryError) {
-      console.error("Get delivery status error:", deliveryError);
-      return res.status(500).json({ message: "Server error" });
+      console.error("[DELIVERY STATUS] Delivery fetch error:", {
+        orderId,
+        message: deliveryError.message,
+        code: deliveryError.code,
+        details: deliveryError.details,
+      });
+      return res.status(500).json({ message: "Failed to fetch delivery" });
     }
 
-    // Driver can only track deliveries assigned to them
     if (userRole === "driver") {
-      if (!delivery || delivery.driver_id !== userId) {
+      if (!delivery || String(delivery.driver_id) !== String(userId)) {
         return res.status(403).json({ message: "Access denied" });
       }
     }
 
-    // Get delivery status
     const deliveryStatus = delivery?.status || "placed";
 
-    // Fetch restaurant logo if not included in the join
-    let restaurantLogo = order.restaurants?.logo_url || null;
-    if (!restaurantLogo && order.restaurant_id) {
-      const { data: restaurant } = await supabaseAdmin
+    // 4) Fetch restaurant logo separately
+    let restaurantLogo = null;
+    if (order.restaurant_id) {
+      const { data: restaurant, error: restaurantError } = await supabaseAdmin
         .from("restaurants")
         .select("logo_url")
         .eq("id", order.restaurant_id)
-        .single();
+        .maybeSingle();
+
+      if (restaurantError) {
+        console.warn(
+          "[DELIVERY STATUS] Restaurant logo fetch failed:",
+          restaurantError.message,
+        );
+      }
 
       restaurantLogo = restaurant?.logo_url || null;
     }
 
+    // 5) Fetch driver details using delivery.driver_id
     const driverInfo = delivery?.driver_id
       ? await getDriverDisplayInfo(delivery.driver_id)
       : null;
 
-    const fallbackDriverLocation = null;
+    console.log("[DELIVERY STATUS DEBUG]", {
+      orderId,
+      userId,
+      userRole,
+      delivery_id: delivery?.id || null,
+      delivery_driver_id: delivery?.driver_id || null,
+      delivery_status: deliveryStatus,
+      driverInfo,
+    });
 
+    // 6) Resolve driver location
     const socketLiveDriverLocation = delivery?.driver_id
       ? getLatestDriverLiveLocation(delivery.driver_id)
       : null;
@@ -2934,15 +2963,13 @@ router.get("/:id/delivery-status", authenticate, async (req, res) => {
         }
       : hasDeliveryDriverCoords
         ? {
-            latitude: parseFloat(delivery.current_latitude),
-            longitude: parseFloat(delivery.current_longitude),
+            latitude: Number(delivery.current_latitude),
+            longitude: Number(delivery.current_longitude),
             lastUpdate: delivery.last_location_update || null,
           }
-        : fallbackDriverLocation;
+        : null;
 
-    const hasDriverCoords = Boolean(resolvedDriverLocation);
-
-    // Calculate dynamic ETA for customer
+    // 7) Calculate ETA
     let eta = null;
     if (
       delivery?.driver_id &&
@@ -2950,18 +2977,18 @@ router.get("/:id/delivery-status", authenticate, async (req, res) => {
         deliveryStatus,
       )
     ) {
-      const driverLoc = hasDriverCoords
+      const driverLoc = resolvedDriverLocation
         ? {
             latitude: resolvedDriverLocation.latitude,
             longitude: resolvedDriverLocation.longitude,
           }
         : null;
+
       eta = await calculateCustomerETA(orderId, driverLoc);
     }
 
-    // Fallback ETA from order's estimated_duration_min when no driver yet
     if (!eta && order.estimated_duration_min) {
-      const baseMins = order.estimated_duration_min;
+      const baseMins = Number(order.estimated_duration_min) || 10;
       eta = {
         etaMinutes: baseMins,
         etaRangeMin: baseMins,
@@ -2973,60 +3000,82 @@ router.get("/:id/delivery-status", authenticate, async (req, res) => {
       };
     }
 
+    // 8) Return full driver object and flat aliases
     return res.json({
       orderId: order.id,
+      order_id: order.id,
       orderStatus: deliveryStatus,
       status: deliveryStatus,
+
+      deliveryId: delivery?.id || null,
+      delivery_id: delivery?.id || null,
+
       driverId: driverInfo?.driver_id || delivery?.driver_id || null,
+      driver_id: driverInfo?.driver_id || delivery?.driver_id || null,
+
       pickedUpAt: delivery?.picked_up_at || null,
+      picked_up_at: delivery?.picked_up_at || null,
       deliveredAt: delivery?.delivered_at || null,
+      delivered_at: delivery?.delivered_at || null,
+
+      // Main driver objects for frontend
       driver: driverInfo,
       driver_info: driverInfo,
-      driverInfo: driverInfo,
-      driver_id: driverInfo?.driver_id || delivery?.driver_id || null,
+      driverInfo,
+
+      // Flat fallback fields for older frontend code
       driver_name: driverInfo?.full_name || null,
       driver_phone: driverInfo?.phone || null,
       driver_photo: driverInfo?.photo_url || null,
       vehicle_number: driverInfo?.vehicle_number || null,
-      vehicle_model: driverInfo?.vehicle_model || null,
       vehicle_type: driverInfo?.vehicle_type || null,
-      vehicle_color: driverInfo?.vehicle_color || null,
-      // Location data for live tracking
-      driverLocation: hasDriverCoords
-        ? {
-            latitude: resolvedDriverLocation.latitude,
-            longitude: resolvedDriverLocation.longitude,
-            lastUpdate: resolvedDriverLocation.lastUpdate,
-          }
-        : null,
+      vehicle_model: driverInfo?.vehicle_model || null,
+
+      driverLocation: resolvedDriverLocation,
+      driver_location: resolvedDriverLocation,
+
       customerLocation: {
-        latitude: order.delivery_latitude
-          ? parseFloat(order.delivery_latitude)
-          : null,
-        longitude: order.delivery_longitude
-          ? parseFloat(order.delivery_longitude)
-          : null,
-        address: order.delivery_address,
+        latitude: Number(order.delivery_latitude),
+        longitude: Number(order.delivery_longitude),
+        address: order.delivery_address || "",
+        city: order.delivery_city || "",
       },
+      customer_location: {
+        latitude: Number(order.delivery_latitude),
+        longitude: Number(order.delivery_longitude),
+        address: order.delivery_address || "",
+        city: order.delivery_city || "",
+      },
+
+      restaurantLocation: {
+        latitude: Number(order.restaurant_latitude),
+        longitude: Number(order.restaurant_longitude),
+      },
+      restaurant_location: {
+        latitude: Number(order.restaurant_latitude),
+        longitude: Number(order.restaurant_longitude),
+      },
+
       restaurantName: order.restaurant_name,
-      restaurantLogo: restaurantLogo,
+      restaurant_name: order.restaurant_name,
+      restaurantLogo,
+      restaurant_logo: restaurantLogo,
+
       estimatedDuration: order.estimated_duration_min,
-      // Dynamic ETA
-      eta: eta
-        ? {
-            etaMinutes: eta.etaMinutes,
-            etaRangeMin: eta.etaRangeMin,
-            etaRangeMax: eta.etaRangeMax,
-            etaDisplay: eta.etaDisplay,
-            stopsBeforeCustomer: eta.stopsBeforeCustomer,
-            driverStatus: eta.driverStatus,
-            isExact: eta.isExact || false,
-          }
-        : null,
+      estimated_duration_min: order.estimated_duration_min,
+      eta,
     });
   } catch (error) {
-    console.error("Get delivery status error:", error);
-    return res.status(500).json({ message: "Server error" });
+    console.error("[DELIVERY STATUS] Server error:", {
+      orderId,
+      message: error?.message,
+      stack: error?.stack,
+    });
+
+    return res.status(500).json({
+      message: "Server error fetching delivery status",
+      error: error?.message,
+    });
   }
 });
 
