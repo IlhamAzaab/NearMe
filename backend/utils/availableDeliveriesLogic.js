@@ -42,6 +42,33 @@ const DRIVER_EARNINGS = {
   },
 };
 
+const availableEvaluationCacheByDriver = new Map();
+
+function buildCandidateDeliverySignature(delivery) {
+  if (!delivery) return "";
+
+  const order = delivery.orders || {};
+  const restaurantLat = Number(order.restaurant_latitude || 0).toFixed(6);
+  const restaurantLng = Number(order.restaurant_longitude || 0).toFixed(6);
+  const customerLat = Number(order.delivery_latitude || 0).toFixed(6);
+  const customerLng = Number(order.delivery_longitude || 0).toFixed(6);
+  const tipAmount = Number.parseFloat(delivery.tip_amount || 0).toFixed(2);
+
+  return [
+    delivery.id || "",
+    delivery.order_id || "",
+    delivery.status || "",
+    delivery.res_accepted_at || "",
+    tipAmount,
+    restaurantLat,
+    restaurantLng,
+    customerLat,
+    customerLng,
+    order.total_amount || "",
+    order.delivery_fee || "",
+  ].join("|");
+}
+
 // ============================================================================
 // LIVE CONFIG LOADER
 // ============================================================================
@@ -1706,6 +1733,18 @@ export async function getAvailableDeliveriesForDriver(
         available_deliveries: [],
         total_available: 0,
         driver_location: routeContext.driver_location,
+        current_route: {
+          total_stops: routeContext.total_stops || 0,
+          active_deliveries: Math.ceil((routeContext.total_stops || 0) / 2),
+        },
+        telemetry: {
+          trigger_reason: triggerReason,
+          forced_full_recalculation: forceRecalculateAll,
+          candidate_count: 0,
+          reused_evaluations_count: 0,
+          new_evaluations_count: 0,
+          empty_reason: "NO_PENDING_DELIVERIES",
+        },
       };
     }
 

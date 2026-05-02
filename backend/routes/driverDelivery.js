@@ -61,6 +61,91 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
+async function getDriverProfileForRequest(req) {
+  const driverId = String(req.user?.id || "").trim();
+
+  if (!driverId) {
+    return {
+      driverData: null,
+      errorResponse: {
+        status: 401,
+        body: {
+          message: "Invalid driver token",
+          error_code: "DRIVER_ID_MISSING",
+        },
+      },
+    };
+  }
+
+  const { data: driverData, error: driverError } = await supabaseAdmin
+    .from("drivers")
+    .select(
+      `
+      id,
+      full_name,
+      email,
+      phone,
+      driver_status,
+      driver_type,
+      working_time,
+      profile_completed,
+      onboarding_completed,
+      current_latitude,
+      current_longitude,
+      manual_status_override
+    `,
+    )
+    .eq("id", driverId)
+    .maybeSingle();
+
+  if (driverError) {
+    console.error("[DriverProfile] Failed to fetch driver profile:", {
+      driverId,
+      message: driverError.message,
+      code: driverError.code,
+      details: driverError.details,
+    });
+
+    return {
+      driverData: null,
+      errorResponse: {
+        status: 500,
+        body: {
+          message: "Could not verify driver profile",
+          error_code: "DRIVER_PROFILE_LOOKUP_FAILED",
+          error: driverError.message,
+        },
+      },
+    };
+  }
+
+  if (!driverData) {
+    console.error(
+      "[DriverProfile] Driver profile missing for authenticated user:",
+      {
+        driverId,
+        role: req.user?.role,
+        type: req.user?.type,
+      },
+    );
+
+    return {
+      driverData: null,
+      errorResponse: {
+        status: 404,
+        body: {
+          message:
+            "Driver profile not found. Please logout and login again, or contact manager to recreate driver profile.",
+          error_code: "DRIVER_PROFILE_MISSING",
+          driver_id: driverId,
+        },
+      },
+    };
+  }
+
+  return { driverData, errorResponse: null };
+}
+
 async function getDriverDisplayInfo(driverId) {
   if (!driverId) return null;
 
@@ -812,14 +897,11 @@ router.post(
     try {
       // Step 0: Check if driver is active
       console.log(`[ACCEPT DELIVERY] → Step 0: Check if driver is active`);
-      const { data: driverData, error: driverError } = await supabaseAdmin
-        .from("drivers")
-        .select("driver_status, status, working_time")
-        .eq("id", req.user.id)
-        .single();
+      const { driverData, errorResponse } =
+        await getDriverProfileForRequest(req);
 
-      if (driverError || !driverData) {
-        return res.status(404).json({ message: "Driver not found" });
+      if (errorResponse) {
+        return res.status(errorResponse.status).json(errorResponse.body);
       }
 
       const statusInfo = resolveDriverStatus(driverData);
@@ -3744,6 +3826,11 @@ router.get(
   authenticate,
   driverOnly,
   async (req, res) => {
+    console.log("[AVAILABLE V2 AUTH DEBUG]", {
+      userId: req.user?.id,
+      role: req.user?.role,
+      type: req.user?.type,
+    });
     const driverId = req.user.id;
     const { driver_latitude, driver_longitude, trigger_reason } = req.query;
     const normalizedTriggerReason = String(trigger_reason || "")
@@ -3757,16 +3844,10 @@ router.get(
     const lng = driver_longitude ? parseFloat(driver_longitude) : null;
 
     // Check driver status first: suspended/rejected/pending drivers should not receive new requests.
-    const { data: driverData, error: driverError } = await supabaseAdmin
-      .from("drivers")
-      .select("driver_status, status, working_time")
-      .eq("id", driverId)
-      .single();
+    const { driverData, errorResponse } = await getDriverProfileForRequest(req);
 
-    if (driverError || !driverData) {
-      return res.status(404).json({
-        message: "Driver not found",
-      });
+    if (errorResponse) {
+      return res.status(errorResponse.status).json(errorResponse.body);
     }
 
     const statusInfo = resolveDriverStatus(driverData);
