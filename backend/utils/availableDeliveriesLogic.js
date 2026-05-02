@@ -42,6 +42,163 @@ const DRIVER_EARNINGS = {
   },
 };
 
+// ============================================================================
+// LIVE CONFIG LOADER
+// ============================================================================
+// Loads delivery thresholds + driver earnings from system_config.
+// If DB config is missing or invalid, safe defaults above are used.
+// This function is used by driverDelivery.js and getAvailableDeliveriesForDriver().
+
+let configConstantsCache = null;
+let configConstantsCacheExpiresAt = 0;
+const CONFIG_CONSTANTS_CACHE_TTL_MS = 60 * 1000;
+
+function toFiniteNumber(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function parseConfigJson(value, fallback) {
+  if (!value) return fallback;
+
+  if (typeof value === "object") {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return fallback;
+    }
+  }
+
+  return fallback;
+}
+
+async function loadConfigConstants(options = {}) {
+  const forceRefresh = Boolean(options.forceRefresh);
+  const now = Date.now();
+
+  if (
+    !forceRefresh &&
+    configConstantsCache &&
+    now < configConstantsCacheExpiresAt
+  ) {
+    return configConstantsCache;
+  }
+
+  try {
+    const config = await getSystemConfig();
+
+    const thresholdConfig = parseConfigJson(
+      config?.available_delivery_thresholds ||
+        config?.AVAILABLE_DELIVERY_THRESHOLDS ||
+        config?.delivery_thresholds,
+      {},
+    );
+
+    const earningsConfig = parseConfigJson(
+      config?.driver_earnings ||
+        config?.DRIVER_EARNINGS ||
+        config?.driver_earnings_config,
+      {},
+    );
+
+    const bonusConfig = parseConfigJson(
+      earningsConfig?.DELIVERY_BONUS ||
+        earningsConfig?.delivery_bonus ||
+        config?.driver_delivery_bonus,
+      {},
+    );
+
+    const thresholds = {
+      MAX_EXTRA_TIME_MINUTES: toFiniteNumber(
+        thresholdConfig.MAX_EXTRA_TIME_MINUTES ??
+          thresholdConfig.max_extra_time_minutes ??
+          config?.max_extra_time_minutes,
+        AVAILABLE_DELIVERY_THRESHOLDS.MAX_EXTRA_TIME_MINUTES,
+      ),
+      MAX_EXTRA_DISTANCE_KM: toFiniteNumber(
+        thresholdConfig.MAX_EXTRA_DISTANCE_KM ??
+          thresholdConfig.max_extra_distance_km ??
+          config?.max_extra_distance_km,
+        AVAILABLE_DELIVERY_THRESHOLDS.MAX_EXTRA_DISTANCE_KM,
+      ),
+      MAX_ACTIVE_DELIVERIES: toFiniteNumber(
+        thresholdConfig.MAX_ACTIVE_DELIVERIES ??
+          thresholdConfig.max_active_deliveries ??
+          config?.max_active_deliveries,
+        AVAILABLE_DELIVERY_THRESHOLDS.MAX_ACTIVE_DELIVERIES,
+      ),
+    };
+
+    const earnings = {
+      RATE_PER_KM: toFiniteNumber(
+        earningsConfig.RATE_PER_KM ??
+          earningsConfig.rate_per_km ??
+          config?.driver_rate_per_km,
+        DRIVER_EARNINGS.RATE_PER_KM,
+      ),
+      RTC_RATE_BELOW_5KM: toFiniteNumber(
+        earningsConfig.RTC_RATE_BELOW_5KM ??
+          earningsConfig.rtc_rate_below_5km ??
+          config?.rtc_rate_below_5km,
+        DRIVER_EARNINGS.RTC_RATE_BELOW_5KM,
+      ),
+      RTC_RATE_ABOVE_5KM: toFiniteNumber(
+        earningsConfig.RTC_RATE_ABOVE_5KM ??
+          earningsConfig.rtc_rate_above_5km ??
+          config?.rtc_rate_above_5km,
+        DRIVER_EARNINGS.RTC_RATE_ABOVE_5KM,
+      ),
+      MAX_RESTAURANT_PROXIMITY_KM: toFiniteNumber(
+        earningsConfig.MAX_RESTAURANT_PROXIMITY_KM ??
+          earningsConfig.max_restaurant_proximity_km ??
+          config?.max_restaurant_proximity_km,
+        DRIVER_EARNINGS.MAX_RESTAURANT_PROXIMITY_KM,
+      ),
+      DELIVERY_BONUS: {
+        SECOND_DELIVERY: toFiniteNumber(
+          bonusConfig.SECOND_DELIVERY ??
+            bonusConfig.second_delivery ??
+            earningsConfig.second_delivery_bonus ??
+            config?.second_delivery_bonus,
+          DRIVER_EARNINGS.DELIVERY_BONUS.SECOND_DELIVERY,
+        ),
+        ADDITIONAL_DELIVERY: toFiniteNumber(
+          bonusConfig.ADDITIONAL_DELIVERY ??
+            bonusConfig.additional_delivery ??
+            earningsConfig.additional_delivery_bonus ??
+            config?.additional_delivery_bonus,
+          DRIVER_EARNINGS.DELIVERY_BONUS.ADDITIONAL_DELIVERY,
+        ),
+      },
+    };
+
+    configConstantsCache = { thresholds, earnings };
+    configConstantsCacheExpiresAt = now + CONFIG_CONSTANTS_CACHE_TTL_MS;
+
+    return configConstantsCache;
+  } catch (error) {
+    console.warn(
+      "[AVAILABLE DELIVERIES] Failed to load config constants, using defaults:",
+      error?.message || error,
+    );
+
+    configConstantsCache = {
+      thresholds: { ...AVAILABLE_DELIVERY_THRESHOLDS },
+      earnings: {
+        ...DRIVER_EARNINGS,
+        DELIVERY_BONUS: { ...DRIVER_EARNINGS.DELIVERY_BONUS },
+      },
+    };
+    configConstantsCacheExpiresAt = now + CONFIG_CONSTANTS_CACHE_TTL_MS;
+
+    return configConstantsCache;
+  }
+}
+
 /**
  * RTC-only distance calculation (Restaurant → Customer).
  */
@@ -1356,7 +1513,10 @@ async function evaluateAvailableDeliveryOptimized(
         );
 
     const r1DistanceKm = await calculateCustomerRouteDistanceKm(
-      [...currentDeliveries, { restaurant: newRestaurant, customer: newCustomer }],
+      [
+        ...currentDeliveries,
+        { restaurant: newRestaurant, customer: newCustomer },
+      ],
       driverLocation,
       "R1 Customer Route",
     );
@@ -1988,5 +2148,6 @@ export {
   AVAILABLE_DELIVERY_THRESHOLDS,
   DRIVER_EARNINGS,
   loadConfigConstants,
+  calculateRTCEarnings,
   calculateSegmentBySegmentRouteDistance,
 };
