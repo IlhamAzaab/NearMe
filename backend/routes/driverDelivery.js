@@ -2596,7 +2596,7 @@ router.patch(
       const validTransitions = {
         accepted: ["picked_up"],
         picked_up: ["on_the_way", "delivered"],
-        on_the_way: ["delivered"],
+        on_the_way: ["at_customer", "delivered"],
         at_customer: ["delivered"],
       };
 
