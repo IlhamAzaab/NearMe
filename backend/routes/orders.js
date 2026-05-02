@@ -3002,7 +3002,7 @@ router.get("/:id/delivery-status", authenticate, async (req, res) => {
 
     // 8) Return full driver object and flat aliases
     return res.json({
-      api_version: "orders-delivery-status-v3-driver-debug",
+      api_version: "orders-delivery-status-v4-driver-debug",
       orderId: order.id,
       order_id: order.id,
       orderStatus: deliveryStatus,
