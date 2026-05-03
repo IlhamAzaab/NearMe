@@ -7,6 +7,7 @@ import VerifyPending from "./pages/VerifyPending";
 import CompleteProfile from "./pages/CompleteProfile";
 import VerifyOtp from "./pages/VerifyOtp";
 import VerifyEmail from "./pages/VerifyEmail";
+import PrivacyPolicy from "./pages/PrivacyPolicy";
 import RestaurantFoods from "./pages/RestaurantFoods";
 import FoodDetail from "./pages/FoodDetail";
 import Cart from "./pages/Cart";
@@ -141,6 +142,7 @@ function App() {
                     />
                     <Route path="/login" element={<Login />} />
                     <Route path="/signup" element={<Signup />} />
+                    <Route path="/privacy-policy" element={<PrivacyPolicy />} />
                     <Route
                       path="/auth/verify-pending"
                       element={<VerifyPending />}
