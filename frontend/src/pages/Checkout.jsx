@@ -166,9 +166,8 @@ const Checkout = () => {
 
   // Default distance constraints (overridden by API config)
   const DEFAULT_DISTANCE_CONSTRAINTS = [
-    { min_km: 0, max_km: 5, min_subtotal: 300 },
-    { min_km: 5, max_km: 10, min_subtotal: 1000 },
-    { min_km: 10, max_km: 15, min_subtotal: 2000 },
+    { min_km: 0, max_km: 10, min_subtotal: 300 },
+    { min_km: 10, max_km: 15, min_subtotal: 1000 },
     { min_km: 15, max_km: 25, min_subtotal: 3000 },
   ];
   const DEFAULT_MAX_ORDER_DISTANCE = 25;
@@ -206,8 +205,9 @@ const Checkout = () => {
       const tiers = [...feeConfig.service_fee_tiers].sort(
         (a, b) => a.min - b.min,
       );
+      if (tiers.length === 0) return 0;
       for (let i = tiers.length - 1; i >= 0; i--) {
-        if (subtotal >= tiers[i].min) return tiers[i].fee;
+        if (subtotal >= tiers[i].min) return parseFloat(tiers[i].fee) || 0;
       }
       return 0;
     }
@@ -229,21 +229,27 @@ const Checkout = () => {
         if (b.max_km === null) return -1;
         return a.max_km - b.max_km;
       });
+
+      if (tiers.length === 0) return 0;
+
       for (const tier of tiers) {
-        if (tier.max_km !== null && distanceKm <= tier.max_km) return tier.fee;
+        if (tier.max_km !== null && distanceKm <= tier.max_km) return parseFloat(tier.fee) || 0;
         if (tier.max_km === null) {
-          const extraMeters = (distanceKm - tier.base_km) * 1000;
+          const extraMeters = Math.max(0, (distanceKm - (tier.base_km || 0)) * 1000);
           const extra100mUnits = Math.ceil(extraMeters / 100);
-          return tier.base_fee + extra100mUnits * tier.extra_per_100m;
+          return (parseFloat(tier.base_fee) || 0) + extra100mUnits * (parseFloat(tier.extra_per_100m) || 0);
         }
       }
-      return 0;
+
+      // Fallback for distance exceeding all tiers when no overflow tier exists
+      const lastTier = tiers[tiers.length - 1];
+      return parseFloat(lastTier.fee || lastTier.base_fee) || 0;
     }
     // Fallback
     if (distanceKm <= 1) return 50;
     if (distanceKm <= 2) return 80;
     if (distanceKm <= 2.5) return 87;
-    const extraMeters = (distanceKm - 2.5) * 1000;
+    const extraMeters = Math.max(0, (distanceKm - 2.5) * 1000);
     const extra100mUnits = Math.ceil(extraMeters / 100);
     return 87 + extra100mUnits * 2.3;
   };
@@ -927,11 +933,10 @@ const Checkout = () => {
                 }
               }}
               disabled={savingAddress}
-              className={`absolute bottom-3 right-3 z-[1000] px-4 py-2 rounded-full shadow-lg text-sm font-medium flex items-center gap-1.5 transition ${
-                isMapEditMode
+              className={`absolute bottom-3 right-3 z-[1000] px-4 py-2 rounded-full shadow-lg text-sm font-medium flex items-center gap-1.5 transition ${isMapEditMode
                   ? "bg-[#06C168] text-white hover:bg-green-600 shadow-green-200"
                   : "bg-white text-[#06C168] hover:bg-green-50"
-              } ${savingAddress ? "opacity-50 cursor-not-allowed" : ""}`}
+                } ${savingAddress ? "opacity-50 cursor-not-allowed" : ""}`}
             >
               {savingAddress ? (
                 <>
@@ -1603,16 +1608,15 @@ const Checkout = () => {
               !phone ||
               !address
             }
-            className={`w-full py-4 font-bold rounded-full transition flex items-center justify-center gap-2 text-base shadow-lg ${
-              !isSubtotalValid ||
-              deliveryFee === null ||
-              routeLoading ||
-              placing ||
-              !phone ||
-              !address
+            className={`w-full py-4 font-bold rounded-full transition flex items-center justify-center gap-2 text-base shadow-lg ${!isSubtotalValid ||
+                deliveryFee === null ||
+                routeLoading ||
+                placing ||
+                !phone ||
+                !address
                 ? "bg-gray-200 text-gray-400 cursor-not-allowed"
                 : "bg-[#06C168] text-white hover:bg-green-600 shadow-green-200 active:scale-[0.98]"
-            }`}
+              }`}
           >
             {placing ? (
               <>

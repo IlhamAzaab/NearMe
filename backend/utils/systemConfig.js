@@ -115,7 +115,7 @@ export function getLaunchPromoConfig(config) {
     ),
     beyond_km_rate: parseFloat(
       config?.launch_promo_beyond_km_rate ??
-        defaults.launch_promo_beyond_km_rate,
+      defaults.launch_promo_beyond_km_rate,
     ),
   };
 }
@@ -125,10 +125,13 @@ export function getLaunchPromoConfig(config) {
  */
 export function calculateServiceFeeFromConfig(subtotal, config) {
   const tiers = getServiceFeeTiers(config);
+  if (!tiers || tiers.length === 0) return 0;
+
+  // Tiers are sorted by min ascending. Check from highest to lowest.
   for (let i = tiers.length - 1; i >= 0; i--) {
     const tier = tiers[i];
     if (subtotal >= tier.min) {
-      return tier.fee;
+      return parseFloat(tier.fee) || 0;
     }
   }
   return 0;
@@ -141,19 +144,24 @@ export function calculateDeliveryFeeFromConfig(distanceKm, config) {
   if (distanceKm === null || distanceKm === undefined) return null;
 
   const tiers = getDeliveryFeeTiers(config);
+  if (!tiers || tiers.length === 0) return 0;
 
   for (const tier of tiers) {
     if (tier.max_km !== null && distanceKm <= tier.max_km) {
-      return tier.fee;
+      return parseFloat(tier.fee) || 0;
     }
     if (tier.max_km === null) {
       // Overflow tier: base_fee + extra_per_100m for distance beyond base_km
-      const extraMeters = (distanceKm - tier.base_km) * 1000;
+      const extraMeters = Math.max(0, (distanceKm - (tier.base_km || 0)) * 1000);
       const extra100mUnits = Math.ceil(extraMeters / 100);
-      return tier.base_fee + extra100mUnits * tier.extra_per_100m;
+      return (parseFloat(tier.base_fee) || 0) + extra100mUnits * (parseFloat(tier.extra_per_100m) || 0);
     }
   }
-  return 0;
+
+  // Fallback: if distance exceeds all max_km and no overflow tier exists, 
+  // return the fee of the last defined tier instead of 0
+  const lastTier = tiers[tiers.length - 1];
+  return parseFloat(lastTier.fee || lastTier.base_fee) || 0;
 }
 
 /**
@@ -193,9 +201,8 @@ function getDefaults() {
     night_shift_start: 18.0,
     night_shift_end: 6.0,
     order_distance_constraints: [
-      { min_km: 0, max_km: 5, min_subtotal: 300 },
-      { min_km: 5, max_km: 10, min_subtotal: 1000 },
-      { min_km: 10, max_km: 15, min_subtotal: 2000 },
+      { min_km: 0, max_km: 10, min_subtotal: 300 },
+      { min_km: 10, max_km: 15, min_subtotal: 1000 },
       { min_km: 15, max_km: 25, min_subtotal: 3000 },
     ],
     max_order_distance_km: 25,
@@ -203,5 +210,6 @@ function getDefaults() {
     launch_promo_first_km_rate: 1,
     launch_promo_max_km: 5,
     launch_promo_beyond_km_rate: 40,
+    minimum_app_version: "1.0.0",
   };
 }

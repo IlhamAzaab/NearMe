@@ -125,6 +125,15 @@ export function initializeApiAuthInterceptor() {
       input instanceof Request ? input.headers : init.headers,
     );
 
+    // Detect mobile platform (user agent, Cordova, Capacitor, or webview)
+    const isMobile = typeof navigator !== "undefined" && (
+      /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+      (typeof window !== "undefined" && (!!window.Capacitor || !!window.cordova))
+    );
+    if (isMobile) {
+      headers.set("x-client-platform", "mobile");
+    }
+
     if (canAttachAuth) {
       const accessToken = await resolveLatestAccessToken();
       if (accessToken) {

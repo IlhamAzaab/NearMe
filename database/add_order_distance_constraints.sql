@@ -9,10 +9,9 @@
 -- Add order distance constraints column
 ALTER TABLE system_config
 ADD COLUMN IF NOT EXISTS order_distance_constraints JSONB NOT NULL DEFAULT '[
-  {"min_km": 0, "max_km": 5, "min_subtotal": 300},
-  {"min_km": 5, "max_km": 10, "min_subtotal": 1000},
-  {"min_km": 10, "max_km": 15, "min_subtotal": 2000},
-  {"min_km": 15, "max_km": 25, "min_subtotal": 3000}
+  {"min_km": 0, "max_km": 10, "min_subtotal": 300},
+  {"min_km": 10, "max_km": 15, "min_subtotal": 1000},
+  {"min_km": 15, "max_km": 35, "min_subtotal": 3000}
 ]'::jsonb;
 
 -- Maximum distance a customer can order from (beyond this, ordering is blocked)

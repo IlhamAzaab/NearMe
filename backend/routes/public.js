@@ -299,9 +299,8 @@ router.get("/fee-config", async (req, res) => {
           : config.order_distance_constraints || [];
     } catch {
       orderDistanceConstraints = [
-        { min_km: 0, max_km: 5, min_subtotal: 300 },
-        { min_km: 5, max_km: 10, min_subtotal: 1000 },
-        { min_km: 10, max_km: 15, min_subtotal: 2000 },
+        { min_km: 0, max_km: 10, min_subtotal: 300 },
+        { min_km: 10, max_km: 15, min_subtotal: 1000 },
         { min_km: 15, max_km: 25, min_subtotal: 3000 },
       ];
     }
@@ -316,6 +315,22 @@ router.get("/fee-config", async (req, res) => {
   } catch (err) {
     console.error("Fee config fetch error:", err);
     return res.status(500).json({ message: "Failed to fetch fee config" });
+  }
+});
+
+/**
+ * GET /public/app-config
+ * Returns app-specific configuration such as minimum required version
+ */
+router.get("/app-config", async (req, res) => {
+  try {
+    const config = await getSystemConfig();
+    return res.json({
+      minimum_app_version: config.minimum_app_version || "1.0.0",
+    });
+  } catch (err) {
+    console.error("App config fetch error:", err);
+    return res.json({ minimum_app_version: "1.0.0" });
   }
 });
 

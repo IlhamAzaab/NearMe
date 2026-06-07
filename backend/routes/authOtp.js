@@ -38,18 +38,39 @@ function getTokenFromHeader(req) {
   return auth.slice(7).trim();
 }
 
-function issueAppSessionToken(user) {
-  if (!process.env.JWT_SECRET) {
-    return null;
+import { getValidatedAuthConfig } from "../utils/authConfig.js";
+
+function getClientPlatform(req) {
+  return String(req?.headers?.["x-client-platform"] || "")
+    .toLowerCase()
+    .trim();
+}
+
+function getAccessTokenExpiry(req) {
+  const { webAccessTokenExpiresIn, mobileAccessTokenExpiresIn } = getValidatedAuthConfig();
+  const platform = getClientPlatform(req);
+  if (
+    platform === "react-native" ||
+    platform === "mobile" ||
+    platform === "android" ||
+    platform === "ios"
+  ) {
+    return mobileAccessTokenExpiresIn;
   }
+  return webAccessTokenExpiresIn;
+}
+
+function issueAppSessionToken(req, user) {
+  const { jwtSecret } = getValidatedAuthConfig();
+  const expiresIn = getAccessTokenExpiry(req);
 
   return jwt.sign(
     {
       id: user.id,
       role: user.role || "customer",
     },
-    process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES_IN || "7d" },
+    jwtSecret,
+    { expiresIn },
   );
 }
 
@@ -112,7 +133,7 @@ router.post("/complete-profile", async (req, res) => {
       longitude: payload.longitude,
     });
 
-    const sessionToken = issueAppSessionToken({
+    const sessionToken = issueAppSessionToken(req, {
       id: userId,
       role: updatedUser.role,
     });
@@ -134,7 +155,7 @@ router.post("/session/exchange", async (req, res) => {
   try {
     const userId = await requireAuthUserId(req);
     const user = await getCurrentUser(userId);
-    const token = issueAppSessionToken({ id: userId, role: user.role });
+    const token = issueAppSessionToken(req, { id: userId, role: user.role });
 
     return ok(res, {
       message: "Session exchanged successfully",
