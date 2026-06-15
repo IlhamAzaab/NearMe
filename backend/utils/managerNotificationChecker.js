@@ -550,8 +550,7 @@ async function checkAdminOrderReminders() {
           Number(item.admin_unit_price || item.unit_price || 0),
       }));
 
-      const adminIds = adminsByRestaura;
-      nt[order.restaurant_id] || [];
+      const adminIds = adminsByRestaurant[order.restaurant_id] || [];
       for (const adminId of adminIds) {
         const reminderKey = `${adminId}:${order.id}`;
 
@@ -737,4 +736,98 @@ export async function runManagerChecks() {
   ]);
 }
 
-export default { runManagerChecks };
+// ═══════════════════════════════════════════════════════════════════════
+// 8. REPEATING ALARM PUSH NOTIFICATIONS FOR PLACED ORDERS
+// ═══════════════════════════════════════════════════════════════════════
+export async function sendPlacedOrderRepeatingPushes() {
+  try {
+    const { data: placedDeliveries, error: deliveriesErr } = await supabaseAdmin
+      .from("deliveries")
+      .select(`
+        id, order_id, created_at,
+        orders!inner(
+          id, order_number, restaurant_id, customer_name, total_amount, admin_subtotal, placed_at
+        )
+      `)
+      .eq("status", "placed");
+
+    if (deliveriesErr) {
+      console.error("[AlarmLoop] Error fetching placed deliveries:", deliveriesErr.message);
+      return;
+    }
+
+    if (!placedDeliveries || placedDeliveries.length === 0) return;
+
+    const nowMs = Date.now();
+    for (const row of placedDeliveries) {
+      const order = row.orders;
+      if (!order?.restaurant_id) continue;
+
+      // Calculate elapsed time since order placement
+      const placedAtTime = new Date(order.placed_at || row.created_at).getTime();
+      const elapsedSeconds = (nowMs - placedAtTime) / 1000;
+
+      // Only repeat if the order has been pending for at least 25 seconds
+      if (elapsedSeconds < 25) {
+        continue;
+      }
+
+      // Query admins for the restaurant
+      const { data: admins, error: adminsErr } = await supabaseAdmin
+        .from("admins")
+        .select("id")
+        .eq("restaurant_id", order.restaurant_id);
+
+      if (adminsErr || !admins || admins.length === 0) {
+        console.warn(`[AlarmLoop] No admins found for restaurant ${order.restaurant_id}`);
+        continue;
+      }
+
+      const adminIds = admins.map((a) => a.id);
+
+      // Fetch items for itemsSummary
+      const { data: orderItems } = await supabaseAdmin
+        .from("order_items")
+        .select("food_name, size, quantity")
+        .eq("order_id", order.id);
+
+      const itemsSummary = (orderItems || [])
+        .map((item) => {
+          const size = item.size && item.size !== "regular" ? ` (${item.size})` : "";
+          return `${item.quantity || 1}x ${item.food_name || "Item"}${size}`;
+        })
+        .join(", ");
+
+      const itemsCount = (orderItems || []).length;
+
+      const notification = {
+        title: "New Order Alert",
+        body: `Order #${order.order_number || order.id?.slice(-6)} · Rs. ${Number(order.admin_subtotal || order.total_amount || 0).toFixed(2)} · ${itemsCount} item(s)`,
+        sound: "alarm.mp3",
+        channelId: "urgent_orders",
+        sticky: true,
+        data: {
+          type: "new_order",
+          isAlarm: "true", // suppresses banner in foreground, plays sound
+          persistent: "true",
+          orderId: String(order.id),
+          orderNumber: order.order_number,
+          restaurantId: String(order.restaurant_id),
+          itemsSummary,
+          itemsCount: String(itemsCount),
+          screen: "AdminOrders",
+          channelId: "urgent_orders",
+        },
+      };
+
+      for (const adminId of adminIds) {
+        console.log(`[AlarmLoop] Sending repeating push to admin ${adminId} for order ${order.id}`);
+        await sendPushNotification(adminId, notification);
+      }
+    }
+  } catch (err) {
+    console.error("[AlarmLoop] Error in repeating push checker:", err.message);
+  }
+}
+
+export default { runManagerChecks, sendPlacedOrderRepeatingPushes };

@@ -7,7 +7,7 @@ import helmet from "helmet";
 import { createServer } from "http";
 import cron from "node-cron";
 import { supabaseAdmin } from "./supabaseAdmin.js";
-import { runManagerChecks } from "./utils/managerNotificationChecker.js";
+import { runManagerChecks, sendPlacedOrderRepeatingPushes } from "./utils/managerNotificationChecker.js";
 import {
   runRestaurantScheduler,
   runFoodAvailabilityScheduler,
@@ -418,6 +418,19 @@ const server = httpServer.listen(PORT, () => {
     );
   }, 5000);
   console.log(`📋 Manager notification checker active (runs every 60s)`);
+
+  // ============================================================================
+  // PENDING ORDER ALARM REPEATER (PULSE)
+  // Sends push notification repeats every 30 seconds to keep admins ringing
+  // ============================================================================
+  setInterval(async () => {
+    try {
+      await sendPlacedOrderRepeatingPushes();
+    } catch (err) {
+      console.error("[AlarmRepeater] ❌ Repeating push error:", err.message);
+    }
+  }, 30 * 1000); // every 30 seconds
+  console.log(`🔔 Pending order alarm repeater active (runs every 30s)`);
 
   // ============================================================================
   // RESTAURANT AUTO OPEN/CLOSE SCHEDULER
