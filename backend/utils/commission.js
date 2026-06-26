@@ -14,20 +14,7 @@
  * - 1000/= @10% → 1100/= (1000 + 100 commission, already multiple of 10)
  */
 
-import { getSystemConfig } from "./systemConfig.js";
-
-async function getCommissionPercentage() {
-  try {
-    const config = await getSystemConfig();
-    const pct = parseFloat(config?.commission_percentage);
-    if (!Number.isFinite(pct) || pct <= 0) {
-      return 10;
-    }
-    return pct;
-  } catch {
-    return 10;
-  }
-}
+import { getSystemConfig, getCommissionTiers } from "./systemConfig.js";
 
 /**
  * Calculate commission for a given price
@@ -40,22 +27,32 @@ async function calculateCommission(price) {
   }
 
   const numPrice = parseFloat(price);
+  
+  try {
+    const config = await getSystemConfig();
+    const tiers = getCommissionTiers(config);
 
-  // Price ≤ 50: flat commission of 5
-  if (numPrice <= 50) {
-    return 5;
+    if (!tiers || tiers.length === 0) {
+      return 0;
+    }
+
+    // Tiers are sorted by max ascending, with overflow tier (max: null) at the end.
+    for (const tier of tiers) {
+      if (tier.max !== null && numPrice <= tier.max) {
+        return parseFloat(tier.fee) || 0;
+      }
+      if (tier.max === null) {
+        return parseFloat(tier.fee) || 0;
+      }
+    }
+    
+    // Fallback if price exceeds all max and no overflow tier exists
+    const lastTier = tiers[tiers.length - 1];
+    return parseFloat(lastTier.fee) || 0;
+  } catch (error) {
+    console.error("Error calculating commission:", error);
+    return 0;
   }
-
-  // Price > 50 and ≤ 100: flat commission of 10
-  if (numPrice <= 100) {
-    return 10;
-  }
-
-  // Price > 100: configurable commission percentage, rounded up to nearest 10
-  const commissionPercentage = await getCommissionPercentage();
-  const commissionValue = numPrice * (commissionPercentage / 100);
-  const roundedUp = Math.ceil(commissionValue / 10) * 10;
-  return roundedUp;
 }
 
 /**

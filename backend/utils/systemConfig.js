@@ -121,6 +121,33 @@ export function getLaunchPromoConfig(config) {
 }
 
 /**
+ * Parse commission tiers from config
+ * @param {Object} config - system config object
+ * @returns {Array} sorted tiers
+ */
+export function getCommissionTiers(config) {
+  try {
+    const tiers =
+      typeof config.commission_tiers === "string"
+        ? JSON.parse(config.commission_tiers)
+        : config.commission_tiers;
+        
+    if (!tiers || !Array.isArray(tiers)) {
+      return getDefaults().commission_tiers;
+    }
+
+    // Sort: tiers with max first (ascending), then the overflow tier (max: null) last
+    return tiers.sort((a, b) => {
+      if (a.max === null) return 1;
+      if (b.max === null) return -1;
+      return a.max - b.max;
+    });
+  } catch {
+    return getDefaults().commission_tiers;
+  }
+}
+
+/**
  * Calculate service fee from config tiers
  */
 export function calculateServiceFeeFromConfig(subtotal, config) {
@@ -181,7 +208,16 @@ function getDefaults() {
     max_extra_time_minutes: 10,
     max_extra_distance_km: 3,
     max_active_deliveries: 5,
-    commission_percentage: 10,
+    commission_percentage: 10, // Legacy, kept for backward compatibility if needed
+    commission_tiers: [
+      { max: 50, fee: 5 },
+      { max: 100, fee: 10 },
+      { max: 1000, fee: 50 },
+      { max: 1500, fee: 100 },
+      { max: 2000, fee: 200 },
+      { max: 2500, fee: 250 },
+      { max: null, fee: 300 },
+    ],
     service_fee_tiers: [
       { min: 0, max: 300, fee: 0 },
       { min: 300, max: 1000, fee: 31 },
