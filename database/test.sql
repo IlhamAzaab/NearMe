@@ -12,7 +12,6 @@ TRUNCATE TABLE
   admin_payments,
   driver_payments,
   notification_log,
-  push_notification_tokens,
   scheduled_notifications
 RESTART IDENTITY CASCADE;
 

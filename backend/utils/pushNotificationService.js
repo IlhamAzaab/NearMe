@@ -149,26 +149,10 @@ export async function registerPushToken(
       };
     }
 
-    // Enforce single active device per user for all roles.
-    // Deactivate tokens on any OTHER device so only the currently logged-in
-    // device receives push notifications.
-    if (deviceId) {
-      const { error: deactivateError } = await supabaseAdmin
-        .from("push_notification_tokens")
-        .update({
-          is_active: false,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("user_id", userId)
-        .eq("user_type", userType)
-        .neq("device_id", deviceId);
-
-      if (deactivateError) {
-        console.error(`Error deactivating old ${userType} device tokens:`, deactivateError);
-      } else {
-        console.log(`[PUSH] Deactivated old tokens for ${userType} ${userId} (keeping device: ${deviceId})`);
-      }
-    }
+    // We no longer enforce single active device per user.
+    // Multiple devices logged into the same account (like a POS tablet and owner's phone)
+    // should ALL receive push notifications.
+    // Deactivation only happens explicitly on logout via removePushToken.
 
     const { data, error } = await supabaseAdmin
       .from("push_notification_tokens")
