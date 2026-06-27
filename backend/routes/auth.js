@@ -287,30 +287,17 @@ async function isPhoneRegisteredInAuthUsers(phone) {
     return {
       registered: false,
       normalizedPhone: null,
+      userId: null,
       candidates,
     };
   }
 
   const normalizedPhone = candidates[0];
 
-  // Prefer RPC if available for direct auth.users lookup.
-  try {
-    const { data, error } = await supabaseAdmin.rpc("is_phone_registered", {
-      input_phone: normalizedPhone,
-    });
-
-    if (!error) {
-      return {
-        registered: Boolean(data),
-        normalizedPhone,
-        candidates,
-      };
-    }
-  } catch {
-    // Fallback to listUsers scan when RPC is not configured.
-  }
-
   // Fallback path: list auth users and match normalized candidates.
+  // IMPORTANT: A user is only considered "registered" if their phone is CONFIRMED.
+  // Users stuck in "Waiting for verification" (phone_confirmed_at is null) are NOT
+  // truly registered — they should be able to request a new OTP.
   let page = 1;
   const perPage = 1000;
   while (true) {
@@ -324,16 +311,21 @@ async function isPhoneRegisteredInAuthUsers(phone) {
     }
 
     const users = data?.users || [];
-    const found = users.some((user) => {
+    const matchedUser = users.find((user) => {
       const userPhone = String(user?.phone || "").trim();
       return userPhone && candidates.includes(userPhone);
     });
 
-    if (found) {
+    if (matchedUser) {
+      // Only treat as registered if phone is confirmed.
+      const isConfirmed = Boolean(matchedUser.phone_confirmed_at);
       return {
-        registered: true,
+        registered: isConfirmed,
         normalizedPhone,
+        userId: matchedUser.id,
         candidates,
+        // Expose whether user exists but is unverified ("Waiting for verification")
+        existsButUnverified: !isConfirmed,
       };
     }
 
@@ -347,7 +339,9 @@ async function isPhoneRegisteredInAuthUsers(phone) {
   return {
     registered: false,
     normalizedPhone,
+    userId: null,
     candidates,
+    existsButUnverified: false,
   };
 }
 
@@ -1005,6 +999,8 @@ router.post("/check-availability", async (req, res) => {
 /**
  * POST /auth/phone/request-otp
  * Backend-only phone signup guard + OTP trigger.
+ * If the user exists in auth.users but phone is NOT confirmed ("Waiting for verification"),
+ * we resend the OTP instead of blocking them with "already registered".
  */
 router.post("/phone/request-otp", async (req, res) => {
   try {
@@ -1016,10 +1012,29 @@ router.post("/phone/request-otp", async (req, res) => {
     }
 
     const phoneState = await isPhoneRegisteredInAuthUsers(normalizedPhone);
+
+    // Phone is fully registered and verified → reject
     if (phoneState.registered) {
       return res.status(409).json({
         message: "Phone number already registered",
       });
+    }
+
+    // Phone exists in auth.users but unverified ("Waiting for verification") →
+    // delete the stuck record first so signInWithOtp can create a fresh one.
+    if (phoneState.existsButUnverified && phoneState.userId) {
+      console.log(
+        `[phone/request-otp] Deleting stuck unverified auth user ${phoneState.userId} for phone ${normalizedPhone} and resending OTP.`
+      );
+      const { error: deleteError } =
+        await supabaseAdmin.auth.admin.deleteUser(phoneState.userId);
+      if (deleteError) {
+        console.error(
+          "[phone/request-otp] Failed to delete stuck unverified user:",
+          deleteError.message
+        );
+        // Non-fatal: try sending OTP anyway, Supabase may overwrite the record.
+      }
     }
 
     const { error } = await supabaseAnonClient.auth.signInWithOtp({
