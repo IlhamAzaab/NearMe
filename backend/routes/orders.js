@@ -817,11 +817,15 @@ router.post("/quote", authenticate, async (req, res) => {
       return res.status(404).json({ message: "Customer not found" });
     }
 
+    // Only count DELIVERED orders as "previous orders" for the launch promo.
+    // Cancelled or failed orders must NOT consume the customer's first-order benefit.
+    // We check delivered_at IS NOT NULL since that's set only on successful deliveries.
     const { count: previousOrdersCount, error: previousOrdersError } =
       await supabaseAdmin
         .from("orders")
         .select("id", { count: "exact", head: true })
-        .eq("customer_id", customerId);
+        .eq("customer_id", customerId)
+        .not("delivered_at", "is", null);
 
     if (previousOrdersError) {
       console.error("Previous orders count error:", previousOrdersError);
@@ -1857,11 +1861,15 @@ router.post("/place", authenticate, async (req, res) => {
     // ========================================================================
     // STEP 4.5: Resolve delivery location/address and enforce first-order input
     // ========================================================================
+    // Only count DELIVERED orders as "previous orders" for the launch promo.
+    // Cancelled or failed orders must NOT consume the customer's first-order benefit.
+    // We check delivered_at IS NOT NULL since that's set only on successful deliveries.
     const { count: previousOrdersCount, error: previousOrdersError } =
       await supabaseAdmin
         .from("orders")
         .select("id", { count: "exact", head: true })
-        .eq("customer_id", customerId);
+        .eq("customer_id", customerId)
+        .not("delivered_at", "is", null);
 
     if (previousOrdersError) {
       console.error("Previous orders count error:", previousOrdersError);
