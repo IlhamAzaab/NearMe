@@ -1695,7 +1695,6 @@ export async function getAvailableDeliveriesForDriver(
             restaurant_id,
             restaurant_name,
             restaurant_address,
-            restaurant_phone,
             restaurant_latitude,
             restaurant_longitude,
             delivery_address,
@@ -1917,7 +1916,6 @@ export async function getAvailableDeliveriesForDriver(
           restaurant: {
             name: candidateDelivery.orders.restaurant_name,
             address: candidateDelivery.orders.restaurant_address,
-            phone: candidateDelivery.orders.restaurant_phone || null,
             latitude: candidateDelivery.orders.restaurant_latitude,
             longitude: candidateDelivery.orders.restaurant_longitude,
           },
@@ -2056,24 +2054,8 @@ export async function getAvailableDeliveriesForDriver(
           baseAmount = calculateRTCEarnings(safeDistanceKm);
         }
 
-        // 2nd+ delivery: only use fallback extraEarnings if BOTH the calculated
-        // extra_earnings AND extra_distance_km are 0, meaning the OSRM call itself
-        // failed (not because the stop is genuinely on the existing route).
-        // When extra_distance_km is 0 by valid R1-R0 calculation, earnings should
-        // correctly be 0 (only the bonus applies). Using safeDistanceKm here would
-        // inflate the driver's displayed earnings incorrectly.
-        const extraDistanceFromImpact = toPositiveNumber(
-          routeImpact.extra_distance_km,
-          0,
-        );
-        if (
-          !isFirstDelivery &&
-          extraEarnings <= 0 &&
-          extraDistanceFromImpact <= 0 &&
-          safeDistanceKm > 0
-        ) {
-          // Only inflate if both extra_distance AND extra_earnings are 0 — true OSRM failure.
-          // Do NOT inflate if extra_distance was validly calculated as 0.
+        // 2nd+ delivery should still show if bonus exists, even if extra distance becomes 0.
+        if (!isFirstDelivery && extraEarnings <= 0 && safeDistanceKm > 0) {
           extraEarnings = calculateRTCEarnings(safeDistanceKm);
         }
 
