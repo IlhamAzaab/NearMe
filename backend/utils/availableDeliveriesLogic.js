@@ -1553,13 +1553,49 @@ async function evaluateAvailableDeliveryOptimized(
       Math.ceil((Number(rtcResult.restaurantToCustomerDuration) || 0) / 60),
     );
 
+    // ── OSRM failure detection ─────────────────────────────────────────────
+    // OSRM fails when: isUnavailable=true OR both distance AND duration = 0
     const isFirstDelivery = activeDeliveryCount === 0;
-    const baseAmount = isFirstDelivery
-      ? calculateRTCEarnings(rtcDistanceKm)
-      : 0;
-    const extraEarnings = isFirstDelivery
-      ? 0
-      : calculateRTCEarnings(extraDistanceKm);
+    const osrmFailed =
+      Boolean(rtcResult.isUnavailable) ||
+      (rtcDistanceKm === 0 &&
+        (Number(rtcResult.restaurantToCustomerDuration) || 0) === 0);
+
+    // Also detect if R0/R1 OSRM calls failed (both return 0 for existing routes)
+    const routeCalcFailed =
+      osrmFailed || (r0DistanceKm === 0 && r1DistanceKm === 0 && !isFirstDelivery);
+
+    const OSRM_FALLBACK_EARNINGS = 50; // Rs.50 default when OSRM fails
+
+    let baseAmount = 0;
+    let extraEarnings = 0;
+    let osrmFallbackUsed = false;
+
+    if (isFirstDelivery) {
+      if (osrmFailed || rtcDistanceKm === 0) {
+        // OSRM failed for first delivery – use Rs.50 flat fallback
+        baseAmount = OSRM_FALLBACK_EARNINGS;
+        osrmFallbackUsed = true;
+        console.warn(
+          `[EVALUATE-OPTIMIZED] ⚠️ OSRM failed for ${orderNumber} – using Rs.${OSRM_FALLBACK_EARNINGS} fallback earnings`,
+        );
+      } else {
+        baseAmount = calculateRTCEarnings(rtcDistanceKm);
+      }
+    } else {
+      // For stacked deliveries, extra_distance = R1 - R0.
+      // If both R0 and R1 came back as 0 → OSRM failure → use Rs.50 fallback.
+      // If R1 ≠ R0 but extraDistanceKm rounds to 0 → stop is genuinely on route → earnings = 0.
+      if (routeCalcFailed) {
+        extraEarnings = OSRM_FALLBACK_EARNINGS;
+        osrmFallbackUsed = true;
+        console.warn(
+          `[EVALUATE-OPTIMIZED] ⚠️ OSRM route calc failed for stacked delivery ${orderNumber} – using Rs.${OSRM_FALLBACK_EARNINGS} fallback`,
+        );
+      } else {
+        extraEarnings = calculateRTCEarnings(extraDistanceKm);
+      }
+    }
 
     let bonusAmount = 0;
     if (!isFirstDelivery) {
@@ -1591,8 +1627,13 @@ async function evaluateAvailableDeliveryOptimized(
       r0_distance_km: parseFloat(r0DistanceKm.toFixed(2)),
       r1_distance_km: parseFloat(r1DistanceKm.toFixed(2)),
       extra_calculation_method: isFirstDelivery
-        ? "FIRST_DELIVERY (RTC only)"
+        ? osrmFallbackUsed
+          ? "FIRST_DELIVERY (OSRM fallback Rs.50)"
+          : "FIRST_DELIVERY (RTC only)"
+        : osrmFallbackUsed
+        ? "STACKED (OSRM fallback Rs.50)"
         : "R1 - R0 (RTC only)",
+      osrm_fallback_used: osrmFallbackUsed,
       restaurant_to_customer_route: {
         coordinates:
           rtcResult.restaurantToCustomerGeometry?.coordinates || null,
@@ -2056,24 +2097,20 @@ export async function getAvailableDeliveriesForDriver(
           baseAmount = calculateRTCEarnings(safeDistanceKm);
         }
 
-        // 2nd+ delivery: only use fallback extraEarnings if BOTH the calculated
-        // extra_earnings AND extra_distance_km are 0, meaning the OSRM call itself
-        // failed (not because the stop is genuinely on the existing route).
-        // When extra_distance_km is 0 by valid R1-R0 calculation, earnings should
-        // correctly be 0 (only the bonus applies). Using safeDistanceKm here would
-        // inflate the driver's displayed earnings incorrectly.
-        const extraDistanceFromImpact = toPositiveNumber(
-          routeImpact.extra_distance_km,
-          0,
+        // 2nd+ delivery stabilization:
+        // - If osrm_fallback_used=true → OSRM genuinely failed. Use safeDistanceKm to recalculate.
+        // - If extra_distance_km=0 but osrm_fallback_used=false → R1==R0, stop is on existing
+        //   route. extra_earnings=0 is CORRECT. Do NOT inflate. Only bonus applies.
+        const osrmFallbackUsed = Boolean(
+          routeImpact.osrm_fallback_used || delivery.osrm_fallback_used,
         );
         if (
           !isFirstDelivery &&
           extraEarnings <= 0 &&
-          extraDistanceFromImpact <= 0 &&
+          osrmFallbackUsed &&
           safeDistanceKm > 0
         ) {
-          // Only inflate if both extra_distance AND extra_earnings are 0 — true OSRM failure.
-          // Do NOT inflate if extra_distance was validly calculated as 0.
+          // True OSRM failure — use full RTC distance as earnings fallback
           extraEarnings = calculateRTCEarnings(safeDistanceKm);
         }
 
