@@ -1281,29 +1281,33 @@ export default function DriverMapPage() {
               <div className="mt-6">
                 <h3 className="font-bold text-gray-700 mb-3">
                   {mode === "pickup"
-                    ? `Upcoming Pickups (${pickups.length - 1})`
-                    : `Upcoming Deliveries (${deliveries.length - 1})`}
+                    ? `Upcoming Pickups (${Math.max(0, pickups.length - 1)})`
+                    : `Upcoming Deliveries (${Math.max(0, deliveries.length - 1)})`}
                 </h3>
 
                 {mode === "pickup" &&
                   pickups
-                    .slice(1)
-                    .map((pickup, index) => (
+                    .map((pickup, index) => ({ pickup, index }))
+                    .filter(({ pickup }) => pickup.delivery_id !== currentTarget?.delivery_id)
+                    .map(({ pickup, index }) => (
                       <UpcomingPickupCard
                         key={pickup.delivery_id}
                         pickup={pickup}
-                        index={index + 2}
+                        index={index + 1}
+                        onClick={() => setCurrentTarget(pickup)}
                       />
                     ))}
 
                 {mode === "delivery" &&
                   deliveries
-                    .slice(1)
-                    .map((delivery, index) => (
+                    .map((delivery, index) => ({ delivery, index }))
+                    .filter(({ delivery }) => delivery.delivery_id !== currentTarget?.delivery_id)
+                    .map(({ delivery, index }) => (
                       <UpcomingDeliveryCard
                         key={delivery.delivery_id}
                         delivery={delivery}
-                        index={index + 2}
+                        index={index + 1}
+                        onClick={() => setCurrentTarget(delivery)}
                       />
                     ))}
               </div>
@@ -1665,9 +1669,12 @@ function DeliveryInfo({
   );
 }
 
-function UpcomingPickupCard({ pickup, index }) {
+function UpcomingPickupCard({ pickup, index, onClick }) {
   return (
-    <div className="mb-3 p-3 bg-gray-50 rounded-lg">
+    <div 
+      className="mb-3 p-3 bg-gray-50 rounded-lg cursor-pointer active:bg-gray-200 hover:bg-gray-100 transition-colors"
+      onClick={onClick}
+    >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 bg-gray-300 rounded-full flex items-center justify-center text-sm font-bold">
@@ -1687,9 +1694,12 @@ function UpcomingPickupCard({ pickup, index }) {
   );
 }
 
-function UpcomingDeliveryCard({ delivery, index }) {
+function UpcomingDeliveryCard({ delivery, index, onClick }) {
   return (
-    <div className="mb-3 p-3 bg-gray-50 rounded-lg">
+    <div 
+      className="mb-3 p-3 bg-gray-50 rounded-lg cursor-pointer active:bg-gray-200 hover:bg-gray-100 transition-colors"
+      onClick={onClick}
+    >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 bg-gray-300 rounded-full flex items-center justify-center text-sm font-bold">
