@@ -1498,7 +1498,8 @@ router.post("/place", authenticate, async (req, res) => {
           address,
           city,
           latitude,
-          longitude
+          longitude,
+          phone
         `,
         )
         .eq("id", cart.restaurant_id)
@@ -1574,6 +1575,7 @@ router.post("/place", authenticate, async (req, res) => {
         restaurant_id: restaurant.id,
         restaurant_name: restaurant.restaurant_name,
         restaurant_address: restaurant.address,
+        restaurant_phone: restaurant.phone || "",
         restaurant_latitude: restaurant.latitude,
         restaurant_longitude: restaurant.longitude,
         delivery_address: delivery_address,

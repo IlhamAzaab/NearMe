@@ -286,8 +286,20 @@ export default function AdminNotificationBanner({
   if (!notifications || notifications.length === 0) return null;
 
   return (
-    <div className="fixed top-0 left-0 right-0 z-[9999] flex flex-col items-center gap-2 px-3 pt-3 max-h-[85vh] overflow-y-auto">
-      {notifications.map((notification) => {
+    <div 
+      className="fixed inset-0 z-[9999] flex flex-col items-center pt-3 overflow-y-auto bg-black/20 backdrop-blur-sm"
+      onClick={() => {
+        if (alertSoundRef.current) {
+          alertSoundRef.current.stop();
+        }
+        notifications.forEach((n) => onDismiss?.(n.order_id));
+      }}
+    >
+      <div 
+        className="flex flex-col gap-2 w-full max-w-md px-3 pb-8"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {notifications.map((notification) => {
         const isAccepted = acceptedIds.has(notification.order_id);
         const isAccepting = acceptingId === notification.order_id;
         const isReminder = notification.type === "order_reminder";

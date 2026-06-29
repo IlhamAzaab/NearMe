@@ -777,6 +777,17 @@ export default function Orders() {
                 rows={3}
                 autoFocus
               />
+              <div className="flex flex-wrap gap-2 mt-2">
+                {["Food unavailable", "We are busy now. Please order after a few minutes"].map((chip) => (
+                  <button
+                    key={chip}
+                    onClick={() => setRejectReason(chip)}
+                    className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs rounded-full transition-colors"
+                  >
+                    {chip}
+                  </button>
+                ))}
+              </div>
               <div className="flex gap-3 mt-4">
                 <button
                   onClick={() => {
@@ -1051,6 +1062,18 @@ export default function Orders() {
                             {fullDeliveryAddress}
                           </p>
                         )}
+                        {order.customer_phone && (
+                          <a
+                            href={`tel:${order.customer_phone}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full mt-1.5 hover:bg-emerald-100"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                            </svg>
+                            {order.customer_phone}
+                          </a>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1076,10 +1099,10 @@ export default function Orders() {
                           )}
                           <div className="flex-1 min-w-0">
                             <div className="flex items-start justify-between gap-2">
-                              <span className="text-xs font-semibold text-gray-700 break-words">
+                              <span className="text-sm font-bold text-gray-800 break-words">
                                 {item.quantity}x {item.food_name || "Food item"}
                               </span>
-                              <span className="text-xs font-bold text-gray-700 whitespace-nowrap">
+                              <span className="text-sm font-bold text-gray-800 whitespace-nowrap">
                                 Rs.
                                 {parseFloat(
                                   item.total_price ||
@@ -1089,7 +1112,7 @@ export default function Orders() {
                               </span>
                             </div>
                             {item.size && (
-                              <span className="text-[10px] font-bold uppercase tracking-wide text-emerald-600 bg-emerald-50 rounded px-1 mt-0.5 leading-tight">
+                              <span className="text-xs font-bold uppercase tracking-wide text-emerald-600 bg-emerald-50 rounded px-1.5 mt-0.5 leading-tight">
                                 {item.size}
                               </span>
                             )}
@@ -1174,34 +1197,49 @@ export default function Orders() {
                       </button>
                     </div>
                   ) : (
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">
-                        {deliveryStatus === "pending" ||
-                        deliveryStatus === "accepted"
-                          ? "Waiting for driver"
-                          : deliveryStatus === "delivered"
-                            ? "Order completed"
-                            : "In progress"}
-                      </span>
-                      <button
-                        onClick={() => setSelectedOrder(order)}
-                        className="text-emerald-600 text-sm font-semibold flex items-center gap-1"
-                      >
-                        View Details
-                        <svg
-                          className="w-4 h-4"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                          strokeWidth={2}
+                    <div className="flex flex-col gap-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">
+                          {deliveryStatus === "pending" ||
+                          deliveryStatus === "accepted"
+                            ? "Waiting for driver"
+                            : deliveryStatus === "delivered"
+                              ? "Order completed"
+                              : "In progress"}
+                        </span>
+                        <button
+                          onClick={() => setSelectedOrder(order)}
+                          className="text-emerald-600 text-sm font-semibold flex items-center gap-1"
                         >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M9 5l7 7-7 7"
-                          />
-                        </svg>
-                      </button>
+                          View Details
+                          <svg
+                            className="w-4 h-4"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M9 5l7 7-7 7"
+                            />
+                          </svg>
+                        </button>
+                      </div>
+                      
+                      {/* Allow rejecting even after accepting, as long as it is not picked up */}
+                      {(deliveryStatus === "pending" || deliveryStatus === "accepted") && (
+                        <div className="flex justify-end" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            onClick={() => handleRejectOrder(order.id)}
+                            disabled={processingOrderId === order.id}
+                            className="px-4 py-2 bg-red-50 text-red-600 rounded-xl font-semibold text-xs border border-red-100 disabled:opacity-50 active:scale-[0.98] transition-all"
+                          >
+                            Reject Order
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
